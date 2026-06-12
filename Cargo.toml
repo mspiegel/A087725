@@ -1,0 +1,21 @@
+[package]
+name = "puzzle8"
+version = "0.1.0"
+edition = "2021"
+description = "8-puzzle optimal solver and compression study"
+publish = false
+
+[lib]
+name = "puzzle8"
+path = "src/lib.rs"
+
+# Binaries (build_table, solve, stats) will be auto-discovered from src/bin/
+# once they are added in later milestones.
+
+[dependencies]
+
+[dev-dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
