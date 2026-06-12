@@ -1,0 +1,58 @@
+Output of `cargo run --release --example c7_kolmogorov` (2026-06-12)
+=====================================================================
+
+building distance table...
+  181440 bytes (181440 states, diameter 31)
+
+== Direction #7: Kolmogorov-complexity floor ==
+Two variants of the same 181440-byte payload:
+  raw  - distance bytes in rank order (the canonical layout)
+  gap  - distance(s) - Manhattan(s) per rank (heuristic-gap encoding)
+
+Both variants are *queryable* — given the compressed bytes, the full
+rank→distance mapping is recoverable. The smallest result is our
+tightest upper bound on K(dist8.bin).
+
+--- Variant: raw distance bytes (canonical layout) ---
+  raw: raw                                           181440 bytes  (1.00× vs raw)
+  raw: Shannon entropy floor                          84766 bytes  (2.14× vs raw)
+  raw: gzip -9                                        71811 bytes  (2.53× vs raw)
+  raw: bzip2 -9                                       63352 bytes  (2.86× vs raw)
+  raw: xz -9 -e                                       63436 bytes  (2.86× vs raw)
+  raw: zstd --ultra -22                               65965 bytes  (2.75× vs raw)
+  raw: brotli -q 11                                   60969 bytes  (2.98× vs raw)
+
+computing heuristic gap...
+--- Variant: dist - Manhattan (heuristic-gap encoding) ---
+  gap: raw                                           181440 bytes  (1.00× vs raw)
+  gap: Shannon entropy floor                          59247 bytes  (3.06× vs raw)
+  gap: gzip -9                                        63696 bytes  (2.85× vs raw)
+  gap: bzip2 -9                                       60853 bytes  (2.98× vs raw)
+  gap: xz -9 -e                                       53740 bytes  (3.38× vs raw)
+  gap: zstd --ultra -22                               55049 bytes  (3.30× vs raw)
+  gap: brotli -q 11                                   50816 bytes  (3.57× vs raw)
+
+== Summary ==
+  best real compressor result    : 50816 bytes  via "gap: brotli -q 11"  (3.57× vs raw)
+  best per-byte Shannon floor    : 59247 bytes  via "gap: Shannon entropy floor"  (3.06× vs raw)
+
+Interpretation:
+  - 50816 bytes is the tightest upper bound on K(dist8.bin) from this sweep.
+    Any solver direction storing fewer than 50816 bytes is doing genuine
+    algorithmic work beyond what generic LZ + entropy coding finds.
+
+  - The Shannon floor treats bytes as independent. LZ-based compressors
+    exploit cross-byte correlations (adjacent ranks have similar distances)
+    and can beat per-byte Shannon — that's why brotli on "gap" lands below
+    the Shannon floor here. The true joint-entropy floor is uncomputable.
+
+
+Takeaway
+========
+
+The tightest queryable Kolmogorov-floor result is 50,816 bytes (gap-encoded
++ brotli-q11, ~3.57× compression vs raw dist8.bin). For comparison against
+direction #3 (PDBs), our additive [1–3 | 4–5 | 6–8] PDB came in at 6,552
+bytes — 7.7× smaller than this Kolmogorov-floor result, which confirms PDBs
+are doing genuine puzzle-structure compression beyond what off-the-shelf LZ
++ entropy coding can find.
