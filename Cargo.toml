@@ -39,6 +39,18 @@ required-features = ["mmap"]
 name = "verify15"
 required-features = ["mmap"]
 
+[[bin]]
+name = "build_pol8"
+required-features = ["sha"]
+
+[[bin]]
+name = "build_feat8"
+required-features = ["sha"]
+
+[[bin]]
+name = "build_adj8"
+required-features = ["sha"]
+
 [profile.release]
 lto = true
 codegen-units = 1
