@@ -8,9 +8,9 @@
 //! The position may use spaces, slashes, dots, or underscores as separators;
 //! the blank may be written as `_`, `.`, or `0`. Tile values are `1..=8`.
 
-use puzzle8::io::load;
-use puzzle8::search::{idastar, ManhattanHeuristic};
-use puzzle8::state::{Move, State};
+use puzzle8::puzzle8::io::load;
+use puzzle8::puzzle8::search::{idastar, ManhattanHeuristic};
+use puzzle8::puzzle8::state::{Move, State};
 
 const TABLE_PATH: &str = "data/dist8.bin";
 
@@ -74,7 +74,7 @@ fn main() {
     // Manhattan otherwise.
     let table = load(std::path::Path::new(TABLE_PATH)).ok();
     let solution = if let Some(ref t) = table {
-        let h = puzzle8::search::TableHeuristic::new(t);
+        let h = puzzle8::puzzle8::search::TableHeuristic::new(t);
         idastar(&s, &h).expect("solvable")
     } else {
         idastar(&s, &ManhattanHeuristic).expect("solvable")
@@ -100,7 +100,7 @@ fn main() {
     for &m in &solution {
         cur = cur.apply(m);
     }
-    debug_assert_eq!(cur, puzzle8::state::GOAL);
+    debug_assert_eq!(cur, puzzle8::puzzle8::state::GOAL);
 
     // Bind `table` so it stays alive for the heuristic borrow above.
     drop(table);

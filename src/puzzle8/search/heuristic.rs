@@ -6,10 +6,10 @@
 //! bound (each tile must move at least its Manhattan distance to its goal),
 //! and the exact table is trivially admissible (equal to true distance).
 
-use crate::bfs::DistanceTable;
-use crate::state::State;
+use crate::puzzle8::bfs::DistanceTable;
+use crate::puzzle8::state::State;
 
-/// Admissible estimate of distance from `s` to [`crate::state::GOAL`].
+/// Admissible estimate of distance from `s` to [`crate::puzzle8::state::GOAL`].
 pub trait Heuristic {
     fn h(&self, s: &State) -> u8;
 }
@@ -61,7 +61,7 @@ impl<'a> Heuristic for TableHeuristic<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::GOAL;
+    use crate::puzzle8::state::GOAL;
 
     #[test]
     fn manhattan_of_goal_is_zero() {
@@ -73,8 +73,8 @@ mod tests {
         // For every solvable state, Manhattan must be <= true distance.
         let t = DistanceTable::build();
         let h = ManhattanHeuristic;
-        for r in 0..crate::state::N_STATES {
-            let s = crate::rank::unrank(r);
+        for r in 0..crate::puzzle8::state::N_STATES {
+            let s = crate::puzzle8::rank::unrank(r);
             let est = h.h(&s);
             let truth = t.dist(&s);
             assert!(
@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(h.h(&GOAL), 0);
         let antipodes = t.antipodes();
         for s in &antipodes {
-            assert_eq!(h.h(s), crate::state::DIAMETER);
+            assert_eq!(h.h(s), crate::puzzle8::state::DIAMETER);
         }
     }
 }

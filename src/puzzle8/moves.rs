@@ -5,8 +5,8 @@
 //! many positions have 2 or 3 of them. The goal has zero optimal moves
 //! (already solved).
 
-use crate::bfs::DistanceTable;
-use crate::state::{MoveSet, State};
+use crate::puzzle8::bfs::DistanceTable;
+use crate::puzzle8::state::{MoveSet, State};
 
 impl DistanceTable {
     /// All moves that strictly decrease distance to the goal.
@@ -29,8 +29,8 @@ impl DistanceTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rank::unrank;
-    use crate::state::{DIAMETER, GOAL, N_STATES};
+    use crate::puzzle8::rank::unrank;
+    use crate::puzzle8::state::{DIAMETER, GOAL, N_STATES};
 
     fn table() -> DistanceTable {
         DistanceTable::build()

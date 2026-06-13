@@ -14,12 +14,12 @@
 //!   (verified in `pdb_admissibility.rs`) plus IDA*'s optimality theorem
 //!   already implies these solvers return optimal results.
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::pdb::pattern::Pattern;
-use puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
-use puzzle8::rank::unrank;
-use puzzle8::search::{idastar, Heuristic};
-use puzzle8::state::{GOAL, N_STATES};
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::pdb::pattern::Pattern;
+use puzzle8::puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::search::{idastar, Heuristic};
+use puzzle8::puzzle8::state::{GOAL, N_STATES};
 
 fn assert_optimal_on_full_space<H: Heuristic>(h: &H, table: &DistanceTable, label: &str) {
     for r in 0..N_STATES {

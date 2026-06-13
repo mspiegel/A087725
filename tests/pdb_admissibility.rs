@@ -5,12 +5,12 @@
 //! distance breaks IDA*'s optimality guarantee. We check it on the full
 //! state space so any inadmissibility (anywhere) fails this test.
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
-use puzzle8::pdb::pattern::Pattern;
-use puzzle8::rank::unrank;
-use puzzle8::search::Heuristic;
-use puzzle8::state::N_STATES;
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
+use puzzle8::puzzle8::pdb::pattern::Pattern;
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::search::Heuristic;
+use puzzle8::puzzle8::state::N_STATES;
 
 fn assert_admissible<H: Heuristic>(h: &H, table: &DistanceTable, label: &str) {
     for r in 0..N_STATES {

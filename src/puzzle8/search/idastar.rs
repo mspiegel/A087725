@@ -9,7 +9,7 @@
 //! immediately after `m`), which roughly halves the branching factor without
 //! sacrificing optimality.
 
-use crate::state::{Move, State, GOAL};
+use crate::puzzle8::state::{Move, State, GOAL};
 
 use super::heuristic::Heuristic;
 
@@ -86,8 +86,8 @@ fn search<H: Heuristic>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bfs::DistanceTable;
-    use crate::search::heuristic::{ManhattanHeuristic, TableHeuristic};
+    use crate::puzzle8::bfs::DistanceTable;
+    use crate::puzzle8::search::heuristic::{ManhattanHeuristic, TableHeuristic};
 
     #[test]
     fn solves_goal_with_empty_path() {

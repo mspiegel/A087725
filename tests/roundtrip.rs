@@ -1,10 +1,10 @@
 //! Exhaustive round-trip: for every solvable state, IDA*+Manhattan must
 //! return a path of optimal length matching the precomputed distance table.
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::rank::unrank;
-use puzzle8::search::{idastar, ManhattanHeuristic};
-use puzzle8::state::{GOAL, N_STATES};
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::search::{idastar, ManhattanHeuristic};
+use puzzle8::puzzle8::state::{GOAL, N_STATES};
 
 #[test]
 fn idastar_manhattan_matches_table_distance_on_full_state_space() {

@@ -1,4 +1,4 @@
-//! Optimal search algorithms over [`crate::state::State`].
+//! Optimal search algorithms over [`crate::puzzle8::state::State`].
 
 pub mod heuristic;
 pub mod idastar;

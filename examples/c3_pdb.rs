@@ -14,12 +14,12 @@
 use std::cell::Cell;
 use std::time::Instant;
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::pdb::pattern::Pattern;
-use puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
-use puzzle8::rank::unrank;
-use puzzle8::search::{idastar, Heuristic, ManhattanHeuristic, TableHeuristic};
-use puzzle8::state::N_STATES;
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::pdb::pattern::Pattern;
+use puzzle8::puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::search::{idastar, Heuristic, ManhattanHeuristic, TableHeuristic};
+use puzzle8::puzzle8::state::N_STATES;
 
 /// Heuristic that counts how many times `h()` is invoked. Used to compare
 /// the IDA\* search effort between heuristics.
@@ -41,7 +41,7 @@ impl<'a, H: Heuristic> CountingHeuristic<'a, H> {
 }
 
 impl<'a, H: Heuristic> Heuristic for CountingHeuristic<'a, H> {
-    fn h(&self, s: &puzzle8::state::State) -> u8 {
+    fn h(&self, s: &puzzle8::puzzle8::state::State) -> u8 {
         self.count.set(self.count.get() + 1);
         self.inner.h(s)
     }
@@ -142,7 +142,7 @@ fn main() {
         let r = benchmark(
             "baseline:full-table",
             &h,
-            puzzle8::io::FILE_SIZE,
+            puzzle8::puzzle8::io::FILE_SIZE,
             &table,
             &samples,
         );
@@ -193,7 +193,7 @@ fn main() {
     println!("the 181,448-byte full-table baseline. PDB compositions below it");
     println!("with `max_err == 0` are the lossless wins.");
     println!();
-    let baseline_bytes = puzzle8::io::FILE_SIZE;
+    let baseline_bytes = puzzle8::puzzle8::io::FILE_SIZE;
     for r in &reports {
         if r.max_error_plies != 0 {
             println!("  {:<32}  NOT OPTIMAL (max_err = {})", r.name, r.max_error_plies);

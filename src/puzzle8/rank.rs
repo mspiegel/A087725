@@ -27,7 +27,7 @@
 //! ```
 //! giving `8·7·6·5·4·3 = 20_160` distinct values.
 
-use crate::state::{State, N_STATES};
+use crate::puzzle8::state::{State, N_STATES};
 
 const EVEN_BLOCK: u32 = 20_160; // 8! / 2
 
@@ -121,7 +121,7 @@ pub fn unrank(r: u32) -> State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::GOAL;
+    use crate::puzzle8::state::GOAL;
 
     #[test]
     fn goal_roundtrips() {

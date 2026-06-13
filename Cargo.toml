@@ -2,19 +2,42 @@
 name = "puzzle8"
 version = "0.1.0"
 edition = "2021"
-description = "8-puzzle optimal solver and compression study"
+description = "Sliding-puzzle (8 → 15 → 24) optimal solver and compression study"
 publish = false
 
 [lib]
 name = "puzzle8"
 path = "src/lib.rs"
 
-# Binaries (build_table, solve, stats) will be auto-discovered from src/bin/
-# once they are added in later milestones.
+# Binaries: 8-puzzle (build_table, solve, stats) ship by default;
+# 15-puzzle (build_pdb15, solve15, verify15) require feature flags.
+
+[features]
+default = []
+parallel = ["dep:rayon"]
+mmap = ["dep:memmap2"]
+sha = ["dep:sha2"]
+# Umbrella enabling the full 15-puzzle CLI surface.
+puzzle15 = ["parallel", "mmap"]
 
 [dependencies]
+rayon = { version = "1.10", optional = true }
+memmap2 = { version = "0.9", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
+
+[[bin]]
+name = "build_pdb15"
+required-features = ["parallel", "mmap", "sha"]
+
+[[bin]]
+name = "solve15"
+required-features = ["mmap"]
+
+[[bin]]
+name = "verify15"
+required-features = ["mmap"]
 
 [profile.release]
 lto = true

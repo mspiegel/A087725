@@ -21,7 +21,7 @@ use std::path::Path;
 
 use super::build;
 use super::pattern::{Pattern, ProjectedState};
-use crate::state::State;
+use crate::puzzle8::state::State;
 
 pub const MAGIC: &[u8; 4] = b"P8PD";
 pub const VERSION: u32 = 1;
@@ -164,7 +164,7 @@ pub fn file_size_for(pattern: Pattern) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::GOAL;
+    use crate::puzzle8::state::GOAL;
 
     fn tmp_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(name)

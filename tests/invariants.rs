@@ -5,8 +5,8 @@
 //!     of Node Ordering in IDA*", IJCAI-93.
 //!   - OEIS A087725 commentary by Dan Hoey.
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::state::{State, DIAMETER, GOAL, N_STATES};
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::state::{State, DIAMETER, GOAL, N_STATES};
 
 #[test]
 fn diameter_count_and_antipodes_match_reinefeld() {

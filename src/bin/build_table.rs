@@ -8,9 +8,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::io::save;
-use puzzle8::state::{DIAMETER, N_STATES};
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::io::save;
+use puzzle8::puzzle8::state::{DIAMETER, N_STATES};
 
 fn parse_args() -> PathBuf {
     let mut args = std::env::args().skip(1);

@@ -24,7 +24,7 @@
 //! order. Two runs produce byte-identical distance tables.
 
 use super::pattern::{Pattern, ProjectedState};
-use crate::state::GOAL;
+use crate::puzzle8::state::GOAL;
 
 /// Sentinel used during construction for "not yet visited."
 pub const UNVISITED: u8 = u8::MAX;
@@ -34,7 +34,7 @@ pub const UNVISITED: u8 = u8::MAX;
 ///
 /// The returned vector has length `pattern.num_projected_states()`. Entries
 /// for projected states unreachable from the projected goal remain
-/// [`UNVISITED`] (a non-issue when querying via [`crate::pdb::PdbHeuristic`]
+/// [`UNVISITED`] (a non-issue when querying via [`crate::puzzle8::pdb::PdbHeuristic`]
 /// from a solvable full-puzzle state — its projection is always reachable).
 pub fn build(pattern: Pattern) -> Vec<u8> {
     let n = pattern.num_projected_states() as usize;
@@ -99,10 +99,10 @@ pub fn build(pattern: Pattern) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bfs::DistanceTable;
-    use crate::pdb::pattern::Pattern;
-    use crate::rank::unrank;
-    use crate::state::{N_STATES, State};
+    use crate::puzzle8::bfs::DistanceTable;
+    use crate::puzzle8::pdb::pattern::Pattern;
+    use crate::puzzle8::rank::unrank;
+    use crate::puzzle8::state::{N_STATES, State};
 
     #[test]
     fn empty_pattern_distance_is_zero_everywhere_reachable() {
@@ -111,7 +111,7 @@ mod tests {
         let p = Pattern::empty();
         let dist = build(p);
         assert_eq!(dist.len(), 9);
-        let goal_proj = ProjectedState::from_state(&crate::state::GOAL, p);
+        let goal_proj = ProjectedState::from_state(&crate::puzzle8::state::GOAL, p);
         // The goal's projection is one of them, at distance 0.
         assert_eq!(dist[goal_proj.rank(p) as usize], 0);
         // All reachable projected states should be at distance 0 (blank can
@@ -124,7 +124,7 @@ mod tests {
     fn single_tile_pattern_distance_at_goal_is_zero() {
         let p = Pattern::new(&[1]);
         let dist = build(p);
-        let goal_proj = ProjectedState::from_state(&crate::state::GOAL, p);
+        let goal_proj = ProjectedState::from_state(&crate::puzzle8::state::GOAL, p);
         assert_eq!(dist[goal_proj.rank(p) as usize], 0);
     }
 
@@ -178,7 +178,7 @@ mod tests {
         let dist = build(p);
         // We exhaustively enumerate reachable states by BFS again.
         use std::collections::HashSet;
-        let goal_proj = ProjectedState::from_state(&crate::state::GOAL, p);
+        let goal_proj = ProjectedState::from_state(&crate::puzzle8::state::GOAL, p);
         let mut visited: HashSet<[u8; 9]> = HashSet::new();
         let mut frontier: Vec<ProjectedState> = vec![goal_proj];
         visited.insert(goal_proj.0);

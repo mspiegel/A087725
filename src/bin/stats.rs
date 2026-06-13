@@ -10,9 +10,9 @@
 //!   - antipode configurations
 //!   - branching-factor distribution (number of optimal moves per state)
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::rank::unrank;
-use puzzle8::state::{N_STATES, State};
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::state::{N_STATES, State};
 
 fn format_state(s: &State) -> String {
     let mut out = String::new();

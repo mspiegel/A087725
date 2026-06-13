@@ -14,8 +14,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::bfs::DistanceTable;
-use crate::state::N_STATES;
+use crate::puzzle8::bfs::DistanceTable;
+use crate::puzzle8::state::N_STATES;
 
 pub const MAGIC: &[u8; 4] = b"P8DT";
 pub const VERSION: u32 = 1;
@@ -94,7 +94,7 @@ pub fn load(path: &Path) -> Result<DistanceTable, LoadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::GOAL;
+    use crate::puzzle8::state::GOAL;
 
     fn tmp_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(name)
@@ -108,7 +108,7 @@ mod tests {
         let t2 = load(&path).expect("load");
         assert_eq!(t1.raw(), t2.raw());
         assert_eq!(t2.dist(&GOAL), 0);
-        assert_eq!(t2.diameter(), crate::state::DIAMETER);
+        assert_eq!(t2.diameter(), crate::puzzle8::state::DIAMETER);
         std::fs::remove_file(&path).ok();
     }
 

@@ -1,5 +1,5 @@
 //! [`PdbHeuristic`] and [`AdditivePdbHeuristic`] — plug PDBs into
-//! [`crate::search::idastar`] via the [`crate::search::Heuristic`] trait.
+//! [`crate::puzzle8::search::idastar`] via the [`crate::puzzle8::search::Heuristic`] trait.
 //!
 //! `AdditivePdbHeuristic` requires patterns to be pairwise disjoint
 //! (Korf & Felner 2002): every full-puzzle move advances at most one
@@ -8,8 +8,8 @@
 
 use super::db::PatternDb;
 use super::pattern::Pattern;
-use crate::search::Heuristic;
-use crate::state::State;
+use crate::puzzle8::search::Heuristic;
+use crate::puzzle8::state::State;
 
 /// Single-PDB heuristic.
 pub struct PdbHeuristic<'a> {
@@ -80,9 +80,9 @@ impl<'a> Heuristic for AdditivePdbHeuristic<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bfs::DistanceTable;
-    use crate::pdb::pattern::Pattern;
-    use crate::state::{GOAL, State};
+    use crate::puzzle8::bfs::DistanceTable;
+    use crate::puzzle8::pdb::pattern::Pattern;
+    use crate::puzzle8::state::{GOAL, State};
 
     #[test]
     fn pdb_heuristic_returns_zero_on_goal() {

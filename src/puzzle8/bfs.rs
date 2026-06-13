@@ -7,8 +7,8 @@
 //! convention — the resulting table maps each state to its distance *to* the
 //! goal, which is what the solver consumes.
 
-use crate::rank::rank;
-use crate::state::{State, GOAL, N_STATES};
+use crate::puzzle8::rank::rank;
+use crate::puzzle8::state::{State, GOAL, N_STATES};
 
 /// Sentinel for states whose distance has not been written. Since the diameter
 /// is 31 < 255, any value > 31 is "not visited."
@@ -98,7 +98,7 @@ impl DistanceTable {
         let mut out = Vec::new();
         for r in 0..N_STATES {
             if self.data[r as usize] == d_max {
-                out.push(crate::rank::unrank(r));
+                out.push(crate::puzzle8::rank::unrank(r));
             }
         }
         out
@@ -121,7 +121,7 @@ impl DistanceTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::DIAMETER;
+    use crate::puzzle8::state::DIAMETER;
 
     fn build_once() -> DistanceTable {
         DistanceTable::build()
@@ -190,7 +190,7 @@ mod tests {
         // For every state s, dist(s) must equal 1 + min(dist(neighbor)).
         let t = build_once();
         for r in 0..N_STATES {
-            let s = crate::rank::unrank(r);
+            let s = crate::puzzle8::rank::unrank(r);
             let d = t.dist(&s);
             if s == GOAL {
                 continue;

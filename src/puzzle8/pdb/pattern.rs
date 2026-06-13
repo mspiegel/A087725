@@ -26,7 +26,7 @@
 //! `num_projected_states(k) = 9! / (8 - k)!` — for example, a 4-tile pattern
 //! gives `9 · 8 · 7 · 6 · 5 = 15_120` projected states.
 
-use crate::state::{Move, MoveSet, State, GOAL};
+use crate::puzzle8::state::{Move, MoveSet, State, GOAL};
 
 /// Sentinel tile value for non-pattern tiles in a [`ProjectedState`].
 ///

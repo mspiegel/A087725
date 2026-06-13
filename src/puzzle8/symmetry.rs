@@ -21,7 +21,7 @@
 //! distance to the goal, so we can quotient the state space by it (factor-of-2
 //! storage reduction, compression direction #1).
 
-use crate::state::State;
+use crate::puzzle8::state::State;
 
 /// Position permutation: `SIGMA[p]` is the position that ends up at index `p`
 /// in the reflected state (equivalently, σ⁻¹(p), since σ is self-inverse).
@@ -56,9 +56,9 @@ pub fn canonical(s: &State) -> (State, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bfs::DistanceTable;
-    use crate::rank::unrank;
-    use crate::state::{GOAL, N_STATES};
+    use crate::puzzle8::bfs::DistanceTable;
+    use crate::puzzle8::rank::unrank;
+    use crate::puzzle8::state::{GOAL, N_STATES};
 
     #[test]
     fn sigma_is_self_inverse() {

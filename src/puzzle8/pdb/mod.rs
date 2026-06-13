@@ -10,7 +10,7 @@
 //! By construction this yields an **admissible** lower bound on the full
 //! puzzle's distance: any solution must also bring the pattern tiles home,
 //! taking at least the PDB-stored cost. Plugging it into IDA\* (via the
-//! [`crate::search::Heuristic`] trait) gives an optimal solver whose storage
+//! [`crate::puzzle8::search::Heuristic`] trait) gives an optimal solver whose storage
 //! is `O(projected state space size)` rather than `O(full state space size)`.
 //!
 //! **Additive PDBs** (Korf & Felner 2002): if two patterns are *disjoint*

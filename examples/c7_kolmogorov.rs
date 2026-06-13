@@ -25,10 +25,10 @@ use std::io::Write;
 use std::process::Command;
 use std::time::Instant;
 
-use puzzle8::bfs::DistanceTable;
-use puzzle8::rank::unrank;
-use puzzle8::search::{Heuristic, ManhattanHeuristic};
-use puzzle8::state::N_STATES;
+use puzzle8::puzzle8::bfs::DistanceTable;
+use puzzle8::puzzle8::rank::unrank;
+use puzzle8::puzzle8::search::{Heuristic, ManhattanHeuristic};
+use puzzle8::puzzle8::state::N_STATES;
 
 /// Pipe `data` into `cmd <args>` on stdin; return compressed-output size on
 /// success, `None` if the command isn't installed or returns non-zero.

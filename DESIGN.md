@@ -56,6 +56,6 @@ The 8-puzzle phase is complete when:
 - The stats binary reports diameter 31, antipode count 2, total 181,440.
 - Every implemented compression direction reports `max_error_plies == 0` on the full 181,440-state space.
 
-The 15-puzzle phase is complete when the same checks pass at 16!/2 ≈ 10.46 trillion scale, with the Korf–Schultze depth histogram reproduced and the 17 antipodes recovered.
+The 15-puzzle phase is complete when the same checks pass at 16!/2 ≈ 10.46 trillion scale, with the Korf–Schultze depth histogram reproduced and the 17 antipodes recovered. The Korf–Schultze (AAAI 2005) paper publishes only the depth histogram, not the antipode positions; we use the 17 positions transcribed in stannic's 2017 Domain-of-the-Cube post ([forum.cubeman.org/?q=node/view/555](http://forum.cubeman.org/?q=node/view/555), comment "Nodecounts" by stannic, 2017-04-24), encoded as 5×5-extended instances with the 4×4 antipode embedded in the upper-left 4×4 region. The decoder is at `scripts/decode_antipodes.py`; the decoded positions live in `data/pdb15_antipodes.txt`.
 
 The 24-puzzle phase has no completion criterion — it's research, not engineering.
