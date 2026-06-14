@@ -4,7 +4,7 @@
 
 Build an optimal solver for the **15-puzzle**, and eventually scale the same techniques to the **24-puzzle**.
 
-By "optimal" we mean: given any solvable position, return a move sequence of minimum length. The 15-puzzle's diameter is 80 single-tile moves (Korf & Schultze, 2005); the 24-puzzle's diameter is known only to lie in [152, 182].
+By "optimal" we mean: given any solvable position, return a move sequence of minimum length. The 15-puzzle's diameter is 80 single-tile moves (STM) (Korf & Schultze, 2005); the 24-puzzle's STM diameter is known only to lie in **[152, 205]** (upper bound improved from 208 in 2016; attributed to Tomas Rokicki / the cubeman.org "Domain of the Cube" forum community). All bounds in this project are STM unless explicitly noted; the MTM diameter of the 24-puzzle is separately bounded by [41, 109].
 
 A trivially-correct optimal solver for the 15-puzzle exists: precompute the optimal distance to the goal for every reachable position and store it in a 10.5 TB lookup table. We are not interested in that. We are interested in solvers that are **as small as possible while still optimal**. The research question is:
 
@@ -38,7 +38,7 @@ DESIGN.md lists all seven. Which to implement, and in what order, will be decide
 2. **8-puzzle compression study.** Pick a subset of the seven directions, implement, benchmark each on a uniform `Report { bytes_stored, mean_solve_time, max_error }`. Establish which techniques are worth scaling.
 3. **15-puzzle port.** Lift the proven techniques. New constraints: full table no longer fits in RAM; IDA* + PDBs becomes the practical baseline. Diameter 80 verified against Korf–Schultze; 17 antipodes reproduced.
 4. **15-puzzle compression study.** Repeat the comparison at full scale. The interesting number is how close we can get to (or below) the ~600 MB state of the art.
-5. **24-puzzle exploration.** Not "solve completely" — that's open research. Instead: extend the best 15-puzzle techniques, characterize where they break, and contribute to the open problem (current best upper bound 182, lower bound 152).
+5. **24-puzzle exploration.** Not "solve completely" — that's open research. Instead: extend the best 15-puzzle techniques, characterize where they break, and contribute to the open problem (current STM bounds [152, 205]).
 
 ## Engineering principles
 

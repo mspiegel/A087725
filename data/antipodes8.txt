@@ -1,0 +1,8 @@
+# 8-puzzle antipodes (depth 31) computed from the full distance table.
+# Source: backward BFS from GOAL over all 181440 solvable states (cf. data/dist8.bin).
+# Each line is a 9-token row-major 3x3 board: tiles 1..8 plus '_' for the blank.
+# Standard 3x3 goal convention (blank at position 8, bottom-right).
+# Count: 2 antipodes at depth 31.
+
+6 4 7 8 5 _ 3 2 1
+8 6 7 2 5 4 3 _ 1
