@@ -58,10 +58,11 @@ pub fn idastar_with_stats<H: Heuristic>(
 
     let mut bound = h.h(start);
     let mut path: Vec<Move> = Vec::with_capacity(96);
+    let blank = start.blank_pos();
 
     loop {
         stats.iterations += 1;
-        match search(start, 0, bound, &mut path, None, h, &mut stats) {
+        match search(start, blank, 0, bound, &mut path, None, h, &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Bound(next) => {
                 if next == u8::MAX {
@@ -81,6 +82,7 @@ enum Step {
 
 fn search<H: Heuristic>(
     s: &State,
+    blank: u8,
     g: u8,
     bound: u8,
     path: &mut Vec<Move>,
@@ -98,15 +100,15 @@ fn search<H: Heuristic>(
     }
 
     let mut min_next = u8::MAX;
-    for m in s.legal_moves().iter() {
+    for m in State::legal_moves_at(blank).iter() {
         if let Some(prev) = last {
             if m == prev.inverse() {
                 continue;
             }
         }
-        let s_next = s.apply(m);
+        let (s_next, next_blank) = s.apply_at(m, blank);
         path.push(m);
-        match search(&s_next, g + 1, bound, path, Some(m), h, stats) {
+        match search(&s_next, next_blank, g + 1, bound, path, Some(m), h, stats) {
             Step::Found => return Step::Found,
             Step::Bound(n) => {
                 if n < min_next {

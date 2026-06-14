@@ -108,6 +108,48 @@ impl Iterator for MoveSetIter {
     }
 }
 
+/// Sentinel in [`NEIGHBOR`] meaning "no neighbor in that direction" (the move
+/// would push the blank off the board).
+const NO_NEIGHBOR: u8 = u8::MAX;
+
+/// `LEGAL_MOVES[b]` is the set of legal blank moves when the blank is at cell
+/// `b`. Precomputed at compile time so move generation is a single array read
+/// rather than re-derived row/column arithmetic at every node.
+const LEGAL_MOVES: [MoveSet; N_CELLS] = {
+    let mut table = [MoveSet::empty(); N_CELLS];
+    let mut b = 0;
+    while b < N_CELLS {
+        let row = b / W;
+        let col = b % W;
+        let mut bits = 0u8;
+        if row > 0 { bits |= 1 << (Move::Up as u8); }
+        if row < W - 1 { bits |= 1 << (Move::Down as u8); }
+        if col > 0 { bits |= 1 << (Move::Left as u8); }
+        if col < W - 1 { bits |= 1 << (Move::Right as u8); }
+        table[b] = MoveSet(bits);
+        b += 1;
+    }
+    table
+};
+
+/// `NEIGHBOR[b][m as usize]` is the cell the blank lands on after applying move
+/// `m` from cell `b`, or [`NO_NEIGHBOR`] if that move is illegal. Lets `apply`
+/// avoid the blank scan and the coordinate match entirely.
+const NEIGHBOR: [[u8; 4]; N_CELLS] = {
+    let mut table = [[NO_NEIGHBOR; 4]; N_CELLS];
+    let mut b = 0;
+    while b < N_CELLS {
+        let row = b / W;
+        let col = b % W;
+        if row > 0 { table[b][Move::Up as usize] = (b - W) as u8; }
+        if row < W - 1 { table[b][Move::Down as usize] = (b + W) as u8; }
+        if col > 0 { table[b][Move::Left as usize] = (b - 1) as u8; }
+        if col < W - 1 { table[b][Move::Right as usize] = (b + 1) as u8; }
+        b += 1;
+    }
+    table
+};
+
 impl State {
     /// Position of the blank (value `0`), in `0..16`.
     pub fn blank_pos(&self) -> u8 {
@@ -119,46 +161,41 @@ impl State {
         panic!("State has no blank: {:?}", self.0);
     }
 
-    /// The (up to 4) legal moves of the blank from this state.
-    pub fn legal_moves(&self) -> MoveSet {
-        let b = self.blank_pos() as usize;
-        let row = b / W;
-        let col = b % W;
-        let mut moves = MoveSet::empty();
-        if row > 0 { moves.insert(Move::Up); }
-        if row < W - 1 { moves.insert(Move::Down); }
-        if col > 0 { moves.insert(Move::Left); }
-        if col < W - 1 { moves.insert(Move::Right); }
-        moves
+    /// The legal blank moves when the blank is known to be at cell `blank`.
+    ///
+    /// Hot-path variant of [`legal_moves`](Self::legal_moves) for callers (the
+    /// IDA\* search) that already track the blank position, skipping the scan.
+    #[inline]
+    pub fn legal_moves_at(blank: u8) -> MoveSet {
+        LEGAL_MOVES[blank as usize]
     }
 
-    /// Apply `m`. Panics if `m` is not legal (blank would move off the board).
-    pub fn apply(&self, m: Move) -> Self {
-        let b = self.blank_pos() as usize;
-        let br = b / W;
-        let bc = b % W;
-        let (nr, nc) = match m {
-            Move::Up => {
-                assert!(br > 0, "illegal Up from blank at {}", b);
-                (br - 1, bc)
-            }
-            Move::Down => {
-                assert!(br < W - 1, "illegal Down from blank at {}", b);
-                (br + 1, bc)
-            }
-            Move::Left => {
-                assert!(bc > 0, "illegal Left from blank at {}", b);
-                (br, bc - 1)
-            }
-            Move::Right => {
-                assert!(bc < W - 1, "illegal Right from blank at {}", b);
-                (br, bc + 1)
-            }
-        };
-        let n = nr * W + nc;
+    /// The (up to 4) legal moves of the blank from this state.
+    #[inline]
+    pub fn legal_moves(&self) -> MoveSet {
+        LEGAL_MOVES[self.blank_pos() as usize]
+    }
+
+    /// Apply `m` given the blank's current cell `blank`. Returns the new state
+    /// **and the blank's new cell**, so a search threading the blank through
+    /// the recursion never rescans for it.
+    ///
+    /// In debug builds, panics if `m` is illegal from `blank`; in release the
+    /// out-of-bounds swap would itself panic, so an illegal move never silently
+    /// corrupts state.
+    #[inline]
+    pub fn apply_at(&self, m: Move, blank: u8) -> (Self, u8) {
+        let nb = NEIGHBOR[blank as usize][m as usize];
+        debug_assert!(nb != NO_NEIGHBOR, "illegal {:?} from blank at {}", m, blank);
         let mut next = self.0;
-        next.swap(b, n);
-        State(next)
+        next.swap(blank as usize, nb as usize);
+        (State(next), nb)
+    }
+
+    /// Apply `m`. In debug builds, panics if `m` is not legal.
+    #[inline]
+    pub fn apply(&self, m: Move) -> Self {
+        self.apply_at(m, self.blank_pos()).0
     }
 
     /// Number of inversions in the non-blank tile sequence.
@@ -315,6 +352,46 @@ mod tests {
         s.swap(5, 15);
         let m = State(s).legal_moves();
         assert_eq!(m.len(), 4);
+    }
+
+    #[test]
+    fn legal_moves_at_matches_method_for_every_blank() {
+        // The precomputed LEGAL_MOVES table must agree with the instance
+        // method for a state whose blank sits at each of the 16 cells.
+        for b in 0..N_CELLS {
+            let mut cells = GOAL.0;
+            cells.swap(15, b); // move the blank to cell b
+            let s = State(cells);
+            assert_eq!(s.blank_pos() as usize, b);
+            assert_eq!(State::legal_moves_at(b as u8), s.legal_moves());
+        }
+    }
+
+    #[test]
+    fn apply_at_matches_apply_and_tracks_blank() {
+        // Along a walk, apply_at must return the same state as apply() and the
+        // correct new blank position for every legal move at each step.
+        let pseudo = |i: u32| -> Move {
+            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
+        };
+        let mut s = GOAL;
+        let mut blank = s.blank_pos();
+        for i in 0u32..1000 {
+            for m in State::legal_moves_at(blank).iter() {
+                let (via_at, nb) = s.apply_at(m, blank);
+                assert_eq!(via_at, s.apply(m), "apply_at disagrees with apply");
+                assert_eq!(nb, via_at.blank_pos(), "apply_at returned wrong blank");
+            }
+            for k in 0u32..4 {
+                let m = pseudo(i.wrapping_add(k));
+                if State::legal_moves_at(blank).contains(m) {
+                    let (next, nb) = s.apply_at(m, blank);
+                    s = next;
+                    blank = nb;
+                    break;
+                }
+            }
+        }
     }
 
     #[test]
