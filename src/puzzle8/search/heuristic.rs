@@ -14,6 +14,16 @@ pub trait Heuristic {
     fn h(&self, s: &State) -> u8;
 }
 
+/// Blanket implementation: any reference to a [`Heuristic`] is also a
+/// [`Heuristic`]. Lets us pass borrowed heuristics to combinators like
+/// [`crate::puzzle8::search::MaxHeuristic`] without taking ownership.
+impl<'a, H: Heuristic + ?Sized> Heuristic for &'a H {
+    #[inline]
+    fn h(&self, s: &State) -> u8 {
+        (**self).h(s)
+    }
+}
+
 /// Sum of Manhattan distances from each non-blank tile to its goal position.
 ///
 /// In the goal `1 2 3 / 4 5 6 / 7 8 _`, tile `k ∈ 1..=8` sits at position

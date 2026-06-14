@@ -16,6 +16,10 @@
 //! - `korf`      : `max(additive, additive(reflect(s)))` — Korf's tightest
 //!                 admissible heuristic at half the storage of separate
 //!                 reflected PDB files. Default.
+//! - `korf-plus` : `max(korf, manhattan + linear_conflict, walking_distance)`.
+//!                 Free upside on top of Korf: ~25 KB of WD tables plus
+//!                 cheap arithmetic, occasionally tightens beyond the PDB
+//!                 where the PDB's subset-blindness loses signal.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -24,7 +28,10 @@ use std::time::Instant;
 use puzzle8::puzzle15::pdb::{
     AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
 };
-use puzzle8::puzzle15::search::{idastar, Heuristic, ManhattanHeuristic};
+use puzzle8::puzzle15::search::{
+    idastar, Heuristic, LinearConflictHeuristic, ManhattanHeuristic,
+    WalkingDistanceHeuristic,
+};
 use puzzle8::puzzle15::state::{Move, State, GOAL, N_CELLS};
 
 const P7_PATH: &str = "pdb15_p7_korf.bin";
@@ -35,6 +42,7 @@ enum HeuristicChoice {
     Manhattan,
     Additive,
     Korf,
+    KorfPlus,
 }
 
 struct Args {
@@ -45,7 +53,7 @@ struct Args {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf|additive|manhattan]", prog);
+    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf-plus|korf|additive|manhattan]", prog);
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -76,6 +84,7 @@ fn parse_args() -> Result<Args, String> {
                     "manhattan" => HeuristicChoice::Manhattan,
                     "additive" => HeuristicChoice::Additive,
                     "korf" => HeuristicChoice::Korf,
+                    "korf-plus" => HeuristicChoice::KorfPlus,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
             }
@@ -209,6 +218,21 @@ fn main() -> ExitCode {
                     let h_refl = ReflectedHeuristic::new(h_refl_inner);
                     let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
                     idastar(&start, &h_korf)
+                }
+                HeuristicChoice::KorfPlus => {
+                    let h_refl_inner = AdditivePdbHeuristic::new(&dbs);
+                    let h_refl = ReflectedHeuristic::new(h_refl_inner);
+                    let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
+                    WalkingDistanceHeuristic::warm_up();
+                    let h_classical = MaxHeuristic::new(
+                        &LinearConflictHeuristic as &dyn Heuristic,
+                        &WalkingDistanceHeuristic as &dyn Heuristic,
+                    );
+                    let h_plus = MaxHeuristic::new(
+                        &h_korf as &dyn Heuristic,
+                        &h_classical as &dyn Heuristic,
+                    );
+                    idastar(&start, &h_plus)
                 }
                 HeuristicChoice::Manhattan => unreachable!(),
             }

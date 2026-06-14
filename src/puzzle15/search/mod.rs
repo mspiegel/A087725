@@ -2,9 +2,13 @@
 
 pub mod heuristic;
 pub mod idastar;
+pub mod linear_conflict;
+pub mod walking_distance;
 
 pub use heuristic::{Heuristic, ManhattanHeuristic};
 pub use idastar::idastar;
+pub use linear_conflict::LinearConflictHeuristic;
+pub use walking_distance::WalkingDistanceHeuristic;
 
 /// Test-only helpers shared across `heuristic` and `idastar` tests.
 #[cfg(test)]
