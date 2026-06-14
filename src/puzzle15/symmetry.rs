@@ -13,7 +13,7 @@
 //! reduction (compression direction #1). We use it indirectly via *reflected
 //! PDBs* in the M3 Korf heuristic: `h(s) = max(h_normal(s), h_reflected(s))`.
 
-use crate::puzzle15::state::{State, N_CELLS};
+use crate::puzzle15::state::{Move, State, N_CELLS};
 
 /// Position permutation: `SIGMA[p]` is the position whose value lands at index
 /// `p` after reflection. Equivalently, σ⁻¹(p), but σ is self-inverse so this
@@ -54,6 +54,23 @@ pub fn reflect(s: &State) -> State {
         out[p] = TAU[s.0[src] as usize];
     }
     State(out)
+}
+
+/// The blank move on `reflect(s)` corresponding to move `m` on `s`.
+///
+/// The reflection is the transpose `σ: (r, c) → (c, r)`, which swaps the row and
+/// column axes, so a vertical blank move becomes horizontal and vice versa:
+/// `Up ↔ Left`, `Down ↔ Right`. Formally, for every `s` and every legal `m`,
+/// `reflect(s.apply(m)) == reflect(s).apply(transpose_move(m))`. This lets a
+/// search maintain the reflected view incrementally without recomputing
+/// [`reflect`] at each node. The map is its own inverse.
+pub fn transpose_move(m: Move) -> Move {
+    match m {
+        Move::Up => Move::Left,
+        Move::Left => Move::Up,
+        Move::Down => Move::Right,
+        Move::Right => Move::Down,
+    }
 }
 
 /// Canonical representative of `s` under the diagonal symmetry. Returns the
@@ -199,6 +216,37 @@ mod tests {
             assert!(c.0 <= s.0);
             assert!(c.0 <= r.0);
             assert!(c == s || c == r);
+            for k in 0u32..4 {
+                let m = pseudo(i.wrapping_add(k));
+                if s.legal_moves().contains(m) {
+                    s = s.apply(m);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn transpose_move_is_self_inverse() {
+        for m in Move::ALL {
+            assert_eq!(transpose_move(transpose_move(m)), m);
+        }
+    }
+
+    #[test]
+    fn transpose_move_commutes_reflection_on_random_walks() {
+        // The defining identity: reflect(s.apply(m)) == reflect(s).apply(tm)
+        // for every legal move m along a pseudo-random walk.
+        let pseudo = |i: u32| -> Move {
+            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
+        };
+        let mut s = GOAL;
+        for i in 0u32..2000 {
+            for m in s.legal_moves().iter() {
+                let lhs = reflect(&s.apply(m));
+                let rhs = reflect(&s).apply(transpose_move(m));
+                assert_eq!(lhs, rhs, "transpose_move broke commutation for {:?} at {:?}", m, s.0);
+            }
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {

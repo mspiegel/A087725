@@ -113,6 +113,15 @@ impl PatternDb {
         d
     }
 
+    /// PDB value for an already-projected state: ranks `proj` against this PDB's
+    /// pattern and reads the stored distance. Unlike [`h`](Self::h), it does
+    /// **not** re-project from a full [`State`] — the caller maintains `proj`
+    /// incrementally, which is the hot path for the incremental IDA\* evaluator.
+    #[inline]
+    pub fn value(&self, proj: &ProjectedState) -> u8 {
+        self.storage.dist()[proj.rank(self.pattern) as usize]
+    }
+
     /// Raw distance entry at a PDB index. Mostly useful for tests.
     pub fn raw_distance(&self, rank: u64) -> u8 {
         self.storage.dist()[rank as usize]

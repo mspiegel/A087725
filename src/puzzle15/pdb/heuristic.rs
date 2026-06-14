@@ -13,10 +13,10 @@
 //!   PDB files, we reflect the state on demand.
 
 use super::db::PatternDb;
-use super::pattern::Pattern;
-use crate::puzzle15::search::Heuristic;
-use crate::puzzle15::state::State;
-use crate::puzzle15::symmetry::reflect;
+use super::pattern::{Pattern, ProjectedState};
+use crate::puzzle15::search::{Heuristic, IncHeuristic};
+use crate::puzzle15::state::{Move, State};
+use crate::puzzle15::symmetry::{reflect, transpose_move};
 
 /// Single-PDB heuristic.
 pub struct PdbHeuristic<'a> {
@@ -126,6 +126,79 @@ impl<A: Heuristic, B: Heuristic> Heuristic for MaxHeuristic<A, B> {
         let ha = self.a.h(s);
         let hb = self.b.h(s);
         ha.max(hb)
+    }
+}
+
+/// Incremental form of the Korf heuristic — `max(additive(s),
+/// additive(reflect(s)))` over a disjoint, fixed-size PDB partition.
+///
+/// Holds `N` pairwise-disjoint PDBs (the Korf 7-8 partition is `N = 2`). The
+/// per-node [`KorfCtx`] keeps each PDB's projected board in both the normal and
+/// reflected views; [`advance`](IncHeuristic::advance) slides those projections
+/// by one move — the normal view by the move itself, the reflected view by
+/// [`transpose_move`] — instead of re-projecting the full board and recomputing
+/// [`reflect`] at every node. The value is byte-for-byte identical to the
+/// [`MaxHeuristic`]-of-[`AdditivePdbHeuristic`] composition; only the per-node
+/// cost differs.
+pub struct KorfPdbInc<'a, const N: usize> {
+    dbs: [&'a PatternDb; N],
+}
+
+/// Per-node context for [`KorfPdbInc`]: each PDB's projected board in the normal
+/// and reflected views. `Copy` so the search threads it by value.
+#[derive(Clone, Copy)]
+pub struct KorfCtx<const N: usize> {
+    normal: [ProjectedState; N],
+    reflected: [ProjectedState; N],
+}
+
+impl<'a, const N: usize> KorfPdbInc<'a, N> {
+    /// Build from `N` PDBs. Panics unless the patterns are pairwise disjoint
+    /// (required for additive admissibility, Korf & Felner 2002).
+    pub fn new(dbs: [&'a PatternDb; N]) -> Self {
+        let mut union: u32 = 0;
+        for db in &dbs {
+            let p = db.pattern().0;
+            assert_eq!(union & p, 0, "additive PDB patterns must be disjoint");
+            union |= p;
+        }
+        Self { dbs }
+    }
+
+    #[inline]
+    fn value(&self, ctx: &KorfCtx<N>) -> u8 {
+        let mut hn: u32 = 0;
+        let mut hr: u32 = 0;
+        for i in 0..N {
+            hn += self.dbs[i].value(&ctx.normal[i]) as u32;
+            hr += self.dbs[i].value(&ctx.reflected[i]) as u32;
+        }
+        // 15-puzzle diameter 80 ≪ 255; clamp is defensive.
+        hn.max(hr).min(u8::MAX as u32) as u8
+    }
+}
+
+impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
+    type Ctx = KorfCtx<N>;
+
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let rs = reflect(s);
+        let ctx = KorfCtx {
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
+            reflected: std::array::from_fn(|i| {
+                ProjectedState::from_state(&rs, self.dbs[i].pattern())
+            }),
+        };
+        (self.value(&ctx), ctx)
+    }
+
+    fn advance(&self, parent: &Self::Ctx, _child: &State, m: Move) -> (u8, Self::Ctx) {
+        let tm = transpose_move(m);
+        let ctx = KorfCtx {
+            normal: std::array::from_fn(|i| parent.normal[i].apply(m).0),
+            reflected: std::array::from_fn(|i| parent.reflected[i].apply(tm).0),
+        };
+        (self.value(&ctx), ctx)
     }
 }
 
@@ -245,4 +318,64 @@ mod tests {
         }
     }
 
+    #[test]
+    fn korf_inc_root_matches_scratch_combinator() {
+        // KorfPdbInc::root must equal max(additive, reflected(additive)) — the
+        // exact scratch heuristic it replaces — at every state along a walk.
+        let dbs = [
+            PatternDb::build(Pattern::new(&[1, 2, 3, 4])),
+            PatternDb::build(Pattern::new(&[5, 6, 7, 8])),
+        ];
+        let h_add = AdditivePdbHeuristic::new(&dbs);
+        let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
+        let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
+        let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
+
+        let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
+        let mut s = GOAL;
+        for i in 0u32..3000 {
+            let (h_inc, _) = inc.root(&s);
+            assert_eq!(h_inc, h_korf.h(&s), "inc.root != scratch korf at {:?}", s.0);
+            for k in 0u32..4 {
+                let m = pseudo(i.wrapping_add(k));
+                if s.legal_moves().contains(m) {
+                    s = s.apply(m);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn korf_inc_advance_matches_fresh_reprojection() {
+        // The incremental advance (normal view by m, reflected view by the
+        // transposed move) must match a fresh root() reprojection at every step
+        // — the property that makes the incremental search exact.
+        let dbs = [
+            PatternDb::build(Pattern::new(&[2, 5, 8, 11, 14])),
+            PatternDb::build(Pattern::new(&[1, 3, 6, 9])),
+        ];
+        let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
+
+        let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
+        let mut s = GOAL;
+        let (_, mut ctx) = inc.root(&s);
+        for i in 0u32..3000 {
+            let mut chosen = None;
+            for k in 0u32..4 {
+                let m = pseudo(i.wrapping_add(k));
+                if s.legal_moves().contains(m) {
+                    chosen = Some(m);
+                    break;
+                }
+            }
+            let m = chosen.unwrap();
+            let ns = s.apply(m);
+            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m);
+            let (h_fresh, _) = inc.root(&ns);
+            assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {}", i);
+            s = ns;
+            ctx = ctx_adv;
+        }
+    }
 }

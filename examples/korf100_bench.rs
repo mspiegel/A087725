@@ -18,6 +18,8 @@
 //! - `--heuristic NAME`  `korf` (default), `korf-plus`, `additive`, or `manhattan`
 //! - `--limit N`         solve only the first `N` instances (smoke testing)
 //! - `--quiet`           suppress the per-instance table, print only the summary
+//! - `--scratch`         force the from-scratch `korf` heuristic instead of the
+//!                       incremental evaluator (for A/B comparison)
 //!
 //! Correctness: every instance is solved, the solution is replayed to confirm it
 //! reaches `GOAL`, and its length is asserted equal to Korf's published optimal
@@ -33,13 +35,13 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
+    AdditivePdbHeuristic, KorfPdbInc, MaxHeuristic, PatternDb, ReflectedHeuristic,
 };
 use puzzle8::puzzle15::search::{
-    idastar_with_stats, Heuristic, LinearConflictHeuristic, ManhattanHeuristic,
-    WalkingDistanceHeuristic,
+    idastar_inc_with_stats, idastar_with_stats, Heuristic, LinearConflictHeuristic,
+    ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
 };
-use puzzle8::puzzle15::state::{State, GOAL, N_CELLS};
+use puzzle8::puzzle15::state::{Move, State, GOAL, N_CELLS};
 
 const P7_PATH: &str = "pdb15_p7_korf.bin";
 const P8_PATH: &str = "pdb15_p8_korf.bin";
@@ -58,6 +60,9 @@ struct Args {
     heuristic: HeuristicChoice,
     limit: Option<usize>,
     quiet: bool,
+    /// Force the from-scratch heuristic path even for `korf` (which otherwise
+    /// uses the incremental [`KorfPdbInc`] evaluator). For A/B measurement.
+    scratch: bool,
 }
 
 struct Instance {
@@ -81,6 +86,7 @@ fn parse_args() -> Result<Args, String> {
     let mut heuristic = HeuristicChoice::Korf;
     let mut limit: Option<usize> = None;
     let mut quiet = false;
+    let mut scratch = false;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -114,13 +120,14 @@ fn parse_args() -> Result<Args, String> {
                 );
             }
             "--quiet" => quiet = true,
+            "--scratch" => scratch = true,
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
         i += 1;
     }
 
-    Ok(Args { pdb_dir, instances, heuristic, limit, quiet })
+    Ok(Args { pdb_dir, instances, heuristic, limit, quiet, scratch })
 }
 
 /// Convert a Korf-convention board (blank top-left, value == cell index in the
@@ -219,14 +226,17 @@ fn load_pdbs(dir: &Path) -> Result<(PatternDb, PatternDb), String> {
     Ok((p7_db, p8_db))
 }
 
-/// Solve every instance with `h`, measuring nodes and wall-clock. Verifies each
-/// solution reaches `GOAL` and matches the published optimal. Returns the
+/// Solve every instance with `solve`, measuring nodes and wall-clock. Verifies
+/// each solution reaches `GOAL` and matches the published optimal. Returns the
 /// per-instance rows and the list of optimality mismatches `(index, found, want)`.
-fn run<H: Heuristic>(
-    h: &H,
-    instances: &[Instance],
-    quiet: bool,
-) -> (Vec<Row>, Vec<(u32, u8, u8)>) {
+///
+/// `solve` is a closure (rather than a `&Heuristic`) so callers can route
+/// through either [`idastar_with_stats`] (scratch heuristics) or
+/// [`idastar_inc_with_stats`] (the incremental Korf evaluator).
+fn run<F>(solve: F, instances: &[Instance], quiet: bool) -> (Vec<Row>, Vec<(u32, u8, u8)>)
+where
+    F: Fn(&State) -> (Option<Vec<Move>>, SearchStats),
+{
     let mut rows = Vec::with_capacity(instances.len());
     let mut mismatches = Vec::new();
 
@@ -239,7 +249,7 @@ fn run<H: Heuristic>(
 
     for inst in instances {
         let t = Instant::now();
-        let (sol, stats) = idastar_with_stats(&inst.state, h);
+        let (sol, stats) = solve(&inst.state);
         let elapsed = t.elapsed();
         let sol = sol.expect("Korf instances are solvable");
 
@@ -327,7 +337,7 @@ fn main() -> ExitCode {
         Err(e) => {
             if e == "help" {
                 eprintln!("usage: korf100_bench [--pdb-dir DIR] [--instances FILE] \
-                           [--heuristic korf|korf-plus|additive|manhattan] [--limit N] [--quiet]");
+                           [--heuristic korf|korf-plus|additive|manhattan] [--limit N] [--quiet] [--scratch]");
                 return ExitCode::SUCCESS;
             }
             eprintln!("error: {}", e);
@@ -348,7 +358,7 @@ fn main() -> ExitCode {
     println!("Loaded {} instances from {}", instances.len(), args.instances.display());
 
     let (rows, mismatches, name) = if args.heuristic == HeuristicChoice::Manhattan {
-        let (rows, mm) = run(&ManhattanHeuristic, &instances, args.quiet);
+        let (rows, mm) = run(|s| idastar_with_stats(s, &ManhattanHeuristic), &instances, args.quiet);
         (rows, mm, "manhattan".to_string())
     } else {
         let (p7_db, p8_db) = match load_pdbs(&args.pdb_dir) {
@@ -362,14 +372,21 @@ fn main() -> ExitCode {
         let h_add = AdditivePdbHeuristic::new(&dbs);
         match args.heuristic {
             HeuristicChoice::Additive => {
-                let (rows, mm) = run(&h_add, &instances, args.quiet);
+                let (rows, mm) = run(|s| idastar_with_stats(s, &h_add), &instances, args.quiet);
                 (rows, mm, "additive 7-8".to_string())
             }
+            HeuristicChoice::Korf if !args.scratch => {
+                // Default: incremental evaluator (OPTIMIZATION.md #1).
+                let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
+                let (rows, mm) = run(|s| idastar_inc_with_stats(s, &inc), &instances, args.quiet);
+                (rows, mm, "korf incremental".to_string())
+            }
             HeuristicChoice::Korf => {
+                // --scratch: from-scratch combinator path, for A/B comparison.
                 let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
                 let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
-                let (rows, mm) = run(&h_korf, &instances, args.quiet);
-                (rows, mm, "korf max(additive, reflected)".to_string())
+                let (rows, mm) = run(|s| idastar_with_stats(s, &h_korf), &instances, args.quiet);
+                (rows, mm, "korf scratch max(additive, reflected)".to_string())
             }
             HeuristicChoice::KorfPlus => {
                 let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
@@ -383,7 +400,7 @@ fn main() -> ExitCode {
                     &h_korf as &dyn Heuristic,
                     &h_classical as &dyn Heuristic,
                 );
-                let (rows, mm) = run(&h_plus, &instances, args.quiet);
+                let (rows, mm) = run(|s| idastar_with_stats(s, &h_plus), &instances, args.quiet);
                 (rows, mm, "korf-plus".to_string())
             }
             HeuristicChoice::Manhattan => unreachable!(),

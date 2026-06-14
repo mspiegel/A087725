@@ -6,6 +6,28 @@ enough via its exact distance table that it matters mainly as a shared-code
 testbed; most items below are in code shared by both, or in the 15-puzzle PDB
 path.
 
+## Status (measured on the Korf-100 bench, warm page cache)
+
+Implemented so far, in order:
+
+- **#2 + #3 — table-driven move-gen + threaded blank, `debug_assert!`** (commit
+  `6598dd9`). Behavior unchanged (identical node counts). No measurable change on
+  the korf PDB workload (PDB memory latency dominates there); a controlled
+  Manhattan A/B showed ~1.2× (34.3 → 41.4 Mnodes/s) — the per-node CPU win,
+  masked under the PDB heuristic.
+- **#1 — incremental Korf evaluator** (`KorfPdbInc` + `IncHeuristic` +
+  `idastar_inc_with_stats`). Maintains each PDB's projected board for the normal
+  view (advanced by the move) and the reflected view (advanced by the transposed
+  move), so no per-node re-projection or `reflect`. Value is byte-identical to
+  the scratch `max(additive, reflected)` composition (proven by unit tests +
+  identical Korf-100 node counts). **Result: korf 1.04s → 0.42s, a ~2.5×
+  speedup (4.2 → 10.4 Mnodes/s).** A/B with `--scratch` in the bench.
+
+So the per-node re-projection/reflect cost — not just memory latency — was the
+dominant lever for the 7-8 partition. Remaining items (#4 move-ordering, #5
+duplicate-pruning FSM, #6 packed-state + transposition table) reduce *nodes* and
+stack on top.
+
 ## Headline finding: the incremental machinery exists but the search doesn't use it
 
 `ProjectedState` carries a `pos_of: [u8; 16]` table and an incremental `apply`
@@ -175,9 +197,10 @@ optimality regression test. Node counts come from `idastar_with_stats`
 — so the node metric stays stable across the incremental-h refactor (#1), letting
 you attribute its gains purely to wall-clock.
 
-Baseline at time of writing (korf heuristic, warm page cache): 100/100 optimal,
-total optimal 5305, mean 43,780 nodes/instance, ~4 Mnodes/s. That throughput is
-low for PDB IDA\* — consistent with the per-node re-projection cost #1 targets.
+Baseline (korf, warm cache, before #1): 100/100 optimal, total optimal 5305,
+mean 43,780 nodes/instance, ~4.2 Mnodes/s (1.04s). After #1 (incremental
+evaluator, default `korf` path): same nodes, ~10.4 Mnodes/s (0.42s). Use
+`--scratch` to reproduce the pre-#1 path for A/B.
 
 ## Suggested order of implementation
 

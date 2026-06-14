@@ -6,7 +6,9 @@ pub mod linear_conflict;
 pub mod walking_distance;
 
 pub use heuristic::{Heuristic, ManhattanHeuristic};
-pub use idastar::{idastar, idastar_with_stats, SearchStats};
+pub use idastar::{
+    idastar, idastar_inc_with_stats, idastar_with_stats, IncHeuristic, SearchStats,
+};
 pub use linear_conflict::LinearConflictHeuristic;
 pub use walking_distance::WalkingDistanceHeuristic;
 

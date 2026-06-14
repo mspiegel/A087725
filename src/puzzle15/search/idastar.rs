@@ -122,6 +122,105 @@ fn search<H: Heuristic>(
     Step::Bound(min_next)
 }
 
+/// A heuristic that can be advanced incrementally along a single move.
+///
+/// The plain [`Heuristic`] recomputes `h` from scratch at every node. For the
+/// PDB heuristic that means re-projecting the full board (an O(16) scan per
+/// pattern, plus a `reflect` for the Korf view) on every one of millions of
+/// nodes — wasteful, since a move changes exactly one tile. An `IncHeuristic`
+/// instead carries a small per-node context (e.g. the projected boards) that
+/// [`advance`](IncHeuristic::advance) updates in O(k) when a move is applied.
+///
+/// `Ctx` is `Copy` so the search threads it by value down the recursion;
+/// backtracking is automatic (each stack frame owns its copy).
+pub trait IncHeuristic {
+    /// Per-node carried state.
+    type Ctx: Copy;
+    /// Evaluate at the search root: `(h(start), ctx0)`.
+    fn root(&self, s: &State) -> (u8, Self::Ctx);
+    /// Given the parent's context and the move `m` just applied to reach
+    /// `child`, return `(h(child), child_ctx)`.
+    fn advance(&self, parent: &Self::Ctx, child: &State, m: Move) -> (u8, Self::Ctx);
+}
+
+/// [`idastar_with_stats`] driven by an [`IncHeuristic`]. Produces identical
+/// results to the plain version with an equivalent heuristic — only the
+/// per-node heuristic cost differs.
+pub fn idastar_inc_with_stats<E: IncHeuristic>(
+    start: &State,
+    e: &E,
+) -> (Option<Vec<Move>>, SearchStats) {
+    let mut stats = SearchStats::default();
+
+    if start == &GOAL {
+        return (Some(Vec::new()), stats);
+    }
+
+    let (h0, ctx0) = e.root(start);
+    let mut bound = h0;
+    let mut path: Vec<Move> = Vec::with_capacity(96);
+    let blank = start.blank_pos();
+
+    loop {
+        stats.iterations += 1;
+        match search_inc(start, blank, ctx0, h0, 0, bound, &mut path, None, e, &mut stats) {
+            Step::Found => return (Some(path), stats),
+            Step::Bound(next) => {
+                if next == u8::MAX {
+                    return (None, stats);
+                }
+                bound = next;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_inc<E: IncHeuristic>(
+    s: &State,
+    blank: u8,
+    ctx: E::Ctx,
+    h_val: u8,
+    g: u8,
+    bound: u8,
+    path: &mut Vec<Move>,
+    last: Option<Move>,
+    e: &E,
+    stats: &mut SearchStats,
+) -> Step {
+    stats.nodes += 1;
+    let f = g.saturating_add(h_val);
+    if f > bound {
+        return Step::Bound(f);
+    }
+    if s == &GOAL {
+        return Step::Found;
+    }
+
+    let mut min_next = u8::MAX;
+    for m in State::legal_moves_at(blank).iter() {
+        if let Some(prev) = last {
+            if m == prev.inverse() {
+                continue;
+            }
+        }
+        let (s_next, next_blank) = s.apply_at(m, blank);
+        let (child_h, child_ctx) = e.advance(&ctx, &s_next, m);
+        path.push(m);
+        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
+            Step::Found => return Step::Found,
+            Step::Bound(n) => {
+                if n < min_next {
+                    min_next = n;
+                }
+            }
+        }
+        path.pop();
+    }
+
+    Step::Bound(min_next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

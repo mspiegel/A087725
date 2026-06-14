@@ -30,4 +30,6 @@ pub mod heuristic;
 pub use pattern::{Pattern, ProjectedState, ANON};
 pub use build::{build, UNVISITED};
 pub use db::{LoadError, PatternDb};
-pub use heuristic::{AdditivePdbHeuristic, MaxHeuristic, PdbHeuristic, ReflectedHeuristic};
+pub use heuristic::{
+    AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
+};
