@@ -23,10 +23,27 @@ Implemented so far, in order:
   identical Korf-100 node counts). **Result: korf 1.04s → 0.42s, a ~2.5×
   speedup (4.2 → 10.4 Mnodes/s).** A/B with `--scratch` in the bench.
 
+Tried and **rejected on this workload** (the bench earned its keep):
+
+- **#4 — move ordering** (expand lowest-`h` child first). Implemented and
+  measured: **0.07%** fewer nodes, and wall-clock *rose* ~6% (419 → ~444 ms)
+  from the per-node sort. IDA\* with a tight heuristic visits nearly all
+  `f ≤ bound` nodes regardless of order — ordering only skips siblings *after*
+  the goal is found, a negligible fraction. Reverted.
+- **#5 / #6 — duplicate elimination (FSM / transposition table).** `don't-undo`
+  already removes every girth-2 cycle; the next duplicates are girth-12 (the
+  blank circling a 2×2 block ×3). `examples/dup_probe.rs` measures the ceiling:
+  of 4,378,068 nodes only **10.5% are redundant re-expansions** — and the FSM
+  catches only a subset of those, while a TT's per-node hash probe would erase
+  the saving exactly as #4's sort did. Not worth it at m=4. **Deferred to m=5**,
+  where depth ~150 (vs ~53) makes any branching-factor cut compound far more,
+  and where Korf used the FSM; `dup_probe` is the tool to re-confirm there.
+
 So the per-node re-projection/reflect cost — not just memory latency — was the
-dominant lever for the 7-8 partition. Remaining items (#4 move-ordering, #5
-duplicate-pruning FSM, #6 packed-state + transposition table) reduce *nodes* and
-stack on top.
+dominant lever for the 7-8 partition (#1, 2.5×). With the korf heuristic this
+directed, node-count micro-optimizations (#4/#5/#6) do **not** pay at m=4. The
+remaining real levers are at m=5 scale (24-puzzle) and in representation (#6
+packed-state mainly as a copy/compare win, not for its TT).
 
 ## Headline finding: the incremental machinery exists but the search doesn't use it
 
@@ -114,13 +131,22 @@ In the final IDA\* iteration, expand the child with the lowest `h` first. The
 first goal hit is still optimal (admissible h), but you reach it after exploring
 fewer siblings.
 
+> **Verdict (measured, m=4): rejected.** 0.07% fewer nodes, ~6% slower
+> wall-clock from the per-node sort. See the Status section.
+
 ### 5. Generalized duplicate-move pruning (Taylor–Korf FSM)
 
 The solver already prunes immediate undos (`src/puzzle15/search/idastar.rs:65`).
 The published finite-state-machine extension prunes longer redundant sequences
-(e.g. transposable move pairs that reach the same state), cutting the effective
-branching factor below the ~2.13 you get from undo-pruning alone. Pure node
-savings, optimality-preserving.
+(the smallest are girth-12: the blank circling a 2×2 block ×3), cutting the
+effective branching factor below the ~2.13 you get from undo-pruning alone. Pure
+node savings, optimality-preserving.
+
+> **Verdict (measured, m=4): deferred to m=5.** `examples/dup_probe.rs` shows
+> only 10.5% of nodes are redundant re-expansions (the ceiling), and the FSM
+> catches a subset of those while a TT pays #4-style per-node overhead. Worth
+> revisiting at 24-puzzle depth (~150), where Korf used it. See the Status
+> section.
 
 ---
 

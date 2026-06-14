@@ -55,6 +55,10 @@ required-features = ["sha"]
 name = "korf100_bench"
 required-features = ["mmap"]
 
+[[example]]
+name = "dup_probe"
+required-features = ["mmap"]
+
 [profile.release]
 lto = true
 codegen-units = 1
