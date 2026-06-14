@@ -15,24 +15,57 @@ use crate::puzzle15::state::{Move, State, GOAL};
 
 use super::heuristic::Heuristic;
 
+/// Search-effort statistics for a single IDA\* solve.
+///
+/// `nodes` counts every node visited (one [`search`] invocation, equivalently
+/// one heuristic evaluation), summed across all threshold iterations.
+/// `iterations` counts the IDA\* deepening passes. Both are the natural levers
+/// for benchmarking: incremental-heuristic and codegen changes move wall-clock
+/// at fixed `nodes`, while move-ordering and duplicate-pruning changes move
+/// `nodes` directly (see `OPTIMIZATION.md`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SearchStats {
+    /// Total nodes visited across all iterations.
+    pub nodes: u64,
+    /// Number of IDA\* threshold iterations performed.
+    pub iterations: u32,
+}
+
 /// Return an optimal move sequence from `start` to [`GOAL`].
 ///
 /// Returns `Some(vec![])` if `start == GOAL`. Returns `None` only if `start`
 /// is unreachable from `GOAL`, which is impossible for solvable states.
+///
+/// Thin wrapper over [`idastar_with_stats`] that discards the statistics.
 pub fn idastar<H: Heuristic>(start: &State, h: &H) -> Option<Vec<Move>> {
+    idastar_with_stats(start, h).0
+}
+
+/// Like [`idastar`], but also returns the [`SearchStats`] for the run.
+///
+/// The node counter adds one `u64` increment per node — negligible against the
+/// per-node heuristic evaluation and successor generation — so callers that
+/// don't need stats can use [`idastar`] without measurable cost.
+pub fn idastar_with_stats<H: Heuristic>(
+    start: &State,
+    h: &H,
+) -> (Option<Vec<Move>>, SearchStats) {
+    let mut stats = SearchStats::default();
+
     if start == &GOAL {
-        return Some(Vec::new());
+        return (Some(Vec::new()), stats);
     }
 
     let mut bound = h.h(start);
     let mut path: Vec<Move> = Vec::with_capacity(96);
 
     loop {
-        match search(start, 0, bound, &mut path, None, h) {
-            Step::Found => return Some(path),
+        stats.iterations += 1;
+        match search(start, 0, bound, &mut path, None, h, &mut stats) {
+            Step::Found => return (Some(path), stats),
             Step::Bound(next) => {
                 if next == u8::MAX {
-                    return None;
+                    return (None, stats);
                 }
                 bound = next;
             }
@@ -53,7 +86,9 @@ fn search<H: Heuristic>(
     path: &mut Vec<Move>,
     last: Option<Move>,
     h: &H,
+    stats: &mut SearchStats,
 ) -> Step {
+    stats.nodes += 1;
     let f = g.saturating_add(h.h(s));
     if f > bound {
         return Step::Bound(f);
@@ -71,7 +106,7 @@ fn search<H: Heuristic>(
         }
         let s_next = s.apply(m);
         path.push(m);
-        match search(&s_next, g + 1, bound, path, Some(m), h) {
+        match search(&s_next, g + 1, bound, path, Some(m), h, stats) {
             Step::Found => return Step::Found,
             Step::Bound(n) => {
                 if n < min_next {
@@ -95,6 +130,24 @@ mod tests {
     fn solves_goal_with_empty_path() {
         let sol = idastar(&GOAL, &ManhattanHeuristic).unwrap();
         assert!(sol.is_empty());
+    }
+
+    #[test]
+    fn stats_match_plain_idastar_and_count_work() {
+        // GOAL: solved before any search node is visited.
+        let (sol, stats) = idastar_with_stats(&GOAL, &ManhattanHeuristic);
+        assert_eq!(sol.unwrap().len(), 0);
+        assert_eq!(stats.nodes, 0);
+        assert_eq!(stats.iterations, 0);
+
+        // A non-trivial state: at least one iteration, at least one node, and
+        // the returned path must match the stats-free wrapper exactly.
+        let s = GOAL.apply(Move::Up).apply(Move::Left).apply(Move::Up);
+        let (sol_s, stats_s) = idastar_with_stats(&s, &ManhattanHeuristic);
+        let plain = idastar(&s, &ManhattanHeuristic).unwrap();
+        assert_eq!(sol_s.unwrap(), plain);
+        assert!(stats_s.iterations >= 1);
+        assert!(stats_s.nodes >= 1);
     }
 
     #[test]

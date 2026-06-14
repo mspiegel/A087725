@@ -51,6 +51,10 @@ required-features = ["sha"]
 name = "build_adj8"
 required-features = ["sha"]
 
+[[example]]
+name = "korf100_bench"
+required-features = ["mmap"]
+
 [profile.release]
 lto = true
 codegen-units = 1
