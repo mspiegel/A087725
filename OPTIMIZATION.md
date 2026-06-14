@@ -45,6 +45,34 @@ directed, node-count micro-optimizations (#4/#5/#6) do **not** pay at m=4. The
 remaining real levers are at m=5 scale (24-puzzle) and in representation (#6
 packed-state mainly as a copy/compare win, not for its TT).
 
+### Profile (samply, 10 warm iterations, arm64)
+
+Self-time of the default `korf` solve splits cleanly (99.8% in our code, CPU-bound):
+
+| self% | function | cost |
+|---:|---|---|
+| ~50% | `KorfPdbInc::value` | the 4 PDB lookups/node: `rank()` (`count_ones` loop) + the random table load |
+| ~29% | `search_inc` | recursion, `apply_at`, `s == GOAL` compare, move-gen |
+| ~21% | `ProjectedState::apply` | the incremental projected-board advance (×4/node) |
+
+Two profile-suggested tweaks were **tried and rejected (measured)**:
+
+- **Port the `NEIGHBOR` table into `ProjectedState::apply`** (the 21% line):
+  **~4% slower** (423 → 440 ms), reverted. Reason: `W = 4` is a power of two, so
+  the apparent `div`/`mod` already compiles to a shift + mask (free); the real
+  21% is the two 16-byte array copies (`cells` + `pos_of`) per call, inherent to
+  the immutable `Copy` context. Only a **packed `ProjectedState`** (#6-style)
+  would shrink that — a bigger change, deferred.
+- **#7 `target-cpu=native`**: **neutral** on arm64 (no measurable change).
+  `count_ones()` already lowers to baseline ARMv8 `CNT`/`ADDV`, so there's no
+  POPCNT-style win like on x86. Not committed (a forced `.cargo/config.toml`
+  hurts build reproducibility for zero gain here); enable via `RUSTFLAGS` on an
+  x86 build host if ever relevant.
+
+Takeaway: at m=4 the korf solver is at a local optimum — `value` (rank + PDB
+load) and the projected-board copies dominate, and both resist cheap fixes. The
+next real gains are structural (packed representation) or at m=5 scale.
+
 ## Headline finding: the incremental machinery exists but the search doesn't use it
 
 `ProjectedState` carries a `pos_of: [u8; 16]` table and an incremental `apply`
@@ -175,6 +203,11 @@ Determinism / SHA pinning is safe — POPCNT returns identical values, and the P
 bytes are arithmetic-deterministic regardless of target. Consider
 `panic = "abort"` in the release profile too (smaller, no unwind tables).
 `lto = true, codegen-units = 1` are already set — good.
+
+> **Verdict (measured, arm64): neutral, not committed.** On Apple Silicon
+> `count_ones()` already lowers to baseline `CNT`/`ADDV`, so there was no
+> measurable change. The POPCNT argument is x86-specific. See the Status
+> section.
 
 ---
 
