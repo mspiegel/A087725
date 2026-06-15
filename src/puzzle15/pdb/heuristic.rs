@@ -141,7 +141,12 @@ impl<A: Heuristic, B: Heuristic> Heuristic for MaxHeuristic<A, B> {
 /// [`MaxHeuristic`]-of-[`AdditivePdbHeuristic`] composition; only the per-node
 /// cost differs.
 pub struct KorfPdbInc<'a, const N: usize> {
-    dbs: [&'a PatternDb; N],
+    /// Each PDB's pattern (cached so `value`/`root` don't re-read it).
+    patterns: [Pattern; N],
+    /// Each PDB's distance slice, cached once. Avoids recomputing
+    /// `Storage::dist()` (`&mmap[HEADER..]`, a length-checked re-slice) on every
+    /// lookup — profiling showed that re-slice running 4× per node.
+    dist: [&'a [u8]; N],
 }
 
 /// Per-node context for [`KorfPdbInc`]: each PDB's projected board in the normal
@@ -162,7 +167,10 @@ impl<'a, const N: usize> KorfPdbInc<'a, N> {
             assert_eq!(union & p, 0, "additive PDB patterns must be disjoint");
             union |= p;
         }
-        Self { dbs }
+        Self {
+            patterns: std::array::from_fn(|i| dbs[i].pattern()),
+            dist: std::array::from_fn(|i| dbs[i].raw()),
+        }
     }
 
     #[inline]
@@ -170,8 +178,18 @@ impl<'a, const N: usize> KorfPdbInc<'a, N> {
         let mut hn: u32 = 0;
         let mut hr: u32 = 0;
         for i in 0..N {
-            hn += self.dbs[i].value(&ctx.normal[i]) as u32;
-            hr += self.dbs[i].value(&ctx.reflected[i]) as u32;
+            let p = self.patterns[i];
+            let d = self.dist[i];
+            let rn = ctx.normal[i].rank(p) as usize;
+            let rr = ctx.reflected[i].rank(p) as usize;
+            // SAFETY: `rank()` is in `[0, num_projected_states)`, and
+            // `d.len() == num_projected_states` by the PDB construction
+            // invariant (asserted in `PatternDb::from_dist` / `load*`). So both
+            // indices are in bounds; this elides the per-lookup bounds check
+            // profiling flagged in the hot path.
+            debug_assert!(rn < d.len() && rr < d.len());
+            hn += unsafe { *d.get_unchecked(rn) } as u32;
+            hr += unsafe { *d.get_unchecked(rr) } as u32;
         }
         // 15-puzzle diameter 80 ≪ 255; clamp is defensive.
         hn.max(hr).min(u8::MAX as u32) as u8
@@ -184,9 +202,9 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
     fn root(&self, s: &State) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let ctx = KorfCtx {
-            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
             reflected: std::array::from_fn(|i| {
-                ProjectedState::from_state(&rs, self.dbs[i].pattern())
+                ProjectedState::from_state(&rs, self.patterns[i])
             }),
         };
         (self.value(&ctx), ctx)
@@ -211,9 +229,9 @@ impl<'a, const N: usize> IncHeuristicMut for KorfPdbInc<'a, N> {
     fn root(&self, s: &State) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let ctx = KorfCtx {
-            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
             reflected: std::array::from_fn(|i| {
-                ProjectedState::from_state(&rs, self.dbs[i].pattern())
+                ProjectedState::from_state(&rs, self.patterns[i])
             }),
         };
         (self.value(&ctx), ctx)

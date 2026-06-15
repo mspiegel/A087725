@@ -70,8 +70,32 @@ Two profile-suggested tweaks were **tried and rejected (measured)**:
   x86 build host if ever relevant.
 
 Takeaway: at m=4 the korf solver is at a local optimum — `value` (rank + PDB
-load) and the projected-board copies dominate, and both resist cheap fixes. The
-next real gains are structural (packed representation) or at m=5 scale.
+load) and the projected-board copies dominate.
+
+### Binary inspection (llvm-objdump) — two real wins the source hid
+
+Disassembling `value` (the 50% function) showed `count_ones` already lowers to
+`cnt.8b`/`addv.8b` (optimal — confirms `target-cpu=native` can't help), but also
+two pure-overhead patterns, each **4× per node**:
+
+1. **Redundant mmap re-slice.** Every PDB lookup recomputed `Storage::dist()`
+   (`&mmap[HEADER..]`) — a length-checked re-slice + pointer adjust — even though
+   it's invariant. Fixed: `KorfPdbInc` caches each PDB's `dist: &[u8]` (and
+   `Pattern`) at construction.
+2. **Bounds check on `dist[rank]`.** Replaced with `get_unchecked` — sound
+   because `rank() ∈ [0, num_projected_states) == dist.len()` by the PDB
+   construction invariant (debug-asserted).
+
+Measured (Korf-100, warm): **~424 → ~409 ms (Copy path), ~3–4%**; identical node
+counts, 100/100 optimal. Stacks with `--mut`: combined **~396 ms, 11.0 Mnodes/s**.
+
+`ProjectedState::apply` (21% bucket) has the same pattern — 3 bounds checks
+(`cells[n]`, swap index, `pos_of[swapped]`), all on indices `< 16` — but the
+vectorized copy dominates that bucket (the checks are ~1%), and `apply` is on the
+SHA-pinned PDB-build path, so `unsafe` there isn't worth ~1%. Left as-is.
+
+Net: the genuinely *next* gains remain structural (packed representation) or at
+m=5 scale, but binary inspection still found a clean ~4%.
 
 ## Headline finding: the incremental machinery exists but the search doesn't use it
 
