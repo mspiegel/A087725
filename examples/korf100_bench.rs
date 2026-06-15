@@ -38,8 +38,8 @@ use puzzle8::puzzle15::pdb::{
     AdditivePdbHeuristic, KorfPdbInc, MaxHeuristic, PatternDb, ReflectedHeuristic,
 };
 use puzzle8::puzzle15::search::{
-    idastar_inc_with_stats, idastar_with_stats, Heuristic, LinearConflictHeuristic,
-    ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
+    idastar_inc_mut_with_stats, idastar_inc_with_stats, idastar_with_stats, Heuristic,
+    LinearConflictHeuristic, ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle15::state::{Move, State, GOAL, N_CELLS};
 
@@ -63,6 +63,9 @@ struct Args {
     /// Force the from-scratch heuristic path even for `korf` (which otherwise
     /// uses the incremental [`KorfPdbInc`] evaluator). For A/B measurement.
     scratch: bool,
+    /// Use the mutable make/unmake context for the `korf` incremental path
+    /// instead of the `Copy` context. For A/B measurement.
+    mut_ctx: bool,
 }
 
 struct Instance {
@@ -87,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
     let mut limit: Option<usize> = None;
     let mut quiet = false;
     let mut scratch = false;
+    let mut mut_ctx = false;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -121,13 +125,14 @@ fn parse_args() -> Result<Args, String> {
             }
             "--quiet" => quiet = true,
             "--scratch" => scratch = true,
+            "--mut" => mut_ctx = true,
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
         i += 1;
     }
 
-    Ok(Args { pdb_dir, instances, heuristic, limit, quiet, scratch })
+    Ok(Args { pdb_dir, instances, heuristic, limit, quiet, scratch, mut_ctx })
 }
 
 /// Convert a Korf-convention board (blank top-left, value == cell index in the
@@ -337,7 +342,7 @@ fn main() -> ExitCode {
         Err(e) => {
             if e == "help" {
                 eprintln!("usage: korf100_bench [--pdb-dir DIR] [--instances FILE] \
-                           [--heuristic korf|korf-plus|additive|manhattan] [--limit N] [--quiet] [--scratch]");
+                           [--heuristic korf|korf-plus|additive|manhattan] [--limit N] [--quiet] [--scratch] [--mut]");
                 return ExitCode::SUCCESS;
             }
             eprintln!("error: {}", e);
@@ -378,8 +383,15 @@ fn main() -> ExitCode {
             HeuristicChoice::Korf if !args.scratch => {
                 // Default: incremental evaluator (OPTIMIZATION.md #1).
                 let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
-                let (rows, mm) = run(|s| idastar_inc_with_stats(s, &inc), &instances, args.quiet);
-                (rows, mm, "korf incremental".to_string())
+                if args.mut_ctx {
+                    let (rows, mm) =
+                        run(|s| idastar_inc_mut_with_stats(s, &inc), &instances, args.quiet);
+                    (rows, mm, "korf incremental (mutable ctx)".to_string())
+                } else {
+                    let (rows, mm) =
+                        run(|s| idastar_inc_with_stats(s, &inc), &instances, args.quiet);
+                    (rows, mm, "korf incremental (copy ctx)".to_string())
+                }
             }
             HeuristicChoice::Korf => {
                 // --scratch: from-scratch combinator path, for A/B comparison.

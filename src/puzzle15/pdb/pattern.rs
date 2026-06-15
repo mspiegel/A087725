@@ -236,6 +236,45 @@ impl ProjectedState {
         (ProjectedState { cells, pos_of }, cost)
     }
 
+    /// In-place variant of [`apply`](Self::apply) for make/unmake search: mutate
+    /// this board by `m` without allocating a new one (no `cells`/`pos_of` copy).
+    ///
+    /// Since `apply` is an involution under move inversion, `apply_in_place(m)`
+    /// followed by `apply_in_place(m.inverse())` restores the original — that is
+    /// how a mutable-context search undoes a move on backtrack. The projected
+    /// edge cost is discarded (the heuristic value doesn't use it).
+    #[inline]
+    pub fn apply_in_place(&mut self, m: Move) {
+        let b = self.pos_of[0] as usize;
+        let br = b / W;
+        let bc = b % W;
+        let (nr, nc) = match m {
+            Move::Up => {
+                debug_assert!(br > 0);
+                (br - 1, bc)
+            }
+            Move::Down => {
+                debug_assert!(br < W - 1);
+                (br + 1, bc)
+            }
+            Move::Left => {
+                debug_assert!(bc > 0);
+                (br, bc - 1)
+            }
+            Move::Right => {
+                debug_assert!(bc < W - 1);
+                (br, bc + 1)
+            }
+        };
+        let n = nr * W + nc;
+        let swapped = self.cells[n];
+        self.cells.swap(b, n);
+        self.pos_of[0] = n as u8;
+        if swapped != ANON {
+            self.pos_of[swapped as usize] = b as u8;
+        }
+    }
+
     /// PDB index in `[0, pattern.num_projected_states())`.
     ///
     /// Visits the `k` pattern tiles in ascending tile-value order, recording

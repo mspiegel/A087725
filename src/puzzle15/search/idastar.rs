@@ -221,6 +221,100 @@ fn search_inc<E: IncHeuristic>(
     Step::Bound(min_next)
 }
 
+/// Make/unmake variant of [`IncHeuristic`] (OPTIMIZATION.md prototype): instead
+/// of producing a fresh `Copy` context per node, the search threads a single
+/// `&mut Ctx`, mutating it in place before recursing and undoing on backtrack.
+/// This avoids the per-node context copy that profiling attributed ~21% of
+/// solve time to (`ProjectedState::apply`'s array copies).
+pub trait IncHeuristicMut {
+    /// Per-node carried state (mutated in place; need not be `Copy`).
+    type Ctx;
+    /// Evaluate at the search root: `(h(start), ctx0)`.
+    fn root(&self, s: &State) -> (u8, Self::Ctx);
+    /// Mutate `ctx` by applying move `m`; return `h` of the resulting child.
+    fn make(&self, ctx: &mut Self::Ctx, m: Move) -> u8;
+    /// Undo the most recent [`make`](Self::make) of `m`, restoring `ctx`.
+    fn unmake(&self, ctx: &mut Self::Ctx, m: Move);
+}
+
+/// [`idastar_inc_with_stats`] using a mutable make/unmake context.
+pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
+    start: &State,
+    e: &E,
+) -> (Option<Vec<Move>>, SearchStats) {
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (Some(Vec::new()), stats);
+    }
+    let (h0, mut ctx) = e.root(start);
+    let mut bound = h0;
+    let mut path: Vec<Move> = Vec::with_capacity(96);
+    let blank = start.blank_pos();
+    loop {
+        stats.iterations += 1;
+        // `ctx` is restored to the root projection after each iteration because
+        // `search_inc_mut` unmakes every move it makes.
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, &mut path, None, e, &mut stats) {
+            Step::Found => return (Some(path), stats),
+            Step::Bound(next) => {
+                if next == u8::MAX {
+                    return (None, stats);
+                }
+                bound = next;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_inc_mut<E: IncHeuristicMut>(
+    s: &State,
+    blank: u8,
+    ctx: &mut E::Ctx,
+    h_val: u8,
+    g: u8,
+    bound: u8,
+    path: &mut Vec<Move>,
+    last: Option<Move>,
+    e: &E,
+    stats: &mut SearchStats,
+) -> Step {
+    stats.nodes += 1;
+    let f = g.saturating_add(h_val);
+    if f > bound {
+        return Step::Bound(f);
+    }
+    if s == &GOAL {
+        return Step::Found;
+    }
+
+    let mut min_next = u8::MAX;
+    for m in State::legal_moves_at(blank).iter() {
+        if let Some(prev) = last {
+            if m == prev.inverse() {
+                continue;
+            }
+        }
+        let (s_next, next_blank) = s.apply_at(m, blank);
+        let child_h = e.make(ctx, m);
+        path.push(m);
+        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
+            // On Found, keep the accumulated path and return; the whole search
+            // terminates so `ctx` is discarded (no need to unmake).
+            Step::Found => return Step::Found,
+            Step::Bound(n) => {
+                path.pop();
+                e.unmake(ctx, m); // restore path + ctx for the next sibling
+                if n < min_next {
+                    min_next = n;
+                }
+            }
+        }
+    }
+
+    Step::Bound(min_next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

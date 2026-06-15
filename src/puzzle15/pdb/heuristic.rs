@@ -14,7 +14,7 @@
 
 use super::db::PatternDb;
 use super::pattern::{Pattern, ProjectedState};
-use crate::puzzle15::search::{Heuristic, IncHeuristic};
+use crate::puzzle15::search::{Heuristic, IncHeuristic, IncHeuristicMut};
 use crate::puzzle15::state::{Move, State};
 use crate::puzzle15::symmetry::{reflect, transpose_move};
 
@@ -202,6 +202,42 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
     }
 }
 
+/// Make/unmake variant — same heuristic value, but mutates the projected boards
+/// in place instead of copying a fresh context per node. A/B against the `Copy`
+/// path with `korf100_bench --mut`.
+impl<'a, const N: usize> IncHeuristicMut for KorfPdbInc<'a, N> {
+    type Ctx = KorfCtx<N>;
+
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let rs = reflect(s);
+        let ctx = KorfCtx {
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
+            reflected: std::array::from_fn(|i| {
+                ProjectedState::from_state(&rs, self.dbs[i].pattern())
+            }),
+        };
+        (self.value(&ctx), ctx)
+    }
+
+    fn make(&self, ctx: &mut Self::Ctx, m: Move) -> u8 {
+        let tm = transpose_move(m);
+        for i in 0..N {
+            ctx.normal[i].apply_in_place(m);
+            ctx.reflected[i].apply_in_place(tm);
+        }
+        self.value(ctx)
+    }
+
+    fn unmake(&self, ctx: &mut Self::Ctx, m: Move) {
+        let im = m.inverse();
+        let tim = transpose_move(im);
+        for i in 0..N {
+            ctx.normal[i].apply_in_place(im);
+            ctx.reflected[i].apply_in_place(tim);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,7 +370,7 @@ mod tests {
         let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
         let mut s = GOAL;
         for i in 0u32..3000 {
-            let (h_inc, _) = inc.root(&s);
+            let (h_inc, _) = IncHeuristic::root(&inc, &s);
             assert_eq!(h_inc, h_korf.h(&s), "inc.root != scratch korf at {:?}", s.0);
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
@@ -359,7 +395,7 @@ mod tests {
 
         let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
         let mut s = GOAL;
-        let (_, mut ctx) = inc.root(&s);
+        let (_, mut ctx) = IncHeuristic::root(&inc, &s);
         for i in 0u32..3000 {
             let mut chosen = None;
             for k in 0u32..4 {
@@ -372,10 +408,38 @@ mod tests {
             let m = chosen.unwrap();
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = inc.root(&ns);
+            let (h_fresh, _) = IncHeuristic::root(&inc, &ns);
             assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {}", i);
             s = ns;
             ctx = ctx_adv;
+        }
+    }
+
+    #[test]
+    fn korf_inc_mut_matches_immutable_path() {
+        // The make/unmake search must produce identical results (path, length,
+        // node count) to the Copy-context search with the same evaluator —
+        // validates make/unmake correctness and undo-on-backtrack.
+        use crate::puzzle15::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        let dbs = [
+            PatternDb::build(Pattern::new(&[1, 2, 3, 4])),
+            PatternDb::build(Pattern::new(&[5, 6, 7, 8])),
+        ];
+        let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
+        let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
+        let mut s = GOAL;
+        for seed in 0..12u32 {
+            let (a_sol, a_st) = idastar_inc_with_stats(&s, &inc);
+            let (b_sol, b_st) = idastar_inc_mut_with_stats(&s, &inc);
+            assert_eq!(a_sol, b_sol, "paths differ at depth {}", seed);
+            assert_eq!(a_st.nodes, b_st.nodes, "node counts differ at depth {}", seed);
+            for k in 0..4 {
+                let m = pseudo(seed.wrapping_add(k));
+                if s.legal_moves().contains(m) {
+                    s = s.apply(m);
+                    break;
+                }
+            }
         }
     }
 }
