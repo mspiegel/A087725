@@ -140,6 +140,21 @@ impl ProjectedState {
         Self::from_state(&GOAL, pattern)
     }
 
+    /// Build directly from a projection array (`0` = blank, [`ANON`] = filler,
+    /// otherwise a pattern tile value), recomputing `pos_of`. Used by the
+    /// zero-aware region BFS, which constructs successor projections by hand.
+    pub fn from_projection(cells: [u8; N_CELLS]) -> Self {
+        let mut pos_of = [0u8; N_CELLS];
+        for (c, &v) in cells.iter().enumerate() {
+            if v == 0 {
+                pos_of[0] = c as u8;
+            } else if v != ANON {
+                pos_of[v as usize] = c as u8;
+            }
+        }
+        ProjectedState { cells, pos_of }
+    }
+
     #[inline]
     pub fn blank_pos(&self) -> u8 {
         self.pos_of[0]

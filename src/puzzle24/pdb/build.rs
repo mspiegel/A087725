@@ -33,9 +33,14 @@ pub fn build(pattern: Pattern) -> Vec<u8> {
     let mut depth: u8 = 0;
 
     loop {
-        // (1) 0-cost closure within depth `d`.
-        let mut work: Vec<ProjectedState> = frontier_d.clone();
-        while let Some(s) = work.pop() {
+        // (1) 0-cost closure within depth `d`. Process `frontier_d` in place by
+        // index, appending newly-found states — no `work` clone (OPTIMIZATION.md
+        // #9). All closure states share `depth`, so traversal order does not
+        // affect the output arrays.
+        let mut i = 0;
+        while i < frontier_d.len() {
+            let s = frontier_d[i];
+            i += 1;
             for m in s.legal_moves().iter() {
                 let (s_next, cost) = s.apply(m);
                 if cost != 0 {
@@ -48,7 +53,6 @@ pub fn build(pattern: Pattern) -> Vec<u8> {
                     if pdb[pdb_r] == UNVISITED {
                         pdb[pdb_r] = depth;
                     }
-                    work.push(s_next);
                     frontier_d.push(s_next);
                 }
             }
@@ -187,9 +191,12 @@ mod parallel {
         let mut depth: u8 = 0;
 
         loop {
-            // (1) 0-cost closure within depth `d` — single-threaded.
-            let mut work = frontier_d.clone();
-            while let Some(s) = work.pop() {
+            // (1) 0-cost closure within depth `d` — single-threaded, in place by
+            // index (OPTIMIZATION.md #9: no `work` clone).
+            let mut i = 0;
+            while i < frontier_d.len() {
+                let s = frontier_d[i];
+                i += 1;
                 for m in s.legal_moves().iter() {
                     let (s_next, cost) = s.apply(m);
                     if cost != 0 {
@@ -200,7 +207,6 @@ mod parallel {
                     if prev == UNVISITED {
                         let pdb_r = s_next.rank(pattern) as usize;
                         pdb[pdb_r].fetch_min(depth, Ordering::Relaxed);
-                        work.push(s_next);
                         frontier_d.push(s_next);
                     }
                 }

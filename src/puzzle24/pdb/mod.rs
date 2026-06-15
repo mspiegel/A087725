@@ -14,6 +14,7 @@ pub mod build;
 pub mod db;
 pub mod heuristic;
 pub mod pattern;
+pub mod zbuild;
 pub mod zpdb;
 
 pub use build::{build, UNVISITED};
