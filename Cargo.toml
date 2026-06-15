@@ -19,6 +19,8 @@ mmap = ["dep:memmap2"]
 sha = ["dep:sha2"]
 # Umbrella enabling the full 15-puzzle CLI surface.
 puzzle15 = ["parallel", "mmap"]
+# Umbrella enabling the full 24-puzzle CLI surface.
+puzzle24 = ["parallel", "mmap"]
 
 [dependencies]
 rayon = { version = "1.10", optional = true }
@@ -33,6 +35,14 @@ required-features = ["parallel", "mmap", "sha"]
 
 [[bin]]
 name = "solve15"
+required-features = ["mmap"]
+
+[[bin]]
+name = "build_pdb24"
+required-features = ["parallel", "mmap", "sha"]
+
+[[bin]]
+name = "solve24"
 required-features = ["mmap"]
 
 [[bin]]

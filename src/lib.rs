@@ -7,8 +7,11 @@
 //!
 //! - [`puzzle8`] — the verified 8-puzzle (3×3) implementation. Frozen
 //!   reference; not expected to change as the project scales up.
-//! - `puzzle15` — coming in Milestone 3, lifting the proven 8-puzzle
-//!   techniques to the 15-puzzle (4×4) at ~10.46 trillion states.
+//! - [`puzzle15`] — the 15-puzzle (4×4) at ~10.46 trillion states: IDA\* +
+//!   additive pattern databases (Milestone 3).
+//! - [`puzzle24`] — the 24-puzzle (5×5), Milestone 5: zero-aware PDBs toward
+//!   tightening the open `[152, 205]` STM diameter bounds.
 
 pub mod puzzle8;
 pub mod puzzle15;
+pub mod puzzle24;
