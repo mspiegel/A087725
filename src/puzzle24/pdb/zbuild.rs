@@ -369,6 +369,8 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "runs the OLD blank-cell build::build oracle over P(25,5)=6.4M states (~13s); \
+                run with `cargo test -- --ignored`. The k=2/k=3 gates verify the new build on every run."]
     fn zpdb_additive_projection_matches_build_k4() {
         assert_matches_additive(Pattern::new(&[2, 5, 8, 11]));
     }

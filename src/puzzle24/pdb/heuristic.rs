@@ -269,6 +269,8 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "builds two 4-tile blank-cell PDBs (~14s); run with `cargo test -- --ignored`. \
+                The faster k=3 sibling covers advance==reprojection on every run."]
     fn korf_inc_advance_matches_reprojection() {
         let dbs = [
             PatternDb::build(Pattern::new(&[2, 5, 8, 11])),
