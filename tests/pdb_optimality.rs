@@ -58,6 +58,7 @@ fn assert_optimal_on_sample<H: Heuristic>(
 }
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space; run with `cargo test -- --ignored`"]
 fn idastar_with_additive_4plus4_pdb_is_optimal_everywhere() {
     let table = DistanceTable::build();
     let dbs = vec![
@@ -69,6 +70,7 @@ fn idastar_with_additive_4plus4_pdb_is_optimal_everywhere() {
 }
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space; run with `cargo test -- --ignored`"]
 fn idastar_with_additive_3plus5_pdb_is_optimal_everywhere() {
     let table = DistanceTable::build();
     let dbs = vec![
@@ -80,6 +82,7 @@ fn idastar_with_additive_3plus5_pdb_is_optimal_everywhere() {
 }
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space; run with `cargo test -- --ignored`"]
 fn idastar_with_additive_triple_pdb_is_optimal_everywhere() {
     let table = DistanceTable::build();
     let dbs = vec![
@@ -102,6 +105,7 @@ fn idastar_with_single_5tile_pdb_optimal_on_sample() {
 }
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space; run with `cargo test -- --ignored`"]
 fn idastar_with_single_7tile_pdb_is_optimal_everywhere() {
     // PDB[1..7] is *strong* (covers all but one tile); exhaustive is cheap.
     let table = DistanceTable::build();

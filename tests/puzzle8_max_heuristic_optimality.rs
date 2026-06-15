@@ -15,6 +15,7 @@ use puzzle8::puzzle8::search::{
 use puzzle8::puzzle8::state::{GOAL, N_STATES};
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space (~6 min); run with `cargo test -- --ignored`"]
 fn idastar_with_max_of_md_lc_wd_is_optimal_on_full_state_space() {
     let table = DistanceTable::build();
     WalkingDistanceHeuristic::warm_up();

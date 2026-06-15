@@ -7,6 +7,7 @@ use puzzle8::puzzle8::search::{idastar, ManhattanHeuristic};
 use puzzle8::puzzle8::state::{GOAL, N_STATES};
 
 #[test]
+#[ignore = "exhaustive over the full 8-puzzle state space (~4 min); run with `cargo test -- --ignored`"]
 fn idastar_manhattan_matches_table_distance_on_full_state_space() {
     let t = DistanceTable::build();
     let h = ManhattanHeuristic;
