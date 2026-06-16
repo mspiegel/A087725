@@ -14,7 +14,7 @@
 //! this whole construction.
 
 use super::pattern::{Pattern, ProjectedState, ANON};
-use super::zpdb::{regions, ZpdbLayout, OCCUPIED};
+use super::zpdb::ZpdbLayout;
 use crate::puzzle24::state::{N_CELLS, W};
 
 /// "Not yet visited" sentinel during construction.
@@ -100,33 +100,16 @@ pub fn build_zpdb(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
     let layout = ZpdbLayout::new(pattern);
     let mut dist = vec![UNVISITED; layout.total() as usize];
 
-    // Seed: pattern tiles home with the blank in *every* region is distance 0.
+    // Seed: ONLY the single goal state (pattern tiles home, blank at its goal
+    // cell) is distance 0 — exactly the additive build's seed, so that
+    // `min_r ZPDB(C,r) == additive(C)`. Seeding the blank in *every* goal region
+    // makes the blank free and collapses every region of every config to the
+    // blank-agnostic value, breaking the invariant on multi-region goals.
+    // (24-puzzle k=6 goals are single-region, so this matches the old behaviour
+    // here; the fix matters for multi-region goals — see puzzle15 k=8.)
     let goal = ProjectedState::goal(pattern);
-    let occ = occupied_mask(&goal);
-    let (count, labels) = regions(occ);
-    let mut base = [ANON; N_CELLS];
-    for (c, &v) in goal.cells.iter().enumerate() {
-        if v != 0 && v != ANON {
-            base[c] = v;
-        }
-    }
-    let mut rep = vec![usize::MAX; count as usize];
-    for (c, &l) in labels.iter().enumerate() {
-        if l != OCCUPIED && rep[l as usize] == usize::MAX {
-            rep[l as usize] = c;
-        }
-    }
-    let mut frontier: Vec<ProjectedState> = Vec::new();
-    for &rc in &rep {
-        let mut nc = base;
-        nc[rc] = 0;
-        let ps = ProjectedState::from_projection(nc);
-        let idx = layout.rank(&ps, pattern) as usize;
-        if dist[idx] == UNVISITED {
-            dist[idx] = 0;
-            frontier.push(ps);
-        }
-    }
+    dist[layout.rank(&goal, pattern) as usize] = 0;
+    let mut frontier: Vec<ProjectedState> = vec![goal];
 
     // Layer-synchronous BFS; every edge has cost 1 (no 0-cost closure).
     let mut depth: u8 = 0;
@@ -168,31 +151,10 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
         .collect();
 
     // Seed all regions of the goal config at distance 0 (single-threaded; ≤5).
+    // Seed ONLY the single goal state (see `build_zpdb`).
     let goal = ProjectedState::goal(pattern);
-    let occ = occupied_mask(&goal);
-    let (count, labels) = layout.regions_for(occ);
-    let mut base = [ANON; N_CELLS];
-    for (c, &v) in goal.cells.iter().enumerate() {
-        if v != 0 && v != ANON {
-            base[c] = v;
-        }
-    }
-    let mut rep = vec![usize::MAX; count as usize];
-    for (c, &l) in labels.iter().enumerate() {
-        if l != OCCUPIED && rep[l as usize] == usize::MAX {
-            rep[l as usize] = c;
-        }
-    }
-    let mut frontier: Vec<ProjectedState> = Vec::new();
-    for &rc in &rep {
-        let mut nc = base;
-        nc[rc] = 0;
-        let ps = ProjectedState::from_projection(nc);
-        let idx = layout.rank(&ps, pattern) as usize;
-        if dist[idx].swap(0, Ordering::Relaxed) == UNVISITED {
-            frontier.push(ps);
-        }
-    }
+    dist[layout.rank(&goal, pattern) as usize].store(0, Ordering::Relaxed);
+    let mut frontier: Vec<ProjectedState> = vec![goal];
 
     let mut depth: u8 = 0;
     while !frontier.is_empty() {
@@ -226,6 +188,7 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::zpdb::{regions, OCCUPIED};
     use crate::puzzle24::pdb::build;
 
     /// Enumerate every placement of the `k` pattern tiles (ascending value) onto
@@ -376,6 +339,41 @@ mod tests {
                 run with `cargo test -- --ignored`. The k=2/k=3 gates verify the new build on every run."]
     fn zpdb_additive_projection_matches_build_k4() {
         assert_matches_additive(Pattern::new(&[2, 5, 8, 11]));
+    }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    #[ignore = "k=6 production-partition dominance check (~15-25 min, ~3 GB); \
+                run with `cargo test --release --features parallel,mmap -- --ignored --nocapture zpdb_matches_additive_k6`"]
+    fn zpdb_matches_additive_k6_part_a() {
+        // Mirrors assert_matches_additive at the production k=6 size, using the
+        // parallel builds, and REPORTS the violation count/magnitude instead of just
+        // panicking — to detect the gen_moves over-permissiveness bug found on the
+        // 15-puzzle at k=8 (admissible but min_r ZPDB < additive on multi-region configs).
+        let pattern = Pattern::new(&[1, 2, 3, 6, 7, 8]);
+        let (dist, layout) = build_zpdb_parallel(pattern);
+        let projected = project_additive(pattern, &dist, &layout);
+        let reference = build::build_parallel(pattern);
+        assert_eq!(projected.len(), reference.len(), "additive sizes differ");
+        let mut violations = 0usize;
+        let mut max_deficit = 0i32;
+        let mut shown = 0;
+        for (i, (&p, &r)) in projected.iter().zip(reference.iter()).enumerate() {
+            if p != r {
+                violations += 1;
+                let deficit = r as i32 - p as i32;
+                max_deficit = max_deficit.max(deficit);
+                if shown < 8 {
+                    eprintln!("  config rank {}: min_r ZPDB = {}, additive = {} (ZPDB too low by {})", i, p, r, deficit);
+                    shown += 1;
+                }
+            }
+        }
+        eprintln!(
+            "k=6 part a [1,2,3,6,7,8]: {} / {} configs violate (min_r ZPDB == additive); max deficit {}",
+            violations, projected.len(), max_deficit,
+        );
+        assert_eq!(violations, 0, "ZPDB build is NOT dominance-correct at k=6 ({} violations)", violations);
     }
 
     #[test]
