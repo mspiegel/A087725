@@ -192,17 +192,23 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
 
 /// Incremental zero-aware-PDB Korf-max heuristic:
 /// `max(zpdb(s), zpdb(reflect(s)))` over `N` pairwise-disjoint ZPDBs. Per-node
-/// context tracks each PDB's projected board, abstract `(m, p, r)` index, and
-/// running absolute `h`, in both the normal and reflected views.
+/// context tracks each PDB's projected board and running absolute `h`, in both
+/// the normal and reflected views.
 ///
-/// On every puzzle move `m`:
-/// - the normal projected state slides by `m`;
-/// - the reflected projected state slides by [`transpose_move`]`(m)`;
-/// - if the index is unchanged (the swap was with an *anon* tile, i.e. the
-///   blank wandered inside its region in the abstract ZPDB graph), `h`
-///   carries through unchanged;
-/// - otherwise the swap is a unit ZPDB edge, and the new `h` comes from the
-///   1-bit codec's [`ZPatternDb::diff_lookup`] in O(1).
+/// On every puzzle move `m`, for each PDB and each view, the projected state
+/// slides ([`transpose_move`]`(m)` for the reflected view) and reports a
+/// projected-edge cost: `0` if the blank swapped with an *anon* filler, `1` if
+/// it swapped with a pattern tile. That cost predicts **exactly** whether the
+/// abstract `(m, p, r)` index moves:
+/// - cost `0` — the blank wandered inside its region; the index, and hence `h`,
+///   are unchanged, so the (expensive) [`ZpdbLayout::rank`] is skipped entirely;
+/// - cost `1` — a unit ZPDB edge; rank the new projection once and read the new
+///   `h` from the 1-bit codec's [`ZPatternDb::diff_lookup`] in O(1).
+///
+/// Since the PDBs are pairwise disjoint, a single moved tile is a pattern tile
+/// for at most one PDB, so at most one PDB recomputes a rank per node — the rest
+/// carry through. (Equivalence to the old "rank both, compare indices" form is
+/// guarded by [`tests::zpdb_cost_predicts_index_change`].)
 ///
 /// At the search root, each view's `h` is seeded via O(h)
 /// [`ZPatternDb::cold_lookup`]. The diagonal symmetry fixes the goal-blank
@@ -221,8 +227,6 @@ pub struct ZpdbInc<'a, const N: usize> {
 pub struct ZpdbCtx<const N: usize> {
     normal: [ProjectedState; N],
     reflected: [ProjectedState; N],
-    n_idx: [u64; N],
-    r_idx: [u64; N],
     n_h: [u8; N],
     r_h: [u8; N],
 }
@@ -263,15 +267,11 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             reflected: std::array::from_fn(|i| {
                 ProjectedState::from_state(&rs, self.dbs[i].pattern())
             }),
-            n_idx: [0u64; N],
-            r_idx: [0u64; N],
             n_h: [0u8; N],
             r_h: [0u8; N],
         };
         for i in 0..N {
             let db = self.dbs[i];
-            ctx.n_idx[i] = db.layout().rank(&ctx.normal[i], db.pattern());
-            ctx.r_idx[i] = db.layout().rank(&ctx.reflected[i], db.pattern());
             ctx.n_h[i] = db.cold_lookup_proj(&ctx.normal[i]);
             ctx.r_h[i] = db.cold_lookup_proj(&ctx.reflected[i]);
         }
@@ -283,36 +283,26 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
         let mut ctx = *parent;
         for i in 0..N {
             let db = self.dbs[i];
-            let p = db.pattern();
 
-            // Normal view.
-            let (np, _) = parent.normal[i].apply(m);
-            let n_idx = db.layout().rank(&np, p);
-            let n_h = if n_idx == parent.n_idx[i] {
-                // Anon swap (cost 0 in the projected graph): the blank
-                // wandered within its region, so the `(m, p, r)` index is
-                // unchanged and `h` carries through.
-                parent.n_h[i]
-            } else {
-                // Pattern-tile swap (cost 1): one unit ZPDB edge → O(1)
-                // differential update.
-                db.diff_lookup(n_idx, parent.n_h[i])
-            };
+            // Normal view: slide the projection. The projected-edge cost is `1`
+            // iff a pattern tile swapped with the blank, which is *exactly* when
+            // the (m,p,r) index moves — so only then do we re-rank and look up
+            // the new `h`. A cost-`0` anon swap leaves index and `h` untouched
+            // (ctx already inherits parent's `n_h[i]` via `*parent`).
+            let (np, n_cost) = parent.normal[i].apply(m);
+            if n_cost != 0 {
+                let n_idx = db.layout().rank(&np, db.pattern());
+                ctx.n_h[i] = db.diff_lookup(n_idx, parent.n_h[i]);
+            }
             ctx.normal[i] = np;
-            ctx.n_idx[i] = n_idx;
-            ctx.n_h[i] = n_h;
 
-            // Reflected view (same logic, `transpose_move(m)`).
-            let (rp, _) = parent.reflected[i].apply(tm);
-            let r_idx = db.layout().rank(&rp, p);
-            let r_h = if r_idx == parent.r_idx[i] {
-                parent.r_h[i]
-            } else {
-                db.diff_lookup(r_idx, parent.r_h[i])
-            };
+            // Reflected view (same logic under transpose_move(m)).
+            let (rp, r_cost) = parent.reflected[i].apply(tm);
+            if r_cost != 0 {
+                let r_idx = db.layout().rank(&rp, db.pattern());
+                ctx.r_h[i] = db.diff_lookup(r_idx, parent.r_h[i]);
+            }
             ctx.reflected[i] = rp;
-            ctx.r_idx[i] = r_idx;
-            ctx.r_h[i] = r_h;
         }
         (self.value(&ctx), ctx)
     }
@@ -482,6 +472,44 @@ mod tests {
             );
             s = ns;
             ctx = ctx_adv;
+        }
+    }
+
+    /// The incremental `advance`'s core invariant: the projected-edge cost from
+    /// `ProjectedState::apply` (0 = anon swap, 1 = pattern-tile swap) predicts
+    /// EXACTLY whether the abstract `(m,p,r)` rank index changes. `advance`
+    /// relies on this to skip the `rank` recompute on cost-0 edges. Checked over
+    /// a random walk on the 5x5 board at k=3 and the production k=6, using only
+    /// the cheap `ZpdbLayout` combinatorics — no PDB table build needed.
+    #[test]
+    fn zpdb_cost_predicts_index_change() {
+        use crate::puzzle24::pdb::zpdb::ZpdbLayout;
+        for pattern in [Pattern::new(&[1, 2, 3]), Pattern::new(&[1, 2, 3, 6, 7, 8])] {
+            let layout = ZpdbLayout::new(pattern);
+            let mut rng: u64 = 0x1234_5678_9ABC_DEF0;
+            let mut next = || {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                rng
+            };
+            let mut s = GOAL;
+            for _ in 0..1500 {
+                let parent = ProjectedState::from_state(&s, pattern);
+                let pidx = layout.rank(&parent, pattern);
+                for m in s.legal_moves().iter() {
+                    let (child, cost) = parent.apply(m);
+                    let cidx = layout.rank(&child, pattern);
+                    assert_eq!(
+                        cost == 0,
+                        cidx == pidx,
+                        "cost {} but {}->{} for pattern {:?}, move {:?}, state {:?}",
+                        cost, pidx, cidx, pattern, m, s.0,
+                    );
+                }
+                let opts: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(opts[(next() as usize) % opts.len()]);
+            }
         }
     }
 
