@@ -202,6 +202,16 @@ pub struct ZpdbLayout {
     /// for `k = 6`) turns each `rank`/move-gen lookup into an array index instead
     /// of a `regions()` flood-fill — essential for the 181M-state build.
     labels: Vec<[u8; N_CELLS]>,
+    /// Bipartite-parity of `h` for any entry in shape `s`: parity of the sum
+    /// of the `k` cell indices the pattern tiles occupy. The 1-bit codec
+    /// recovers `h`'s bit 0 (the unstored parity) as `shape_parity[s]`.
+    ///
+    /// Why this is the right invariant: every ZPDB edge moves one pattern
+    /// tile by ±1 (horizontal) or ±5 (vertical) — both odd offsets — so the
+    /// sum-of-cells parity flips on every edge. Goal entries have
+    /// `shape_parity = parity(sum of goal cells of pattern)` and `h = 0`
+    /// (even); the rest follow by induction.
+    shape_parity: Vec<u8>,
     total: u64,
 }
 
@@ -226,13 +236,27 @@ impl ZpdbLayout {
         let kfact = factorial(k);
         let nshapes = binom(N_CELLS, k) as usize;
 
+        // Bipartite parity reference: parity of the sum of pattern-tile cell
+        // indices at the goal. Tile `t` lives at goal cell `t - 1`.
+        let mut goal_sum: u32 = 0;
+        for t in pattern.iter() {
+            goal_sum += (t - 1) as u32;
+        }
+        let goal_parity = (goal_sum & 1) as u8;
+
         let mut counts = vec![0u8; nshapes];
         let mut labels = vec![[OCCUPIED; N_CELLS]; nshapes];
+        let mut shape_parity = vec![0u8; nshapes];
         for_each_ksubset(k, |cells, mask| {
             let sr = shape_rank(cells) as usize;
             let (cnt, lab) = regions(mask);
             counts[sr] = cnt;
             labels[sr] = lab;
+            let mut sum: u32 = 0;
+            for &c in cells {
+                sum += c as u32;
+            }
+            shape_parity[sr] = ((sum & 1) as u8) ^ goal_parity;
         });
 
         let mut cohort_base = vec![0u64; nshapes];
@@ -241,7 +265,7 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
-        Self { k, kfact, cohort_base, counts, labels, total: acc }
+        Self { k, kfact, cohort_base, counts, labels, shape_parity, total: acc }
     }
 
     /// Cached `(region_count, region_labels)` for an occupancy mask — an array
@@ -267,6 +291,28 @@ impl ZpdbLayout {
     /// `k!` (permutations per shape).
     pub fn perms(&self) -> u64 {
         self.kfact
+    }
+
+    /// Cohort prefix-sum table: `cohort_base[s]` is the global index of the
+    /// first entry of shape `s` (`shape_rank(cells)`). Length `C(25, k)`.
+    /// Exposed for the 1-bit codec's `idx → (shape, perm_rank, region)`
+    /// decomposition.
+    pub fn cohort_base(&self) -> &[u64] {
+        &self.cohort_base
+    }
+
+    /// Region count per shape, indexed by `shape_rank`. Length `C(25, k)`.
+    pub fn region_counts(&self) -> &[u8] {
+        &self.counts
+    }
+
+    /// `h(s) & 1` for any reachable entry whose shape is `s`. The bipartite
+    /// invariant: every ZPDB edge moves a pattern tile by ±1 (horizontal) or
+    /// ±5 (vertical) cells — both odd — so the parity of the sum of pattern
+    /// cell indices flips on every edge. Stored XOR'd with the goal-shape's
+    /// parity, so the goal entries (h = 0) come out at parity 0.
+    pub fn shape_parity(&self) -> &[u8] {
+        &self.shape_parity
     }
 
     /// Map a projected state to its `(m, p, r)` index in `[0, total())`.

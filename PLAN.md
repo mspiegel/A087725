@@ -6,13 +6,13 @@ The project's open goal is bounding the 24-puzzle diameter (currently `[152, 205
 
 This plan is focused on that single use: build 24-puzzle search infrastructure, then attack the frame-conformant subspace to either raise the lower bound past 152 or refute the frame rule at m=5.
 
-## Status (updated 2026-06-14)
+## Status (updated 2026-06-15)
 
 The **infrastructure half** is built and verified; the **research half** (frame rule → lower-bound push) is the remaining work.
 
 - **Phase 1 (port to `puzzle24/`) — DONE + verified.** `src/puzzle24/{state,rank,symmetry}.rs`; 38 tests + `tests/puzzle24_state.rs`.
 - **Phase 3a (generic IDA\* solver) — DONE + verified.** `solve24` + `build_pdb24` binaries; Manhattan + incremental Korf-max; optimal solves confirmed end-to-end.
-- **Phase 2 (PDBs) — reframed and largely built.** Pivoted from standard additive Korf 6-6-6-6 to **zero-aware PDBs** (Clausecker & Reinefeld, SOCS 2019). The standard additive engine is done (the admissibility *oracle*), and the **zero-aware `(m,p,r)` construction is done** — it both removes the build bottleneck (11× faster) and yields the stronger heuristic. **Remaining in Phase 2:** the 1-bit codec, a file format, and building/committing the real `data/pdb24_*.bin`. Full technical spec: `docs/zpdb-codec-spec.md`; pivot rationale: memory `zpdb-pivot-phase2`.
+- **Phase 2 (PDBs) — DONE + verified.** Pivoted from standard additive Korf 6-6-6-6 to **zero-aware PDBs** (Clausecker & Reinefeld, SOCS 2019). The 1-bit codec, `Z24D` file format, and the incremental `ZpdbInc` heuristic (with reflected view) are built and tested. **Four `data/pdb24_*.zbin.sha256` pins are committed; the `.zbin` artifacts themselves (22.6 MB × 4) are `.gitignore`d and regenerated locally via `build_pdb24 --zero-aware`** — matching the existing convention for `pdb15_*.bin` and friends. `solve24 --heuristic zpdb` solves end-to-end. Full technical spec: `docs/zpdb-codec-spec.md`; pivot rationale: memory `zpdb-pivot-phase2`.
 - **Phase 3b (frame-restricted search) — NOT STARTED.**
 - **Phase 4 (lower-bound push) — NOT STARTED.**
 
@@ -67,7 +67,7 @@ Mirrored the 15-puzzle module structure for a 5×5 board with tiles 1..24 and a 
 
 Verification: `tests/puzzle24_state.rs` (goal state, odd-width parity, hand-traced 5-move sequence, reflection involution) + module unit tests. Run with `cargo test --test puzzle24_state` (the crate is named `puzzle8`; there is no `-p puzzle24`).
 
-### Phase 2 — zero-aware PDBs  🔶 LARGELY BUILT
+### Phase 2 — zero-aware PDBs  ✅ DONE
 
 **Pivot (see `docs/zpdb-codec-spec.md`).** The original plan called for standard additive Korf 6-6-6-6 PDBs. We instead target **zero-aware additive PDBs (ZPDBs)** (Clausecker & Reinefeld, SOCS 2019): the index tracks not just the pattern-tile positions but the blank's **zero-tile region**. This gives an ~8.6× stronger heuristic, and — crucially — the region-aware construction also *removes the build bottleneck*.
 
@@ -81,15 +81,15 @@ Verification: `tests/puzzle24_state.rs` (goal state, odd-width parity, hand-trac
 **The build optimization = the zero-aware construction.** The standard 0/1 BFS over `(pattern_config, blank_cell)` (≈2.42 B states) is dominated at m=5 by a *serial* 0-cost closure — measured ~8 min, ~1.5 of 12 cores, ~15.5 GB peak for one 6-tile PDB. BFS over `(pattern_config, blank_region)` instead collapses the blank's free wandering into its zero-tile region: the 0-cost closure vanishes (every edge is a unit-cost pattern move → bipartite, `Δh = ±1`), the state space shrinks ~13×, and the BFS is fully parallel. **Result: full 6-tile ZPDB in 42.5 s (11.4× faster), 0 unvisited of 181,008,000, ~185 MB working set.**
 
 Done + verified:
-- `src/puzzle24/pdb/{pattern,build,db,heuristic}.rs` — standard additive engine (rayon 0/1 BFS, `P24D` save/load/mmap, Korf-max incremental evaluator). This is the **admissibility oracle**: ZPDB ≥ additive ≤ true.
-- `src/bin/build_pdb24.rs` — `--part a|b|c|d`, `--tiles`, `--threads`, `--verify-sha`/`--write-sha` (currently builds the additive PDB).
-- `src/puzzle24/pdb/zpdb.rs` — the `(m,p,r)` perfect-hash index (shape-rank × perm-rank × region-rank), proven a bijection; cached per-shape region tables.
-- `src/puzzle24/pdb/zbuild.rs` — the region-aware BFS (sequential + rayon). Verified **byte-identical** to `build::build` via min-over-regions (k=2,3,4); `ZPDB ≥ additive` pointwise.
-
-Remaining:
-- **1-bit codec** (`store bit 1 + parity`, differential `diff_lookup`, cold absolute lookup) + a compressed file format and loader.
-- Wire `build_pdb24 --zero-aware` (and `solve24`, with the paper's Eq. 2 reflected zero-swap) to consume it.
-- Build and commit the real `data/pdb24_*.bin` + SHA-256s.
+- `src/puzzle24/pdb/{pattern,build,db,heuristic}.rs` — standard additive engine (rayon 0/1 BFS, `P24D` save/load/mmap, Korf-max incremental evaluator). The **admissibility oracle**: ZPDB ≥ additive ≤ true.
+- `src/bin/build_pdb24.rs` — `--part a|b|c|d`, `--tiles`, `--threads`, `--verify-sha`/`--write-sha`, **`--zero-aware`**.
+- `src/puzzle24/pdb/zpdb.rs` — the `(m,p,r)` perfect-hash index (shape-rank × perm-rank × region-rank), proven a bijection; cached per-shape region tables; shape-parity (bipartite invariant) table for codec parity recovery.
+- `src/puzzle24/pdb/zbuild.rs` — region-aware BFS (sequential + rayon). Verified **byte-identical** to `build::build` via min-over-regions (k=2,3,4); `ZPDB ≥ additive` pointwise.
+- `src/puzzle24/pdb/zcodec.rs` — 1-bit codec: `pack_bits`, `lookup_bit`, `diff_lookup`, `parity_of_h`. The bipartite-parity invariant is **parity of the sum of pattern-tile cell indices** (not perm parity), recoverable from the index alone via `ZpdbLayout::shape_parity`.
+- `src/puzzle24/pdb/zdb.rs` — `Z24D` file format (magic, version, pattern bitmask, reserved, u64 total, packed bits), `ZPatternDb::{from_dist, build, save, load, load_mmap}`, and `cold_lookup` (O(h) descent for the IDA\* root).
+- `src/puzzle24/pdb/heuristic.rs::ZpdbInc<N>` — incremental Korf-max over `N` disjoint ZPDBs, normal + reflected views. Cold-seeded at root; per-move it skips the diff when an anon swap leaves `(m,p,r)` unchanged, else applies `diff_lookup`. Tests: root admissibility-oracle dominance over additive Korf-max, advance-matches-fresh-root over 1500-step random walks, IDA\* finds verifiable optima on shallow scrambles.
+- `src/bin/solve24.rs` — `--heuristic zpdb` loads four `pdb24_*.zbin` and runs `ZpdbInc<4>` through `idastar_inc_with_stats`.
+- `data/pdb24_{a,b,c,d}.zbin.sha256` — pinned SHA-256s for the four ZPDBs (22,626,024 bytes each). The `.zbin` artifacts themselves are `.gitignore`d (matching the existing `.bin` convention) and regenerated via `cargo run --release --bin build_pdb24 --features parallel,mmap,sha -- --zero-aware --part X --out data/pdb24_X.zbin --verify-sha data/pdb24_X.zbin.sha256` (~45 s/PDB, ~3 min for all four). End-to-end smoke-tested: `solve24 --heuristic zpdb` on the goal-rotated-by-blank position recovers a 68-move optimal solution.
 
 ### Phase 3a — generic IDA\* solver  ✅ DONE
 
@@ -124,7 +124,7 @@ Compute budget: each IDA* run at depth ~150 on the 24-puzzle is non-trivial — 
 End-to-end signals that the plan worked:
 
 - `cargo test --test puzzle24_state` and `cargo test --test puzzle24_solver` pass (state, moves, symmetry, optimal round-trips). ✅
-- `cargo run --release --bin build_pdb24 -- --part a` produces a PDB matching a committed SHA-256, and similarly for b/c/d. (Pilot built part `a` to `/tmp`; the committed `data/pdb24_*.bin` are pending the zero-aware codec.)
+- `cargo run --release --bin build_pdb24 -- --zero-aware --part a --out data/pdb24_a.zbin --verify-sha data/pdb24_a.zbin.sha256` reproduces the committed PDB byte-for-byte, and similarly for b/c/d. ✅
 - `cargo run --release --bin solve24 -- --state '<board>'` returns an optimal-depth-and-path for a small hand-constructed test state. ✅
 - `solve15` (unrestricted) and `solve15 --frame` both recover all 17 known depth-80 antipodes — sanity check before deploying on m=5 (Phase 3b). ⬜
 - Milestone writeup `docs/24-puzzle-lower-bound-push.md` reports one of: (a) a 24-puzzle state at optimal depth ≥ 153, raising the lower bound; (b) a frame-violating state with depth that contradicts the conjecture; (c) a null result with stated compute budget and per-state maximum depth found. ⬜

@@ -15,6 +15,8 @@ pub mod db;
 pub mod heuristic;
 pub mod pattern;
 pub mod zbuild;
+pub mod zcodec;
+pub mod zdb;
 pub mod zpdb;
 
 pub use build::{build, UNVISITED};
@@ -23,5 +25,7 @@ pub use build::build_parallel;
 pub use db::{file_size_for, LoadError, PatternDb};
 pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
+    ZpdbCtx, ZpdbInc,
 };
 pub use pattern::{Pattern, ProjectedState, ANON};
+pub use zdb::ZPatternDb;

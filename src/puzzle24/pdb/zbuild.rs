@@ -58,7 +58,10 @@ fn neighbours(c: usize, out: &mut [usize; 4]) -> usize {
 /// Append every abstract unit-cost successor of `proj` to `out`: for each
 /// pattern tile with a free neighbour cell in the blank's region, slide that
 /// tile one cell into the region (the blank ends where the tile was).
-fn gen_moves(layout: &ZpdbLayout, proj: &ProjectedState, out: &mut Vec<ProjectedState>) {
+///
+/// Visible to the rest of the `pdb` module — the 1-bit codec's cold-lookup
+/// descent (`zdb::ZPatternDb::cold_lookup`) walks the same abstract graph.
+pub(crate) fn gen_moves(layout: &ZpdbLayout, proj: &ProjectedState, out: &mut Vec<ProjectedState>) {
     let occ = occupied_mask(proj);
     let (_, labels) = layout.regions_for(occ);
     let r = labels[proj.blank_pos() as usize];

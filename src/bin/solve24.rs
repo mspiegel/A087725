@@ -2,31 +2,36 @@
 //!
 //! ```text
 //! solve24 --pdb-dir data/ [--position "<25 tokens>"] [--from FILE]
-//!         [--heuristic korf|manhattan]
+//!         [--heuristic korf|manhattan|zpdb]
 //! ```
 //!
 //! Position format: 25 whitespace-separated tokens in row-major order, `_`/`0`
 //! for the blank and `1..=24` for tiles.
 //!
-//! Heuristics (default `korf`):
+//! Heuristics:
 //! - `manhattan` : sum of Manhattan distances (no PDB needed).
 //! - `korf`      : incremental `max(additive, additive(reflect(s)))` over the
-//!                 four canonical 6-6-6-6 additive PDBs. Default.
+//!                 four canonical 6-6-6-6 additive PDBs (P24D files). Default.
+//! - `zpdb`      : same composition, but on **zero-aware 1-bit PDBs** (Z24D
+//!                 files). Strictly dominates `korf` per Clausecker &
+//!                 Reinefeld 2019 (≈1.6× on a single 6-tile PDB).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb};
+use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc};
 use puzzle8::puzzle24::search::{idastar, idastar_inc_with_stats, ManhattanHeuristic};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
 const PDB_FILES: [&str; 4] = ["pdb24_a.bin", "pdb24_b.bin", "pdb24_c.bin", "pdb24_d.bin"];
+const ZPDB_FILES: [&str; 4] = ["pdb24_a.zbin", "pdb24_b.zbin", "pdb24_c.zbin", "pdb24_d.zbin"];
 
 #[derive(PartialEq)]
 enum HeuristicChoice {
     Manhattan,
     Korf,
+    Zpdb,
 }
 
 struct Args {
@@ -37,7 +42,7 @@ struct Args {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf|manhattan]", prog);
+    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf|manhattan|zpdb]", prog);
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -67,6 +72,7 @@ fn parse_args() -> Result<Args, String> {
                 heuristic = match argv.get(i).ok_or("--heuristic needs a value")?.as_str() {
                     "manhattan" => HeuristicChoice::Manhattan,
                     "korf" => HeuristicChoice::Korf,
+                    "zpdb" => HeuristicChoice::Zpdb,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
             }
@@ -114,6 +120,17 @@ fn load_pdbs(dir: &Path) -> Result<Vec<PatternDb>, String> {
     for name in PDB_FILES {
         let path = dir.join(name);
         let db = PatternDb::load_mmap(&path)
+            .map_err(|e| format!("loading {}: {}", path.display(), e))?;
+        dbs.push(db);
+    }
+    Ok(dbs)
+}
+
+fn load_zpdbs(dir: &Path) -> Result<Vec<ZPatternDb>, String> {
+    let mut dbs = Vec::with_capacity(4);
+    for name in ZPDB_FILES {
+        let path = dir.join(name);
+        let db = ZPatternDb::load_mmap(&path)
             .map_err(|e| format!("loading {}: {}", path.display(), e))?;
         dbs.push(db);
     }
@@ -208,6 +225,25 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            let (s, st) = idastar_inc_with_stats(&start, &inc);
+            (s, Some(st))
+        }
+        HeuristicChoice::Zpdb => {
+            let dir = match &args.pdb_dir {
+                Some(d) => d.clone(),
+                None => {
+                    eprintln!("error: --pdb-dir required for zpdb heuristic");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let dbs = match load_zpdbs(&dir) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let (s, st) = idastar_inc_with_stats(&start, &inc);
             (s, Some(st))
         }

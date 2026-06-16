@@ -1,24 +1,27 @@
-//! Build a 24-puzzle additive PDB for a given pattern, multi-threaded.
+//! Build a 24-puzzle additive or zero-aware PDB for a given pattern, multi-threaded.
 //!
 //! ```text
 //! build_pdb24 --part a|b|c|d --out data/pdb24_a.bin [--threads N] [--write-sha PATH]
 //! build_pdb24 --tiles 1,2,3,6,7,8 --out data/pdb24_a.bin [--threads N] [--verify-sha PATH]
+//! build_pdb24 --zero-aware --part a --out data/pdb24_a.bin
 //! ```
 //!
 //! `--part` selects one block of the canonical Korf 6-6-6-6 partition; `--tiles`
-//! gives an explicit comma-separated tile set (1..=24). Builds via
-//! [`PatternDb::build_parallel`] (rayon, layer-synchronous BFS); output is
-//! byte-identical to the sequential build and across runs.
+//! gives an explicit comma-separated tile set (1..=24).
 //!
-//! A 6-tile build is P(25,7) = 2,422,728,000 BFS-visited states (~2.4 GB
-//! transient as a byte array) and P(25,6) = 127,512,000 output entries
-//! (~127 MB). See `docs/zpdb-codec-spec.md` for the zero-aware 1-bit successor.
+//! Without `--zero-aware`: standard additive PDB ([`PatternDb::build_parallel`]).
+//! With `--zero-aware`: zero-aware 1-bit PDB ([`ZPatternDb::build`] over the
+//! region-aware BFS — `zbuild_parallel`). The latter produces a ~21.6 MiB
+//! `Z24D` file for a 6-tile pattern; the additive form produces a 127 MB
+//! `P24D` file. See `docs/zpdb-codec-spec.md`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::pattern::Pattern;
+use puzzle8::puzzle24::pdb::zbuild::build_zpdb_parallel;
+use puzzle8::puzzle24::pdb::zdb::ZPatternDb;
 use puzzle8::puzzle24::pdb::PatternDb;
 
 use sha2::{Digest, Sha256};
@@ -40,10 +43,11 @@ fn part_tiles(part: char) -> Option<Vec<u8>> {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} (--part a|b|c|d | --tiles T1,T2,...) --out PATH [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
+    eprintln!("usage: {} (--part a|b|c|d | --tiles T1,T2,...) --out PATH [--zero-aware] [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
     eprintln!("  --part       one block of the canonical Korf 6-6-6-6 partition");
     eprintln!("  --tiles      comma-separated tile values in 1..=24");
     eprintln!("  --out        path to write the PDB binary");
+    eprintln!("  --zero-aware build a zero-aware 1-bit PDB (Z24D) instead of the additive (P24D)");
     eprintln!("  --threads    rayon thread count (default: system)");
     eprintln!("  --verify-sha read this file as expected SHA-256 hex; fail on mismatch");
     eprintln!("  --write-sha  write the computed SHA-256 hex to this file");
@@ -55,6 +59,7 @@ struct Args {
     threads: Option<usize>,
     verify_sha: Option<PathBuf>,
     write_sha: Option<PathBuf>,
+    zero_aware: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -63,6 +68,7 @@ fn parse_args() -> Result<Args, String> {
     let mut threads: Option<usize> = None;
     let mut verify_sha: Option<PathBuf> = None;
     let mut write_sha: Option<PathBuf> = None;
+    let mut zero_aware = false;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -106,6 +112,9 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
             }
+            "--zero-aware" => {
+                zero_aware = true;
+            }
             "-h" | "--help" => return Err(String::from("help")),
             other => return Err(format!("unknown flag: {}", other)),
         }
@@ -114,7 +123,7 @@ fn parse_args() -> Result<Args, String> {
 
     let tiles = tiles.ok_or("missing --part or --tiles")?;
     let out = out.ok_or("missing --out")?;
-    Ok(Args { tiles, out, threads, verify_sha, write_sha })
+    Ok(Args { tiles, out, threads, verify_sha, write_sha, zero_aware })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -152,23 +161,52 @@ fn main() -> ExitCode {
     }
 
     let pattern = Pattern::new(&args.tiles);
-    println!("Building 24-puzzle PDB for pattern {:?} ({} tiles)", args.tiles, pattern.size());
-    println!("  PDB entries  : {}", pattern.num_projected_states());
-    println!("  BFS visited  : {}", pattern.num_bfs_states());
+    if args.zero_aware {
+        println!(
+            "Building 24-puzzle zero-aware (1-bit) PDB for pattern {:?} ({} tiles)",
+            args.tiles,
+            pattern.size()
+        );
+    } else {
+        println!(
+            "Building 24-puzzle additive PDB for pattern {:?} ({} tiles)",
+            args.tiles,
+            pattern.size()
+        );
+        println!("  PDB entries  : {}", pattern.num_projected_states());
+        println!("  BFS visited  : {}", pattern.num_bfs_states());
+    }
     println!("  Output file  : {}", args.out.display());
 
     let t0 = Instant::now();
-    let pdb = PatternDb::build_parallel(pattern);
-    println!("Build complete in {:.2?}", t0.elapsed());
-
     if let Some(parent) = args.out.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).expect("could not create output directory");
         }
     }
-    if let Err(e) = pdb.save(&args.out) {
-        eprintln!("error: writing {}: {}", args.out.display(), e);
-        return ExitCode::FAILURE;
+    if args.zero_aware {
+        let (dist, layout) = build_zpdb_parallel(pattern);
+        println!("ZPDB BFS complete in {:.2?}", t0.elapsed());
+        println!("  ZPDB entries : {}", layout.total());
+        let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
+        let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
+        println!("  Max depth    : {}", maxd);
+        if unvisited != 0 {
+            eprintln!("error: ZPDB build left {} unvisited entries", unvisited);
+            return ExitCode::FAILURE;
+        }
+        let zdb = ZPatternDb::from_dist(pattern, &dist);
+        if let Err(e) = zdb.save(&args.out) {
+            eprintln!("error: writing {}: {}", args.out.display(), e);
+            return ExitCode::FAILURE;
+        }
+    } else {
+        let pdb = PatternDb::build_parallel(pattern);
+        println!("Build complete in {:.2?}", t0.elapsed());
+        if let Err(e) = pdb.save(&args.out) {
+            eprintln!("error: writing {}: {}", args.out.display(), e);
+            return ExitCode::FAILURE;
+        }
     }
 
     let file_bytes = std::fs::read(&args.out).expect("read just-written file");
