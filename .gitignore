@@ -1,3 +1,5 @@
 /target
 /data/*.bin
 /data/*.zbin
+/data/enum/
+/data/*.ranks

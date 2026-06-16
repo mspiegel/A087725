@@ -38,6 +38,14 @@ name = "solve15"
 required-features = ["mmap"]
 
 [[bin]]
+name = "enumerate15"
+required-features = ["mmap", "parallel"]
+
+[[bin]]
+name = "enum_expand15"
+required-features = ["mmap"]
+
+[[bin]]
 name = "build_pdb24"
 required-features = ["parallel", "mmap", "sha"]
 
@@ -64,6 +72,14 @@ required-features = ["sha"]
 [[example]]
 name = "korf100_bench"
 required-features = ["mmap"]
+
+[[example]]
+name = "antipode_anchor15"
+required-features = ["mmap", "parallel"]
+
+[[example]]
+name = "antipode_search15"
+required-features = ["mmap", "parallel"]
 
 [[example]]
 name = "dup_probe"
