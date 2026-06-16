@@ -34,6 +34,10 @@ name = "build_pdb15"
 required-features = ["parallel", "mmap", "sha"]
 
 [[bin]]
+name = "build_zpdb15"
+required-features = ["mmap", "parallel"]
+
+[[bin]]
 name = "solve15"
 required-features = ["mmap"]
 
@@ -88,3 +92,11 @@ required-features = ["mmap"]
 [profile.release]
 lto = true
 codegen-units = 1
+
+[[example]]
+name = "zpdb_bench15"
+required-features = ["mmap", "parallel"]
+
+[[example]]
+name = "zpdb_profile15"
+required-features = ["mmap", "parallel"]

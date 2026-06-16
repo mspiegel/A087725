@@ -26,6 +26,10 @@ pub mod pattern;
 pub mod build;
 pub mod db;
 pub mod heuristic;
+pub mod zbuild;
+pub mod zdb;
+pub mod zheuristic;
+pub mod zpdb;
 
 pub use pattern::{Pattern, ProjectedState, ANON};
 pub use build::{build, UNVISITED};
@@ -33,3 +37,6 @@ pub use db::{LoadError, PatternDb};
 pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
 };
+pub use zdb::ZPatternDb;
+pub use zheuristic::{AdditiveZpdbHeuristic, ZpdbCtx, ZpdbHeuristic, ZpdbInc};
+pub use zpdb::ZpdbLayout;
