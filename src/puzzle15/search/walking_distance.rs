@@ -10,8 +10,8 @@
 //! `(matrix, blank-axis-index)`. By symmetry of the 4×4 goal, row-WD and
 //! column-WD share the same table.
 
-use super::Heuristic;
-use crate::puzzle15::state::{State, W};
+use super::{Heuristic, IncHeuristic};
+use crate::puzzle15::state::{Move, State, W};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -159,6 +159,132 @@ impl Heuristic for WalkingDistanceHeuristic {
     }
 }
 
+/// Incremental Walking Distance: same admissible heuristic as
+/// [`WalkingDistanceHeuristic`], advanced in O(1) per node.
+///
+/// Key invariant: a 15-puzzle slide moves one tile by one cell, vertically OR
+/// horizontally. The row-WD axis only sees changes when a tile crosses a row
+/// boundary (vertical slide); the column-WD axis only on horizontal slides.
+/// So per node, **exactly one** of the two matrices, blanks, and `h` halves
+/// changes — the other half is carried forward verbatim.
+///
+/// For the affected axis we do two `+/-1` updates on the matrix entries, a
+/// fresh `pack`, and a single hashmap lookup — replacing today's 16-cell
+/// rebuild + 2 packs + 2 lookups. `WalkingDistanceHeuristic::warm_up()` must
+/// have been called first (same as for the non-incremental version).
+pub struct WalkingDistanceInc;
+
+/// Per-node state for [`WalkingDistanceInc`]. The two matrices, the blank's
+/// row and column, and both axis-`h` values pre-computed. `Copy` so the IDA*
+/// recursion can thread it by value.
+#[derive(Clone, Copy, Debug)]
+pub struct WdCtx {
+    m_row: WdMatrix,
+    m_col: WdMatrix,
+    br: u8,
+    bc: u8,
+    h_row: u8,
+    h_col: u8,
+}
+
+impl IncHeuristic for WalkingDistanceInc {
+    type Ctx = WdCtx;
+
+    fn root(&self, s: &State) -> (u8, WdCtx) {
+        let mut m_row = [[0u8; W]; W];
+        let mut m_col = [[0u8; W]; W];
+        let mut br: u8 = 0;
+        let mut bc: u8 = 0;
+        for pos in 0..(W * W) {
+            let tile = s.0[pos];
+            let r = (pos / W) as u8;
+            let c = (pos % W) as u8;
+            if tile == 0 {
+                br = r;
+                bc = c;
+                continue;
+            }
+            let goal_pos = (tile - 1) as usize;
+            m_row[r as usize][goal_pos / W] += 1;
+            m_col[c as usize][goal_pos % W] += 1;
+        }
+        let t = table();
+        let h_row = *t
+            .get(&pack(&m_row, br))
+            .expect("row-WD state must be reachable from goal");
+        let h_col = *t
+            .get(&pack(&m_col, bc))
+            .expect("col-WD state must be reachable from goal");
+        (h_row + h_col, WdCtx { m_row, m_col, br, bc, h_row, h_col })
+    }
+
+    fn advance(&self, parent: &WdCtx, child: &State, m: Move) -> (u8, WdCtx) {
+        // The moved tile's (from, to) cells (see LinearConflictInc for the
+        // identity): from = blank_new, to = blank_old. The parent carries the
+        // blank's old (br, bc), so blank_old is reconstructed without rescanning.
+        let parent_blank = (parent.br as usize) * W + parent.bc as usize;
+        let delta: i32 = match m {
+            Move::Up => -(W as i32),
+            Move::Down => W as i32,
+            Move::Left => -1,
+            Move::Right => 1,
+        };
+        let from_cell = (parent_blank as i32 + delta) as usize;
+        let to_cell = parent_blank;
+        let tile = child.0[to_cell];
+        debug_assert_ne!(tile, 0, "moved tile cannot be the blank");
+        let goal_pos = (tile - 1) as usize;
+        let gr = goal_pos / W;
+        let gc = goal_pos % W;
+
+        let rf = from_cell / W;
+        let rt = to_cell / W;
+        let cf = from_cell % W;
+        let ct = to_cell % W;
+        let new_br = rf as u8;
+        let new_bc = cf as u8;
+        let t = table();
+
+        if rf != rt {
+            // Vertical slide: row-WD matrix changes, blank-row changes; column
+            // axis (m_col, bc, h_col) is byte-identical to parent.
+            let mut m_row = parent.m_row;
+            m_row[rf][gr] -= 1;
+            m_row[rt][gr] += 1;
+            let h_row = *t
+                .get(&pack(&m_row, new_br))
+                .expect("row-WD state must be reachable from goal");
+            let ctx = WdCtx {
+                m_row,
+                m_col: parent.m_col,
+                br: new_br,
+                bc: new_bc,
+                h_row,
+                h_col: parent.h_col,
+            };
+            (h_row + parent.h_col, ctx)
+        } else {
+            // Horizontal slide: column-WD matrix changes, blank-col changes;
+            // row axis is byte-identical.
+            let mut m_col = parent.m_col;
+            m_col[cf][gc] -= 1;
+            m_col[ct][gc] += 1;
+            let h_col = *t
+                .get(&pack(&m_col, new_bc))
+                .expect("col-WD state must be reachable from goal");
+            let ctx = WdCtx {
+                m_row: parent.m_row,
+                m_col,
+                br: new_br,
+                bc: new_bc,
+                h_row: parent.h_row,
+                h_col,
+            };
+            (parent.h_row + h_col, ctx)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +336,55 @@ mod tests {
             }
         }
         assert!(found_strict, "WD never exceeded Manhattan on shallow BFS");
+    }
+
+    /// Incremental WD `root` must match the from-scratch WD on every state.
+    #[test]
+    fn wd_inc_root_matches_scratch_on_shallow_bfs() {
+        WalkingDistanceHeuristic::warm_up();
+        let truth = bfs_distances(10);
+        for (raw, _) in &truth {
+            let s = State(*raw);
+            let scratch = WalkingDistanceHeuristic.h(&s);
+            let (inc, _) = IncHeuristic::root(&WalkingDistanceInc, &s);
+            assert_eq!(inc, scratch, "root mismatch for {:?}", raw);
+        }
+    }
+
+    /// `advance` must agree with a fresh `root` at every step of a long random
+    /// walk. Also verifies it matches the from-scratch WD at every step.
+    #[test]
+    fn wd_inc_advance_matches_fresh_root_random_walk() {
+        WalkingDistanceHeuristic::warm_up();
+        let mut rng: u64 = 0xBADD_C0FE_F1F0_BEEF;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let mut s = GOAL;
+        let (_, mut ctx) = IncHeuristic::root(&WalkingDistanceInc, &s);
+        for step in 0..2000 {
+            let opts: Vec<Move> = s.legal_moves().iter().collect();
+            let m = opts[(next() as usize) % opts.len()];
+            let ns = s.apply(m);
+            let (h_adv, ctx_adv) = WalkingDistanceInc.advance(&ctx, &ns, m);
+            let (h_fresh, _) = IncHeuristic::root(&WalkingDistanceInc, &ns);
+            assert_eq!(
+                h_adv, h_fresh,
+                "advance vs root diverged at step {} (move {:?}, state {:?})",
+                step, m, ns.0
+            );
+            assert_eq!(
+                h_adv,
+                WalkingDistanceHeuristic.h(&ns),
+                "advance vs scratch WD diverged at step {}",
+                step
+            );
+            s = ns;
+            ctx = ctx_adv;
+        }
     }
 
     #[test]

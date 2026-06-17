@@ -11,7 +11,7 @@ pub use idastar::{
     IncHeuristic, IncHeuristicMut, SearchStats,
 };
 pub use linear_conflict::{LcCtx, LinearConflictHeuristic, LinearConflictInc};
-pub use walking_distance::WalkingDistanceHeuristic;
+pub use walking_distance::{WalkingDistanceHeuristic, WalkingDistanceInc, WdCtx};
 
 /// Test-only helpers shared across `heuristic` and `idastar` tests.
 #[cfg(test)]
