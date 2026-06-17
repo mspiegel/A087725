@@ -17,7 +17,7 @@
 use super::pattern::{Pattern, ProjectedState};
 use super::zdb::ZPatternDb;
 use crate::puzzle15::search::{
-    Heuristic, IncHeuristic, LinearConflictHeuristic, WalkingDistanceHeuristic,
+    Heuristic, IncHeuristic, LcCtx, LinearConflictInc, WalkingDistanceHeuristic,
 };
 use crate::puzzle15::state::{Move, State};
 use crate::puzzle15::symmetry::{reflect, transpose_move};
@@ -191,44 +191,51 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
 /// Because each zero-aware ZPDB pointwise dominates its blank-agnostic additive
 /// PDB, this **dominates the additive korf-plus** (identical LC/WD terms, a
 /// `≥` PDB component), so a verifier driven by it never expands more nodes than
-/// before — while the zero-aware component is advanced in O(k) per node instead
-/// of re-projected. The LC/WD terms have no cheap incremental form and are
-/// recomputed from the child `State`; the additive korf-plus paid that same
-/// cost, so this is strictly faster per node as well.
+/// before. Two of the three components are advanced per node: the ZPDB
+/// component in O(k) via projected-edge cost, the Linear-Conflict component in
+/// O(1) by recomputing only the at-most-three dirty row/column penalties.
+/// Walking Distance is still recomputed from `child` (no incremental form
+/// yet) — that's the next bottleneck once this lands.
 ///
 /// `WalkingDistanceHeuristic::warm_up()` must have been called first (as for any
 /// WD use); the per-node `h` stays `u8` since the 15-puzzle diameter is 80.
 pub struct ZpdbPlusInc<'a, const N: usize> {
     zpdb: ZpdbInc<'a, N>,
+    lc: LinearConflictInc,
+}
+
+/// Per-node context for [`ZpdbPlusInc`] — the ZPDB context plus the
+/// Linear-Conflict context. `Copy` so the search threads it through recursion.
+#[derive(Clone, Copy)]
+pub struct ZpdbPlusCtx<const N: usize> {
+    zpdb: ZpdbCtx<N>,
+    lc: LcCtx,
 }
 
 impl<'a, const N: usize> ZpdbPlusInc<'a, N> {
     /// Build from `N` pairwise-disjoint ZPDBs (same contract as [`ZpdbInc::new`]).
     pub fn new(dbs: [&'a ZPatternDb; N]) -> Self {
-        Self { zpdb: ZpdbInc::new(dbs) }
+        Self { zpdb: ZpdbInc::new(dbs), lc: LinearConflictInc }
     }
 }
 
-#[inline]
-fn classical_max(s: &State, h_zpdb: u8) -> u8 {
-    h_zpdb
-        .max(LinearConflictHeuristic.h(s))
-        .max(WalkingDistanceHeuristic.h(s))
-}
-
 impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
-    type Ctx = ZpdbCtx<N>;
+    type Ctx = ZpdbPlusCtx<N>;
 
     #[inline]
     fn root(&self, s: &State) -> (u8, Self::Ctx) {
-        let (h_zpdb, ctx) = self.zpdb.root(s);
-        (classical_max(s, h_zpdb), ctx)
+        let (h_zpdb, zctx) = self.zpdb.root(s);
+        let (h_lc, lctx) = self.lc.root(s);
+        let h = h_zpdb.max(h_lc).max(WalkingDistanceHeuristic.h(s));
+        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx })
     }
 
     #[inline]
     fn advance(&self, parent: &Self::Ctx, child: &State, m: Move) -> (u8, Self::Ctx) {
-        let (h_zpdb, ctx) = self.zpdb.advance(parent, child, m);
-        (classical_max(child, h_zpdb), ctx)
+        let (h_zpdb, zctx) = self.zpdb.advance(&parent.zpdb, child, m);
+        let (h_lc, lctx) = self.lc.advance(&parent.lc, child, m);
+        let h = h_zpdb.max(h_lc).max(WalkingDistanceHeuristic.h(child));
+        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx })
     }
 }
 
@@ -415,6 +422,7 @@ mod tests {
     #[test]
     fn zpdb_plus_inc_dominates_korf_plus_pointwise() {
         use crate::puzzle15::pdb::heuristic::{AdditivePdbHeuristic, ReflectedHeuristic};
+        use crate::puzzle15::search::LinearConflictHeuristic;
 
         let pats = [Pattern::new(&[1, 2, 3, 4]), Pattern::new(&[5, 6, 7, 8])];
         let zdbs = [ZPatternDb::build(pats[0]), ZPatternDb::build(pats[1])];

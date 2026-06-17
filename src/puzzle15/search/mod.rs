@@ -10,7 +10,7 @@ pub use idastar::{
     idastar, idastar_inc_mut_with_stats, idastar_inc_with_stats, idastar_with_stats,
     IncHeuristic, IncHeuristicMut, SearchStats,
 };
-pub use linear_conflict::LinearConflictHeuristic;
+pub use linear_conflict::{LcCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use walking_distance::WalkingDistanceHeuristic;
 
 /// Test-only helpers shared across `heuristic` and `idastar` tests.
