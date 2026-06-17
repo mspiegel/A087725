@@ -193,6 +193,13 @@ impl ProjectedState {
         self.pos_of[0]
     }
 
+    /// Cell holding tile value `v` (or the blank for `v == 0`), via the tracked
+    /// `pos_of` map — O(1), no board scan.
+    #[inline]
+    pub fn pos_of(&self, v: u8) -> u8 {
+        self.pos_of[v as usize]
+    }
+
     pub fn legal_moves(&self) -> MoveSet {
         let b = self.blank_pos() as usize;
         let row = b / W;

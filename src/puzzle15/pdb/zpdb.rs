@@ -22,7 +22,7 @@
 //! 1-bit codec. The geometry below (regions, ranking) is metric-agnostic and
 //! ports verbatim.
 
-use super::pattern::{Pattern, ProjectedState, ANON};
+use super::pattern::{Pattern, ProjectedState};
 use crate::puzzle15::state::{N_CELLS, W};
 
 /// Marker in a region labeling for a cell occupied by a pattern tile.
@@ -169,18 +169,18 @@ fn shape_rank(sorted_cells: &[u8]) -> u64 {
 }
 
 /// Lehmer (factorial-number-system) rank of a permutation of `0..k`, onto
-/// `[0, k!)`.
+/// `[0, k!)`. O(k): the Lehmer digit at position `i` is `perm[i]` minus the
+/// count of already-placed (left) values smaller than it, found with a popcount
+/// over a used-value bitmask — no O(k²) right-scan.
 fn perm_rank(perm: &[u8]) -> u64 {
     let k = perm.len();
+    let mut used: u32 = 0;
     let mut rank = 0u64;
     for i in 0..k {
-        let mut smaller = 0u64;
-        for &p in &perm[(i + 1)..] {
-            if p < perm[i] {
-                smaller += 1;
-            }
-        }
-        rank += smaller * factorial(k - 1 - i);
+        let v = perm[i] as u32;
+        let smaller_left = (used & ((1u32 << v) - 1)).count_ones() as u64;
+        rank += (v as u64 - smaller_left) * factorial(k - 1 - i);
+        used |= 1u32 << v;
     }
     rank
 }
@@ -231,6 +231,9 @@ pub struct ZpdbLayout {
     /// pattern's iteration order). Precomputed so `rank` skips the per-call
     /// `asc` rebuild and the O(k²) tile-value search.
     slot_of: [u8; N_CELLS],
+    /// The pattern's tile values in slot order (`tiles[j]` has slot `j`). Lets
+    /// `rank` find the occupied cells via `pos_of` in O(k) — no full-board scan.
+    tiles: [u8; 8],
     /// Length `C(16, k)`, indexed by [`shape_rank`].
     cohort_base: Vec<u64>,
     /// Region count per shape, indexed by [`shape_rank`].
@@ -262,11 +265,14 @@ impl ZpdbLayout {
         let nshapes = binom(N_CELLS, k) as usize;
 
         // Permutation slot of each tile value, in pattern iteration order — the
-        // same indexing the old `while asc[idx] != v` search produced.
+        // same indexing the old `while asc[idx] != v` search produced — plus the
+        // inverse map (slot -> tile value) for the O(k) occupied-cell lookup.
         let mut slot_of = [0u8; N_CELLS];
+        let mut tiles = [0u8; 8];
         let mut slot = 0u8;
         for t in pattern.iter() {
             slot_of[t as usize] = slot;
+            tiles[slot as usize] = t;
             slot += 1;
         }
 
@@ -285,7 +291,7 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
-        Self { k, kfact, slot_of, cohort_base, counts, labels, total: acc }
+        Self { k, kfact, slot_of, tiles, cohort_base, counts, labels, total: acc }
     }
 
     /// Cached `(region_count, region_labels)` for an occupancy mask — an array
@@ -325,28 +331,40 @@ impl ZpdbLayout {
     }
 
     /// Map a projected state to its `(m, p, r)` index in `[0, total())`. The
-    /// `pattern` is implicit in the precomputed `slot_of` map built from it.
+    /// `pattern` is implicit in the precomputed `slot_of`/`tiles` maps built
+    /// from it.
+    ///
+    /// O(k), not O(board): the occupied cells come straight from `pos_of`
+    /// (no full-board scan), `shape_rank` is accumulated inline over the
+    /// ascending bit-iteration of the occupancy mask, and the permutation slots
+    /// feed the O(k) [`perm_rank`].
     pub fn rank(&self, proj: &ProjectedState, _pattern: Pattern) -> u64 {
-        // Scan cells (ascending) → occupied cells, their permutation slots, blank.
-        let mut occ_cells = [0u8; 8];
-        let mut perm = [0u8; 8];
-        let mut n = 0usize;
-        let mut blank = 0u8;
-        for (c, &v) in proj.cells.iter().enumerate() {
-            if v == 0 {
-                blank = c as u8;
-            } else if v != ANON {
-                occ_cells[n] = c as u8;
-                perm[n] = self.slot_of[v as usize];
-                n += 1;
-            }
+        // Occupancy bitmask from the k pattern tiles' positions — no board scan.
+        let mut occ: u32 = 0;
+        for j in 0..self.k {
+            occ |= 1u32 << proj.pos_of(self.tiles[j]);
         }
-        debug_assert_eq!(n, self.k);
+        let blank = proj.blank_pos() as usize;
 
-        let sr = shape_rank(&occ_cells[..n]) as usize;
-        let pr = perm_rank(&perm[..n]);
+        // Walk occupied cells ascending: accumulate shape_rank and read each
+        // cell's tile slot (cells live in one 16-byte line, all in L1).
+        let mut sr = 0u64;
+        let mut perm = [0u8; 8];
+        let mut j = 0usize;
+        let mut m = occ;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            sr += BINOM[c][j + 1];
+            perm[j] = self.slot_of[proj.cells[c] as usize];
+            m &= m - 1;
+            j += 1;
+        }
+        debug_assert_eq!(j, self.k);
+
+        let sr = sr as usize;
+        let pr = perm_rank(&perm[..self.k]);
         let count = self.counts[sr] as u64;
-        let r = self.labels[sr][blank as usize] as u64;
+        let r = self.labels[sr][blank] as u64;
         debug_assert!(r < count);
         self.cohort_base[sr] + pr * count + r
     }
@@ -448,6 +466,28 @@ mod tests {
             assert!(seen.insert(r));
         }
         assert_eq!(seen.len(), 24);
+    }
+
+    /// The O(k) popcount `perm_rank` must equal the plain count-inversions
+    /// Lehmer rank *value-for-value* (not just bijectively) — the on-disk ZPDBs
+    /// are indexed with it, so any drift would silently corrupt lookups.
+    #[test]
+    fn perm_rank_matches_inversion_reference() {
+        fn reference(perm: &[u8]) -> u64 {
+            let k = perm.len();
+            let mut rank = 0u64;
+            for i in 0..k {
+                let smaller = perm[i + 1..].iter().filter(|&&p| p < perm[i]).count() as u64;
+                rank += smaller * (1..=(k - 1 - i) as u64).product::<u64>().max(1);
+            }
+            rank
+        }
+        for k in 1..=7u8 {
+            let items: Vec<u8> = (0..k).collect();
+            for p in permutations(&items) {
+                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {:?}", p);
+            }
+        }
     }
 
     #[test]
