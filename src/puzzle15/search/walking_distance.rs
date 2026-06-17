@@ -10,7 +10,7 @@
 //! `(matrix, blank-axis-index)`. By symmetry of the 4×4 goal, row-WD and
 //! column-WD share the same table.
 
-use super::{Heuristic, IncHeuristic};
+use super::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle15::state::{Move, State, W};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -190,7 +190,7 @@ pub struct WdCtx {
 impl IncHeuristic for WalkingDistanceInc {
     type Ctx = WdCtx;
 
-    fn root(&self, s: &State) -> (u8, WdCtx) {
+    fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, WdCtx) {
         let mut m_row = [[0u8; W]; W];
         let mut m_col = [[0u8; W]; W];
         let mut br: u8 = 0;
@@ -218,7 +218,15 @@ impl IncHeuristic for WalkingDistanceInc {
         (h_row + h_col, WdCtx { m_row, m_col, br, bc, h_row, h_col })
     }
 
-    fn advance(&self, parent: &WdCtx, child: &State, m: Move) -> (u8, WdCtx) {
+    fn advance(
+        &self,
+        parent: &WdCtx,
+        child: &State,
+        m: Move,
+        _stats: &mut SearchStats,
+    ) -> (u8, WdCtx) {
+        #[cfg(feature = "verifier-stats")]
+        { _stats.wd_advances += 1; }
         // The moved tile's (from, to) cells (see LinearConflictInc for the
         // identity): from = blank_new, to = blank_old. The parent carries the
         // blank's old (br, bc), so blank_old is reconstructed without rescanning.
@@ -343,10 +351,11 @@ mod tests {
     fn wd_inc_root_matches_scratch_on_shallow_bfs() {
         WalkingDistanceHeuristic::warm_up();
         let truth = bfs_distances(10);
+        let mut stats = SearchStats::default();
         for (raw, _) in &truth {
             let s = State(*raw);
             let scratch = WalkingDistanceHeuristic.h(&s);
-            let (inc, _) = IncHeuristic::root(&WalkingDistanceInc, &s);
+            let (inc, _) = IncHeuristic::root(&WalkingDistanceInc, &s, &mut stats);
             assert_eq!(inc, scratch, "root mismatch for {:?}", raw);
         }
     }
@@ -364,13 +373,14 @@ mod tests {
             rng
         };
         let mut s = GOAL;
-        let (_, mut ctx) = IncHeuristic::root(&WalkingDistanceInc, &s);
+        let mut stats = SearchStats::default();
+        let (_, mut ctx) = IncHeuristic::root(&WalkingDistanceInc, &s, &mut stats);
         for step in 0..2000 {
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             let m = opts[(next() as usize) % opts.len()];
             let ns = s.apply(m);
-            let (h_adv, ctx_adv) = WalkingDistanceInc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = IncHeuristic::root(&WalkingDistanceInc, &ns);
+            let (h_adv, ctx_adv) = WalkingDistanceInc.advance(&ctx, &ns, m, &mut stats);
+            let (h_fresh, _) = IncHeuristic::root(&WalkingDistanceInc, &ns, &mut stats);
             assert_eq!(
                 h_adv, h_fresh,
                 "advance vs root diverged at step {} (move {:?}, state {:?})",

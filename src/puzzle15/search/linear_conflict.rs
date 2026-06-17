@@ -3,7 +3,7 @@
 //! derivation; the 4×4 version is the same algorithm with `W = 4` and up to
 //! four home-row tiles per line.
 
-use super::{Heuristic, IncHeuristic};
+use super::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle15::state::{Move, State, W};
 use std::sync::OnceLock;
 
@@ -209,7 +209,7 @@ fn ctx_h(ctx: &LcCtx) -> u8 {
 impl IncHeuristic for LinearConflictInc {
     type Ctx = LcCtx;
 
-    fn root(&self, s: &State) -> (u8, LcCtx) {
+    fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, LcCtx) {
         let mut manhattan: u32 = 0;
         let mut blank: u8 = 0;
         for p in 0..(W * W) {
@@ -232,7 +232,15 @@ impl IncHeuristic for LinearConflictInc {
         (ctx_h(&ctx), ctx)
     }
 
-    fn advance(&self, parent: &LcCtx, child: &State, m: Move) -> (u8, LcCtx) {
+    fn advance(
+        &self,
+        parent: &LcCtx,
+        child: &State,
+        m: Move,
+        _stats: &mut SearchStats,
+    ) -> (u8, LcCtx) {
+        #[cfg(feature = "verifier-stats")]
+        { _stats.lc_advances += 1; }
         // After the move: the blank moved by `delta(m)`, the tile that filled
         // the blank's old cell is what just moved. Hence:
         //   from = blank_new (where the tile was, in the parent)
@@ -345,10 +353,11 @@ mod tests {
     #[test]
     fn lc_inc_root_matches_scratch_on_shallow_bfs() {
         let truth = bfs_distances(10);
+        let mut stats = SearchStats::default();
         for (raw, _) in &truth {
             let s = State(*raw);
             let h_scratch = LinearConflictHeuristic.h(&s);
-            let (h_inc, _) = IncHeuristic::root(&LinearConflictInc, &s);
+            let (h_inc, _) = IncHeuristic::root(&LinearConflictInc, &s, &mut stats);
             assert_eq!(h_inc, h_scratch, "root mismatch for {:?}", raw);
         }
     }
@@ -366,14 +375,15 @@ mod tests {
             rng
         };
         let mut s = GOAL;
-        let (mut h, mut ctx) = IncHeuristic::root(&LinearConflictInc, &s);
+        let mut stats = SearchStats::default();
+        let (mut h, mut ctx) = IncHeuristic::root(&LinearConflictInc, &s, &mut stats);
         assert_eq!(h, 0);
         for step in 0..2000 {
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             let m = opts[(next() as usize) % opts.len()];
             let ns = s.apply(m);
-            let (h_adv, ctx_adv) = LinearConflictInc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = IncHeuristic::root(&LinearConflictInc, &ns);
+            let (h_adv, ctx_adv) = LinearConflictInc.advance(&ctx, &ns, m, &mut stats);
+            let (h_fresh, _) = IncHeuristic::root(&LinearConflictInc, &ns, &mut stats);
             assert_eq!(
                 h_adv, h_fresh,
                 "advance vs root diverged at step {} (move {:?}, state {:?})",

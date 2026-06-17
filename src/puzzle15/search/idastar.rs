@@ -23,12 +23,50 @@ use super::heuristic::Heuristic;
 /// for benchmarking: incremental-heuristic and codegen changes move wall-clock
 /// at fixed `nodes`, while move-ordering and duplicate-pruning changes move
 /// `nodes` directly (see `OPTIMIZATION.md`).
+///
+/// Under the `verifier-stats` feature, additional per-component counters
+/// (`*_advances`, `proj_applies`, `zpdb_rank_calls`) are populated from inside
+/// each [`IncHeuristic`] impl. Combined with samply self-time percentages this
+/// gives true ns/call per component, immune to inlining attribution. The
+/// feature is off by default — the per-node bumps cost ~5–10% wall time.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SearchStats {
     /// Total nodes visited across all iterations.
     pub nodes: u64,
     /// Number of IDA\* threshold iterations performed.
     pub iterations: u32,
+    /// Calls to `LinearConflictInc::advance`.
+    #[cfg(feature = "verifier-stats")]
+    pub lc_advances: u64,
+    /// Calls to `WalkingDistanceInc::advance`.
+    #[cfg(feature = "verifier-stats")]
+    pub wd_advances: u64,
+    /// Calls to `ZpdbInc::advance` (one per node).
+    #[cfg(feature = "verifier-stats")]
+    pub zpdb_advances: u64,
+    /// Calls to `ZpdbLayout::rank` (only on cost-1 projected edges).
+    #[cfg(feature = "verifier-stats")]
+    pub zpdb_rank_calls: u64,
+    /// Calls to `ProjectedState::apply` inside `ZpdbInc::advance` (= `2*N`
+    /// per `zpdb_advances` — normal + reflected, per pattern).
+    #[cfg(feature = "verifier-stats")]
+    pub proj_applies: u64,
+}
+
+impl SearchStats {
+    /// Component-wise add: merge per-solve stats into a running total.
+    pub fn add(&mut self, other: &SearchStats) {
+        self.nodes += other.nodes;
+        self.iterations += other.iterations;
+        #[cfg(feature = "verifier-stats")]
+        {
+            self.lc_advances += other.lc_advances;
+            self.wd_advances += other.wd_advances;
+            self.zpdb_advances += other.zpdb_advances;
+            self.zpdb_rank_calls += other.zpdb_rank_calls;
+            self.proj_applies += other.proj_applies;
+        }
+    }
 }
 
 /// Return an optimal move sequence from `start` to [`GOAL`].
@@ -136,11 +174,21 @@ fn search<H: Heuristic>(
 pub trait IncHeuristic {
     /// Per-node carried state.
     type Ctx: Copy;
-    /// Evaluate at the search root: `(h(start), ctx0)`.
-    fn root(&self, s: &State) -> (u8, Self::Ctx);
+    /// Evaluate at the search root: `(h(start), ctx0)`. `stats` is bumped for
+    /// the sub-components this heuristic evaluates (e.g. one
+    /// `zpdb_advances`/`lc_advances`/`wd_advances` increment per `root` call).
+    fn root(&self, s: &State, stats: &mut SearchStats) -> (u8, Self::Ctx);
     /// Given the parent's context and the move `m` just applied to reach
-    /// `child`, return `(h(child), child_ctx)`.
-    fn advance(&self, parent: &Self::Ctx, child: &State, m: Move) -> (u8, Self::Ctx);
+    /// `child`, return `(h(child), child_ctx)`. Implementations bump the
+    /// corresponding `SearchStats` counters so wall-time-per-call analysis
+    /// has accurate call counts regardless of inlining decisions.
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        child: &State,
+        m: Move,
+        stats: &mut SearchStats,
+    ) -> (u8, Self::Ctx);
 }
 
 /// [`idastar_with_stats`] driven by an [`IncHeuristic`]. Produces identical
@@ -156,7 +204,7 @@ pub fn idastar_inc_with_stats<E: IncHeuristic>(
         return (Some(Vec::new()), stats);
     }
 
-    let (h0, ctx0) = e.root(start);
+    let (h0, ctx0) = e.root(start, &mut stats);
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(96);
     let blank = start.blank_pos();
@@ -205,7 +253,7 @@ fn search_inc<E: IncHeuristic>(
             }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
-        let (child_h, child_ctx) = e.advance(&ctx, &s_next, m);
+        let (child_h, child_ctx) = e.advance(&ctx, &s_next, m, stats);
         path.push(m);
         match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
             Step::Found => return Step::Found,

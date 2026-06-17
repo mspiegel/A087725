@@ -14,7 +14,7 @@
 
 use super::db::PatternDb;
 use super::pattern::{Pattern, ProjectedState};
-use crate::puzzle15::search::{Heuristic, IncHeuristic, IncHeuristicMut};
+use crate::puzzle15::search::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
 use crate::puzzle15::state::{Move, State};
 use crate::puzzle15::symmetry::{reflect, transpose_move};
 
@@ -199,7 +199,7 @@ impl<'a, const N: usize> KorfPdbInc<'a, N> {
 impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
     type Ctx = KorfCtx<N>;
 
-    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+    fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
@@ -210,7 +210,13 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
         (self.value(&ctx), ctx)
     }
 
-    fn advance(&self, parent: &Self::Ctx, _child: &State, m: Move) -> (u8, Self::Ctx) {
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        _child: &State,
+        m: Move,
+        _stats: &mut SearchStats,
+    ) -> (u8, Self::Ctx) {
         let tm = transpose_move(m);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| parent.normal[i].apply(m).0),
@@ -387,8 +393,9 @@ mod tests {
 
         let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
         let mut s = GOAL;
+        let mut stats = SearchStats::default();
         for i in 0u32..3000 {
-            let (h_inc, _) = IncHeuristic::root(&inc, &s);
+            let (h_inc, _) = IncHeuristic::root(&inc, &s, &mut stats);
             assert_eq!(h_inc, h_korf.h(&s), "inc.root != scratch korf at {:?}", s.0);
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
@@ -413,7 +420,8 @@ mod tests {
 
         let pseudo = |i: u32| Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize];
         let mut s = GOAL;
-        let (_, mut ctx) = IncHeuristic::root(&inc, &s);
+        let mut stats = SearchStats::default();
+        let (_, mut ctx) = IncHeuristic::root(&inc, &s, &mut stats);
         for i in 0u32..3000 {
             let mut chosen = None;
             for k in 0u32..4 {
@@ -425,8 +433,8 @@ mod tests {
             }
             let m = chosen.unwrap();
             let ns = s.apply(m);
-            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = IncHeuristic::root(&inc, &ns);
+            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
+            let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
             assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {}", i);
             s = ns;
             ctx = ctx_adv;

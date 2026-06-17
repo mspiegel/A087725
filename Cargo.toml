@@ -21,6 +21,11 @@ sha = ["dep:sha2"]
 puzzle15 = ["parallel", "mmap"]
 # Umbrella enabling the full 24-puzzle CLI surface.
 puzzle24 = ["parallel", "mmap"]
+# Per-component call counters in the IDA* verifier (LC/WD/ZPDB advances,
+# ProjectedState::apply, ZpdbLayout::rank). Off by default — the per-node
+# counter bumps cost ~5-10% wall time. Turn on to derive accurate ns/call per
+# component when paired with a samply profile (`enumerate15` prints totals).
+verifier-stats = []
 
 [dependencies]
 rayon = { version = "1.10", optional = true }
@@ -92,6 +97,11 @@ required-features = ["mmap"]
 [profile.release]
 lto = true
 codegen-units = 1
+# Disable unwinding tables on release builds — enumerate15's hot path never
+# panics in steady state, and panic=abort lets LLVM skip landing-pad codegen
+# for cleaner inlining and tighter code. Note: Cargo profiles are per-build,
+# not per-binary, so this also applies to other release-built binaries.
+panic = "abort"
 
 [[example]]
 name = "zpdb_bench15"
