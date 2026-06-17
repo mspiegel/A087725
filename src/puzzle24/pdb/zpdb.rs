@@ -18,7 +18,7 @@
 //! (so the full 6-tile ZPDB has `6! · 251,400 = 181,008,000` entries — exactly
 //! the paper's figure), averaging `1.42` regions per shape with a maximum of 5.
 
-use super::pattern::{Pattern, ProjectedState, ANON};
+use super::pattern::{Pattern, ProjectedState};
 use crate::puzzle24::state::{N_CELLS, W};
 
 /// Marker in a region labeling for a cell occupied by a pattern tile.
@@ -103,23 +103,55 @@ pub fn region_count(occupied: u32) -> u8 {
 // (m, p, r) perfect-hash index
 // ---------------------------------------------------------------------------
 
-/// Binomial coefficient `C(n, k)`. Exact for the small `n ≤ 25` used here.
+/// Pascal's-triangle table for `C(n, k)` with `n ≤ 25`, `k ≤ 8` — the only
+/// arguments `shape_rank`/`rank` ever use (and big enough for `C(25, 8)`).
+const MAXN: usize = N_CELLS + 1;
+const MAXK: usize = 9;
+const BINOM: [[u64; MAXK]; MAXN] = build_binom();
+/// `k!` for `k ≤ 8`, covering every `factorial`/`perm_rank` argument here.
+const FACT: [u64; MAXK] = build_fact();
+
+const fn build_binom() -> [[u64; MAXK]; MAXN] {
+    let mut t = [[0u64; MAXK]; MAXN];
+    let mut n = 0;
+    while n < MAXN {
+        t[n][0] = 1;
+        let mut k = 1;
+        while k < MAXK {
+            let above = if n > 0 { t[n - 1][k] } else { 0 };
+            let left = if n > 0 { t[n - 1][k - 1] } else { 0 };
+            t[n][k] = above + left;
+            k += 1;
+        }
+        n += 1;
+    }
+    t
+}
+
+const fn build_fact() -> [u64; MAXK] {
+    let mut t = [1u64; MAXK];
+    let mut i = 1;
+    while i < MAXK {
+        t[i] = t[i - 1] * i as u64;
+        i += 1;
+    }
+    t
+}
+
+/// Binomial coefficient `C(n, k)`. Exact for the small `n ≤ 25` used here; an
+/// O(1) table read (symmetry folds `k > n/2` into the tabulated `k ≤ 8` range).
+#[inline]
 fn binom(n: usize, k: usize) -> u64 {
     if k > n {
         return 0;
     }
-    let k = k.min(n - k);
-    let mut r: u64 = 1;
-    for i in 0..k {
-        // r == C(n, i); r * (n-i) / (i+1) == C(n, i+1) exactly.
-        r = r * (n - i) as u64 / (i + 1) as u64;
-    }
-    r
+    BINOM[n][k.min(n - k)]
 }
 
-/// `k!`.
+/// `k!`. O(1) table read for the `k ≤ 8` arguments used here.
+#[inline]
 fn factorial(k: usize) -> u64 {
-    (1..=k as u64).product::<u64>().max(1)
+    FACT[k]
 }
 
 /// Combinatorial-number-system rank of a sorted cell set `c_0 < c_1 < … < c_{k-1}`:
@@ -133,18 +165,18 @@ fn shape_rank(sorted_cells: &[u8]) -> u64 {
 }
 
 /// Lehmer (factorial-number-system) rank of a permutation of `0..k`, onto
-/// `[0, k!)`.
+/// `[0, k!)`. O(k): the Lehmer digit at position `i` is `perm[i]` minus the
+/// count of already-placed (left) values smaller than it, found with a popcount
+/// over a used-value bitmask — no O(k²) right-scan.
 fn perm_rank(perm: &[u8]) -> u64 {
     let k = perm.len();
+    let mut used: u32 = 0;
     let mut rank = 0u64;
     for i in 0..k {
-        let mut smaller = 0u64;
-        for &p in &perm[(i + 1)..] {
-            if p < perm[i] {
-                smaller += 1;
-            }
-        }
-        rank += smaller * factorial(k - 1 - i);
+        let v = perm[i] as u32;
+        let smaller_left = (used & ((1u32 << v) - 1)).count_ones() as u64;
+        rank += (v as u64 - smaller_left) * factorial(k - 1 - i);
+        used |= 1u32 << v;
     }
     rank
 }
@@ -194,6 +226,12 @@ fn for_each_ksubset(k: usize, mut f: impl FnMut(&[u8], u32)) {
 pub struct ZpdbLayout {
     k: usize,
     kfact: u64,
+    /// `slot_of[v]` = the permutation slot of tile value `v` (its index in the
+    /// pattern's iteration order), and `tiles[j]` = the tile value with slot
+    /// `j`. Precomputed so `rank` finds the occupied cells via `pos_of` in O(k)
+    /// — no full-board scan and no per-call tile-value search.
+    slot_of: [u8; N_CELLS],
+    tiles: [u8; 8],
     /// Length `C(25, k)`, indexed by [`shape_rank`].
     cohort_base: Vec<u64>,
     /// Region count per shape, indexed by [`shape_rank`].
@@ -236,6 +274,17 @@ impl ZpdbLayout {
         let kfact = factorial(k);
         let nshapes = binom(N_CELLS, k) as usize;
 
+        // Permutation slot of each tile value (pattern iteration order) and its
+        // inverse, for the O(k) occupied-cell lookup in `rank`.
+        let mut slot_of = [0u8; N_CELLS];
+        let mut tiles = [0u8; 8];
+        let mut slot = 0u8;
+        for t in pattern.iter() {
+            slot_of[t as usize] = slot;
+            tiles[slot as usize] = t;
+            slot += 1;
+        }
+
         // Bipartite parity reference: parity of the sum of pattern-tile cell
         // indices at the goal. Tile `t` lives at goal cell `t - 1`.
         let mut goal_sum: u32 = 0;
@@ -265,7 +314,7 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
-        Self { k, kfact, cohort_base, counts, labels, shape_parity, total: acc }
+        Self { k, kfact, slot_of, tiles, cohort_base, counts, labels, shape_parity, total: acc }
     }
 
     /// Cached `(region_count, region_labels)` for an occupancy mask — an array
@@ -315,45 +364,41 @@ impl ZpdbLayout {
         &self.shape_parity
     }
 
-    /// Map a projected state to its `(m, p, r)` index in `[0, total())`.
+    /// Map a projected state to its `(m, p, r)` index in `[0, total())`. The
+    /// `pattern` is implicit in the precomputed `slot_of`/`tiles` maps built
+    /// from it.
     ///
-    /// Reads the pattern-tile cells and the blank from `proj.cells`; `pattern`
-    /// supplies the ascending tile order for the permutation component.
-    pub fn rank(&self, proj: &ProjectedState, pattern: Pattern) -> u64 {
-        // Ascending tile-value → index, for the permutation component.
-        let mut asc = [0u8; 8];
-        let mut ki = 0usize;
-        for t in pattern.iter() {
-            asc[ki] = t;
-            ki += 1;
+    /// O(k), not O(board): the occupied cells come straight from `pos_of`
+    /// (no full-board scan), `shape_rank` is accumulated inline over the
+    /// ascending bit-iteration of the occupancy mask, and the permutation slots
+    /// feed the O(k) [`perm_rank`].
+    pub fn rank(&self, proj: &ProjectedState, _pattern: Pattern) -> u64 {
+        // Occupancy bitmask from the k pattern tiles' positions — no board scan.
+        let mut occ: u32 = 0;
+        for j in 0..self.k {
+            occ |= 1u32 << proj.pos_of(self.tiles[j]);
         }
-        debug_assert_eq!(ki, self.k);
+        let blank = proj.blank_pos() as usize;
 
-        // Scan cells (ascending) → occupied cells, their tiles, the blank.
-        let mut occ_cells = [0u8; 8];
+        // Walk occupied cells ascending: accumulate shape_rank and read each
+        // cell's tile slot (cells live in one cache line, hot in L1).
+        let mut sr = 0u64;
         let mut perm = [0u8; 8];
-        let mut n = 0usize;
-        let mut blank = 0u8;
-        for (c, &v) in proj.cells.iter().enumerate() {
-            if v == 0 {
-                blank = c as u8;
-            } else if v != ANON {
-                occ_cells[n] = c as u8;
-                // index of tile v in ascending pattern order
-                let mut idx = 0usize;
-                while asc[idx] != v {
-                    idx += 1;
-                }
-                perm[n] = idx as u8;
-                n += 1;
-            }
+        let mut j = 0usize;
+        let mut m = occ;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            sr += BINOM[c][j + 1];
+            perm[j] = self.slot_of[proj.cells[c] as usize];
+            m &= m - 1;
+            j += 1;
         }
-        debug_assert_eq!(n, self.k);
+        debug_assert_eq!(j, self.k);
 
-        let sr = shape_rank(&occ_cells[..n]) as usize;
-        let pr = perm_rank(&perm[..n]);
+        let sr = sr as usize;
+        let pr = perm_rank(&perm[..self.k]);
         let count = self.counts[sr] as u64;
-        let r = self.labels[sr][blank as usize] as u64;
+        let r = self.labels[sr][blank] as u64;
         debug_assert!(r < count);
         self.cohort_base[sr] + pr * count + r
     }
@@ -461,6 +506,28 @@ mod tests {
             assert!(seen.insert(r));
         }
         assert_eq!(seen.len(), 24);
+    }
+
+    /// The O(k) popcount `perm_rank` must equal the plain count-inversions
+    /// Lehmer rank *value-for-value* (not just bijectively) — the on-disk ZPDBs
+    /// are indexed with it, so any drift would silently corrupt lookups.
+    #[test]
+    fn perm_rank_matches_inversion_reference() {
+        fn reference(perm: &[u8]) -> u64 {
+            let k = perm.len();
+            let mut rank = 0u64;
+            for i in 0..k {
+                let smaller = perm[i + 1..].iter().filter(|&&p| p < perm[i]).count() as u64;
+                rank += smaller * (1..=(k - 1 - i) as u64).product::<u64>().max(1);
+            }
+            rank
+        }
+        for k in 1..=7u8 {
+            let items: Vec<u8> = (0..k).collect();
+            for p in permutations(&items) {
+                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {:?}", p);
+            }
+        }
     }
 
     #[test]
