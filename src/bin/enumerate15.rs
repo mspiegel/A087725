@@ -19,7 +19,7 @@ use std::time::Instant;
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::unrank;
-use puzzle8::puzzle15::search::{idastar_inc_with_stats, WalkingDistanceHeuristic};
+use puzzle8::puzzle15::search::{idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic};
 
 struct Args {
     pdb_dir: PathBuf,
@@ -105,6 +105,7 @@ fn run() -> Result<(), String> {
     // incrementally per node. Sync, so it drives the parallel band solves.
     let zdbs = load_zpdbs(&args.pdb_dir)?;
     WalkingDistanceHeuristic::warm_up();
+    LinearConflictInc::warm_up();
     let h = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
     let verify = |r: u64| -> u8 {
         idastar_inc_with_stats(&unrank(r), &h).0.map(|v| v.len() as u8).unwrap_or(u8::MAX)

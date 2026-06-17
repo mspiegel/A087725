@@ -5,6 +5,7 @@
 
 use super::{Heuristic, IncHeuristic};
 use crate::puzzle15::state::{Move, State, W};
+use std::sync::OnceLock;
 
 /// Manhattan distance plus the linear-conflict correction. Admissible.
 pub struct LinearConflictHeuristic;
@@ -85,6 +86,16 @@ impl Heuristic for LinearConflictHeuristic {
 /// `(child.blank, parent.blank)` (the tile filled the cell the blank just left).
 pub struct LinearConflictInc;
 
+impl LinearConflictInc {
+    /// Force the row/column penalty LUTs to be built. Optional — `root` and
+    /// `advance` will build on first use otherwise. Match the `WD::warm_up`
+    /// pattern so verifiers can amortize the ~256 KB build at startup.
+    pub fn warm_up() {
+        let _ = row_luts();
+        let _ = col_luts();
+    }
+}
+
 /// Per-node state for [`LinearConflictInc`]. 11 bytes, `Copy` so the IDA*
 /// recursion can thread it by value with implicit backtracking.
 #[derive(Clone, Copy, Debug)]
@@ -110,40 +121,80 @@ fn manhattan_of(tile: u8, pos: usize) -> i32 {
     dr.abs() + dc.abs()
 }
 
-#[inline]
-fn row_penalty(s: &State, r: usize) -> u8 {
-    let mut goals = [0u8; W];
-    let mut n = 0usize;
-    for c in 0..W {
-        let t = s.0[r * W + c];
-        if t == 0 {
-            continue;
+/// Number of distinct 4-cell row/column contents, indexed by the 16-bit pack
+/// `a | (b<<4) | (c<<8) | (d<<12)` of 4 tile values in 0..=15. Includes illegal
+/// duplicates — they just never occur in reachable states.
+const LC_LUT_SIZE: usize = 1 << 16;
+
+/// Per-line LC penalty (`2 * lc_removals`) tables. `ROW_LUT[r][key]` is the
+/// row-`r` penalty for a row whose packed contents are `key`; same shape for
+/// columns. Built once on first use. ~256 KB total.
+type LcLut = Box<[u8; LC_LUT_SIZE]>;
+
+fn build_line_lut(line_idx: usize, axis_is_row: bool) -> LcLut {
+    let mut lut: LcLut = vec![0u8; LC_LUT_SIZE].into_boxed_slice().try_into().unwrap();
+    for key in 0..LC_LUT_SIZE {
+        let tiles = [
+            (key & 0xF) as u8,
+            ((key >> 4) & 0xF) as u8,
+            ((key >> 8) & 0xF) as u8,
+            ((key >> 12) & 0xF) as u8,
+        ];
+        let mut goals = [0u8; W];
+        let mut n = 0usize;
+        for &t in &tiles {
+            if t == 0 {
+                continue;
+            }
+            let g = (t - 1) as usize;
+            // For a row LUT at index r: count tiles whose goal row is r, by goal column.
+            // For a col LUT at index c: count tiles whose goal col is c, by goal row.
+            let (in_line, other) = if axis_is_row { (g / W, g % W) } else { (g % W, g / W) };
+            if in_line == line_idx {
+                goals[n] = other as u8;
+                n += 1;
+            }
         }
-        let g = (t - 1) as usize;
-        if g / W == r {
-            goals[n] = (g % W) as u8;
-            n += 1;
-        }
+        lut[key] = 2 * lc_removals(&goals[..n]) as u8;
     }
-    2 * lc_removals(&goals[..n]) as u8
+    lut
+}
+
+fn row_luts() -> &'static [LcLut; W] {
+    static LUTS: OnceLock<[LcLut; W]> = OnceLock::new();
+    LUTS.get_or_init(|| std::array::from_fn(|r| build_line_lut(r, true)))
+}
+
+fn col_luts() -> &'static [LcLut; W] {
+    static LUTS: OnceLock<[LcLut; W]> = OnceLock::new();
+    LUTS.get_or_init(|| std::array::from_fn(|c| build_line_lut(c, false)))
 }
 
 #[inline]
-fn col_penalty(s: &State, c: usize) -> u8 {
-    let mut goals = [0u8; W];
-    let mut n = 0usize;
-    for r in 0..W {
-        let t = s.0[r * W + c];
-        if t == 0 {
-            continue;
-        }
-        let g = (t - 1) as usize;
-        if g % W == c {
-            goals[n] = (g / W) as u8;
-            n += 1;
-        }
-    }
-    2 * lc_removals(&goals[..n]) as u8
+fn pack_row(s: &State, r: usize) -> u16 {
+    let off = r * W;
+    (s.0[off] as u16)
+        | ((s.0[off + 1] as u16) << 4)
+        | ((s.0[off + 2] as u16) << 8)
+        | ((s.0[off + 3] as u16) << 12)
+}
+
+#[inline]
+fn pack_col(s: &State, c: usize) -> u16 {
+    (s.0[c] as u16)
+        | ((s.0[c + W] as u16) << 4)
+        | ((s.0[c + 2 * W] as u16) << 8)
+        | ((s.0[c + 3 * W] as u16) << 12)
+}
+
+#[inline]
+fn row_pen_lut(luts: &[LcLut; W], s: &State, r: usize) -> u8 {
+    luts[r][pack_row(s, r) as usize]
+}
+
+#[inline]
+fn col_pen_lut(luts: &[LcLut; W], s: &State, c: usize) -> u8 {
+    luts[c][pack_col(s, c) as usize]
 }
 
 #[inline]
@@ -169,11 +220,13 @@ impl IncHeuristic for LinearConflictInc {
             }
             manhattan += manhattan_of(t, p) as u32;
         }
+        let rl = row_luts();
+        let cl = col_luts();
         let mut row_pen = [0u8; W];
         let mut col_pen = [0u8; W];
         for i in 0..W {
-            row_pen[i] = row_penalty(s, i);
-            col_pen[i] = col_penalty(s, i);
+            row_pen[i] = row_pen_lut(rl, s, i);
+            col_pen[i] = col_pen_lut(cl, s, i);
         }
         let ctx = LcCtx { manhattan: manhattan as u8, row_pen, col_pen, blank };
         (ctx_h(&ctx), ctx)
@@ -204,16 +257,18 @@ impl IncHeuristic for LinearConflictInc {
         let rt = to_cell / W;
         let cf = from_cell % W;
         let ct = to_cell % W;
+        let rl = row_luts();
+        let cl = col_luts();
         if rf != rt {
             // Vertical slide: tile changed row but kept column.
-            row_pen[rf] = row_penalty(child, rf);
-            row_pen[rt] = row_penalty(child, rt);
-            col_pen[cf] = col_penalty(child, cf); // cf == ct
+            row_pen[rf] = row_pen_lut(rl, child, rf);
+            row_pen[rt] = row_pen_lut(rl, child, rt);
+            col_pen[cf] = col_pen_lut(cl, child, cf); // cf == ct
         } else {
             // Horizontal slide: tile changed column but kept row.
-            col_pen[cf] = col_penalty(child, cf);
-            col_pen[ct] = col_penalty(child, ct);
-            row_pen[rf] = row_penalty(child, rf); // rf == rt
+            col_pen[cf] = col_pen_lut(cl, child, cf);
+            col_pen[ct] = col_pen_lut(cl, child, ct);
+            row_pen[rf] = row_pen_lut(rl, child, rf); // rf == rt
         }
 
         let ctx = LcCtx { manhattan, row_pen, col_pen, blank: from_cell as u8 };
