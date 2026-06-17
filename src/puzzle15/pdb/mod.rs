@@ -38,5 +38,5 @@ pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
 };
 pub use zdb::ZPatternDb;
-pub use zheuristic::{AdditiveZpdbHeuristic, ZpdbCtx, ZpdbHeuristic, ZpdbInc};
+pub use zheuristic::{AdditiveZpdbHeuristic, ZpdbCtx, ZpdbHeuristic, ZpdbInc, ZpdbPlusInc};
 pub use zpdb::ZpdbLayout;

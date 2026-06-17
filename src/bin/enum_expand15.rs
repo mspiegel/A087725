@@ -13,13 +13,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
-};
+use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
-use puzzle8::puzzle15::search::{
-    idastar, Heuristic, LinearConflictHeuristic, WalkingDistanceHeuristic,
-};
+use puzzle8::puzzle15::search::{idastar_inc_with_stats, WalkingDistanceHeuristic};
 
 fn read_ranks(path: &Path) -> Result<Vec<u64>, String> {
     let mut bytes = Vec::new();
@@ -92,25 +88,20 @@ fn run() -> Result<(), String> {
 
     if verify {
         let d = depth.ok_or("--verify needs --depth")?;
-        let dbs = [
-            PatternDb::load_mmap(&pdb_dir.join("pdb15_p7_korf.bin")).map_err(|e| format!("p7: {}", e))?,
-            PatternDb::load_mmap(&pdb_dir.join("pdb15_p8_korf.bin")).map_err(|e| format!("p8: {}", e))?,
+        // Zero-aware "zpdb-plus" verifier — pointwise dominates the additive
+        // korf-plus it replaces, advanced incrementally per node.
+        let zdbs = [
+            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {}", e))?,
+            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {}", e))?,
         ];
-        let h_add = AdditivePdbHeuristic::new(&dbs);
-        let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
-        let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
         WalkingDistanceHeuristic::warm_up();
-        let h_classical = MaxHeuristic::new(
-            &LinearConflictHeuristic as &dyn Heuristic,
-            &WalkingDistanceHeuristic as &dyn Heuristic,
-        );
-        let h_plus = MaxHeuristic::new(&h_korf as &dyn Heuristic, &h_classical as &dyn Heuristic);
+        let h_plus = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
 
         // Evenly-spaced sample so we cover the whole file.
         let step = (ranks.len() / sample.max(1)).max(1);
         let mut checked = 0usize;
         for &r in ranks.iter().step_by(step) {
-            let got = idastar(&unrank(r), &h_plus).map(|v| v.len() as u8).unwrap_or(u8::MAX);
+            let got = idastar_inc_with_stats(&unrank(r), &h_plus).0.map(|v| v.len() as u8).unwrap_or(u8::MAX);
             if got != d {
                 return Err(format!("rank {} has optimal depth {} != claimed {}", r, got, d));
             }

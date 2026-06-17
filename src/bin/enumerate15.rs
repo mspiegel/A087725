@@ -17,13 +17,9 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
-use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
-};
+use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::unrank;
-use puzzle8::puzzle15::search::{
-    idastar, LinearConflictHeuristic, WalkingDistanceHeuristic,
-};
+use puzzle8::puzzle15::search::{idastar_inc_with_stats, WalkingDistanceHeuristic};
 
 struct Args {
     pdb_dir: PathBuf,
@@ -82,9 +78,9 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args { pdb_dir, data_dir, mode_band, down_to, floor, budget, cache, no_cache, out, no_verify })
 }
 
-fn load_pdbs(dir: &Path) -> Result<[PatternDb; 2], String> {
-    let p7 = PatternDb::load_mmap(&dir.join("pdb15_p7_korf.bin")).map_err(|e| format!("p7: {}", e))?;
-    let p8 = PatternDb::load_mmap(&dir.join("pdb15_p8_korf.bin")).map_err(|e| format!("p8: {}", e))?;
+fn load_zpdbs(dir: &Path) -> Result<[ZPatternDb; 2], String> {
+    let p7 = ZPatternDb::load_mmap(&dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {}", e))?;
+    let p8 = ZPatternDb::load_mmap(&dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {}", e))?;
     Ok([p7, p8])
 }
 
@@ -103,18 +99,15 @@ fn run() -> Result<(), String> {
         store.insert(*r, 80);
     }
 
-    // Concrete (Sync) korf-plus heuristic — usable from parallel band solves.
-    let dbs = load_pdbs(&args.pdb_dir)?;
+    // Zero-aware "zpdb-plus" verifier — pointwise dominates the additive
+    // korf-plus it replaces (each zero-aware ZPDB ≥ its additive PDB), so it
+    // never expands more nodes, while the ZPDB component is advanced
+    // incrementally per node. Sync, so it drives the parallel band solves.
+    let zdbs = load_zpdbs(&args.pdb_dir)?;
     WalkingDistanceHeuristic::warm_up();
-    let h = MaxHeuristic::new(
-        MaxHeuristic::new(
-            AdditivePdbHeuristic::new(&dbs),
-            ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs)),
-        ),
-        MaxHeuristic::new(LinearConflictHeuristic, WalkingDistanceHeuristic),
-    );
+    let h = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
     let verify = |r: u64| -> u8 {
-        idastar(&unrank(r), &h).map(|v| v.len() as u8).unwrap_or(u8::MAX)
+        idastar_inc_with_stats(&unrank(r), &h).0.map(|v| v.len() as u8).unwrap_or(u8::MAX)
     };
 
     let reports = if args.mode_band {

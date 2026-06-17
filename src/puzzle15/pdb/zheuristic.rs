@@ -16,7 +16,9 @@
 
 use super::pattern::{Pattern, ProjectedState};
 use super::zdb::ZPatternDb;
-use crate::puzzle15::search::{Heuristic, IncHeuristic};
+use crate::puzzle15::search::{
+    Heuristic, IncHeuristic, LinearConflictHeuristic, WalkingDistanceHeuristic,
+};
 use crate::puzzle15::state::{Move, State};
 use crate::puzzle15::symmetry::{reflect, transpose_move};
 
@@ -178,6 +180,55 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             ctx.reflected[i] = rp;
         }
         (self.value(&ctx), ctx)
+    }
+}
+
+/// Incremental "zpdb-plus": [`ZpdbInc`] (zero-aware Korf-max) maxed per node
+/// with the classical Linear-Conflict and Walking-Distance heuristics — the
+/// drop-in incremental replacement for the additive `korf-plus` the enumeration
+/// verifier used.
+///
+/// Because each zero-aware ZPDB pointwise dominates its blank-agnostic additive
+/// PDB, this **dominates the additive korf-plus** (identical LC/WD terms, a
+/// `≥` PDB component), so a verifier driven by it never expands more nodes than
+/// before — while the zero-aware component is advanced in O(k) per node instead
+/// of re-projected. The LC/WD terms have no cheap incremental form and are
+/// recomputed from the child `State`; the additive korf-plus paid that same
+/// cost, so this is strictly faster per node as well.
+///
+/// `WalkingDistanceHeuristic::warm_up()` must have been called first (as for any
+/// WD use); the per-node `h` stays `u8` since the 15-puzzle diameter is 80.
+pub struct ZpdbPlusInc<'a, const N: usize> {
+    zpdb: ZpdbInc<'a, N>,
+}
+
+impl<'a, const N: usize> ZpdbPlusInc<'a, N> {
+    /// Build from `N` pairwise-disjoint ZPDBs (same contract as [`ZpdbInc::new`]).
+    pub fn new(dbs: [&'a ZPatternDb; N]) -> Self {
+        Self { zpdb: ZpdbInc::new(dbs) }
+    }
+}
+
+#[inline]
+fn classical_max(s: &State, h_zpdb: u8) -> u8 {
+    h_zpdb
+        .max(LinearConflictHeuristic.h(s))
+        .max(WalkingDistanceHeuristic.h(s))
+}
+
+impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
+    type Ctx = ZpdbCtx<N>;
+
+    #[inline]
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let (h_zpdb, ctx) = self.zpdb.root(s);
+        (classical_max(s, h_zpdb), ctx)
+    }
+
+    #[inline]
+    fn advance(&self, parent: &Self::Ctx, child: &State, m: Move) -> (u8, Self::Ctx) {
+        let (h_zpdb, ctx) = self.zpdb.advance(parent, child, m);
+        (classical_max(child, h_zpdb), ctx)
     }
 }
 
@@ -354,6 +405,36 @@ mod tests {
                 cur = cur.apply(m);
             }
             assert_eq!(cur, GOAL, "solution did not reach GOAL");
+        }
+    }
+
+    /// `ZpdbPlusInc` must pointwise dominate the additive korf-plus it replaces
+    /// in the enumeration verifier — `max(zpdb, refl-zpdb, LC, WD)` ≥
+    /// `max(add, refl-add, LC, WD)` — so the verifier can never expand MORE
+    /// nodes than before. Also stays admissible (≤ true distance).
+    #[test]
+    fn zpdb_plus_inc_dominates_korf_plus_pointwise() {
+        use crate::puzzle15::pdb::heuristic::{AdditivePdbHeuristic, ReflectedHeuristic};
+
+        let pats = [Pattern::new(&[1, 2, 3, 4]), Pattern::new(&[5, 6, 7, 8])];
+        let zdbs = [ZPatternDb::build(pats[0]), ZPatternDb::build(pats[1])];
+        let adbs = [PatternDb::build(pats[0]), PatternDb::build(pats[1])];
+        let zplus = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
+
+        WalkingDistanceHeuristic::warm_up();
+        let add = AdditivePdbHeuristic::new(&adbs);
+        let refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&adbs));
+
+        for (raw, &td) in &bfs_distances(12) {
+            let s = State(*raw);
+            let hz = IncHeuristic::root(&zplus, &s).0;
+            let korf_plus = add
+                .h(&s)
+                .max(refl.h(&s))
+                .max(LinearConflictHeuristic.h(&s))
+                .max(WalkingDistanceHeuristic.h(&s));
+            assert!(hz >= korf_plus, "zpdb-plus {} < korf-plus {} at {:?}", hz, korf_plus, raw);
+            assert!(hz <= td, "zpdb-plus {} inadmissible (true {}) at {:?}", hz, td, raw);
         }
     }
 }
