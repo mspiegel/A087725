@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::puzzle15::rank::{rank, unrank};
-use crate::puzzle15::state::State;
+use crate::puzzle15::state::{Move, State};
 use crate::puzzle15::symmetry::reflect;
 
 use super::cache::{self, Cache};
@@ -21,6 +21,34 @@ fn neighbors(r: u64, out: &mut Vec<u64>) {
     for m in State::legal_moves_at(blank).iter() {
         let (ns, _) = s.apply_at(m, blank);
         out.push(rank(&ns));
+    }
+}
+
+/// All distinct boards reachable from `r` in 1..=K blank-moves (the K-step
+/// expansion experiment). Excludes `r` itself. Anti-cancellation pruning
+/// suppresses immediate-undo moves; rank-based dedup handles the rest.
+fn neighbors_k(r: u64, k: u8, out: &mut Vec<u64>) {
+    out.clear();
+    if k == 0 { return; }
+    let s = unrank(r);
+    let mut seen: HashSet<u64> = HashSet::new();
+    seen.insert(r);
+    let mut current: Vec<(State, Option<Move>)> = vec![(s, None)];
+    for _ in 0..k {
+        let mut next: Vec<(State, Option<Move>)> = Vec::with_capacity(current.len() * 3);
+        for &(ref x, last) in &current {
+            let blank = x.blank_pos();
+            for m in State::legal_moves_at(blank).iter() {
+                if last.map_or(false, |lm| m == lm.inverse()) { continue; }
+                let (ns, _) = x.apply_at(m, blank);
+                let nr = rank(&ns);
+                if seen.insert(nr) {
+                    out.push(nr);
+                    next.push((ns, Some(m)));
+                }
+            }
+        }
+        current = next;
     }
 }
 
@@ -155,12 +183,21 @@ pub fn process_layer(
 }
 
 /// Distinct neighbor ranks of every board in `frontier` that are not already in
-/// `store`.
+/// `store`. With `ENUM_K_STEPS=K` (default 1), each board emits all distinct
+/// boards reachable in 1..=K blank-moves — see [`neighbors_k`].
 fn fresh_neighbors(store: &Store, frontier: &[u64]) -> Vec<u64> {
+    let k: u8 = std::env::var("ENUM_K_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
     let mut set: HashSet<u64> = HashSet::new();
-    let mut nb = Vec::with_capacity(4);
+    let mut nb = Vec::with_capacity(if k == 1 { 4 } else { 32 });
     for &x in frontier {
-        neighbors(x, &mut nb);
+        if k == 1 {
+            neighbors(x, &mut nb);
+        } else {
+            neighbors_k(x, k, &mut nb);
+        }
         for &n in &nb {
             if !store.contains(n) {
                 set.insert(n);
