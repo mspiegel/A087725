@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::puzzle15::rank::{rank, unrank};
 use crate::puzzle15::state::State;
+use crate::puzzle15::symmetry::reflect;
 
 use super::cache::{self, Cache};
 use super::histogram::Histogram;
@@ -243,21 +244,49 @@ where
         let mut next = Vec::new();
         // Solve the round in sub-batches so the 10-min heartbeat fires mid-round.
         for chunk in cands.chunks(CHUNK) {
-            // Split into cache hits (free) and misses (need an idastar solve).
+            // Symmetry-aware triage: depth is reflection-invariant
+            // (`symmetry::reflect`), so for each candidate `r` we probe both `r`
+            // and `r_refl = rank(reflect(unrank(r)))` in the cache. When both
+            // miss, we queue the lex-smaller of the pair for an actual IDA*
+            // solve and the partner is deferred to be filled from the cache
+            // after solves complete (we mirror `(r, d)` to `(r_refl, d)`). In a
+            // fully symmetry-closed cache this halves the IDA* calls — every
+            // partner becomes a free cache hit.
             let mut misses: Vec<u64> = Vec::new();
+            let mut deferred: Vec<u64> = Vec::new();
             let mut results: Vec<(u64, u8)> = Vec::with_capacity(chunk.len());
+            let mut queued: HashSet<u64> = HashSet::new();
             for &r in chunk {
-                match cache.get(&r) {
-                    Some(&d) => results.push((r, d)),
-                    None => misses.push(r),
+                let r_refl = rank(&reflect(&unrank(r)));
+                if let Some(&d) = cache.get(&r) {
+                    results.push((r, d));
+                } else if let Some(&d) = cache.get(&r_refl) {
+                    // Mirror the partner's depth so future probes hit `r` directly.
+                    cache.insert(r, d);
+                    results.push((r, d));
+                } else {
+                    // Both miss. Queue the lex-canonical of the pair; the
+                    // partner is filled in from the cache below.
+                    let canonical = r.min(r_refl);
+                    if queued.insert(canonical) {
+                        misses.push(canonical);
+                    }
+                    deferred.push(r);
                 }
             }
             let solved: Vec<(u64, u8)> = misses.par_iter().map(|&r| (r, verify(r))).collect();
             solves += misses.len() as u64;
             for &(r, d) in &solved {
+                let r_refl = rank(&reflect(&unrank(r)));
                 cache.insert(r, d);
+                if r_refl != r {
+                    cache.insert(r_refl, d);
+                }
             }
-            results.extend(solved);
+            for r in deferred {
+                let d = *cache.get(&r).expect("canonical solve should have populated r");
+                results.push((r, d));
+            }
             for (r, d) in results {
                 if d >= floor && store.insert(r, d) {
                     next.push(r);

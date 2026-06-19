@@ -19,7 +19,8 @@ use std::time::Instant;
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
 use puzzle8::puzzle15::state::DIAMETER;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
-use puzzle8::puzzle15::rank::unrank;
+use puzzle8::puzzle15::rank::{rank, unrank};
+use puzzle8::puzzle15::symmetry::reflect;
 use puzzle8::puzzle15::search::{
     idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic,
 };
@@ -158,15 +159,29 @@ fn run() -> Result<(), String> {
         // auto-seed-from-cache, so this block doesn't touch the Store directly.
         if let Some(seed_path) = args.seed_ranks.as_deref() {
             use rayon::prelude::*;
+            use std::collections::HashSet;
             let ranks = Store::read_ranks_file(seed_path)
                 .map_err(|e| format!("seed-ranks {}: {}", seed_path.display(), e))?;
+            // Symmetry-aware triage: depth is reflection-invariant, so a hit on
+            // either `r` or `r_refl` lets us mirror back to the other and skip
+            // the IDA* solve. Among ranks both of whose partners are misses,
+            // queue only the lex-canonical; the partner gets populated by the
+            // cache mirror after solves complete.
             let mut cache_hits = 0u64;
             let mut misses: Vec<u64> = Vec::new();
-            for r in &ranks {
-                if cache.contains_key(r) {
+            let mut queued: HashSet<u64> = HashSet::new();
+            for &r in &ranks {
+                let r_refl = rank(&reflect(&unrank(r)));
+                if cache.contains_key(&r) {
+                    cache_hits += 1;
+                } else if let Some(&d) = cache.get(&r_refl) {
+                    cache.insert(r, d);
                     cache_hits += 1;
                 } else {
-                    misses.push(*r);
+                    let canonical = r.min(r_refl);
+                    if queued.insert(canonical) {
+                        misses.push(canonical);
+                    }
                 }
             }
             let solved: Vec<(u64, u8)> = misses.par_iter().map(|&r| (r, verify(r))).collect();
@@ -174,7 +189,11 @@ fn run() -> Result<(), String> {
                 if d == u8::MAX {
                     return Err(format!("seed rank {} not solvable", r));
                 }
+                let r_refl = rank(&reflect(&unrank(r)));
                 cache.insert(r, d);
+                if r_refl != r {
+                    cache.insert(r_refl, d);
+                }
             }
             let solved_n = solved.len() as u64;
             if solved_n > 0 {
