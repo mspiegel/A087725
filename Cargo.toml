@@ -55,6 +55,14 @@ name = "enum_expand15"
 required-features = ["mmap"]
 
 [[bin]]
+name = "h_filter15"
+required-features = ["mmap"]
+
+[[bin]]
+name = "enum_corner15"
+required-features = ["mmap", "parallel"]
+
+[[bin]]
 name = "build_pdb24"
 required-features = ["parallel", "mmap", "sha"]
 
