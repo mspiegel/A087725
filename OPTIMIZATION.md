@@ -1,296 +1,273 @@
 # OPTIMIZATION.md
 
-Optimization opportunities for the 8- and 15-puzzle solvers, prioritized by
-impact on the hot path (the 15-puzzle IDA\* inner loop). The 8-puzzle is fast
-enough via its exact distance table that it matters mainly as a shared-code
-testbed; most items below are in code shared by both, or in the 15-puzzle PDB
-path.
+Optimization opportunities for the IDA\* hot path, focused on `enumerate15`
+throughput. The earlier round of work (incremental Korf evaluator, table-driven
+moves, threaded blank, incremental WD/LC) flattened the per-node CPU cost.
+What's left are structural changes that cut **calls to IDA\*** or **work per
+IDA\* call**, not per-node cost.
 
-## Status (measured on the Korf-100 bench, warm page cache)
+The three items below are independent — each can be implemented and measured
+on its own. They stack multiplicatively in principle, though the gains usually
+compound less than the product because they target overlapping inefficiencies.
 
-Implemented so far, in order:
+## Headline
 
-- **#2 + #3 — table-driven move-gen + threaded blank, `debug_assert!`** (commit
-  `6598dd9`). Behavior unchanged (identical node counts). No measurable change on
-  the korf PDB workload (PDB memory latency dominates there); a controlled
-  Manhattan A/B showed ~1.2× (34.3 → 41.4 Mnodes/s) — the per-node CPU win,
-  masked under the PDB heuristic.
-- **#1 — incremental Korf evaluator** (`KorfPdbInc` + `IncHeuristic` +
-  `idastar_inc_with_stats`). Maintains each PDB's projected board for the normal
-  view (advanced by the move) and the reflected view (advanced by the transposed
-  move), so no per-node re-projection or `reflect`. Value is byte-identical to
-  the scratch `max(additive, reflected)` composition (proven by unit tests +
-  identical Korf-100 node counts). **Result: korf 1.04s → 0.42s, a ~2.5×
-  speedup (4.2 → 10.4 Mnodes/s).** A/B with `--scratch` in the bench.
+For deep boards (depth ≥ 70), the dominant costs in `enumerate15`'s steady
+state are:
 
-Tried and **rejected on this workload** (the bench earned its keep):
+1. **Redundant IDA\* on reflection partners.** Reflection preserves depth
+   (`src/puzzle15/symmetry.rs:11`). Yet `verify` is called independently on
+   `B` and `reflect(B)` whenever both surface as BFS neighbors. **~50% of
+   calls to IDA\* are redundant in fully symmetry-closed regions.**
+2. **Excessive IDA\* iterations.** Textbook IDA\* sets the next f-bound to the
+   minimum exceeding value, which for the 15-puzzle increments by 2 (parity).
+   Boards at depth 78 with `h_start = 60` do ~10 deepening iterations, each
+   re-exploring nearly everything the previous iteration did.
+3. **Within-iteration duplicate exploration.** The undo-prune at
+   `src/puzzle15/search/idastar.rs:65` catches girth-2 cycles, but longer
+   redundant sequences (girth ≥ 12 — blank circling a 2×2 ×3) are still
+   re-expanded. Per `examples/dup_probe.rs`'s prior measurement, ~10.5% of
+   nodes are redundant re-expansions inside a single IDA\* call.
 
-- **#4 — move ordering** (expand lowest-`h` child first). Implemented and
-  measured: **0.07%** fewer nodes, and wall-clock *rose* ~6% (419 → ~444 ms)
-  from the per-node sort. IDA\* with a tight heuristic visits nearly all
-  `f ≤ bound` nodes regardless of order — ordering only skips siblings *after*
-  the goal is found, a negligible fraction. Reverted.
-- **#5 / #6 — duplicate elimination (FSM / transposition table).** `don't-undo`
-  already removes every girth-2 cycle; the next duplicates are girth-12 (the
-  blank circling a 2×2 block ×3). `examples/dup_probe.rs` measures the ceiling:
-  of 4,378,068 nodes only **10.5% are redundant re-expansions** — and the FSM
-  catches only a subset of those, while a TT's per-node hash probe would erase
-  the saving exactly as #4's sort did. Not worth it at m=4. **Deferred to m=5**,
-  where depth ~150 (vs ~53) makes any branching-factor cut compound far more,
-  and where Korf used the FSM; `dup_probe` is the tool to re-confirm there.
-
-So the per-node re-projection/reflect cost — not just memory latency — was the
-dominant lever for the 7-8 partition (#1, 2.5×). With the korf heuristic this
-directed, node-count micro-optimizations (#4/#5/#6) do **not** pay at m=4. The
-remaining real levers are at m=5 scale (24-puzzle) and in representation (#6
-packed-state mainly as a copy/compare win, not for its TT).
-
-### Profile (samply, 10 warm iterations, arm64)
-
-Self-time of the default `korf` solve splits cleanly (99.8% in our code, CPU-bound):
-
-| self% | function | cost |
-|---:|---|---|
-| ~50% | `KorfPdbInc::value` | the 4 PDB lookups/node: `rank()` (`count_ones` loop) + the random table load |
-| ~29% | `search_inc` | recursion, `apply_at`, `s == GOAL` compare, move-gen |
-| ~21% | `ProjectedState::apply` | the incremental projected-board advance (×4/node) |
-
-Two profile-suggested tweaks were **tried and rejected (measured)**:
-
-- **Port the `NEIGHBOR` table into `ProjectedState::apply`** (the 21% line):
-  **~4% slower** (423 → 440 ms), reverted. Reason: `W = 4` is a power of two, so
-  the apparent `div`/`mod` already compiles to a shift + mask (free); the real
-  21% is the two 16-byte array copies (`cells` + `pos_of`) per call, inherent to
-  the immutable `Copy` context. Only a **packed `ProjectedState`** (#6-style)
-  would shrink that — a bigger change, deferred.
-- **#7 `target-cpu=native`**: **neutral** on arm64 (no measurable change).
-  `count_ones()` already lowers to baseline ARMv8 `CNT`/`ADDV`, so there's no
-  POPCNT-style win like on x86. Not committed (a forced `.cargo/config.toml`
-  hurts build reproducibility for zero gain here); enable via `RUSTFLAGS` on an
-  x86 build host if ever relevant.
-
-Takeaway: at m=4 the korf solver is at a local optimum — `value` (rank + PDB
-load) and the projected-board copies dominate.
-
-### Binary inspection (llvm-objdump) — two real wins the source hid
-
-Disassembling `value` (the 50% function) showed `count_ones` already lowers to
-`cnt.8b`/`addv.8b` (optimal — confirms `target-cpu=native` can't help), but also
-two pure-overhead patterns, each **4× per node**:
-
-1. **Redundant mmap re-slice.** Every PDB lookup recomputed `Storage::dist()`
-   (`&mmap[HEADER..]`) — a length-checked re-slice + pointer adjust — even though
-   it's invariant. Fixed: `KorfPdbInc` caches each PDB's `dist: &[u8]` (and
-   `Pattern`) at construction.
-2. **Bounds check on `dist[rank]`.** Replaced with `get_unchecked` — sound
-   because `rank() ∈ [0, num_projected_states) == dist.len()` by the PDB
-   construction invariant (debug-asserted).
-
-Measured (Korf-100, warm): **~424 → ~409 ms (Copy path), ~3–4%**; identical node
-counts, 100/100 optimal. Stacks with `--mut`: combined **~396 ms, 11.0 Mnodes/s**.
-
-`ProjectedState::apply` (21% bucket) has the same pattern — 3 bounds checks
-(`cells[n]`, swap index, `pos_of[swapped]`), all on indices `< 16` — but the
-vectorized copy dominates that bucket (the checks are ~1%), and `apply` is on the
-SHA-pinned PDB-build path, so `unsafe` there isn't worth ~1%. Left as-is.
-
-Net: the genuinely *next* gains remain structural (packed representation) or at
-m=5 scale, but binary inspection still found a clean ~4%.
-
-## Headline finding: the incremental machinery exists but the search doesn't use it
-
-`ProjectedState` carries a `pos_of: [u8; 16]` table and an incremental `apply`
-(`src/puzzle15/pdb/pattern.rs:204`) whose docstring explicitly justifies itself:
-*"At k=8 and billions of IDA\* node expansions per antipode, the saving is
-material."* But the actual solver never calls it. `idastar::search` operates on
-full `State`, and `PatternDb::h` (`src/puzzle15/pdb/db.rs:104`) calls
-`ProjectedState::from_state(s, pattern)` — a fresh **O(16) scan rebuilding
-`cells` and `pos_of`** — on *every node*. The incremental path is dead code
-outside PDB construction.
-
-For the default `korf` heuristic the per-node cost is roughly:
-
-- `MaxHeuristic(additive, reflected(additive))`
-- → `additive.h(s)`: 2× `from_state` (O(16)) + 2× `rank` (O(k))
-- → `reflected.h(s)`: 1× `reflect(s)` (O(16)) + 2× `from_state` + 2× `rank`
-
-So **~5 full 16-cell passes + 4 ranks + a reflect, recomputed from scratch at
-every node**, when a single move changed exactly one tile.
+Each of the three items below targets one of these.
 
 ---
 
-## Tier 1 — per-node cost in the inner loop
+## 1. Symmetry-aware solving (call-count reduction)
 
-### 1. Incremental heuristic evaluation (biggest CPU win)
+The cheapest meaningful win. Reflection preserves depth, so if `B` is solved,
+`reflect(B)` doesn't need to be re-solved.
 
-Thread the heuristic state through the DFS instead of recomputing.
+### Mechanism
 
-- **Manhattan / Linear Conflict:** a move shifts one tile by one cell, so
-  Δ(Manhattan) = ±1 (the test `manhattan_changes_by_at_most_1_per_move` proves
-  it). Pass the running `h` down the recursion and update in O(1); for LC only
-  the moved tile's row + column lines need recompute.
-- **PDB:** maintain one `ProjectedState` per db (and per reflected view) in the
-  search context; on each move call the existing incremental `apply` and
-  re-`rank` (O(k)). This deletes all the per-node `from_state` scans.
-- **Reflected view without a stored reflected PDB:** the move on `reflect(s)` is
-  just the transposed move (Up↔Left, Down↔Right). Maintain a reflected
-  `ProjectedState` and apply the transposed move incrementally — keeps the
-  storage savings the design deliberately chose, but pays zero per-node
-  `reflect()`.
+For every board `B` the BFS asks to verify:
 
-Needs a small trait change (e.g. an `IncrementalHeuristic` with
-`init(state) -> (h, ctx)` and `step(ctx, move, blank, new_blank) -> (h, ctx)`),
-or a concrete fused search specialized to the Korf heuristic.
+1. Compute `r = rank(B)` and `r_refl = rank(reflect(B))`.
+2. Cache lookup on **both** ranks before invoking IDA\*. If either hits, use
+   that depth for both.
+3. After an IDA\* solve on `B`: write `(r, d)` AND `(r_refl, d)` to the cache.
 
-**Caveat:** for PDB-driven search the *dominant* cost is often the
-cache-missing random reads into the ~519 MB tables (4 lookups/node for korf),
-which this doesn't remove — expect a solid constant factor on CPU work and a
-large win for the Manhattan/LC/WD heuristics, less so against PDB memory
-latency. The node-count reductions in Tier 2 stack multiplicatively on top.
+### Where it lives
 
-### 2. Precomputed neighbor/move tables + thread the blank position
+`src/bin/enumerate15.rs`, the `verify` closure (≈line 122), and the
+`run_band` cache-hit/miss triage in `src/puzzle15/enumerate/frontier.rs:239`.
 
-`State::blank_pos()` (`src/puzzle15/state.rs:113`) is a linear scan, called by
-`legal_moves()` *and* again inside every `apply()` (`src/puzzle15/state.rs:136`).
-Per node that's `1 + children` scans (up to 5) plus repeated div/mod. Replace
-with const lookup tables:
+### Expected gain
+
+- **Steady-state ~2× reduction in IDA\* calls** when the BFS is exploring a
+  symmetry-closed region (which is most of the work — most of the cache is
+  symmetry-closed).
+- Self-symmetric boards (`reflect(B) == B`) get no benefit but are rare
+  (≤ 1% of any layer at depth 78).
+- No effect on per-call IDA\* cost, only call count.
+- Cache size grows linearly with new entries; reflection partners are
+  half-extra storage but cheap (`rank::rank` + `reflect` are O(16)).
+
+### Risks
+
+- `reflect` and `rank` are deterministic and side-effect-free; correctness is
+  guaranteed if and only if depth is reflection-invariant (which is proven by
+  `tests::reflect_preserves_solvability` and the docstring at
+  `src/puzzle15/symmetry.rs:11`).
+- The auto-seed-from-cache loop would also auto-seed both partners, since
+  both are now cached.
+
+### Measurement
+
+A/B `enumerate15` on a fresh run (no warm cache) with `--floor 73` for a
+fixed budget. Compare IDA\* solve counts (visible in the stderr summary) and
+wall-clock. A 2× reduction in `solves` and a similar wall-clock improvement
+should be unambiguous.
+
+---
+
+## 2. IDA\* with controlled re-expansion (per-call iteration reduction)
+
+The standard "increment f-bound to the minimum exceeding f" is conservative:
+each new iteration is just barely larger than the last, so total work scales
+poorly when the heuristic is much smaller than the true cost. **IDA\*\_CR**
+(Sarkar et al. 1991) sets the next bound higher than the minimum, accepting
+some over-exploration in exchange for fewer iterations.
+
+### Mechanism
+
+Replace the bound update in `idastar.rs:109, 220, 311`:
 
 ```rust
-const LEGAL: [MoveSet; 16];        // LEGAL[blank]
-const NEIGHBOR: [[u8; 4]; 16];     // NEIGHBOR[blank][move]
+// current (textbook IDA*)
+bound = next;
+// IDA*_CR
+bound = bound_cr(next, &iteration_history);
 ```
 
-`legal_moves` becomes one array read; `apply(m, blank)` becomes
-`next.swap(blank, NEIGHBOR[blank][m as usize])`. Since the child's blank is
-`NEIGHBOR[blank][m]`, thread it through the search and no scan ever runs.
-Eliminates all blank scans + all coordinate arithmetic.
+where `bound_cr` picks a higher value — commonly such that the next iteration
+expands ≈ N× the previous iteration's nodes for some target N (typical N = 2).
+There are several variants:
 
-### 3. `assert!` → `debug_assert!` in `State::apply`
+- **Fixed-step**: `bound += STEP` (e.g. `STEP = 4`). Easiest. Loses
+  optimality without a refinement step.
+- **History-based**: track node counts per iteration; choose next bound to
+  hit a target growth ratio.
+- **Distance-doubling**: each iteration `bound = min(next, prev_bound + (prev_bound - h_start))`. Asymptotically O(log d) iterations.
 
-`src/puzzle15/state.rs:141-156` (and the 8-puzzle equivalent) use `assert!`,
-which runs in *release*. The search only ever applies moves drawn from
-`legal_moves()`, so they're 4 dead branches per node. `ProjectedState::apply`
-already correctly uses `debug_assert!`; make `State::apply` match. (The
-neighbor-table rewrite in #2 subsumes this.)
+### Optimality preservation
+
+IDA\*_CR can return a non-optimal solution because it may search paths whose
+cost exceeds the true optimum. **Refinement step**: after finding any
+solution at bound `T*`, run one more textbook iteration with
+`bound = h_start` and `cutoff = T* - 1` (depth-first, looking only for
+strictly better solutions). If none found, the original is optimal.
+
+For our use case, **all calls require optimal depth**, so the refinement is
+mandatory.
+
+### Where it lives
+
+`src/puzzle15/search/idastar.rs` — three iteration loops (`search`,
+`search_inc`, `search_inc_mut` variants). Add a private `bound_cr` helper.
+The refinement loop is a fourth call shape; could be a method that takes
+`max_bound: u8`.
+
+### Expected gain
+
+- **2–3× speedup per IDA\* call** on hard 15-puzzle instances (well-published
+  result; Korf's own measurements on m=4).
+- **Smaller gain on instances with tight h** (early iterations short, refinement
+  becomes a larger fraction of total work).
+- Stacks with #1 (symmetry-aware): per-board work goes down 2–3× *and* calls go
+  down 2× → ~4–6× total in favorable conditions.
+
+### Risks
+
+- Refinement step is easy to get wrong. The optimality-preservation property
+  is a code-review hotspot; add a unit test that runs IDA\*\_CR and standard
+  IDA\* on a sample of `data/korf100.txt` boards and asserts equal lengths.
+- The `iteration_history` adds a small per-call allocation; keep it stack-only.
+
+### Measurement
+
+`examples/korf100_bench.rs` is already set up for this. A/B textbook IDA\* vs
+IDA\*\_CR on the full 100 instances. Look at:
+
+- `SearchStats::iterations` per board (textbook ≈ 5–10, IDA\*\_CR ≈ 2–4).
+- `SearchStats::nodes` (IDA\*\_CR should be ≤ 2× textbook with refinement;
+  much less without).
+- Wall-clock (the real headline number).
 
 ---
 
-## Tier 2 — node-count reduction (multiplies with Tier 1)
+## 3. Transposition table inside IDA\* (per-iteration duplicate elimination)
 
-### 4. Move ordering
+Within a single IDA\* iteration, the same state can be reached via multiple
+paths. The undo-prune catches girth-2 cycles but not the girth-12+ ones (blank
+circling a 2×2 block three times). Empirically (from `dup_probe.rs`), ~10.5%
+of nodes are redundant re-expansions.
 
-In the final IDA\* iteration, expand the child with the lowest `h` first. The
-first goal hit is still optimal (admissible h), but you reach it after exploring
-fewer siblings.
+A bounded transposition table catches these:
 
-> **Verdict (measured, m=4): rejected.** 0.07% fewer nodes, ~6% slower
-> wall-clock from the per-node sort. See the Status section.
-
-### 5. Generalized duplicate-move pruning (Taylor–Korf FSM)
-
-The solver already prunes immediate undos (`src/puzzle15/search/idastar.rs:65`).
-The published finite-state-machine extension prunes longer redundant sequences
-(the smallest are girth-12: the blank circling a 2×2 block ×3), cutting the
-effective branching factor below the ~2.13 you get from undo-pruning alone. Pure
-node savings, optimality-preserving.
-
-> **Verdict (measured, m=4): deferred to m=5.** `examples/dup_probe.rs` shows
-> only 10.5% of nodes are redundant re-expansions (the ceiling), and the FSM
-> catches a subset of those while a TT pays #4-style per-node overhead. Worth
-> revisiting at 24-puzzle depth (~150), where Korf used it. See the Status
-> section.
-
----
-
-## Tier 3 — representation & build flags
-
-### 6. Packed u64 (nibble) state
-
-Each tile is 0–15 → the whole 4×4 board fits in 64 bits. Makes `State`
-copy/compare a single register op (vs 16-byte memcmp against `GOAL` every node)
-and makes a hash-based **transposition table** cheap to add. More invasive
-(swap = nibble extract/insert), so treat as opt-in, but it's the standard
-fast-solver representation and the enabler for memoizing across the IDA\*
-re-search.
-
-### 7. `target-cpu=native` for local research builds
-
-`rank()` leans on `count_ones()`; without POPCNT/BMI it's a fallback loop. Add
-`.cargo/config.toml`:
-
-```toml
-[build]
-rustflags = ["-C", "target-cpu=native"]
+```rust
+struct TTEntry {
+    state_hash: u64,
+    g: u8,
+    bound: u8,
+}
 ```
 
-Determinism / SHA pinning is safe — POPCNT returns identical values, and the PDB
-bytes are arithmetic-deterministic regardless of target. Consider
-`panic = "abort"` in the release profile too (smaller, no unwind tables).
-`lto = true, codegen-units = 1` are already set — good.
+### Mechanism
 
-> **Verdict (measured, arm64): neutral, not committed.** On Apple Silicon
-> `count_ones()` already lowers to baseline `CNT`/`ADDV`, so there was no
-> measurable change. The POPCNT argument is x86-specific. See the Status
-> section.
+At each node:
+
+1. Compute `state_hash` (cheap if `State` is packed — see below).
+2. Probe TT. On hit, if `entry.g <= current_g` and `entry.bound >= current_bound`,
+   the previous visit explored everything reachable at this f-bound — skip.
+3. On miss or stale hit, expand the node. On return, store `(state_hash,
+   current_g, current_bound)`.
+
+### Sizing
+
+A power-of-two-sized direct-addressed array (no chaining), replace-always policy.
+Sizes:
+
+- 2^20 entries × 10 bytes = ~10 MB per IDA\* call.
+- 2^24 entries = 160 MB per call.
+
+For `enumerate15`, IDA\* calls are short and many; size 2^16–2^20 to keep
+construction cost low (one `vec![0u8; ...]` per call, or thread-local reused).
+
+### Dependency on #6 (packed u64 state)
+
+A `[u8; 16]` `State` hash is a 16-byte hash — slow per node. The packed
+`u64` representation deferred from the old OPTIMIZATION.md (`State` as nibbles
+in a `u64`) makes TT cheap: hash = the state itself (or its splitmix).
+
+Implementing TT *before* packing `State` works but pays a real per-node cost
+(probably eats 30–50% of the dup-elim savings). **Recommended: do #6 first,
+then TT.**
+
+### Where it lives
+
+`src/puzzle15/search/idastar.rs`, the recursive `search_inc` body. The TT
+itself sits in the `SearchContext` (new field, allocated per call or reused
+via a thread-local pool).
+
+### Expected gain
+
+- **Per `dup_probe.rs`: ceiling is ~10.5% node reduction.** Real-world: probably
+  6–8% with imperfect dedup.
+- This is much smaller than #1 or #2 — the optimization document for m=4
+  explicitly deferred this to m=5 where depth ~150 (vs ~53) compounds the
+  branching factor cut. **But for `enumerate15` at depth 78** the boards are
+  deeper than the Korf-100 average (which targets depths in the 40s–50s), so
+  the dedup benefit should be 2–3× higher than the dup_probe estimate.
+- Stacks with #1 and #2 multiplicatively.
+
+### Risks
+
+- TT correctness: the stored `(g, bound)` must dominate the current visit for a
+  skip to be sound. Easy to get the inequality backward.
+- TT collisions: with replace-always, false hits are impossible (we still check
+  `state_hash`), but **false misses** (collisions causing eviction) just reduce
+  the dedup rate, not correctness.
+- Memory pressure if pool-sized too large for many parallel IDA\* calls.
+
+### Measurement
+
+Same `korf100_bench.rs` rig. Also re-run `examples/dup_probe.rs` to confirm
+the dedup rate matches expectation. Watch for regressions on shallow boards
+(where TT overhead might exceed savings).
 
 ---
 
-## Tier 4 — PDB build time/memory
+## Implementation order
 
-### 8. `bfs_dist` should be a bitset, not `Vec<u8>`
+In rough order of bang-per-buck:
 
-`src/puzzle15/pdb/build.rs:65`: its stored depth is *never read back* — only
-compared `== UNVISITED`. A 1-bit visited set suffices, cutting the transient
-from `num_bfs_states` bytes to bits: **P8 drops 4.15 GB → ~519 MB**. The
-parallel path (`src/puzzle15/pdb/build.rs:295`) does the same — swap
-`fetch_min` for an atomic `fetch_or` on the bit and keep the "I flipped it"
-frontier-dedup logic.
+1. **Symmetry-aware solving (#1)**. ~50 lines. Easy to verify. ~2× call
+   reduction in steady state. No representation changes needed. Strongly
+   recommended as a first step.
+2. **IDA\*\_CR (#2)**. ~200 lines including refinement. ~2–3× per-call.
+   Test against textbook IDA\* on Korf-100. Stacks with #1.
+3. **Packed `State` (prerequisite for #3)**. Inheriting the deferred #6 from
+   the old doc — a couple of hundred lines, mostly mechanical, biggest pain
+   is `State::swap` becoming nibble extract+insert.
+4. **TT inside IDA\* (#3)**. ~100 lines on top of packed `State`. ~6–8% per
+   call, more on deep boards.
 
-### 9. Avoid `frontier_d.clone()` in the 0-cost closure
+The full stack on a depth-78 verify should be roughly **4–8× faster** vs
+today (point estimates: 2× from symmetry, 2× from IDA\*\_CR, 1.1× from TT,
+multiplied for non-overlapping effects, discounted for overlap).
 
-`src/puzzle15/pdb/build.rs:78`: at deep layers this clones millions of states
-each iteration. Process the closure via an index into `frontier_d`, appending
-in place, instead of cloning into a separate `work` stack.
+## Process
 
-### 10. Port `pos_of` back to the 8-puzzle
+Each item should be a separate PR with:
 
-`puzzle8::ProjectedState::rank` (`src/puzzle8/pdb/pattern.rs:200`) still does an
-O(k·9) linear scan per tile that the 15-puzzle version already eliminated. Minor
-for solve time, but the 8-puzzle is the verification/benchmark bed, so keeping
-the two implementations algorithmically aligned matters.
+- Before/after `korf100_bench` numbers (use `--scratch` for the pre-#1
+  baseline path).
+- For #1: also report `enumerate15` solve count and wall-clock on
+  `--floor 73 --down-to 77 --budget 1000000` against a fresh cache.
+- Unit tests: optimality vs textbook IDA\* on a Korf-100 sample (#2 especially).
+- For #3: re-run `examples/dup_probe.rs` to validate the dedup rate.
 
----
-
-## Process note
-
-The **Korf-100 benchmark** is the measurement harness for this work:
-`examples/korf100_bench.rs`, driven by `data/korf100.txt` (Korf 1985 Table 1
-instances + published optimal lengths). Run before/after each change:
-
-```text
-cargo run --release --features mmap --example korf100_bench -- --pdb-dir data
-```
-
-It reports node count and wall-clock *separately* per the split that matters:
-incremental-h and `target-cpu` move wall-clock at fixed nodes; move-ordering and
-the duplicate-pruning FSM move nodes. It also asserts every solution is optimal
-against Korf's table (exit non-zero on any mismatch), so it doubles as an
-optimality regression test. Node counts come from `idastar_with_stats`
-(`SearchStats { nodes, iterations }`), which is heuristic-implementation-agnostic
-— so the node metric stays stable across the incremental-h refactor (#1), letting
-you attribute its gains purely to wall-clock.
-
-Baseline (korf, warm cache, before #1): 100/100 optimal, total optimal 5305,
-mean 43,780 nodes/instance, ~4.2 Mnodes/s (1.04s). After #1 (incremental
-evaluator, default `korf` path): same nodes, ~10.4 Mnodes/s (0.42s). Use
-`--scratch` to reproduce the pre-#1 path for A/B.
-
-## Suggested order of implementation
-
-1. **#2 + #3** — mechanical, low-risk, immediately measurable.
-2. **#1** — the structural win, behind a new incremental-heuristic trait so the
-   existing `Heuristic` API and tests stay intact.
-3. **#8** — build memory.
-
-Do them as separate commits on a branch with a small Korf-100 bench added first
-so each step is measured.
+Don't merge speculative wins. The previous round of optimization saved one
+~6% regression (move ordering) by relying on measured Korf-100 numbers as the
+gate.
