@@ -17,6 +17,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
+use puzzle8::puzzle15::state::DIAMETER;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::unrank;
 use puzzle8::puzzle15::search::{
@@ -38,6 +39,7 @@ struct Args {
     no_cache: bool,
     out: PathBuf,
     no_verify: bool,
+    seed_ranks: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -51,6 +53,7 @@ fn parse_args() -> Result<Args, String> {
     let mut no_cache = false;
     let mut out = PathBuf::from("data/enum");
     let mut no_verify = false;
+    let mut seed_ranks: Option<PathBuf> = None;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -73,6 +76,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-cache" => { no_cache = true; }
             "--out" => { i += 1; out = PathBuf::from(argv.get(i).ok_or("--out needs a value")?); }
             "--no-verify" => { no_verify = true; }
+            "--seed-ranks" => { i += 1; seed_ranks = Some(PathBuf::from(argv.get(i).ok_or("--seed-ranks needs a value")?)); }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
@@ -81,7 +85,10 @@ fn parse_args() -> Result<Args, String> {
     if !(1..=80).contains(&down_to) {
         return Err(format!("--down-to {} out of range 1..=80", down_to));
     }
-    Ok(Args { pdb_dir, data_dir, mode_band, down_to, floor, budget, cache, no_cache, out, no_verify })
+    if seed_ranks.is_some() && !mode_band {
+        return Err("--seed-ranks requires --mode band".into());
+    }
+    Ok(Args { pdb_dir, data_dir, mode_band, down_to, floor, budget, cache, no_cache, out, no_verify, seed_ranks })
 }
 
 fn load_zpdbs(dir: &Path) -> Result<[ZPatternDb; 2], String> {
@@ -145,6 +152,56 @@ fn run() -> Result<(), String> {
             cache_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".into()),
             cache.len(),
         );
+        // --seed-ranks: ensure the listed ranks are in the cache with their
+        // exact depths. Solve any misses with parallel IDA* and persist the
+        // cache. Pure cache enrichment — the Store gets populated downstream by
+        // auto-seed-from-cache, so this block doesn't touch the Store directly.
+        if let Some(seed_path) = args.seed_ranks.as_deref() {
+            use rayon::prelude::*;
+            let ranks = Store::read_ranks_file(seed_path)
+                .map_err(|e| format!("seed-ranks {}: {}", seed_path.display(), e))?;
+            let mut cache_hits = 0u64;
+            let mut misses: Vec<u64> = Vec::new();
+            for r in &ranks {
+                if cache.contains_key(r) {
+                    cache_hits += 1;
+                } else {
+                    misses.push(*r);
+                }
+            }
+            let solved: Vec<(u64, u8)> = misses.par_iter().map(|&r| (r, verify(r))).collect();
+            for &(r, d) in &solved {
+                if d == u8::MAX {
+                    return Err(format!("seed rank {} not solvable", r));
+                }
+                cache.insert(r, d);
+            }
+            let solved_n = solved.len() as u64;
+            if solved_n > 0 {
+                if let Some(p) = cache_path.as_deref() {
+                    cache::save(p, &cache).map_err(|e| format!("cache save {}: {}", p.display(), e))?;
+                }
+            }
+            println!(
+                "seed-ranks {}: {} loaded, {} cache hits, {} solved",
+                seed_path.display(), ranks.len(), cache_hits, solved_n,
+            );
+        }
+        // Auto-seed-from-cache: pre-populate the Store with every cached board
+        // in the band. Without this, the BFS would re-derive these by walking
+        // from the antipode shell — correct but wasteful, and fragile when the
+        // cached set has multiple connected components (BFS only reaches the
+        // one containing the antipodes). Runs after --seed-ranks so it sees
+        // the freshest cache.
+        let mut cache_seeded = 0u64;
+        for (&r, &d) in &cache {
+            if (floor..=DIAMETER).contains(&d) && store.insert(r, d) {
+                cache_seeded += 1;
+            }
+        }
+        if cache_seeded > 0 {
+            println!("seeded {} boards from cache at depths {}..={}", cache_seeded, floor, DIAMETER);
+        }
         frontier::run_band(&mut store, &hist, args.down_to, floor, args.budget,
                            &mut cache, cache_path.as_deref(), &args.out, &verify, |l| println!("{}", l))?
     } else {
@@ -206,7 +263,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) if e == "help" => {
-            eprintln!("usage: enumerate15 --pdb-dir DIR --data-dir DIR [--mode descent|band] --down-to T [--floor F] --out DIR [--no-verify]");
+            eprintln!("usage: enumerate15 --pdb-dir DIR --data-dir DIR [--mode descent|band] --down-to T [--floor F] --out DIR [--no-verify] [--seed-ranks FILE]");
             ExitCode::SUCCESS
         }
         Err(e) => { eprintln!("error: {}", e); ExitCode::FAILURE }

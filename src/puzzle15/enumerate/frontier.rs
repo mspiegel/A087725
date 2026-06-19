@@ -222,7 +222,17 @@ where
         line
     };
 
-    let mut frontier: Vec<u64> = store.layer(80).to_vec();
+    // Initialize the frontier from every board already in the Store at depth
+    // ≥ floor — not just the depth-80 antipodes. This matters whenever the
+    // Store was pre-populated beyond the antipode shell (e.g. by
+    // auto-seed-from-cache or --seed-ranks). Without this, all pre-seeded
+    // boards just sit there: round 1 expands only the antipodes, finds their
+    // d79 neighbors already in the Store (filtered by `fresh_neighbors`), and
+    // the BFS exhausts immediately without ever touching the pre-seeded
+    // layers' neighbors or solving anything new.
+    let mut frontier: Vec<u64> = (floor..=80)
+        .flat_map(|d| store.layer(d).iter().copied())
+        .collect();
     let mut round = 0u32;
     let mut solves: u64 = 0;
     let mut capped = false;

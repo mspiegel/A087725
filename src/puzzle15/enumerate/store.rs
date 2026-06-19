@@ -7,7 +7,7 @@
 //! `insert` wins and pushes into its bucket.
 
 use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 use crate::puzzle15::state::DIAMETER;
@@ -73,6 +73,27 @@ impl Store {
     /// Total boards stored across all depths.
     pub fn total(&self) -> usize {
         self.depth.len()
+    }
+
+    /// Read a `.ranks` file (the on-disk format produced by `write_layer`):
+    /// packed 6-byte little-endian u48 ranks, no header. Order is not enforced
+    /// — callers that care should sort.
+    pub fn read_ranks_file(path: &Path) -> io::Result<Vec<u64>> {
+        let mut bytes = Vec::new();
+        BufReader::new(File::open(path)?).read_to_end(&mut bytes)?;
+        if bytes.len() % 6 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}: length {} not a multiple of 6", path.display(), bytes.len()),
+            ));
+        }
+        let mut ranks = Vec::with_capacity(bytes.len() / 6);
+        for chunk in bytes.chunks_exact(6) {
+            let mut buf = [0u8; 8];
+            buf[..6].copy_from_slice(chunk);
+            ranks.push(u64::from_le_bytes(buf));
+        }
+        Ok(ranks)
     }
 
     /// Write layer `d` to `path` as little-endian 6-byte (u48) ranks, sorted

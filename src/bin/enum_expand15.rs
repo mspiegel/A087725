@@ -9,31 +9,13 @@
 //! 16-token rows; `--verify` re-solves a sample with `korf-plus` and asserts the
 //! optimal length equals `--depth` (and that every rank round-trips).
 
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
+use puzzle8::puzzle15::enumerate::Store;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
 use puzzle8::puzzle15::search::{idastar_inc_with_stats, WalkingDistanceHeuristic};
-
-fn read_ranks(path: &Path) -> Result<Vec<u64>, String> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|e| format!("{}: {}", path.display(), e))?
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("{}: {}", path.display(), e))?;
-    if bytes.len() % 6 != 0 {
-        return Err(format!("{}: length {} not a multiple of 6", path.display(), bytes.len()));
-    }
-    let mut ranks = Vec::with_capacity(bytes.len() / 6);
-    for chunk in bytes.chunks_exact(6) {
-        let mut buf = [0u8; 8];
-        buf[..6].copy_from_slice(chunk);
-        ranks.push(u64::from_le_bytes(buf));
-    }
-    Ok(ranks)
-}
 
 fn board_tokens(r: u64) -> String {
     let s = unrank(r);
@@ -67,7 +49,7 @@ fn run() -> Result<(), String> {
         i += 1;
     }
     let path = file.ok_or("--file is required")?;
-    let ranks = read_ranks(&path)?;
+    let ranks = Store::read_ranks_file(&path).map_err(|e| e.to_string())?;
     println!("{}: {} boards", path.display(), ranks.len());
 
     // Round-trip check on every rank (cheap): rank(unrank(r)) == r and solvable.
