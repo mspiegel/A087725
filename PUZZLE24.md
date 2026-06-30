@@ -325,6 +325,32 @@ needs a different technique). The core is a **loop** — construct → score →
 linear pipeline. Heuristic policy is settled (Phase 1C): WD on antipodes, k6 zpdb on general,
 routed per board by `select-k6`.
 
+### 2P — Prerequisite: parallelize the search (optional, high-leverage)
+The IDA\* drivers are single-threaded today (only the ZPDB *build* uses rayon); `solve24`/`ladder24`
+run on one core. Two independent levers, both enabled by the `Copy` incremental contexts (no shared
+mutable state — the `make/unmake` `IncHeuristicMut` path would *not* parallelize as cleanly):
+
+- **Board-level (for 2D), trivial:** run independent candidate boards concurrently — a `rayon`
+  parallel outer loop over the candidate list. Near-linear, no search change. Do this first for the
+  hunt.
+- **Within-search (for 2A), real parallel IDA\*:** per threshold iteration, sequentially split the
+  root into a frontier of subtree-roots (≫ N cores), run the **existing `search_inc`** on each via
+  `par_iter`, then reduce — OR "found", MIN "smallest f over threshold" (= next threshold), SUM
+  stats. Work-stealing (rayon) balances the wildly-varying subtree sizes; IDA\* stays memory-light
+  (each worker holds one path + a `Copy` ctx), unlike parallel A\*.
+
+**The bounded-LB case (2A) is ideal:** exhausting a threshold has no early exit, so it is a pure
+order-independent reduction with **zero redundant work**, and the proven LB is **identical** to
+sequential — only wall-clock improves. (Solving needs a shared atomic "found" flag for early exit;
+minor overhead.)
+
+**Build:** an `idastar_inc_bounded_parallel` driver (behind the `parallel` feature) = split +
+`par_iter` + OR/MIN/SUM reduce, reusing `search_inc` verbatim; a `--parallel` flag in
+`solve24`/`ladder24` (which then pull in `parallel`). Per-worker deadline checks already work.
+**Why prerequisite:** 2A is otherwise a single-core overnight run; this cuts it ~N cores (and lets us
+push past 152), and 2D wants the outer-loop parallelism. Both 2A and 2D *work* without it — it is a
+throughput multiplier, not a hard blocker, so treat it as optional-but-recommended.
+
 ### 2A — Reproduce R ≥ 152 (headline milestone + stack validation)
 Push the proven LB on `R` from 144 (120 s) toward Rokicki's 152, validating the full stack against a
 published result and calibrating the *budget → threshold* scaling that sizes 2D's budgets. Mostly a
@@ -371,13 +397,15 @@ remain out of reach here).
 
 ### Order & dependencies
 ```text
-2A (R≥152) ───────────────┐  (parallel, long-running: validates stack + sizes budgets)
+2P (parallelize) ··· optional throughput multiplier, feeds 2A and 2D
+2A (R≥152) ───────────────┐  (long-running: validates stack + sizes budgets)
 2B (frame test) ─→ decide ─→ 2C (generate) ─→ 2D (bound) ─→ 2E (report)
                                ▲__________________│   (flywheel: deepest finds re-seed)
 ```
-`2A` runs early/parallel; `2B` before `2C` (don't build the generator on an untested conjecture);
-`2C → 2D → 2E` with the `2D → 2C` flywheel. **Most concrete next action: 2A** (near-pure run,
-headline result, budget calibration); **cheapest new code: 2B**.
+`2P` is optional — both `2A` and `2D` run single-threaded without it, just slower. `2A` runs
+early/parallel; `2B` before `2C` (don't build the generator on an untested conjecture); `2C → 2D →
+2E` with the `2D → 2C` flywheel. **Most concrete next action: 2A** (near-pure run, headline result,
+budget calibration); **cheapest new code: 2B**; **biggest throughput lever: 2P**.
 
 ---
 
