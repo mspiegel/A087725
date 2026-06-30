@@ -230,6 +230,92 @@ the full stack against a published result and is a real calibration data point.
 
 ---
 
+## Phase 1C — ZPDB partition decision (after the 1B pause)
+
+**Verdict from Phase 1B calibration + reference study** (Clausecker's `24puzzle`; Clausecker &
+Reinefeld SoCS 2019; Clausecker & Schintke SoCS 2021 "eta"; ICCSA 2025 distributed build):
+
+- **Single-partition tuning is a weak lever.** The optimal single 6-6-6-6 raises h̄ only
+  81.82 → 82.06 (`docs/zpdb-codec-spec.md:116`); our hand-built k=7 (7-7-7-3) *underperformed* k=6
+  on `R` (root h 120 vs 126; `data/ladder24_calibration.txt`). **k=7 is retired from active
+  tuning** — the built artifacts and SHA pins are kept, but we don't invest in tuning the grouping.
+- **k=8 / k=9 are deferred.** Clausecker builds them only on distributed clusters (2304 nodes,
+  MPI+OpenMP). On this 32 GiB machine our region-based k=8 ZPDB is 87.4e9 entries (10.17 GiB at
+  1-bit, ~81 GiB uncompressed build transient); the rank-frontier build asserts `total ≤ u32::MAX`
+  (`src/puzzle24/pdb/zbuild.rs`). Needs an external-memory / ≤2-bit frontier-free builder first.
+- **The real lever is a *collection* — the MAX over several disjoint 6-6-6-6 ZPDBs** (Clausecker's
+  `small-compound`; `docs/zpdb-codec-spec.md` §5 documents ~5× fewer node expansions at ~3.5×
+  per-node cost). The infra already exists (`MaxInc` over two `ZpdbInc`; combining partitions needs
+  no new combinator).
+- **But a structural argument says the collection helps the *general* regime, not R-type
+  antipodes.** An additive PDB counts only its k pattern tiles and treats the other tiles as free
+  to displace — a relaxation that collapses on antipodal boards where *every* tile is far from home,
+  whereas Walking Distance's row/col abstraction counts all tiles' migration. That is why WD = 140 >
+  zpdb-k6 = 126 on `R`. A collection takes the **max** (not the sum) over partitions, so
+  collection-on-R ≈ best-single-partition-on-R — still under WD.
+
+**The bootstrap.** We cannot certify a heuristic's *average* quality on the true d≈150 layer without
+a population of such boards — which is the project's goal. But per-board measurements (root `h`,
+bounded-LB) are **self-certifying**: they need only the board, not its true depth, and a proven
+lower bound is a valid result regardless of the heuristic. So the antipode question is settled
+cheaply and directly on `R`, without first solving the bootstrap.
+
+### Chosen path — Option 1: cheap R-ceiling, then decide
+
+Compute the best zpdb Korf-max root `h` achievable by a curated set of k=6 partitions on a
+*constructed* deep-board set {`R`, `reflect(R)`, D4 orbit, perfect tile-reverse, a few
+frame-conformant}, and compare the **max** to WD (140) and the bounded-LB-on-`R` frontier (144).
+Then:
+
+- **best k6 R-score < WD** (expected): no k6 collection beats WD on antipodes → a collection's value
+  is the **general regime** (ranking/solving the hunt's in-reach candidates). Build a small
+  general-regime collection (`MaxArrayInc` over ≈3 partitions), validate on the *bootstrap-free*
+  solvable population (`ladder24` optimal mode) vs `zpdb-k6`/`select-k6`, and ship it as a hunt tool;
+  the selector keeps WD on antipodes.
+- **best k6 R-score ≈/> WD** (surprising): a collection may help `R` → build it and measure
+  bounded-LB on `R` vs WD (does the higher root overcome the higher per-node cost within budget?).
+
+**Tool:** `examples/rceiling24.rs` — builds each candidate partition's 4 ZPDBs in RAM
+(`build_zpdb_parallel` → `ZPatternDb::from_dist`, no `.zbin` saved), evaluates `ZpdbInc::root` on the
+constructed deep boards, reports per-partition and the max vs WD/LC. Candidates: existing k6 Korf set
+(`PART_*`), Clausecker's reinefeld-et-al / best-single (transformed `v ↦ 25 − v`, gated by a
+disjoint+cover check), 2–3 corner/strata-aligned (RESIDUE-informed) partitions, a few seeded-random.
+Optional exactness upgrade if the max lands within a few of 140: a projected single-board additive
+solver (0-1 BFS over the region-collapsed projected graph).
+
+**Result (measured, `examples/rceiling24.rs` → `data/rceiling24.txt`, 2026-06-30).** On `R`, the
+best k6 zpdb Korf-max over 8 diverse partitions (korf, value-strata, spatial, 5 random) is **126**
+(korf); every partition landed 118–126, all far below WD's **140**. So **no k6 collection beats WD
+on antipodes** — the max over partitions ≈ the best single, because the additive/anon-free
+relaxation collapses on `R` regardless of grouping (confirmed on `reflect(R)` = 126 too). On deep
+*general* boards the order flips — korf zpdb beats WD (walk300: 72 vs 66; walk400: 74 vs 70;
+walk200: 58 vs 50) — confirming PDBs are the general-regime tool and WD owns antipodes.
+**Secondary finding:** korf *pointwise-dominated* every other candidate on all five boards, so a
+naive collection of them ≈ korf alone (no diversity gain); a real collection win needs
+*complementary* (η-optimized) partitions, which our quick geometric/random set does not provide.
+**Decision:** keep single k6 zpdb via `select-k6` (WD on `R`, zpdb on general) as the working
+heuristic; a general-regime collection is only worth building behind a proper
+complementary-partition (η) sweep — **deferred to Phase 2** unless hunt throughput demands it.
+
+### Option 2 — frame-rule deep bridge (deferred to Phase 2)
+
+The fuller fix to the bootstrap: build a **frame-conformant constructed-board generator** (PLAN.md:
+corners `{_,1,5,21}` at `{0,24,20,4}`, the 8 corner-neighbor tiles Chebyshev ≤ 1) producing a
+diverse deep-board population *without search*, used as **both** the heuristic test population and
+the hunt's seeds. This merges the two goals — every high proven LB on a constructed board is
+simultaneously a heuristic validation and a deep-board discovery, so the population is search-free
+and the bootstrap dissolves. Deferred because it is Phase-2 scope and rests on a conjecture.
+
+> **Revisit: the frame rule is a conjecture.** "Deep ⇒ frame-conformant" (and the weaker converse)
+> is unproven for the 24-puzzle — it generalizes 15-puzzle evidence (all 17 depth-80 antipodes
+> frame-conformant; corner-neighbor rule 98.5% vs 25% baseline; `PLAN.md`). **Before relying on it
+> for candidate generation or partition selection, test it on the 24-puzzle:** construct a sample of
+> frame-conformant boards, bounded-LB them, and check whether high LB correlates with frame
+> conformance (and conversely, whether known-deep boards are frame-conformant). Treat the frame rule
+> as a heuristic prior until measured.
+
+---
+
 ## Deferred to Phase 2 — the hunt (sketch only; design after the pause)
 
 `examples/candidates24.rs`: **seeds** = `R`, `reflect(R)`, D4 images, and *frame-conformant*

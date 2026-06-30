@@ -1,0 +1,28 @@
+rceiling24 — Phase 1C Option-1 R-ceiling analysis
+
+building Walking Distance table (one-off)…
+  WD table built in 23.1438305s
+
+  built+scored partition korf     in 108.500267083s: [126, 126, 58, 72, 74]
+  built+scored partition strata   in 111.175724791s: [124, 124, 56, 66, 72]
+  built+scored partition spatial  in 109.619856083s: [126, 126, 58, 70, 74]
+  built+scored partition rnd0     in 114.507234583s: [120, 120, 52, 64, 68]
+  built+scored partition rnd1     in 114.210859166s: [120, 120, 52, 62, 68]
+  built+scored partition rnd2     in 114.396834917s: [118, 118, 50, 60, 68]
+  built+scored partition rnd3     in 114.7902975s: [118, 118, 50, 62, 70]
+  built+scored partition rnd4     in 113.929002167s: [120, 120, 50, 64, 72]
+
+=== per-board heuristic values ===
+board          MD   LC   WD | zpdb-max best       | per-partition zpdb
+R             112  128  140 |      126 korf       | korf=126 strata=124 spatial=126 rnd0=120 rnd1=120 rnd2=118 rnd3=118 rnd4=120
+reflect(R)    112  128  140 |      126 korf       | korf=126 strata=124 spatial=126 rnd0=120 rnd1=120 rnd2=118 rnd3=118 rnd4=120
+walk200        48   50   50 |       58 korf       | korf=58 strata=56 spatial=58 rnd0=52 rnd1=52 rnd2=50 rnd3=50 rnd4=50
+walk300        60   60   66 |       72 korf       | korf=72 strata=66 spatial=70 rnd0=64 rnd1=62 rnd2=60 rnd3=62 rnd4=64
+walk400        66   70   70 |       74 korf       | korf=74 strata=72 spatial=74 rnd0=68 rnd1=68 rnd2=68 rnd3=70 rnd4=72
+
+=== VERDICT (R) ===
+  WD(R)               = 140
+  best k6 zpdb(R)     = 126  (partition: korf)
+  bounded-LB frontier = 144 (WD, 120s; data/ladder24_calibration.txt)
+  => No k6 partition beats WD on R (best 126 <= WD 140). A collection's value is the 
+     GENERAL regime, not antipodes — keep WD/the selector for R.
