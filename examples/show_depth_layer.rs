@@ -1,6 +1,6 @@
 //! Print every board in a `.ranks` layer file as a 4×4 grid.
 //!
-//! Run: `cargo run --release --example show_depth_layer -- data/enum/depth79.ranks`
+//! Run: `cargo run --release --example show_depth_layer -- data/enum15/depth79.ranks`
 
 use std::fs::File;
 use std::io::{BufReader, Read};

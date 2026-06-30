@@ -18,7 +18,7 @@ use puzzle8::puzzle15::symmetry::reflect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dmin: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(75);
-    let cache_path: PathBuf = std::env::args().nth(2).unwrap_or_else(|| "data/enum/solve_cache.bin".into()).into();
+    let cache_path: PathBuf = std::env::args().nth(2).unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
 
     let t0 = Instant::now();
     let mut c = cache::load(&cache_path)?;

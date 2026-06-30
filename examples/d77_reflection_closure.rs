@@ -41,7 +41,7 @@ fn print_grid(prefix: &str, r: u64) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_path: PathBuf = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin.bak.preenum73".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin.bak.preenum73".into())
         .into();
     let depth: u8 = std::env::args()
         .nth(2)

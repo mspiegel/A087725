@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let blank_filter: Option<u8> = std::env::args().nth(2)
         .and_then(|s| s.parse().ok());
     let cache_path: PathBuf = std::env::args().nth(3)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
 
     let c = cache::load(&cache_path)?;

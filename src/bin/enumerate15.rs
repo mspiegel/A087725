@@ -9,7 +9,7 @@
 //!   `N(≥floor)`, so it is only practical near the top.
 //!
 //! ```text
-//! enumerate15 --pdb-dir data --data-dir data --mode band --down-to 79 --floor 78 --out data/enum
+//! enumerate15 --pdb-dir data --data-dir data --mode band --down-to 79 --floor 78 --out data/enum15
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ fn parse_args() -> Result<Args, String> {
     let mut budget: u64 = 0;
     let mut cache: Option<PathBuf> = None;
     let mut no_cache = false;
-    let mut out = PathBuf::from("data/enum");
+    let mut out = PathBuf::from("data/enum15");
     let mut no_verify = false;
     let mut seed_ranks: Option<PathBuf> = None;
 

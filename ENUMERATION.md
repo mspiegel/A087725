@@ -54,7 +54,7 @@ data files.
 
 ## Output
 
-`data/enum/depthNN.ranks`, one file per depth, each board as a 6-byte little-endian rank
+`data/enum15/depthNN.ranks`, one file per depth, each board as a 6-byte little-endian rank
 (`rank()`), all boards (full symmetry orbits). `enum_expand15` renders a file to 16-token
 rows and re-verifies. Sizes: depth77 ≈ 160 KB, depth75 ≈ 9 MB, depth70 ≈ 5.2 GB.
 

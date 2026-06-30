@@ -25,7 +25,7 @@ use puzzle8::puzzle15::state::State;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let min_h_seed: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(68);
     let cache_path: PathBuf = std::env::args().nth(2)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
 
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;

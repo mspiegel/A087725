@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model_path: PathBuf = std::env::args().nth(2).ok_or("need MODEL")?.into();
     let k: usize = std::env::args().nth(3).and_then(|s| s.parse().ok()).unwrap_or(500);
     let out_prefix: String = std::env::args().nth(4).ok_or("need OUT_PREFIX")?;
-    let cache_path: PathBuf = std::env::args().nth(5).unwrap_or_else(|| "data/enum/solve_cache.bin".into()).into();
+    let cache_path: PathBuf = std::env::args().nth(5).unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
 
     let t0 = Instant::now();
     let model = tree_model::TreeModel::load(&model_path)?;

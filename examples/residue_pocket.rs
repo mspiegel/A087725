@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("loaded cache: {} entries", cache.len());
 
     let antipodes: HashSet<u64> =
-        load_u48_ranks(Path::new("data/enum/depth80.ranks"))?;
+        load_u48_ranks(Path::new("data/enum15/depth80.ranks"))?;
     println!("loaded {} antipodes", antipodes.len());
 
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;

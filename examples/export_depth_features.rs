@@ -31,7 +31,7 @@ fn h64(mut x: u64) -> u64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_path: PathBuf = std::env::args().nth(1).ok_or("usage: export_depth_features OUT.tsv [CACHE]")?.into();
-    let cache_path: PathBuf = std::env::args().nth(2).unwrap_or_else(|| "data/enum/solve_cache.bin".into()).into();
+    let cache_path: PathBuf = std::env::args().nth(2).unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
 
     let c = cache::load(&cache_path)?;
     eprintln!("cache: {} entries", c.len());

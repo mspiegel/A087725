@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("usage: dump_grids DEPTH [CACHE]")?
         .parse()?;
     let cache_path: PathBuf = std::env::args().nth(2)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
 
     let c = cache::load(&cache_path)?;

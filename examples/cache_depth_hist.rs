@@ -8,7 +8,7 @@ use puzzle8::puzzle15::enumerate::cache;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_path: PathBuf = std::env::args().nth(1)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into()).into();
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
     let c = cache::load(&cache_path)?;
     let mut hist = [0u64; 256];
     for (_, &d) in &c { hist[d as usize] += 1; }

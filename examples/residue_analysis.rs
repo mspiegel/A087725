@@ -35,7 +35,7 @@ use puzzle8::puzzle15::state::State;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_path: PathBuf = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
     let pdb_dir: PathBuf = std::env::args()
         .nth(2)
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Antipodes (d=80) are pre-seeded into the BFS Store but never go through
     // verify(), so they're absent from the cache. Load depth80.ranks so the
     // above-neighbor check at d=79 sees them.
-    let antipode_path = Path::new("data/enum/depth80.ranks");
+    let antipode_path = Path::new("data/enum15/depth80.ranks");
     let antipodes: HashSet<u64> = load_u48_ranks(antipode_path)?;
     println!("loaded {} antipodes from {}", antipodes.len(), antipode_path.display());
 

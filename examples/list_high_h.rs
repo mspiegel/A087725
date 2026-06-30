@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let min_h: u8 = std::env::args().nth(2).ok_or("need MIN_H")?.parse()?;
     let cache_path: PathBuf = std::env::args().nth(3)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
     let depth: u8 = std::env::args().nth(4).and_then(|s| s.parse().ok()).unwrap_or(78);
 

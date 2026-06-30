@@ -23,7 +23,7 @@ use puzzle8::puzzle15::search::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_path: PathBuf = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
     let pdb_dir: PathBuf = std::env::args()
         .nth(2)

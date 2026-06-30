@@ -42,7 +42,7 @@ fn next_permutation(a: &mut [u8]) -> bool {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let refs_path: PathBuf = std::env::args().nth(1).ok_or("usage: d77_frame_complete REFS_FILE [MIN_H] [CACHE]")?.into();
     let min_h: u8 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(66);
-    let cache_path: PathBuf = std::env::args().nth(3).unwrap_or_else(|| "data/enum/solve_cache.bin".into()).into();
+    let cache_path: PathBuf = std::env::args().nth(3).unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
 
     let t0 = Instant::now();
     let refs: Vec<u64> = fs::read_to_string(&refs_path)?.lines()

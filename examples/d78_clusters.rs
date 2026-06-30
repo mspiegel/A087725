@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let depth: u8 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(78);
     let cache_path: PathBuf = std::env::args()
         .nth(3)
-        .unwrap_or_else(|| "data/enum/solve_cache.bin".into())
+        .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
     // Optional: restrict the clustering population to boards whose blank
     // sits in this cell. Passing this filter lets us find "sub-singletons"

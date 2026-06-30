@@ -2,7 +2,7 @@
 //!
 //! Usage:
 //! ```text
-//! enum_expand15 --file data/enum/depth79.ranks [--limit N] [--print]
+//! enum_expand15 --file data/enum15/depth79.ranks [--limit N] [--print]
 //!               [--verify --depth 79 --pdb-dir data [--sample K]]
 //! ```
 //! Each board is a 6-byte little-endian rank. `--print` renders boards as
