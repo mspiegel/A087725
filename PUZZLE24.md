@@ -316,16 +316,68 @@ and the bootstrap dissolves. Deferred because it is Phase-2 scope and rests on a
 
 ---
 
-## Deferred to Phase 2 — the hunt (sketch only; design after the pause)
+## Phase 2 — the hunt (the plan)
 
-`examples/candidates24.rs`: **seeds** = `R`, `reflect(R)`, D4 images, and *frame-conformant*
-constructions (PLAN.md: corners `{_,1,5,21}` at `{0,24,20,4}`, the 8 corner-neighbor tiles
-Chebyshev-bounded) — not betting solely on the unproven frame rule. **Hill-climb** each seed by
-tile transpositions raising the admissible score (`AdditiveZpdbHeuristic`/`ZpdbHeuristic` cold
-lookups from A5 + LC/WD), keeping `is_solvable`. **Rank**, **dedup** via `symmetry::canonical`,
-emit 25-int rows → feed `solve24 --from` / `ladder24 --max-bound`. **Hunt** = bounded-LB search
-on top candidates to push proven depths as high as the calibrated budget allows; collect the
-deepest confirmed boards and the best lower bounds.
+**Goal.** Tighten the diameter *lower* bound: produce a ranked catalog of the hardest boards we can
+find, each with the highest *proven* optimal-depth lower bound. The realistic deliverable is bounds
++ a catalog, not exact antipodes (the optimal-solve frontier is ~d ≤ 90–100; the 205 *upper* bound
+needs a different technique). The core is a **loop** — construct → score → bound → re-seed — not a
+linear pipeline. Heuristic policy is settled (Phase 1C): WD on antipodes, k6 zpdb on general,
+routed per board by `select-k6`.
+
+### 2A — Reproduce R ≥ 152 (headline milestone + stack validation)
+Push the proven LB on `R` from 144 (120 s) toward Rokicki's 152, validating the full stack against a
+published result and calibrating the *budget → threshold* scaling that sizes 2D's budgets. Mostly a
+run: `ladder24 --mode bounded --max-bound 152` (or `solve24 --prove-at-least 152`) on `R`, WD-led;
+parity means exhausting threshold 150 proves depth ≥ 152. Extrapolating the 1B calibration (~3–5×
+nodes per +2 threshold) this is ~hours–overnight, caffeinated/backgrounded. Independent of the rest —
+run first / in parallel.
+
+### 2B — Test the frame-rule conjecture (gates the generator)
+Before betting the generator on it, measure whether frame-conformance predicts depth (the deferred
+1C revisit). New: a frame-conformant constructor (corners `{_,1,5,21}@{0,24,20,4}` + Chebyshev-≤1
+neighbors, `is_solvable` filter). Generate a frame-conformant sample **and** a random-solvable
+control; bounded-LB both at a modest budget; compare LB distributions. **Decision:** frame-conformant
+bounds ≫ random → seed 2C with it; else fall back to R-orbit + perturbation seeding. (We can only
+weakly test "deep ⇒ frame" — one known-deep board, `R`; we *can* test "frame ⇒ tends-deep," which is
+what the generator needs.)
+
+### 2C — Candidate generator (`examples/candidates24.rs`)
+Produce a diverse pool of hard candidates. Seeds = `R`, `reflect(R)`, D4 images, frame-conformant
+constructions (if 2B passed), + perturbations of `R`. **Hill-climb** each seed by tile transpositions
+that raise an admissible score (WD or `max(LC,WD,zpdb)`), keeping `is_solvable`; **dedup** via
+`symmetry::canonical`; emit 25-int rows + scores → `ladder24 --from`. The score *is* a proven LB, so
+this already yields cheap lower bounds. **Expect:** WD saturates near `R` (which nearly maximizes
+row+col reversal), so root-h candidates won't exceed ~140 by much — generation's job is *diversity*
+(boards possibly deeper than `R`); LBs above ~140 come from search budget in 2D.
+
+### 2D — Bounded-LB hunt (the loop)
+Feed top candidates into `ladder24 --from --mode bounded` with **escalating budgets** (cheap pass
+over many; big budget on the few best); reuse `idastar_inc_ladder`; collect proven LBs. **Flywheel:**
+the deepest confirmed boards become new seeds for 2C → generate around them → bound → repeat. This is
+how the bootstrap resolves — construction seeds it, search certifies, deep finds re-seed.
+
+### 2E — Catalog + bounds report
+The deliverable: ranked catalog of hardest boards + best proven LBs; updated diameter lower-bound
+claim; honest frontier statement (we push the *lower* bound; exact antipodes and the 205 upper bound
+remain out of reach here).
+
+### Conditional
+- **2F — general-regime ZPDB collection (η sweep):** only if 2D throughput on *general* candidates is
+  heuristic-bound (deferred from 1C; needs complementary η-optimized partitions, since 1C showed
+  naive ones add nothing over single korf).
+- **Optimal-solve conversion:** for candidates within the ~d ≤ 90–100 frontier, convert LB → exact
+  depth via `select-k6`.
+
+### Order & dependencies
+```text
+2A (R≥152) ───────────────┐  (parallel, long-running: validates stack + sizes budgets)
+2B (frame test) ─→ decide ─→ 2C (generate) ─→ 2D (bound) ─→ 2E (report)
+                               ▲__________________│   (flywheel: deepest finds re-seed)
+```
+`2A` runs early/parallel; `2B` before `2C` (don't build the generator on an untested conjecture);
+`2C → 2D → 2E` with the `2D → 2C` flywheel. **Most concrete next action: 2A** (near-pure run,
+headline result, budget calibration); **cheapest new code: 2B**.
 
 ---
 
