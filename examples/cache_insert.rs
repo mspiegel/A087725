@@ -2,11 +2,18 @@
 //! reflection symmetry — if `r != reflect(r)`, both ranks are recorded with
 //! the same depth. Backs up the cache file before writing.
 //!
+//! VERIFICATION GUARD (on by default): every (rank, depth) pair is IDA*-solved
+//! and inserted only if the board's true optimal depth equals the claimed
+//! depth. This rejects malformed input outright — e.g. a misaligned argument
+//! that drops a depth value into a rank slot (the `(76, 76)` corruption that
+//! once mislabeled a depth-36 board as d=76). Pass `--no-verify` to skip it
+//! (NOT recommended; only for trusted bulk re-imports).
+//!
 //! Modes:
-//!   cache_insert CACHE RANK1 DEPTH1 [RANK2 DEPTH2 ...]
+//!   cache_insert CACHE [--no-verify] RANK1 DEPTH1 [RANK2 DEPTH2 ...]
 //!     Inline (rank, depth) pairs as positional args.
 //!
-//!   cache_insert CACHE --from-log REVERSE_NEIGHBORHOOD_LOG
+//!   cache_insert CACHE [--no-verify] --from-log REVERSE_NEIGHBORHOOD_LOG
 //!     Parse a reverse_neighborhood log and extract every (rank, depth) pair
 //!     listed in `=== NEW d=NN BOARDS ===` sections.
 
@@ -14,8 +21,12 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use rayon::prelude::*;
+
 use puzzle8::puzzle15::enumerate::cache;
+use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
+use puzzle8::puzzle15::search::{idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic};
 use puzzle8::puzzle15::symmetry::reflect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +37,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let cache_path: PathBuf = args.remove(0).into();
 
-    let pairs: Vec<(u64, u8)> = if args.first().map(|s| s == "--from-log").unwrap_or(false) {
+    // Optional --no-verify flag (default: verify every pair before inserting).
+    let mut verify = true;
+    if args.first().map(|s| s == "--no-verify").unwrap_or(false) {
+        verify = false;
+        args.remove(0);
+    }
+
+    let pairs: Vec<(u64, u8)> = if args.first().map(|s| s == "--from-pairs").unwrap_or(false) {
+        if args.len() < 2 {
+            eprintln!("--from-pairs requires a file path");
+            std::process::exit(2);
+        }
+        let f = std::fs::File::open(&args[1])?;
+        let p: Vec<(u64, u8)> = std::io::BufReader::new(f).lines().filter_map(|l| {
+            let l = l.ok()?;
+            let mut it = l.split_whitespace();
+            let r = it.next()?.parse::<u64>().ok()?;
+            let d = it.next()?.parse::<u8>().ok()?;
+            Some((r, d))
+        }).collect();
+        println!("parsed {} (rank, depth) pairs from {}", p.len(), args[1]);
+        p
+    } else if args.first().map(|s| s == "--from-log").unwrap_or(false) {
         if args.len() < 2 {
             eprintln!("--from-log requires a log path");
             std::process::exit(2);
@@ -54,6 +87,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if pairs.is_empty() {
         eprintln!("no pairs to insert");
+        std::process::exit(2);
+    }
+
+    // VERIFICATION GUARD: IDA*-solve each board and keep only pairs whose true
+    // optimal depth matches the claimed depth. Rejected pairs are reported and
+    // dropped — a single rejection means the input is malformed (e.g. a depth
+    // value landed in a rank slot), so we never write it.
+    let pairs: Vec<(u64, u8)> = if verify {
+        println!("verifying {} pair(s) with IDA* ...", pairs.len());
+        let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
+        let p8 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p8.zbin"))?;
+        WalkingDistanceHeuristic::warm_up();
+        LinearConflictInc::warm_up();
+        let h = ZpdbPlusInc::new([&p7, &p8]);
+        let checked: Vec<(u64, u8, u8)> = pairs
+            .par_iter()
+            .map(|&(r, d)| {
+                let (sol, _) = idastar_inc_with_stats(&unrank(r), &h);
+                let true_d = sol.map(|v| v.len() as u8).unwrap_or(u8::MAX);
+                (r, d, true_d)
+            })
+            .collect();
+        let mut good: Vec<(u64, u8)> = Vec::new();
+        let mut rejected = 0u32;
+        for (r, d, true_d) in checked {
+            if true_d == d {
+                good.push((r, d));
+            } else {
+                rejected += 1;
+                let td = if true_d == u8::MAX { "UNSOLVABLE".to_string() } else { true_d.to_string() };
+                eprintln!("  REJECT rank {}: claimed d={}, true depth={} — NOT inserting", r, d, td);
+            }
+        }
+        if rejected > 0 {
+            eprintln!("\n*** {} pair(s) FAILED verification and were dropped ***", rejected);
+        }
+        println!("verified OK: {} / {} pairs", good.len(), good.len() as u32 + rejected);
+        good
+    } else {
+        eprintln!("WARNING: --no-verify set; inserting {} pair(s) without checking depths", pairs.len());
+        pairs
+    };
+
+    if pairs.is_empty() {
+        eprintln!("no verified pairs to insert");
         std::process::exit(2);
     }
 

@@ -16,7 +16,7 @@ Layer status (expected counts = A087725):
 | 79 | 70 | complete |
 | 78 | 3,406 | complete |
 | 77 | 26,638 | **complete** |
-| 76 | 272,198 | a few thousand still missing |
+| 76 | 272,198 | **COMPLETE** (closed 2026-06-29; see §6) |
 
 **Why the top is hard.** The enumerator does a BFS outward over the band
 `[floor, 80]`, seeded from every cached board in the band, solving each
@@ -186,3 +186,188 @@ metric: `d=78` was Hamming-isolated, `d=77` was placement- and
 frame-isolated. Hamming distance and puzzle-move connectivity both failed for
 `d=77`; the **frame / bottom-permutation** structure was the right lens. When a
 metric stops finding residue, the residue has not run out — the metric has.
+
+---
+
+## 5. Session addendum (2026-06-28): the d=76 attack
+
+`d=76` stands at 272,176 / 272,198 — **22 boards (11 reflection pairs) still
+missing**, all necessarily maxima (d=77 is complete, so every non-maximum d=76
+board falls out of expanding d=77). 211,766 of the layer are maxima, 60,410
+non-maxima.
+
+### The quadrant decomposition (a better frame than top-8/bottom-8)
+
+The d=76 maxima structure **radiates from the four corners**, not in a top/bottom
+band (the band split holds for only ~24% of the layer). Per-cell entropy is
+monotonic in Chebyshev distance from the nearest corner: the four corners are the
+tightest cells (mean H≈1.25; cells 3,12 are 83% a single tile, 15 is 74%, 0 is
+39%), every other cell is looser (mean H≈2.90), and the dead-center 2×2
+{5,6,9,10} is loosest. So the productive partition is **the four 2×2 quadrants**
+(TL{0,1,4,5} TR{2,3,6,7} BL{8,9,12,13} BR{10,11,14,15})), each anchored by a
+locked corner and holding a characteristic **3-tile core + 1 floating tile**:
+TL≈{11,12,15}, TR≈{9,13,14}, BL≈{3,4,8}, BR≈{1,2,5} (TR/BL are exact reflection
+twins; top corners hold high tiles, bottom corners low).
+
+Dedupe the maxima by their 4-quadrant **tile-set partition** (which 4 tiles live
+in each quadrant): only **9,598 distinct partitions**, avg 22 maxima each, and
+**98.5% of maxima share a partition with another** — beating the top-8 band
+(31,581 frames, 94.3% reach) and the entropy-tightest-8 single frame (26,818,
+95.3%). **Quadrant-factored generative completion** (`d76_quadrant_complete.rs`):
+for each partition, enumerate every within-quadrant arrangement (4! per corner,
+24⁴ total), keep solvable + cache-miss. Dry run: 3.18B enumerated → 1.59B
+solvable → **1.54B cache-miss (96.7% novel)** — a strong, reach-98.5% generator,
+the four-way refinement of step-5's two-way top/bottom factorization.
+
+### What did NOT crack the d=76 residue (the heuristic-slack wall)
+
+The ZPDB-plus heuristic has ~11 moves of slack near the top (real d=76 boards
+have **even** h ∈ [60,70], mean 65, mode 66; maxima bottom out at h=60). Every
+*cheap heuristic-landscape* filter therefore fails:
+
+- **h-cutoff.** A safe cutoff (≤62, to not exclude low-h residue) leaves 180M+
+  candidates; a tight cutoff (≥66) drops ~46% of the maxima. Dead either way.
+- **Pit-filter** (board where every neighbor has higher h; the heuristic is
+  consistent + parity-flipping, so min(neighbor h) = h∓1). Pit-ness rises as h
+  drops (57% of d=76 at h=60, 0.3% at h=68) and *enriches* d=76 by 5–29×, but
+  retention is unsafe (drops 43–80% of low-h d=76) and the low-h pit sets are
+  still 7.5M–29M. **Cheap shot run: the 130,594 h=64 pit candidates all verified
+  to depth 66–74 — zero d=76 finds.** Confirms the residue is h<64 or non-pit.
+- **Neighbor-depth lookup** is out: the cache is complete only top-down to ~d=72
+  (d=71 count < d=72 → incomplete frontier below), and the residue is a connected
+  pocket whose d=75 neighbors are themselves missing.
+- **ML classifier *with* h as a feature** just relearns "high h → deep": 100%
+  d=76 recall needs keeping 57.8% of candidates (no filtering); low-h recall ~0.
+
+### What WORKED: the structure-without-h discriminator
+
+**Withhold h (and all distance features) and train a GBM on board structure
+alone — 16 tile-at-cell values + blank cell.** This separates a true d=76 from
+quadrant-generated d=70–74 boards **at fixed h**, where every heuristic method is
+blind. Validated against the fair negatives (quadrant-generated, same
+distribution as inference; `export_features_ranks.rs` + sklearn
+`HistGradientBoostingClassifier`):
+
+- fixed h=64, d=76 vs quad-cands(d66–74): **AUC 0.999, recall 0.99 at a 100× cut**
+- **pit-controlled** (both classes 100% pit): AUC 0.999 — not a pit artifact
+- depth-stratified, even vs d=74 (hardest lookalike): AUC 0.993
+- within-h-bucket AUC ≥0.99 at h=60/62/64
+
+The model reads true depth off the *within-quadrant arrangement* given the same
+corner frame, at fixed h, with no heuristic at all — exactly the
+residue-vs-known-maximum distinction. h was a crutch drowning out this signal.
+This is the first discriminator that beats the slack wall and works in the low-h
+region where the residue lives.
+
+**Status: validated on held-out KNOWN d=76; the full scoring run is NOT yet
+done.** Caveats: (1) generalization to the *exact* 22 missing boards is unproven
+— they may be the hardest-to-classify d=76, so run at a generous keep-fraction
+(top ~5%, not 1%); (2) the generator only reaches partitions shared with a known
+maximum (98.5%) — a genuinely novel-partition residue board is invisible to it.
+
+**Next step:** deploy the structure model at scale — Rust generator emits
+candidate features in shards → batch-score in Python → keep top ~5% by structure
+score → `verify_depths` (IDA*) → `cache_insert --from-pairs` (mirrors +
+backs up). Estimated hours, not weeks.
+
+### Session bookkeeping
+
+Cache grew by the 130,594 verified pit candidates (d=66–74, all previously
+cache-miss): 86,725,302 → **86,855,896** entries (backup at
+`solve_cache.bin.bak`). Tools added this session: `d76_maxima_dump`,
+`d76_quadrant_complete` (generator + pit stats), `verify_depths`,
+`export_depth_features` / `export_features_ranks` (classifier features),
+`d76_h_hist`, `d76_min_neighbor_h`, `cache_depth_hist`, `joint_pairwise`;
+`cache_insert` gained a `--from-pairs FILE` mode.
+
+---
+
+## 6. CLOSING d=76 (2026-06-29): the layer-augmentation method
+
+**d=76 is COMPLETE — 272,198 / 272,198.** The §5 plan worked, but the last ~10
+boards needed one idea §5 didn't have: **borrow partition vocabulary from the
+adjacent shallower layer.** This is the decisive, reusable result.
+
+### The structural key: nested partition hierarchy
+
+A board's **quadrant tile-set partition** (which 4 tiles occupy each 2×2 corner
+quadrant — see §5) is **depth-agnostic**: the same partition has solvable
+realizations at many depths and both parities. Measured over the full layers:
+
+> **d76 partitions (9,598) ⊆ d75 partitions (35,155) ⊆ d74 partitions (102,612).**
+
+Each shallower layer's partition set strictly *contains* the deeper one's and
+adds more (d75 adds 25,557 novel; d74 adds 67,457 novel beyond d75). The
+quadrant generator can only emit boards whose partition is in its seed set, so a
+residue board in a **novel partition** (held by no *cached* board of its own
+layer) is unreachable — *unless you seed the generator from a layer whose
+partition set is richer.* The residue sits in progressively rarer partitions;
+each augmentation reaches one shell deeper:
+
+| seed partitions | closed |
+|---|---|
+| d76 maxima (9,598) | the typical residue |
+| **+ d75 (35,155)** | 3 d=76 pairs in partitions novel to d76 |
+| **+ d74 (102,612)** | the final 3 d=76 pairs, novel to d75 |
+
+Every closed pair was verified to be in a partition novel to the layer below it
+— direct confirmation that the residue is *partition*-isolated and that
+borrowing from below is the right lever.
+
+### The closure pipeline (reusable)
+
+1. **Structure-without-h model** (§5) scores candidates; it is *blind to novel
+   partitions* (trained on the layer itself), but **per-partition top-K** rescues
+   it — fix K (=500) arrangements per partition regardless of absolute score, so
+   each novel partition's best candidates are always verified.
+2. **Interleaved parity hunt** (`d75d76_hunt`): enumerate each partition's 24⁴
+   arrangements ONCE; keep solvable + cache-miss + h≥59; route by parity —
+   **even-h → d76 candidates, odd-h → d75 candidates** — score, keep per-partition
+   top-K of each, and write a score-merged list. One enumeration hunts **two
+   layers at once** (a board's depth parity = its h parity, so even-h boards can
+   only be d=even, odd-h only d=odd).
+3. **Auto-extending sweep** (`sweep.sh`): verify the merged list in 500K chunks
+   top-down by score, `cache_insert` after each, stop when a chunk's yield drops
+   below THRESH. A saturating fit `cum = T·n/(K+n)` to the per-chunk yield
+   predicts the total findable and the asymptote (it landed on the known gap,
+   confirming near-total reach); a power-law fit is the wrong model (exponent→1
+   diverges).
+4. **Bellman closure** (`bellman_closure`): any cache-miss board whose EVERY
+   neighbor is cached has exact depth `1 + min(neighbor depths)` — free, no IDA*.
+   Iterates to a fixpoint, mirrors inserts. **Limited to the boundary**: it fills
+   holes adjacent to the known mass but cannot crack a *disconnected,
+   mutually-missing pocket* (the deep residue), so it yielded only a handful of
+   d=75 here — useful cleanup, not a closer.
+5. Standard throughout: IDA*-verify every find, mirror under reflection on
+   insert, `caffeinate -dimsu` all jobs, checkpoint pairs incrementally
+   (crash-safe), back up the cache before each mutation.
+
+### What did NOT help (this session)
+
+- **Retraining the model with on-distribution hard negatives backfired** — the
+  d72–74 quadrant boards are structurally near-identical to the residue, so
+  adding 600K as negatives taught the model to suppress that whole region; the
+  known residue's score collapsed (~0.99 → ~0.04). More data hurts when the
+  negatives crowd the positives.
+- **h-cutoff / pit-filter / ML-with-h** all failed for the low-h residue (§5);
+  the *structure-without-h* model + per-partition top-K is what works.
+
+### The cross-layer lesson (updated)
+
+The residue's hiding metric again differed: d=78 Hamming-isolated, d=77
+frame-isolated, **d=76 quadrant-partition-isolated** — and specifically isolated
+in partitions *novel to its own layer but present one layer down*. For deeper or
+harder layers (incl. the 24-puzzle), the **layer-augmentation hierarchy** is the
+general tool: to close layer L, seed the partition generator from L ∪ (L−1) ∪
+(L−2)… until the residue's partition is covered; interleave even/odd to close two
+layers per pass.
+
+### Bookkeeping (final)
+
+d=76: 272,176 → **272,198 (complete)**. d=75: 1,501,962 → 1,507,336 (closed
+~5,374; ~1,260 still short of 1,508,596, reachable by continuing the sweeps).
+Cache: ~86.7M → **95.8M** entries. New tools: `d75d76_hunt` (parity hunt),
+`bellman_closure`, `dump_grids`, `gen_from_domains`, `d76_quadrant_score`,
+`model_score_check` + `common/tree_model.rs` (Rust port of the sklearn
+HistGBM, bit-exact); driver `sweep.sh`; the structure model is `model.txt`
+(dumped from `dump_model.py`, scored in Rust via `tree_model`).

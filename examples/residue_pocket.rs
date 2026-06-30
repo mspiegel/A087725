@@ -111,6 +111,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Optional: write all solved (rank, depth) pairs for cache_insert --from-pairs.
+    if let Ok(out) = std::env::var("POCKET_OUT") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&out)?);
+        let mut n = 0u64;
+        for &(r, d) in &results {
+            if d != u8::MAX { writeln!(w, "{r} {d}")?; n += 1; }
+        }
+        w.flush()?;
+        println!("wrote {n} (rank depth) pairs -> {out}");
+    }
+
     println!("\ntotal elapsed {:.1?}", t0.elapsed());
     Ok(())
 }
