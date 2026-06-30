@@ -46,6 +46,57 @@ impl Heuristic for ManhattanHeuristic {
     }
 }
 
+/// Incremental max of two [`IncHeuristic`]s — the incremental analogue of
+/// [`MaxHeuristic`](crate::puzzle24::pdb::MaxHeuristic). The per-node context is
+/// the pair of sub-contexts (both `Copy`, so the tuple is `Copy` and threads
+/// through the recursion). Admissible whenever both components are.
+///
+/// Used by the per-board *selective* solver to run a cheap `max(LinearConflict,
+/// WalkingDistance)` on boards where the (expensive) zero-aware PDB term adds
+/// nothing at the root — see `examples/ladder24.rs`.
+pub struct MaxInc<A, B> {
+    a: A,
+    b: B,
+}
+
+impl<A, B> MaxInc<A, B> {
+    pub fn new(a: A, b: B) -> Self {
+        Self { a, b }
+    }
+}
+
+impl<A, B> crate::puzzle24::search::idastar::IncHeuristic for MaxInc<A, B>
+where
+    A: crate::puzzle24::search::idastar::IncHeuristic,
+    B: crate::puzzle24::search::idastar::IncHeuristic,
+{
+    type Ctx = (A::Ctx, B::Ctx);
+
+    #[inline]
+    fn root(
+        &self,
+        s: &State,
+        stats: &mut crate::puzzle24::search::SearchStats,
+    ) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.root(s, stats);
+        let (hb, cb) = self.b.root(s, stats);
+        (ha.max(hb), (ca, cb))
+    }
+
+    #[inline]
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        child: &State,
+        m: crate::puzzle24::state::Move,
+        stats: &mut crate::puzzle24::search::SearchStats,
+    ) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.advance(&parent.0, child, m, stats);
+        let (hb, cb) = self.b.advance(&parent.1, child, m, stats);
+        (ha.max(hb), (ca, cb))
+    }
+}
+
 /// Incremental Manhattan heuristic: maintains the running distance in O(1) per
 /// move. A single move slides exactly one tile by one cell, so the tile that
 /// moved into the parent's blank cell changes its Manhattan term by ±1 and
@@ -132,6 +183,42 @@ mod tests {
         for (state, &truth) in &table {
             let est = ManhattanHeuristic.h(&State(*state));
             assert!(est <= truth, "h({:?}) = {} > true {}", state, est, truth);
+        }
+    }
+
+    /// `MaxInc(LC, WD)` must equal `max(LC, WD)` at the root and stay in sync via
+    /// `advance` over a long walk (the combinator just maxes the two terms).
+    #[test]
+    fn maxinc_lc_wd_matches_scratch_max_random_walk() {
+        use crate::puzzle24::search::idastar::IncHeuristic;
+        use crate::puzzle24::search::{
+            LinearConflictHeuristic, LinearConflictInc, SearchStats, WalkingDistanceHeuristic,
+            WalkingDistanceInc,
+        };
+        WalkingDistanceHeuristic::warm_up();
+        let mx = MaxInc::new(LinearConflictInc, WalkingDistanceInc);
+        let mut rng: u64 = 0x5AFE_C0DE_1234_9999;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let mut s = GOAL;
+        let mut stats = SearchStats::default();
+        let (h0, mut ctx) = mx.root(&s, &mut stats);
+        assert_eq!(h0, 0);
+        for step in 0..2000 {
+            let opts: Vec<Move> = s.legal_moves().iter().collect();
+            let m = opts[(next() as usize) % opts.len()];
+            let ns = s.apply(m);
+            let (h_adv, ctx_adv) = mx.advance(&ctx, &ns, m, &mut stats);
+            let scratch = LinearConflictHeuristic.h(&ns).max(WalkingDistanceHeuristic.h(&ns));
+            assert_eq!(h_adv, scratch, "MaxInc advance vs scratch diverged at step {}", step);
+            let (h_fresh, _) = mx.root(&ns, &mut stats);
+            assert_eq!(h_adv, h_fresh, "MaxInc advance vs fresh root diverged at step {}", step);
+            s = ns;
+            ctx = ctx_adv;
         }
     }
 }

@@ -5,13 +5,13 @@ pub mod idastar;
 pub mod linear_conflict;
 pub mod walking_distance;
 
-pub use heuristic::{Heuristic, IncManhattan, ManhattanHeuristic};
+pub use heuristic::{Heuristic, IncManhattan, ManhattanHeuristic, MaxInc};
 pub use linear_conflict::{LcCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use walking_distance::{WalkingDistanceHeuristic, WalkingDistanceInc, WdCtx};
 pub use idastar::{
     idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,
-    idastar_inc_mut, idastar_inc_mut_with_stats, idastar_inc_with_stats, idastar_with_stats,
-    BoundedOutcome, IncHeuristic, IncHeuristicMut, SearchStats,
+    idastar_inc_ladder, idastar_inc_mut, idastar_inc_mut_with_stats, idastar_inc_with_stats,
+    idastar_with_stats, BoundedOutcome, IncHeuristic, IncHeuristicMut, LadderOutcome, SearchStats,
 };
 
 /// Test-only helpers shared across the search tests.

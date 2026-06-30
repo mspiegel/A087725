@@ -100,6 +100,7 @@ pub fn idastar_with_stats<H: Heuristic>(start: &State, h: &H) -> (Option<Vec<Mov
         stats.iterations += 1;
         match search(start, blank, 0, bound, &mut path, None, h, &mut stats) {
             Step::Found => return (Some(path), stats),
+            Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
                 if next == u8::MAX {
                     return (None, stats);
@@ -114,6 +115,8 @@ enum Step {
     Found,
     /// Smallest `f` seen this iteration that exceeded `bound`.
     Bound(u8),
+    /// The optional deadline elapsed mid-iteration; unwind and report a timeout.
+    Aborted,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -147,6 +150,7 @@ fn search<H: Heuristic>(
         path.push(m);
         match search(&s_next, next_blank, g + 1, bound, path, Some(m), h, stats) {
             Step::Found => return Step::Found,
+            Step::Aborted => unreachable!("no deadline in plain search"),
             Step::Bound(n) => {
                 if n < min_next {
                     min_next = n;
@@ -206,8 +210,9 @@ pub fn idastar_inc_with_stats<E: IncHeuristic>(
     let blank = start.blank_pos();
     loop {
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, &mut path, None, e, &mut stats) {
+        match search_inc(start, blank, ctx0, h0, 0, bound, None, &mut path, None, e, &mut stats) {
             Step::Found => return (Some(path), stats),
+            Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
                 if next == u8::MAX {
                     return (None, stats);
@@ -223,6 +228,10 @@ pub fn idastar_inc<E: IncHeuristic>(start: &State, e: &E) -> Option<Vec<Move>> {
     idastar_inc_with_stats(start, e).0
 }
 
+/// Check the deadline at most once per this many nodes (cheap amortized cost;
+/// `Instant::now()` is not free, so we don't call it per node).
+const DEADLINE_CHECK_MASK: u64 = 0x3FFF; // every 16384 nodes
+
 #[allow(clippy::too_many_arguments)]
 fn search_inc<E: IncHeuristic>(
     s: &State,
@@ -231,12 +240,18 @@ fn search_inc<E: IncHeuristic>(
     h_val: u8,
     g: u8,
     bound: u8,
+    deadline: Option<std::time::Instant>,
     path: &mut Vec<Move>,
     last: Option<Move>,
     e: &E,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
+    if let Some(dl) = deadline {
+        if stats.nodes & DEADLINE_CHECK_MASK == 0 && std::time::Instant::now() >= dl {
+            return Step::Aborted;
+        }
+    }
     let f = g.saturating_add(h_val);
     if f > bound {
         return Step::Bound(f);
@@ -255,8 +270,9 @@ fn search_inc<E: IncHeuristic>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let (child_h, child_ctx) = e.advance(&ctx, &s_next, m, stats);
         path.push(m);
-        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
+        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, deadline, path, Some(m), e, stats) {
             Step::Found => return Step::Found,
+            Step::Aborted => return Step::Aborted,
             Step::Bound(n) => {
                 if n < min_next {
                     min_next = n;
@@ -331,13 +347,74 @@ where
         }
         stats.iterations += 1;
         let iter_start = std::time::Instant::now();
-        match search_inc(start, blank, ctx0, h0, 0, bound, &mut path, None, e, &mut stats) {
+        match search_inc(start, blank, ctx0, h0, 0, bound, None, &mut path, None, e, &mut stats) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
+            Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
                 if next == u8::MAX {
                     return (BoundedOutcome::Unsolvable, stats);
                 }
                 on_iter(bound, &stats, iter_start.elapsed());
+                bound = next;
+            }
+        }
+    }
+}
+
+/// Outcome of a deadline-aware ([ladder](idastar_inc_ladder)) search.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LadderOutcome {
+    /// Optimal solution found within both the bound and the deadline.
+    Solved(Vec<Move>),
+    /// Every threshold up to `max_bound` was exhausted in time: proves `depth ≥ K`.
+    ProvedAtLeast(u8),
+    /// The deadline elapsed mid-iteration at threshold `K`. Since the previous
+    /// iteration completed, `depth ≥ K` is still proven (`K` = the deepest
+    /// threshold reached); the search just couldn't finish threshold `K`.
+    TimedOut(u8),
+    /// `start` is unreachable from `GOAL`.
+    Unsolvable,
+}
+
+/// Unified deadline-aware IDA\* driver for the calibration harness.
+///
+/// Subsumes both measurement modes:
+/// - **optimal-solve**: pass `max_bound = u8::MAX` and `deadline = Some(t)` — get
+///   `Solved(len)` or `TimedOut(K)`.
+/// - **bounded lower-bound**: pass a finite `max_bound` (and optional deadline) —
+///   get `Solved`, `ProvedAtLeast(K)`, or `TimedOut(K)`.
+///
+/// `deadline = None` makes it a pure bounded search (never times out). The
+/// deadline is polled every ~16k nodes, so the actual stop can overshoot `t` by
+/// one such batch — fine for minute/hour-scale budgets.
+pub fn idastar_inc_ladder<E: IncHeuristic>(
+    start: &State,
+    e: &E,
+    max_bound: u8,
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats) {
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (LadderOutcome::Solved(Vec::new()), stats);
+    }
+    let (h0, ctx0) = e.root(start, &mut stats);
+    let mut bound = h0;
+    let mut path: Vec<Move> = Vec::with_capacity(220);
+    let blank = start.blank_pos();
+    loop {
+        if bound > max_bound {
+            return (LadderOutcome::ProvedAtLeast(bound), stats);
+        }
+        stats.iterations += 1;
+        match search_inc(start, blank, ctx0, h0, 0, bound, deadline, &mut path, None, e, &mut stats) {
+            Step::Found => return (LadderOutcome::Solved(path), stats),
+            // `bound` is the deepest threshold reached; the prior iteration
+            // proved depth ≥ bound, so that is the lower bound at timeout.
+            Step::Aborted => return (LadderOutcome::TimedOut(bound), stats),
+            Step::Bound(next) => {
+                if next == u8::MAX {
+                    return (LadderOutcome::Unsolvable, stats);
+                }
                 bound = next;
             }
         }
@@ -380,6 +457,7 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
         // `search_inc_mut` unmakes every move it makes.
         match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, &mut path, None, e, &mut stats) {
             Step::Found => return (Some(path), stats),
+            Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
                 if next == u8::MAX {
                     return (None, stats);
@@ -431,6 +509,7 @@ fn search_inc_mut<E: IncHeuristicMut>(
             // On Found, keep the accumulated path and return; the whole search
             // terminates so `ctx` is discarded (no need to unmake).
             Step::Found => return Step::Found,
+            Step::Aborted => unreachable!("no deadline in mut driver"),
             Step::Bound(n) => {
                 path.pop();
                 e.unmake(ctx, m); // restore path + ctx for the next sibling
@@ -630,6 +709,51 @@ mod tests {
                 BoundedOutcome::Solved(sol) => assert_eq!(sol.len() as u8, truth),
                 other => panic!("expected Solved for {:?}, got {:?}", raw, other),
             }
+        }
+    }
+
+    #[test]
+    fn ladder_unbounded_no_deadline_solves_optimally() {
+        use super::super::heuristic::IncManhattan;
+        let table = bfs_distances(8);
+        for (raw, &truth) in table.iter().take(1500) {
+            let s = State(*raw);
+            let (outcome, _) = idastar_inc_ladder(&s, &IncManhattan, u8::MAX, None);
+            match outcome {
+                LadderOutcome::Solved(sol) => assert_eq!(sol.len() as u8, truth, "for {:?}", raw),
+                other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+            }
+        }
+    }
+
+    #[test]
+    fn ladder_finite_bound_proves_lower_bound() {
+        use super::super::heuristic::IncManhattan;
+        let table = bfs_distances(8);
+        for (raw, &truth) in table.iter() {
+            if truth == 0 {
+                continue;
+            }
+            let s = State(*raw);
+            let (outcome, _) = idastar_inc_ladder(&s, &IncManhattan, truth - 1, None);
+            assert_eq!(outcome, LadderOutcome::ProvedAtLeast(truth), "for {:?}", raw);
+        }
+    }
+
+    #[test]
+    fn ladder_elapsed_deadline_times_out_with_valid_lower_bound() {
+        // A deep board with an already-elapsed deadline: the search must abort at
+        // the first deadline check and report TimedOut(K) with K ≥ root h (a
+        // valid admissible lower bound).
+        use super::super::heuristic::IncManhattan;
+        let r = State([0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+        assert!(r.is_solvable());
+        let h0 = ManhattanHeuristic.h(&r);
+        let past = std::time::Instant::now() - std::time::Duration::from_millis(1);
+        let (outcome, _) = idastar_inc_ladder(&r, &IncManhattan, u8::MAX, Some(past));
+        match outcome {
+            LadderOutcome::TimedOut(k) => assert!(k >= h0, "timeout LB {} < root h {}", k, h0),
+            other => panic!("expected TimedOut, got {:?}", other),
         }
     }
 

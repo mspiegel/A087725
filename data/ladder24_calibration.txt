@@ -1,0 +1,210 @@
+# 24-puzzle Phase 1B calibration (ladder24) — 2026-06-30
+# Machine: 32 GiB RAM, ~56 GiB free. Single-threaded IDA*.
+# Run A: all 7 heuristics, both modes, walks 20..120 reps=1,
+#        optimal budget 60s, bounded budget 120s/board, max-bound 145.
+# Run B: deeper optimal probe, zpdb-k6, walks 160..500, budget 120s.
+
+########## RUN A ##########
+building Walking Distance table (one-off, ~65.65M states)…
+  WD table built in 23.445917417s
+ladder24: 7 heuristics, 6 walk boards, 2 structured boards
+  root h(R) Manhattan = 112
+
+--- OPTIMAL-SOLVE  [manhattan]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               36     1      1.92µs      18779343  solved d=10
+  walk40#0          28              481     2     11.08µs      43399801  solved d=30
+  walk60#0          36          1537315     6     18.41ms      83510206  solved d=46
+  walk80#0          32          1505337     7     18.78ms      80137721  solved d=44
+  walk100#0         38          4809723     7     59.37ms      81015186  solved d=50
+  walk120#0         44       4876107776    12      60.00s      81268369  timeout LB>=66
+  => deepest optimally solved within budget: d=50  (81.27 Mnodes/s agg)
+
+--- BOUNDED-LB  [manhattan]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                112      10535010304    13     120.00s      87791637  timeout LB>=136
+  reflect(R)       112      10581966848    13     120.00s      88182993  timeout LB>=136
+  => best proven lower bound on R: depth >= 136
+  => highest lower bound across structured boards: 136
+
+--- OPTIMAL-SOLVE  [lc]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1      4.50µs       4666667  solved d=10
+  walk40#0          28              385     2     31.83µs      12094367  solved d=30
+  walk60#0          38           208945     5     11.96ms      17477564  solved d=46
+  walk80#0          34           404627     6     24.53ms      16493088  solved d=44
+  walk100#0         40          1441317     6     84.33ms      17091999  solved d=50
+  walk120#0         48       1019445248    11      60.00s      16990545  timeout LB>=68
+  => deepest optimally solved within budget: d=50  (16.99 Mnodes/s agg)
+
+--- BOUNDED-LB  [lc]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                128       3082027008     6     120.00s      25683552  timeout LB>=138
+  reflect(R)       128       3073622016     6     120.00s      25613513  timeout LB>=138
+  => best proven lower bound on R: depth >= 138
+  => highest lower bound across structured boards: 138
+
+--- OPTIMAL-SOLVE  [wd]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1     12.13µs       1731959  solved d=10
+  walk40#0          28              227     2    100.58µs       2256820  solved d=30
+  walk60#0          38           396578     5     22.25ms      17821728  solved d=46
+  walk80#0          34           285361     6     14.02ms      20357602  solved d=44
+  walk100#0         42           630524     5     31.40ms      20081608  solved d=50
+  walk120#0         50       1235140608    10      60.00s      20585485  timeout LB>=68
+  => deepest optimally solved within budget: d=50  (20.58 Mnodes/s agg)
+
+--- BOUNDED-LB  [wd]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140       2411577344     3     120.00s      20096351  timeout LB>=144
+  reflect(R)       140       2396438528     3     120.00s      19970296  timeout LB>=144
+  => best proven lower bound on R: depth >= 144
+  => highest lower bound across structured boards: 144
+
+--- OPTIMAL-SOLVE  [zpdb-k6]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1    194.04µs        108224  solved d=10
+  walk40#0          28              205     2      2.66ms         77198  solved d=30
+  walk60#0          42             3535     3     25.12ms        140748  solved d=46
+  walk80#0          38            36179     4     34.70ms       1042696  solved d=44
+  walk100#0         40            88044     6     43.03ms       2045935  solved d=50
+  walk120#0         58          1535105     7    265.82ms       5774903  solved d=70
+  => deepest optimally solved within budget: d=70  (4.48 Mnodes/s agg)
+
+--- BOUNDED-LB  [zpdb-k6]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                126        857047040     7     120.00s       7141931  timeout LB>=138
+  reflect(R)       126        855998464     7     120.00s       7133191  timeout LB>=138
+  => best proven lower bound on R: depth >= 138
+  => highest lower bound across structured boards: 138
+
+--- OPTIMAL-SOLVE  [zpdb-k7]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1    206.50µs        101695  solved d=10
+  walk40#0          30               88     1      2.73ms         32260  solved d=30
+  walk60#0          38            53051     5    213.90ms        248019  solved d=46
+  walk80#0          36            53738     5    202.29ms        265643  solved d=44
+  walk100#0         42            59492     5    162.74ms        365566  solved d=50
+  walk120#0         56         13588736     8       3.26s       4163866  solved d=70
+  => deepest optimally solved within budget: d=70  (3.58 Mnodes/s agg)
+
+--- BOUNDED-LB  [zpdb-k7]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                120        803930112     9     120.00s       6699381  timeout LB>=136
+  reflect(R)       120        814563328     9     120.00s       6787937  timeout LB>=136
+  => best proven lower bound on R: depth >= 136
+  => highest lower bound across structured boards: 136
+
+--- OPTIMAL-SOLVE  [zpdb-plus-k6]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1     23.75µs        884211  solved d=10
+  walk40#0          28              174     2    103.96µs       1673753  solved d=30
+  walk60#0          42             3488     3      1.22ms       2856382  solved d=46
+  walk80#0          38            24896     4      6.68ms       3726016  solved d=44
+  walk100#0         42            41324     5     11.36ms       3636263  solved d=50
+  walk120#0         58          1498531     7    364.81ms       4107704  solved d=70
+  => deepest optimally solved within budget: d=70  (4.08 Mnodes/s agg)
+
+--- BOUNDED-LB  [zpdb-plus-k6]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140        543588352     2     120.00s       4529874  timeout LB>=142
+  reflect(R)       140        544538624     2     120.00s       4537781  timeout LB>=142
+  => best proven lower bound on R: depth >= 142
+  => highest lower bound across structured boards: 142
+
+--- OPTIMAL-SOLVE  [zpdb-plus-k7]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1     22.21µs        945605  solved d=10
+  walk40#0          30               88     1     74.54µs       1180558  solved d=30
+  walk60#0          38            32193     5      8.86ms       3632787  solved d=46
+  walk80#0          36            34286     5      9.43ms       3633981  solved d=44
+  walk100#0         42            40219     5     11.46ms       3509741  solved d=50
+  walk120#0         56         11984177     8       3.08s       3884783  solved d=70
+  => deepest optimally solved within budget: d=70  (3.88 Mnodes/s agg)
+
+--- BOUNDED-LB  [zpdb-plus-k7]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140        504184832     2     120.00s       4201471  timeout LB>=142
+  reflect(R)       140        508264448     2     120.00s       4235512  timeout LB>=142
+  => best proven lower bound on R: depth >= 142
+  => highest lower bound across structured boards: 142
+
+########## RUN B (deep optimal probe) ##########
+--- OPTIMAL-SOLVE  [zpdb-k6]  (per-board budget 120s) ---
+  walk160#0  h0=58   1037848 nodes   155.86ms   solved d=68
+  walk240#0  h0=72   132664228 nodes  19.49s    solved d=88
+  walk320#0  h0=78   805109760 nodes  120.00s   timeout LB>=96
+  walk500#0  h0=82   810287104 nodes  120.00s   timeout LB>=100
+  => deepest optimally solved within 120s budget: d=88
+
+########## RUN C: per-board selector (#1) + catalog triage (#2) — 2026-06-30 ##########
+########## RUN 1: per-board selector (#1) — select-k6, select-k7 ##########
+building Walking Distance table (one-off, ~65.65M states)…
+  WD table built in 28.30809825s
+ladder24: 2 heuristics, 5 walk boards, 2 structured boards
+  root h(R) Manhattan = 112
+
+--- OPTIMAL-SOLVE  [select-k6]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1      6.46µs       3251781  [cheap] solved d=10
+  walk60#0          42             3488     3      1.38ms       2528223  [zpdb] solved d=46
+  walk100#0         42           407752     5     44.28ms       9209202  [cheap] solved d=50
+  walk160#0         58           941964     6    289.87ms       3249616  [zpdb] solved d=68
+  walk240#0         72        128518106     9      46.19s       2782307  [zpdb] solved d=88
+  => deepest optimally solved within budget: d=88  (2.79 Mnodes/s agg); chose zpdb on 3/5 boards
+
+--- BOUNDED-LB  [select-k6]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140       1197735936     3     120.00s       9981091  [cheap] timeout LB>=144
+  reflect(R)       140       1185103872     3     120.00s       9875733  [cheap] timeout LB>=144
+  => best proven lower bound on R: depth >= 144
+  => highest lower bound across structured boards: 144; chose zpdb on 0/2 boards
+
+--- OPTIMAL-SOLVE  [select-k7]  (per-board budget 60s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk20#0          10               21     1      6.67µs       3150315  [cheap] solved d=10
+  walk60#0          38           122992     5     13.81ms       8904506  [cheap] solved d=46
+  walk100#0         42           407752     5     48.89ms       8340853  [cheap] solved d=50
+  walk160#0         56          7118103     7       2.99s       2383522  [zpdb] solved d=68
+  walk240#0         70        149766144     9      60.01s       2495819  [zpdb] timeout LB>=86
+  => deepest optimally solved within budget: d=68  (2.50 Mnodes/s agg); chose zpdb on 2/5 boards
+
+--- BOUNDED-LB  [select-k7]  (max-bound 145, per-board budget 120s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140       1213644800     3     120.00s      10113606  [cheap] timeout LB>=144
+  reflect(R)       140       1212481536     3     120.00s      10103920  [cheap] timeout LB>=144
+  => best proven lower bound on R: depth >= 144
+  => highest lower bound across structured boards: 144; chose zpdb on 0/2 boards
+
+########## RUN 2: catalog triage (#2) — screen all, solve top-3 ##########
+building Walking Distance table (one-off, ~65.65M states)…
+  WD table built in 28.882736792s
+
+=== SCREEN [walks] — cheap max(LC,WD) root over all 5 candidates ===
+  walk300#0      cheap-h=64
+  walk200#0      cheap-h=62
+  walk120#0      cheap-h=50
+  walk80#0       cheap-h=34
+  walk40#0       cheap-h=28
+  => keeping top 3 hardest for the (selective) solve
+ladder24: 1 heuristics, 3 walk boards, 2 structured boards
+  root h(R) Manhattan = 112
+
+--- OPTIMAL-SOLVE  [select-k6]  (per-board budget 30s) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  walk300#0         64         78191097     8      10.85s       7206547  [cheap] solved d=78
+  walk200#0         68         89194496     9      30.00s       2973128  [zpdb] timeout LB>=84
+  walk120#0         58          1498531     7    493.82ms       3034590  [zpdb] solved d=70
+  => deepest optimally solved within budget: d=78  (4.08 Mnodes/s agg); chose zpdb on 2/3 boards
+ALL_SELECT_DONE
+
+########## RUN D: 3-way selector refinement (#1 refined) — 2026-06-30 ##########
+# select-k6 optimal, walks 100,160,240. The expensive side is now pure zpdb by
+# default (slack 0), with zpdb-plus reachable via --combine-slack.
+# slack=0:  walk100 [cheap] d=50 | walk160 [zpdb] d=68 | walk240 [zpdb] d=88 in 20.56s
+#           picks: cheap=1 zpdb=2 zpdb+=0   (fixes the old 2-way's 46s zpdb-plus pick)
+# slack=8:  walk160 [zpdb+] d=68 | walk240 [zpdb+] d=88 in 33.85s (128.5M nodes vs
+#           pure zpdb's 132.7M: only ~3% fewer nodes for ~70% more cost → net slower)
+#           picks: cheap=1 zpdb=0 zpdb+=2
+# Conclusion: pure-zpdb (slack 0) is the right default; zpdb-plus only earns its
+# overhead when LC/WD add deeper pruning (rare on random boards).

@@ -91,6 +91,10 @@ name = "korf100_bench"
 required-features = ["mmap"]
 
 [[example]]
+name = "ladder24"
+required-features = ["mmap"]
+
+[[example]]
 name = "antipode_anchor15"
 required-features = ["mmap", "parallel"]
 
