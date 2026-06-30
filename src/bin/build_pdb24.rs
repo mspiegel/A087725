@@ -27,24 +27,53 @@ use puzzle8::puzzle24::pdb::PatternDb;
 use sha2::{Digest, Sha256};
 
 /// Canonical Korf 6-6-6-6 partition of the 24-puzzle's tiles.
+///
+/// Goal board (tile at goal cell):
+/// ```text
+///  1  2  3  4  5
+///  6  7  8  9 10
+/// 11 12 13 14 15
+/// 16 17 18 19 20
+/// 21 22 23 24  _
+/// ```
 const PART_A: [u8; 6] = [1, 2, 3, 6, 7, 8];
 const PART_B: [u8; 6] = [4, 5, 9, 10, 14, 15];
 const PART_C: [u8; 6] = [11, 12, 16, 17, 21, 22];
 const PART_D: [u8; 6] = [13, 18, 19, 20, 23, 24];
 
-fn part_tiles(part: char) -> Option<Vec<u8>> {
-    match part {
-        'a' => Some(PART_A.to_vec()),
-        'b' => Some(PART_B.to_vec()),
-        'c' => Some(PART_C.to_vec()),
-        'd' => Some(PART_D.to_vec()),
+/// The 7-7-7-3 partition (three 7-tile PDBs + one 3-tile), geometrically
+/// contiguous blocks covering all 24 tiles disjointly. Bigger root `h` than the
+/// 6-6-6-6 set (≈485 MiB / 7-tile PDB at 1 bit). The exact tile grouping only
+/// tunes h̄; this is a reasonable spatial decomposition.
+const PART7_A: [u8; 7] = [1, 2, 3, 6, 7, 8, 11]; // top-left block
+const PART7_B: [u8; 7] = [4, 5, 9, 10, 14, 15, 20]; // top-right + right edge
+const PART7_C: [u8; 7] = [12, 13, 16, 17, 18, 21, 22]; // centre / bottom-left
+const PART7_D: [u8; 3] = [19, 23, 24]; // bottom-right corner
+
+fn part_tiles(partition: Partition, part: char) -> Option<Vec<u8>> {
+    match (partition, part) {
+        (Partition::K6, 'a') => Some(PART_A.to_vec()),
+        (Partition::K6, 'b') => Some(PART_B.to_vec()),
+        (Partition::K6, 'c') => Some(PART_C.to_vec()),
+        (Partition::K6, 'd') => Some(PART_D.to_vec()),
+        (Partition::K7, 'a') => Some(PART7_A.to_vec()),
+        (Partition::K7, 'b') => Some(PART7_B.to_vec()),
+        (Partition::K7, 'c') => Some(PART7_C.to_vec()),
+        (Partition::K7, 'd') => Some(PART7_D.to_vec()),
         _ => None,
     }
 }
 
+#[derive(Clone, Copy)]
+enum Partition {
+    K6,
+    K7,
+}
+
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} (--part a|b|c|d | --tiles T1,T2,...) --out PATH [--zero-aware] [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
-    eprintln!("  --part       one block of the canonical Korf 6-6-6-6 partition");
+    eprintln!("usage: {} (--part a|b|c|d [--partition k6|k7] | --tiles T1,T2,...) --out PATH [--zero-aware] [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
+    eprintln!("  --part       one block of the selected partition (default k6)");
+    eprintln!("  --partition  k6 (6-6-6-6, default) or k7 (7-7-7-3)");
     eprintln!("  --tiles      comma-separated tile values in 1..=24");
     eprintln!("  --out        path to write the PDB binary");
     eprintln!("  --zero-aware build a zero-aware 1-bit PDB (Z24D) instead of the additive (P24D)");
@@ -63,7 +92,9 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut tiles: Option<Vec<u8>> = None;
+    let mut explicit_tiles: Option<Vec<u8>> = None;
+    let mut part: Option<char> = None;
+    let mut partition = Partition::K6;
     let mut out: Option<PathBuf> = None;
     let mut threads: Option<usize> = None;
     let mut verify_sha: Option<PathBuf> = None;
@@ -77,8 +108,15 @@ fn parse_args() -> Result<Args, String> {
             "--part" => {
                 i += 1;
                 let s = argv.get(i).ok_or("--part needs a value")?;
-                let c = s.chars().next().ok_or("--part empty")?;
-                tiles = Some(part_tiles(c).ok_or_else(|| format!("unknown part {:?}", s))?);
+                part = Some(s.chars().next().ok_or("--part empty")?);
+            }
+            "--partition" => {
+                i += 1;
+                partition = match argv.get(i).ok_or("--partition needs a value")?.as_str() {
+                    "k6" => Partition::K6,
+                    "k7" => Partition::K7,
+                    other => return Err(format!("unknown partition {:?} (k6|k7)", other)),
+                };
             }
             "--tiles" => {
                 i += 1;
@@ -91,7 +129,7 @@ fn parse_args() -> Result<Args, String> {
                     }
                     v.push(t);
                 }
-                tiles = Some(v);
+                explicit_tiles = Some(v);
             }
             "--out" => {
                 i += 1;
@@ -121,7 +159,13 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    let tiles = tiles.ok_or("missing --part or --tiles")?;
+    let tiles = match (explicit_tiles, part) {
+        (Some(_), Some(_)) => return Err("give either --tiles or --part, not both".into()),
+        (Some(v), None) => v,
+        (None, Some(c)) => part_tiles(partition, c)
+            .ok_or_else(|| format!("unknown part {:?} for the selected partition", c))?,
+        (None, None) => return Err("missing --part or --tiles".into()),
+    };
     let out = out.ok_or("missing --out")?;
     Ok(Args { tiles, out, threads, verify_sha, write_sha, zero_aware })
 }

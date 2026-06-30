@@ -18,7 +18,7 @@
 //! (so the full 6-tile ZPDB has `6! · 251,400 = 181,008,000` entries — exactly
 //! the paper's figure), averaging `1.42` regions per shape with a maximum of 5.
 
-use super::pattern::{Pattern, ProjectedState};
+use super::pattern::{Pattern, ProjectedState, ANON};
 use crate::puzzle24::state::{N_CELLS, W};
 
 /// Marker in a region labeling for a cell occupied by a pattern tile.
@@ -402,6 +402,85 @@ impl ZpdbLayout {
         debug_assert!(r < count);
         self.cohort_base[sr] + pr * count + r
     }
+
+    /// Reconstruct a **representative** projected state for entry `rank` — the
+    /// inverse of [`rank`](Self::rank) up to the blank's exact cell within its
+    /// region.
+    ///
+    /// The `(m, p, r)` index pins the pattern-tile placement (shape `m` +
+    /// permutation `p`) and the blank's *region* `r`, but not which cell of that
+    /// region the blank occupies. We place the blank at the region's smallest
+    /// cell. That is sufficient for the region BFS ([`super::zbuild`]): a region
+    /// is connected, so every cell in it yields the same successor set under
+    /// `gen_moves`. The round-trip invariant holds exactly:
+    /// `rank(unrank_representative(x)) == x` (guarded by tests).
+    ///
+    /// This lets the build store its frontier as 4-byte ranks instead of 50-byte
+    /// `ProjectedState`s — the dominant build-memory term — at the cost of an
+    /// O(log C(25,k) + k²) reconstruction per expanded node.
+    pub fn unrank_representative(&self, rank: u64) -> ProjectedState {
+        debug_assert!(rank < self.total, "rank {} >= total {}", rank, self.total);
+
+        // 1. Decompose rank = cohort_base[sr] + pr * count[sr] + region.
+        let sr = match self.cohort_base.binary_search(&rank) {
+            Ok(i) => i,
+            Err(i) => i - 1,
+        };
+        let rem = rank - self.cohort_base[sr];
+        let count = self.counts[sr] as u64;
+        let pr = rem / count;
+        let region = (rem % count) as u8;
+
+        // 2. Combinadic unrank of the shape `sr` → k ascending occupied cells.
+        let mut occ_cells = [0u8; 8];
+        let mut rem_sr = sr as u64;
+        for i in (0..self.k).rev() {
+            let mut c = i;
+            while binom(c + 1, i + 1) <= rem_sr {
+                c += 1;
+            }
+            debug_assert!(c < N_CELLS, "combinadic cell {} out of range", c);
+            occ_cells[i] = c as u8;
+            rem_sr -= binom(c, i + 1);
+        }
+
+        // 3. Lehmer (factorial-number-system) unrank of the permutation `pr` →
+        //    the pattern-tile slot at each ascending occupied cell.
+        let mut avail = [0u8; 8];
+        for (j, a) in avail.iter_mut().enumerate().take(self.k) {
+            *a = j as u8;
+        }
+        let mut navail = self.k;
+        let mut rem_pr = pr;
+        let mut slot_at = [0u8; 8];
+        for slot in slot_at.iter_mut().take(self.k) {
+            let f = factorial(navail - 1);
+            let d = (rem_pr / f) as usize;
+            rem_pr %= f;
+            *slot = avail[d];
+            for x in d..navail - 1 {
+                avail[x] = avail[x + 1];
+            }
+            navail -= 1;
+        }
+
+        // 4. Place tile `tiles[slot_at[j]]` at cell `occ_cells[j]`; rest ANON.
+        let mut cells = [ANON; N_CELLS];
+        for j in 0..self.k {
+            cells[occ_cells[j] as usize] = self.tiles[slot_at[j] as usize];
+        }
+
+        // 5. Blank at the region's smallest cell (regions are numbered by
+        //    ascending smallest cell, so the first match is that cell).
+        let labels = &self.labels[sr];
+        let blank = labels
+            .iter()
+            .position(|&l| l == region)
+            .expect("region label must exist in its shape");
+        cells[blank] = 0;
+
+        ProjectedState::from_projection(cells)
+    }
 }
 
 #[cfg(test)]
@@ -621,5 +700,122 @@ mod tests {
         // Average 1.42 (paper).
         let avg = total_regions as f64 / shapes as f64;
         assert!((avg - 1.42).abs() < 0.005, "avg regions {} not ≈ 1.42", avg);
+    }
+
+    #[test]
+    fn matches_paper_table1_for_k7() {
+        // The k=7 index gate (A7): the 7-tile ZPDB has 4,066,655,040 entries =
+        // 7! · sum_over_shapes(regions). So region counts summed over all
+        // C(25,7)=480,700 shapes must be 4,066,655,040 / 5040 = 806,876,
+        // averaging ≈ 1.68 (paper). The max-regions bound rises with k (more
+        // pattern tiles can carve the free cells into more components), so unlike
+        // the k=6 case it is not pinned to a paper figure — we only assert it is
+        // sane (≤ a generous board-geometry ceiling).
+        let mut total_regions: u64 = 0;
+        let mut shapes: u64 = 0;
+        let mut max_regions: u8 = 0;
+        for_each_ksubset(7, |_, mask| {
+            let n = region_count(mask);
+            total_regions += n as u64;
+            shapes += 1;
+            if n > max_regions {
+                max_regions = n;
+            }
+        });
+        assert_eq!(shapes, 480_700, "C(25,7)");
+        assert_eq!(total_regions, 806_876, "sum of regions over all 7-tile shapes");
+        // 7! · 806_876 == 4,066,655,040 — fits u32 (< 4,294,967,296) and matches
+        // the corrected docs/zpdb-codec-spec.md Table 1 entry.
+        assert_eq!(5040 * total_regions, 4_066_655_040);
+        assert!(max_regions <= 8, "max zero-tile regions {} implausible for k=7", max_regions);
+        let avg = total_regions as f64 / shapes as f64;
+        assert!((avg - 1.68).abs() < 0.01, "avg regions {} not ≈ 1.68", avg);
+    }
+
+    /// The k=7 `(m,p,r)` rank lands in `[0, total())` and is injective — checked
+    /// on a *sample* (the full space is 4.07e9 entries, far too large to
+    /// enumerate). We walk a 7-tile projected state and confirm every rank is
+    /// in range, deterministic, and collision-free across distinct projections.
+    #[test]
+    fn k7_rank_in_range_and_injective_on_sample() {
+        use crate::puzzle24::state::GOAL;
+        use std::collections::HashMap;
+        let pattern = Pattern::new(&[1, 2, 3, 4, 5, 6, 7]);
+        let layout = ZpdbLayout::new(pattern);
+        assert_eq!(layout.total(), 4_066_655_040);
+
+        let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        // Map rank -> the (m,p,r) signature: pattern-tile placement plus the
+        // blank's REGION (rank collapses the blank's exact cell within a region,
+        // so two states with the blank in the same region must share a rank —
+        // that is correct, not a collision). A genuine collision is two distinct
+        // (placement, region) sharing a rank.
+        let mut seen: HashMap<u64, ([u8; N_CELLS], u8)> = HashMap::new();
+        let mut s = GOAL;
+        for _ in 0..20_000 {
+            let proj = ProjectedState::from_state(&s, pattern);
+            let r = layout.rank(&proj, pattern);
+            assert!(r < layout.total(), "rank {} >= total {}", r, layout.total());
+
+            let mut occ: u32 = 0;
+            for (c, &v) in proj.cells.iter().enumerate() {
+                if v != 0 && v != crate::puzzle24::pdb::pattern::ANON {
+                    occ |= 1u32 << c;
+                }
+            }
+            let (_, labels) = layout.regions_for(occ);
+            let region = labels[proj.blank_pos() as usize];
+            let mut placement = proj.cells;
+            placement[proj.blank_pos() as usize] = crate::puzzle24::pdb::pattern::ANON; // drop exact blank cell
+            let sig = (placement, region);
+
+            if let Some(prev) = seen.get(&r) {
+                assert_eq!(*prev, sig, "rank {} collides on distinct (m,p,r)", r);
+            } else {
+                seen.insert(r, sig);
+            }
+            let opts: Vec<_> = s.legal_moves().iter().collect();
+            s = s.apply(opts[(next() as usize) % opts.len()]);
+        }
+    }
+
+    /// `rank(unrank_representative(x)) == x` for every entry — the inverse used
+    /// by the rank-frontier build. Exhaustive at small k, sampled at k=7 (4.07e9
+    /// entries is too many to enumerate).
+    #[test]
+    fn unrank_representative_round_trips_rank() {
+        // Exhaustive small patterns (varied tile values / regions).
+        for pattern in [
+            Pattern::new(&[1, 2, 3]),
+            Pattern::new(&[1, 7, 13, 19]),
+            Pattern::new(&[3, 4, 5, 9, 10]),
+        ] {
+            let layout = ZpdbLayout::new(pattern);
+            for x in 0..layout.total() {
+                let proj = layout.unrank_representative(x);
+                assert_eq!(layout.rank(&proj, pattern), x, "round-trip failed at {} (k={})", x, layout.k());
+            }
+        }
+        // k=7 (production size): sample ~200k entries spread across the range,
+        // plus the first/last few.
+        let pattern = Pattern::new(&[1, 2, 3, 6, 7, 8, 11]);
+        let layout = ZpdbLayout::new(pattern);
+        let total = layout.total();
+        let step = total / 200_000;
+        let mut x = 0u64;
+        while x < total {
+            let proj = layout.unrank_representative(x);
+            assert_eq!(layout.rank(&proj, pattern), x, "k=7 round-trip failed at {}", x);
+            x += step;
+        }
+        for x in [total - 1, total - 2, total - 3] {
+            assert_eq!(layout.rank(&layout.unrank_representative(x), pattern), x);
+        }
     }
 }

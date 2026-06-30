@@ -67,12 +67,18 @@ fn tile_manhattan(tile: u8, pos: usize) -> u8 {
 impl crate::puzzle24::search::idastar::IncHeuristic for IncManhattan {
     type Ctx = u8; // running Manhattan distance
 
-    fn root(&self, s: &State) -> (u8, u8) {
+    fn root(&self, s: &State, _stats: &mut crate::puzzle24::search::SearchStats) -> (u8, u8) {
         let h = ManhattanHeuristic.h(s);
         (h, h)
     }
 
-    fn advance(&self, parent: &u8, child: &State, m: crate::puzzle24::state::Move) -> (u8, u8) {
+    fn advance(
+        &self,
+        parent: &u8,
+        child: &State,
+        m: crate::puzzle24::state::Move,
+        _stats: &mut crate::puzzle24::search::SearchStats,
+    ) -> (u8, u8) {
         // The blank moved in direction `m` to `nb`; the displaced tile now sits
         // at `b` (the parent's blank cell) = `nb` stepped back by `m`.
         let nb = child.blank_pos() as usize;

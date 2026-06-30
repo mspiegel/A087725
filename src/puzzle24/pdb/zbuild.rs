@@ -138,6 +138,16 @@ pub fn build_zpdb(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
 /// Multi-threaded region BFS (rayon). Byte-identical output to [`build_zpdb`].
 /// Each frontier state's successor generation is independent; the layer barrier
 /// keeps the BFS deterministic (every entry's depth is layer-determined).
+///
+/// **Memory:** the frontier holds 4-byte entry **ranks** (`Vec<u32>`), not
+/// 50-byte `ProjectedState`s — at production scale the frontier, not the `dist`
+/// array, dominates build memory (k=7 measured: ~46 GiB of 50 GiB peak). Each
+/// expanded node is reconstructed to a representative state via
+/// [`ZpdbLayout::unrank_representative`] (valid because a region is connected, so
+/// any cell in it yields the same successors). This keeps the k=7 build in RAM
+/// (≈8 GiB) instead of spilling to compressed swap. The 1-bit codec's entry
+/// count fits `u32` through k=7 (4.07e9 < 4.29e9); k≥8 would need a wider
+/// frontier element (asserted below).
 #[cfg(feature = "parallel")]
 pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
     use rayon::prelude::*;
@@ -146,31 +156,37 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
     const CHUNK: usize = 2048;
 
     let layout = ZpdbLayout::new(pattern);
+    assert!(
+        layout.total() <= u32::MAX as u64,
+        "rank-frontier build needs total ({}) <= u32::MAX; widen the frontier element to u64 for k>=8",
+        layout.total()
+    );
     let dist: Vec<AtomicU8> = (0..layout.total() as usize)
         .map(|_| AtomicU8::new(UNVISITED))
         .collect();
 
-    // Seed all regions of the goal config at distance 0 (single-threaded; ≤5).
-    // Seed ONLY the single goal state (see `build_zpdb`).
+    // Seed ONLY the single goal state at distance 0 (see `build_zpdb`).
     let goal = ProjectedState::goal(pattern);
-    dist[layout.rank(&goal, pattern) as usize].store(0, Ordering::Relaxed);
-    let mut frontier: Vec<ProjectedState> = vec![goal];
+    let goal_rank = layout.rank(&goal, pattern);
+    dist[goal_rank as usize].store(0, Ordering::Relaxed);
+    let mut frontier: Vec<u32> = vec![goal_rank as u32];
 
     let mut depth: u8 = 0;
     while !frontier.is_empty() {
         let next_depth = depth.checked_add(1).expect("ZPDB depth overflowed u8");
-        let next: Vec<ProjectedState> = frontier
+        let next: Vec<u32> = frontier
             .par_chunks(CHUNK)
             .flat_map_iter(|chunk| {
-                let mut local: Vec<ProjectedState> = Vec::new();
+                let mut local: Vec<u32> = Vec::new();
                 let mut succ: Vec<ProjectedState> = Vec::new();
-                for s in chunk {
+                for &rk in chunk {
+                    let s = layout.unrank_representative(rk as u64);
                     succ.clear();
-                    gen_moves(&layout, s, &mut succ);
+                    gen_moves(&layout, &s, &mut succ);
                     for ns in succ.drain(..) {
-                        let idx = layout.rank(&ns, pattern) as usize;
-                        if dist[idx].fetch_min(next_depth, Ordering::Relaxed) == UNVISITED {
-                            local.push(ns);
+                        let idx = layout.rank(&ns, pattern);
+                        if dist[idx as usize].fetch_min(next_depth, Ordering::Relaxed) == UNVISITED {
+                            local.push(idx as u32);
                         }
                     }
                 }

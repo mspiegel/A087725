@@ -48,8 +48,8 @@ region count per config is small, so ZPDB ≈ APDB × ~1.4, **not** `P(25,7)`.
 | k | APDB entries | **ZPDB entries** | avg regions | uncompressed | **1-bit** |
 |---|---|---|---|---|---|
 | 6 | 127,512,000 | **181,008,000** | 1.42 | 172.62 MiB | **21.58 MiB** |
-| 7 | 2,422,728,000 | 4,066,655,040 | 1.68 | — | — |
-| 8 | 43,609,104,000 | 87,358,400,640 | 2.00 | 10.17 GiB | ~1.27 GiB |
+| 7 | 2,422,728,000 | 4,066,655,040 | 1.68 | 3.79 GiB | **484.78 MiB** |
+| 8 | 43,609,104,000 | 87,358,400,640 | 2.00 | 81.36 GiB | **10.17 GiB** |
 
 **6-tile partition we build (4 PDBs): ~181M entries each → ~21.6 MiB each at 1
 bit → ~86 MiB for all four.** (Earlier "P(25,7)=2.42e9, ~303 MB/PDB" was wrong —

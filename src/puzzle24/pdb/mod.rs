@@ -17,6 +17,7 @@ pub mod pattern;
 pub mod zbuild;
 pub mod zcodec;
 pub mod zdb;
+pub mod zheuristic;
 pub mod zpdb;
 
 pub use build::{build, UNVISITED};
@@ -29,3 +30,4 @@ pub use heuristic::{
 };
 pub use pattern::{Pattern, ProjectedState, ANON};
 pub use zdb::ZPatternDb;
+pub use zheuristic::{AdditiveZpdbHeuristic, ZpdbHeuristic, ZpdbPlusCtx, ZpdbPlusInc};

@@ -14,7 +14,7 @@
 use super::db::PatternDb;
 use super::pattern::{Pattern, ProjectedState};
 use super::zdb::ZPatternDb;
-use crate::puzzle24::search::{Heuristic, IncHeuristic};
+use crate::puzzle24::search::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle24::state::{Move, State};
 use crate::puzzle24::symmetry::{reflect, transpose_move};
 
@@ -171,7 +171,7 @@ impl<'a, const N: usize> KorfPdbInc<'a, N> {
 impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
     type Ctx = KorfCtx<N>;
 
-    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+    fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
@@ -180,7 +180,13 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
         (self.value(&ctx), ctx)
     }
 
-    fn advance(&self, parent: &Self::Ctx, _child: &State, m: Move) -> (u8, Self::Ctx) {
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        _child: &State,
+        m: Move,
+        _stats: &mut SearchStats,
+    ) -> (u8, Self::Ctx) {
         let tm = transpose_move(m);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| parent.normal[i].apply(m).0),
@@ -258,7 +264,7 @@ impl<'a, const N: usize> ZpdbInc<'a, N> {
 impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
     type Ctx = ZpdbCtx<N>;
 
-    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+    fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let mut ctx = ZpdbCtx {
             normal: std::array::from_fn(|i| {
@@ -278,7 +284,18 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
         (self.value(&ctx), ctx)
     }
 
-    fn advance(&self, parent: &Self::Ctx, _child: &State, m: Move) -> (u8, Self::Ctx) {
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        _child: &State,
+        m: Move,
+        _stats: &mut SearchStats,
+    ) -> (u8, Self::Ctx) {
+        #[cfg(feature = "verifier-stats")]
+        {
+            _stats.zpdb_advances += 1;
+            _stats.proj_applies += 2 * N as u64;
+        }
         let tm = transpose_move(m);
         let mut ctx = *parent;
         for i in 0..N {
@@ -291,6 +308,8 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             // (ctx already inherits parent's `n_h[i]` via `*parent`).
             let (np, n_cost) = parent.normal[i].apply(m);
             if n_cost != 0 {
+                #[cfg(feature = "verifier-stats")]
+                { _stats.zpdb_rank_calls += 1; }
                 let n_idx = db.layout().rank(&np, db.pattern());
                 ctx.n_h[i] = db.diff_lookup(n_idx, parent.n_h[i]);
             }
@@ -299,6 +318,8 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             // Reflected view (same logic under transpose_move(m)).
             let (rp, r_cost) = parent.reflected[i].apply(tm);
             if r_cost != 0 {
+                #[cfg(feature = "verifier-stats")]
+                { _stats.zpdb_rank_calls += 1; }
                 let r_idx = db.layout().rank(&rp, db.pattern());
                 ctx.r_h[i] = db.diff_lookup(r_idx, parent.r_h[i]);
             }
@@ -379,8 +400,9 @@ mod tests {
             rng
         };
         let mut s = GOAL;
+        let mut stats = SearchStats::default();
         for _ in 0..3000 {
-            let (h_inc, _) = IncHeuristic::root(&inc, &s);
+            let (h_inc, _) = IncHeuristic::root(&inc, &s, &mut stats);
             assert_eq!(h_inc, h_korf.h(&s), "inc.root != scratch korf at {:?}", s.0);
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             s = s.apply(opts[(next() as usize) % opts.len()]);
@@ -396,7 +418,8 @@ mod tests {
             ZPatternDb::build(Pattern::new(&[6, 7, 8])),
         ];
         let inc = ZpdbInc::new([&dbs[0], &dbs[1]]);
-        let (h, _) = IncHeuristic::root(&inc, &GOAL);
+        let mut stats = SearchStats::default();
+        let (h, _) = IncHeuristic::root(&inc, &GOAL, &mut stats);
         assert_eq!(h, 0);
     }
 
@@ -425,9 +448,10 @@ mod tests {
             rng
         };
         let mut s = GOAL;
+        let mut stats = SearchStats::default();
         for _ in 0..1500 {
-            let (h_z, _) = IncHeuristic::root(&zinc, &s);
-            let (h_k, _) = IncHeuristic::root(&kinc, &s);
+            let (h_z, _) = IncHeuristic::root(&zinc, &s, &mut stats);
+            let (h_k, _) = IncHeuristic::root(&kinc, &s, &mut stats);
             assert!(
                 h_z >= h_k,
                 "ZPDB root {} < additive Korf-max root {} at {:?}",
@@ -458,13 +482,14 @@ mod tests {
             rng
         };
         let mut s = GOAL;
-        let (_, mut ctx) = IncHeuristic::root(&inc, &s);
+        let mut stats = SearchStats::default();
+        let (_, mut ctx) = IncHeuristic::root(&inc, &s, &mut stats);
         for i in 0..1500 {
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             let m = opts[(next() as usize) % opts.len()];
             let ns = s.apply(m);
-            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = IncHeuristic::root(&inc, &ns);
+            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
+            let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
             assert_eq!(
                 h_adv, h_fresh,
                 "advance diverged at step {} (state {:?}, move {:?})",
@@ -576,13 +601,14 @@ mod tests {
             rng
         };
         let mut s = GOAL;
-        let (_, mut ctx) = IncHeuristic::root(&inc, &s);
+        let mut stats = SearchStats::default();
+        let (_, mut ctx) = IncHeuristic::root(&inc, &s, &mut stats);
         for i in 0..3000 {
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             let m = opts[(next() as usize) % opts.len()];
             let ns = s.apply(m);
-            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m);
-            let (h_fresh, _) = IncHeuristic::root(&inc, &ns);
+            let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
+            let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
             assert_eq!(h_adv, h_fresh, "advance diverged at step {}", i);
             s = ns;
             ctx = ctx_adv;

@@ -1,8 +1,11 @@
-//! Solve a 24-puzzle position optimally via IDA* with a PDB-based heuristic.
+//! Solve a 24-puzzle position optimally via IDA* with a PDB-based heuristic, or
+//! prove a lower bound on its optimal depth.
 //!
 //! ```text
 //! solve24 --pdb-dir data/ [--position "<25 tokens>"] [--from FILE]
-//!         [--heuristic korf|manhattan|zpdb]
+//!         [--heuristic korf|manhattan|zpdb|zpdb-plus]
+//!         [--pdb-set k6|k7]
+//!         [--max-bound T | --prove-at-least T]
 //! ```
 //!
 //! Position format: 25 whitespace-separated tokens in row-major order, `_`/`0`
@@ -11,27 +14,57 @@
 //! Heuristics:
 //! - `manhattan` : sum of Manhattan distances (no PDB needed).
 //! - `korf`      : incremental `max(additive, additive(reflect(s)))` over the
-//!                 four canonical 6-6-6-6 additive PDBs (P24D files). Default.
-//! - `zpdb`      : same composition, but on **zero-aware 1-bit PDBs** (Z24D
-//!                 files). Strictly dominates `korf` per Clausecker &
-//!                 Reinefeld 2019 (≈1.6× on a single 6-tile PDB).
+//!                 four canonical 6-6-6-6 additive PDBs (`pdb24_*.bin`).
+//! - `zpdb`      : same composition on **zero-aware 1-bit PDBs** (`*.zbin`).
+//!                 Strictly dominates `korf`. Default.
+//! - `zpdb-plus` : `max(zpdb, refl-zpdb, MD+LinearConflict, WalkingDistance)` —
+//!                 the strongest admissible heuristic here, all advanced
+//!                 incrementally per node.
+//!
+//! PDB set (for `zpdb`/`zpdb-plus`):
+//! - `k6` : the 6-6-6-6 partition `pdb24_{a,b,c,d}.zbin` (default).
+//! - `k7` : the 7-7-7-3 partition `pdb24_k7_{a,b,c,d}.zbin` (larger, tighter).
+//!
+//! Modes:
+//! - default        : optimal solve (first solution found is optimal).
+//! - `--max-bound T` : bounded / lower-bound search capped at threshold `T`.
+//!                     Prints `Lower bound: depth >= K` if it exhausts `T`, or the
+//!                     optimal solution if found at/below `T`.
+//! - `--prove-at-least T` : sugar for `--max-bound (T-1)` — succeeds in proving
+//!                     `depth >= T` iff the search exhausts every threshold < T.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc};
-use puzzle8::puzzle24::search::{idastar, idastar_inc_with_stats, ManhattanHeuristic};
+use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
+use puzzle8::puzzle24::search::{
+    idastar_inc_bounded_with_stats, idastar_inc_with_stats, BoundedOutcome, IncHeuristic,
+    IncManhattan, SearchStats, WalkingDistanceHeuristic,
+};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
 const PDB_FILES: [&str; 4] = ["pdb24_a.bin", "pdb24_b.bin", "pdb24_c.bin", "pdb24_d.bin"];
-const ZPDB_FILES: [&str; 4] = ["pdb24_a.zbin", "pdb24_b.zbin", "pdb24_c.zbin", "pdb24_d.zbin"];
+const ZPDB_FILES_K6: [&str; 4] = ["pdb24_a.zbin", "pdb24_b.zbin", "pdb24_c.zbin", "pdb24_d.zbin"];
+const ZPDB_FILES_K7: [&str; 4] = [
+    "pdb24_k7_a.zbin",
+    "pdb24_k7_b.zbin",
+    "pdb24_k7_c.zbin",
+    "pdb24_k7_d.zbin",
+];
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum HeuristicChoice {
     Manhattan,
     Korf,
     Zpdb,
+    ZpdbPlus,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum PdbSet {
+    K6,
+    K7,
 }
 
 struct Args {
@@ -39,17 +72,27 @@ struct Args {
     position: Option<String>,
     from: Option<PathBuf>,
     heuristic: HeuristicChoice,
+    pdb_set: PdbSet,
+    /// Cap the IDA* threshold here; `None` = unbounded optimal solve.
+    max_bound: Option<u8>,
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf|manhattan|zpdb]", prog);
+    eprintln!(
+        "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
+         [--heuristic korf|manhattan|zpdb|zpdb-plus] [--pdb-set k6|k7]\n         \
+         [--max-bound T | --prove-at-least T]",
+        prog
+    );
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut pdb_dir = None;
     let mut position = None;
     let mut from = None;
-    let mut heuristic = HeuristicChoice::Korf;
+    let mut heuristic = HeuristicChoice::Zpdb;
+    let mut pdb_set = PdbSet::K6;
+    let mut max_bound = None;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -73,15 +116,46 @@ fn parse_args() -> Result<Args, String> {
                     "manhattan" => HeuristicChoice::Manhattan,
                     "korf" => HeuristicChoice::Korf,
                     "zpdb" => HeuristicChoice::Zpdb,
+                    "zpdb-plus" => HeuristicChoice::ZpdbPlus,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
+            }
+            "--pdb-set" => {
+                i += 1;
+                pdb_set = match argv.get(i).ok_or("--pdb-set needs a value")?.as_str() {
+                    "k6" => PdbSet::K6,
+                    "k7" => PdbSet::K7,
+                    other => return Err(format!("unknown pdb-set {:?}", other)),
+                };
+            }
+            "--max-bound" => {
+                i += 1;
+                let t: u8 = argv
+                    .get(i)
+                    .ok_or("--max-bound needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--max-bound: {}", e))?;
+                max_bound = Some(t);
+            }
+            "--prove-at-least" => {
+                i += 1;
+                let t: u8 = argv
+                    .get(i)
+                    .ok_or("--prove-at-least needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--prove-at-least: {}", e))?;
+                if t == 0 {
+                    return Err("--prove-at-least must be >= 1".into());
+                }
+                // Exhausting every threshold < T proves depth >= T.
+                max_bound = Some(t - 1);
             }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, position, from, heuristic })
+    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -126,9 +200,13 @@ fn load_pdbs(dir: &Path) -> Result<Vec<PatternDb>, String> {
     Ok(dbs)
 }
 
-fn load_zpdbs(dir: &Path) -> Result<Vec<ZPatternDb>, String> {
+fn load_zpdbs(dir: &Path, set: PdbSet) -> Result<Vec<ZPatternDb>, String> {
+    let files = match set {
+        PdbSet::K6 => ZPDB_FILES_K6,
+        PdbSet::K7 => ZPDB_FILES_K7,
+    };
     let mut dbs = Vec::with_capacity(4);
-    for name in ZPDB_FILES {
+    for name in files {
         let path = dir.join(name);
         let db = ZPatternDb::load_mmap(&path)
             .map_err(|e| format!("loading {}: {}", path.display(), e))?;
@@ -162,6 +240,69 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     }
 }
 
+fn print_stats(st: &SearchStats) {
+    println!("Nodes          : {}", st.nodes);
+    println!("Iterations     : {}", st.iterations);
+}
+
+/// Drive an incremental heuristic, dispatching on bounded vs optimal mode.
+fn run_inc<E: IncHeuristic>(
+    start: &State,
+    e: &E,
+    max_bound: Option<u8>,
+    t0: Instant,
+) -> ExitCode {
+    match max_bound {
+        None => {
+            let (sol, st) = idastar_inc_with_stats(start, e);
+            let elapsed = t0.elapsed();
+            match sol {
+                Some(s) => {
+                    print_solution(start, &s, elapsed);
+                    print_stats(&st);
+                    ExitCode::SUCCESS
+                }
+                None => {
+                    eprintln!("no solution found");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some(mb) => {
+            let (outcome, st) = idastar_inc_bounded_with_stats(start, e, mb);
+            let elapsed = t0.elapsed();
+            match outcome {
+                BoundedOutcome::Solved(s) => {
+                    println!("Found within bound {} (optimal):", mb);
+                    print_solution(start, &s, elapsed);
+                    print_stats(&st);
+                    ExitCode::SUCCESS
+                }
+                BoundedOutcome::ProvedAtLeast(k) => {
+                    println!("Lower bound: depth >= {}", k);
+                    println!("Wall-clock     : {:.2?}", elapsed);
+                    print_stats(&st);
+                    ExitCode::SUCCESS
+                }
+                BoundedOutcome::Unsolvable => {
+                    eprintln!("position is unsolvable");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+    }
+}
+
+fn require_dir(args: &Args, label: &str) -> Result<PathBuf, ExitCode> {
+    match &args.pdb_dir {
+        Some(d) => Ok(d.clone()),
+        None => {
+            eprintln!("error: --pdb-dir required for {} heuristic", label);
+            Err(ExitCode::FAILURE)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let prog = std::env::args().next().unwrap_or_else(|| "solve24".into());
     let args = match parse_args() {
@@ -177,9 +318,9 @@ fn main() -> ExitCode {
         }
     };
 
-    let position_str = match (args.position, args.from) {
-        (Some(p), _) => p,
-        (None, Some(f)) => match std::fs::read_to_string(&f) {
+    let position_str = match (&args.position, &args.from) {
+        (Some(p), _) => p.clone(),
+        (None, Some(f)) => match std::fs::read_to_string(f) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("error reading {}: {}", f.display(), e);
@@ -204,18 +345,12 @@ fn main() -> ExitCode {
     }
 
     let t0 = Instant::now();
-    let (sol, stats) = match args.heuristic {
-        HeuristicChoice::Manhattan => {
-            let s = idastar(&start, &ManhattanHeuristic);
-            (s, None)
-        }
+    match args.heuristic {
+        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, t0),
         HeuristicChoice::Korf => {
-            let dir = match &args.pdb_dir {
-                Some(d) => d.clone(),
-                None => {
-                    eprintln!("error: --pdb-dir required for korf heuristic");
-                    return ExitCode::FAILURE;
-                }
+            let dir = match require_dir(&args, "korf") {
+                Ok(d) => d,
+                Err(c) => return c,
             };
             let dbs = match load_pdbs(&dir) {
                 Ok(x) => x,
@@ -225,18 +360,14 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            let (s, st) = idastar_inc_with_stats(&start, &inc);
-            (s, Some(st))
+            run_inc(&start, &inc, args.max_bound, t0)
         }
         HeuristicChoice::Zpdb => {
-            let dir = match &args.pdb_dir {
-                Some(d) => d.clone(),
-                None => {
-                    eprintln!("error: --pdb-dir required for zpdb heuristic");
-                    return ExitCode::FAILURE;
-                }
+            let dir = match require_dir(&args, "zpdb") {
+                Ok(d) => d,
+                Err(c) => return c,
             };
-            let dbs = match load_zpdbs(&dir) {
+            let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
                     eprintln!("error: {}", e);
@@ -244,24 +375,25 @@ fn main() -> ExitCode {
                 }
             };
             let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            let (s, st) = idastar_inc_with_stats(&start, &inc);
-            (s, Some(st))
+            run_inc(&start, &inc, args.max_bound, t0)
         }
-    };
-
-    let elapsed = t0.elapsed();
-    match sol {
-        Some(s) => {
-            print_solution(&start, &s, elapsed);
-            if let Some(st) = stats {
-                println!("Nodes          : {}", st.nodes);
-                println!("Iterations     : {}", st.iterations);
-            }
-            ExitCode::SUCCESS
-        }
-        None => {
-            eprintln!("no solution found");
-            ExitCode::FAILURE
+        HeuristicChoice::ZpdbPlus => {
+            let dir = match require_dir(&args, "zpdb-plus") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let dbs = match load_zpdbs(&dir, args.pdb_set) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            // Walking Distance needs its (heavy) table built before the search.
+            eprintln!("building Walking Distance table (one-off)…");
+            WalkingDistanceHeuristic::warm_up();
+            let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            run_inc(&start, &inc, args.max_bound, t0)
         }
     }
 }
