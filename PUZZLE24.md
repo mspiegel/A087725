@@ -247,9 +247,9 @@ Reinefeld SoCS 2019; Clausecker & Schintke SoCS 2021 "eta"; ICCSA 2025 distribut
   `small-compound`; `docs/zpdb-codec-spec.md` §5 documents ~5× fewer node expansions at ~3.5×
   per-node cost). The infra already exists (`MaxInc` over two `ZpdbInc`; combining partitions needs
   no new combinator).
-- **But a structural argument says the collection helps the *general* regime, not R-type
-  antipodes.** An additive PDB counts only its k pattern tiles and treats the other tiles as free
-  to displace — a relaxation that collapses on antipodal boards where *every* tile is far from home,
+- **But a structural argument says the collection helps the *general* regime, not R-type deep
+  boards.** An additive PDB counts only its k pattern tiles and treats the other tiles as free
+  to displace — a relaxation that collapses on deep boards where *every* tile is far from home,
   whereas Walking Distance's row/col abstraction counts all tiles' migration. That is why WD = 140 >
   zpdb-k6 = 126 on `R`. A collection takes the **max** (not the sum) over partitions, so
   collection-on-R ≈ best-single-partition-on-R — still under WD.
@@ -257,7 +257,7 @@ Reinefeld SoCS 2019; Clausecker & Schintke SoCS 2021 "eta"; ICCSA 2025 distribut
 **The bootstrap.** We cannot certify a heuristic's *average* quality on the true d≈150 layer without
 a population of such boards — which is the project's goal. But per-board measurements (root `h`,
 bounded-LB) are **self-certifying**: they need only the board, not its true depth, and a proven
-lower bound is a valid result regardless of the heuristic. So the antipode question is settled
+lower bound is a valid result regardless of the heuristic. So the deep-board question is settled
 cheaply and directly on `R`, without first solving the bootstrap.
 
 ### Chosen path — Option 1: cheap R-ceiling, then decide
@@ -267,11 +267,11 @@ Compute the best zpdb Korf-max root `h` achievable by a curated set of k=6 parti
 frame-conformant}, and compare the **max** to WD (140) and the bounded-LB-on-`R` frontier (144).
 Then:
 
-- **best k6 R-score < WD** (expected): no k6 collection beats WD on antipodes → a collection's value
-  is the **general regime** (ranking/solving the hunt's in-reach candidates). Build a small
-  general-regime collection (`MaxArrayInc` over ≈3 partitions), validate on the *bootstrap-free*
-  solvable population (`ladder24` optimal mode) vs `zpdb-k6`/`select-k6`, and ship it as a hunt tool;
-  the selector keeps WD on antipodes.
+- **best k6 R-score < WD** (expected): no k6 collection beats WD on deep boards like R → a
+  collection's value is the **general regime** (ranking/solving the hunt's in-reach candidates). Build
+  a small general-regime collection (`MaxArrayInc` over ≈3 partitions), validate on the
+  *bootstrap-free* solvable population (`ladder24` optimal mode) vs `zpdb-k6`/`select-k6`, and ship it
+  as a hunt tool; the selector keeps WD on deep boards like R.
 - **best k6 R-score ≈/> WD** (surprising): a collection may help `R` → build it and measure
   bounded-LB on `R` vs WD (does the higher root overcome the higher per-node cost within budget?).
 
@@ -286,10 +286,10 @@ solver (0-1 BFS over the region-collapsed projected graph).
 **Result (measured, `examples/rceiling24.rs` → `data/rceiling24.txt`, 2026-06-30).** On `R`, the
 best k6 zpdb Korf-max over 8 diverse partitions (korf, value-strata, spatial, 5 random) is **126**
 (korf); every partition landed 118–126, all far below WD's **140**. So **no k6 collection beats WD
-on antipodes** — the max over partitions ≈ the best single, because the additive/anon-free
+on deep boards like R** — the max over partitions ≈ the best single, because the additive/anon-free
 relaxation collapses on `R` regardless of grouping (confirmed on `reflect(R)` = 126 too). On deep
 *general* boards the order flips — korf zpdb beats WD (walk300: 72 vs 66; walk400: 74 vs 70;
-walk200: 58 vs 50) — confirming PDBs are the general-regime tool and WD owns antipodes.
+walk200: 58 vs 50) — confirming PDBs are the general-regime tool and WD owns deep boards like R.
 **Secondary finding:** korf *pointwise-dominated* every other candidate on all five boards, so a
 naive collection of them ≈ korf alone (no diversity gain); a real collection win needs
 *complementary* (η-optimized) partitions, which our quick geometric/random set does not provide.
@@ -320,10 +320,10 @@ and the bootstrap dissolves. Deferred because it is Phase-2 scope and rests on a
 
 **Goal.** Tighten the diameter *lower* bound: produce a ranked catalog of the hardest boards we can
 find, each with the highest *proven* optimal-depth lower bound. The realistic deliverable is bounds
-+ a catalog, not exact antipodes (the optimal-solve frontier is ~d ≤ 90–100; the 205 *upper* bound
-needs a different technique). The core is a **loop** — construct → score → bound → re-seed — not a
-linear pipeline. Heuristic policy is settled (Phase 1C): WD on antipodes, k6 zpdb on general,
-routed per board by `select-k6`.
++ a catalog, not the exact deepest boards (the optimal-solve frontier is ~d ≤ 90–100; the true
+antipodes and the 205 *upper* bound need different techniques). The core is a **loop** — construct →
+score → bound → re-seed — not a linear pipeline. Heuristic policy is settled (Phase 1C): WD on deep
+boards, k6 zpdb on general, routed per board by `select-k6`.
 
 ### 2P — Prerequisite: parallelize the search (optional, high-leverage)
 The IDA\* drivers are single-threaded today (only the ZPDB *build* uses rayon); `solve24`/`ladder24`
@@ -395,8 +395,8 @@ how the bootstrap resolves — construction seeds it, search certifies, deep fin
 
 ### 2E — Catalog + bounds report
 The deliverable: ranked catalog of hardest boards + best proven LBs; updated diameter lower-bound
-claim; honest frontier statement (we push the *lower* bound; exact antipodes and the 205 upper bound
-remain out of reach here).
+claim; honest frontier statement (we push the *lower* bound; the exact deepest boards and the 205
+upper bound remain out of reach here).
 
 ### Conditional
 - **2F — general-regime ZPDB collection (η sweep):** only if 2D throughput on *general* candidates is
@@ -423,7 +423,7 @@ budget calibration); **cheapest new code: 2B**; **biggest throughput lever: 2P**
 
 - **The frontier may sit well below 152.** Optimally solving the deepest boards is an open
   problem; the realistic deliverable is **a ranked catalog of hard candidates + the best
-  proven lower bounds**, not optimal antipodes. The harness must report this honestly.
+  proven lower bounds**, not the exact deepest boards. The harness must report this honestly.
 - **Parity port is real work, but low-risk:** it's copy-from-puzzle15 + change `W`/sizes + run
   the same tests. The one genuine algorithm change is dropping the LC LUT (A3) and the WD
   `u128`/table-size question (A4).

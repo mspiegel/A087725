@@ -20,6 +20,11 @@
 //! - `zpdb-plus` : `max(zpdb, refl-zpdb, MD+LinearConflict, WalkingDistance)` —
 //!                 the strongest admissible heuristic here, all advanced
 //!                 incrementally per node.
+//! - `lc` / `wd` : standalone Linear-Conflict / Walking-Distance (WD is the
+//!                 strongest term on deep boards like the 180° rotation `R`).
+//! - `select`    : per-board 3-way auto-pick — cheap `max(LC,WD)` / pure `zpdb` /
+//!                 `zpdb-plus` from the root heuristics (Phase 1C policy: WD on
+//!                 deep boards, zpdb on general). `--combine-slack` tunes it.
 //!
 //! PDB set (for `zpdb`/`zpdb-plus`):
 //! - `k6` : the 6-6-6-6 partition `pdb24_{a,b,c,d}.zbin` (default).
@@ -40,7 +45,8 @@ use std::time::Instant;
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel, idastar_inc_bounded_with_stats, idastar_inc_with_stats,
-    BoundedOutcome, IncHeuristic, IncManhattan, LadderOutcome, SearchStats, WalkingDistanceHeuristic,
+    BoundedOutcome, IncHeuristic, IncManhattan, LadderOutcome, LinearConflictInc, MaxInc,
+    SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -56,9 +62,15 @@ const ZPDB_FILES_K7: [&str; 4] = [
 #[derive(PartialEq, Clone, Copy)]
 enum HeuristicChoice {
     Manhattan,
+    Lc,
+    Wd,
     Korf,
     Zpdb,
     ZpdbPlus,
+    /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
+    /// picked from the root heuristics (the settled Phase 1C policy — WD on
+    /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
+    Select,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -77,13 +89,36 @@ struct Args {
     max_bound: Option<u8>,
     /// Use the shared-memory parallel IDA* driver (2P).
     parallel: bool,
+    /// For `--heuristic select`: pick zpdb-plus (over pure zpdb) when the classical
+    /// terms are within this many of the PDB root. `0` = never combine (default).
+    combine_slack: u8,
+}
+
+/// The `select` heuristic's 3-way choice (mirrors `examples/ladder24.rs`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    Cheap,
+    Zpdb,
+    ZpdbPlus,
+}
+
+/// Pick from the root heuristics: cheap `max(LC,WD)` unless the PDB root wins, then
+/// pure zpdb (weak classical terms) or zpdb-plus (classical terms within `slack`).
+fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
+    if zpdb_root <= cheap_root {
+        Pick::Cheap
+    } else if cheap_root + slack >= zpdb_root {
+        Pick::ZpdbPlus
+    } else {
+        Pick::Zpdb
+    }
 }
 
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic korf|manhattan|zpdb|zpdb-plus] [--pdb-set k6|k7]\n         \
-         [--max-bound T | --prove-at-least T] [--parallel]",
+         [--heuristic manhattan|lc|wd|korf|zpdb|zpdb-plus|select] [--pdb-set k6|k7]\n         \
+         [--max-bound T | --prove-at-least T] [--parallel] [--combine-slack S]",
         prog
     );
 }
@@ -96,6 +131,7 @@ fn parse_args() -> Result<Args, String> {
     let mut pdb_set = PdbSet::K6;
     let mut max_bound = None;
     let mut parallel = false;
+    let mut combine_slack = 0u8;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -117,9 +153,12 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 heuristic = match argv.get(i).ok_or("--heuristic needs a value")?.as_str() {
                     "manhattan" => HeuristicChoice::Manhattan,
+                    "lc" => HeuristicChoice::Lc,
+                    "wd" => HeuristicChoice::Wd,
                     "korf" => HeuristicChoice::Korf,
                     "zpdb" => HeuristicChoice::Zpdb,
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
+                    "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
             }
@@ -154,12 +193,20 @@ fn parse_args() -> Result<Args, String> {
                 max_bound = Some(t - 1);
             }
             "--parallel" => parallel = true,
+            "--combine-slack" => {
+                i += 1;
+                combine_slack = argv
+                    .get(i)
+                    .ok_or("--combine-slack needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--combine-slack: {}", e))?;
+            }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel })
+    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel, combine_slack })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -386,6 +433,12 @@ fn main() -> ExitCode {
     let t0 = Instant::now();
     match args.heuristic {
         HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, t0),
+        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, t0),
+        HeuristicChoice::Wd => {
+            eprintln!("building Walking Distance table (one-off)…");
+            WalkingDistanceHeuristic::warm_up();
+            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, t0)
+        }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {
                 Ok(d) => d,
@@ -433,6 +486,42 @@ fn main() -> ExitCode {
             WalkingDistanceHeuristic::warm_up();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             run_inc(&start, &inc, args.max_bound, args.parallel, t0)
+        }
+        HeuristicChoice::Select => {
+            let dir = match require_dir(&args, "select") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let dbs = match load_zpdbs(&dir, args.pdb_set) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!("building Walking Distance table (one-off)…");
+            WalkingDistanceHeuristic::warm_up();
+            // Auto-pick per board from the root heuristics (Phase 1C policy).
+            let cheap = MaxInc::new(LinearConflictInc, WalkingDistanceInc);
+            let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            let mut st = SearchStats::default();
+            let cheap_root = cheap.root(&start, &mut st).0;
+            let zpdb_root = zpdb.root(&start, &mut st).0;
+            match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
+                Pick::Cheap => {
+                    println!("Selected       : max(LC,WD)  (cheap_h {} >= zpdb_h {})", cheap_root, zpdb_root);
+                    run_inc(&start, &cheap, args.max_bound, args.parallel, t0)
+                }
+                Pick::Zpdb => {
+                    println!("Selected       : zpdb  (zpdb_h {} > cheap_h {})", zpdb_root, cheap_root);
+                    run_inc(&start, &zpdb, args.max_bound, args.parallel, t0)
+                }
+                Pick::ZpdbPlus => {
+                    println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {})", zpdb_root);
+                    let zplus = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                    run_inc(&start, &zplus, args.max_bound, args.parallel, t0)
+                }
+            }
         }
     }
 }

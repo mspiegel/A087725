@@ -1,7 +1,7 @@
 //! `rceiling24` — Phase 1C / Option 1: the **R-ceiling** analysis.
 //!
 //! Question: can *any* k=6 partition (and hence a collection, which takes the MAX
-//! over partitions) reach a higher admissible heuristic on the antipodal board
+//! over partitions) reach a higher admissible heuristic on the deep board
 //! `R` (the 180° rotation) than plain Walking Distance does? WD scores 140 on `R`
 //! and the bounded-LB frontier there is 144 (`data/ladder24_calibration.txt`); a
 //! 6-tile additive/zero-aware PDB scores only ~126 because the additive relaxation
@@ -123,8 +123,9 @@ fn zpdb_root_h(dbs: &[ZPatternDb], s: &State) -> u8 {
 fn main() {
     println!("rceiling24 — Phase 1C Option-1 R-ceiling analysis\n");
 
-    // Constructed deep boards. R is the antipode (Rokicki LB 152). reflect(R) is
-    // its diagonal image. Deep random walks give deep *general* boards for context.
+    // Constructed deep boards. R is the canonical deep board (Rokicki LB 152; the
+    // true antipode is unknown). reflect(R) is its diagonal image. Deep random
+    // walks give deep *general* boards for context.
     let mut boards: Vec<(String, State)> = vec![
         ("R".into(), r_board()),
         ("reflect(R)".into(), reflect(&r_board())),
@@ -215,7 +216,7 @@ fn main() {
         );
     } else {
         println!(
-            "  => No k6 partition beats WD on R (best {} <= WD {}). A collection's value is the \n     GENERAL regime, not antipodes — keep WD/the selector for R.",
+            "  => No k6 partition beats WD on R (best {} <= WD {}). A collection's value is the \n     GENERAL regime, not deep boards like R — keep WD/the selector for R.",
             r_zpdb_max, wd[0]
         );
     }
