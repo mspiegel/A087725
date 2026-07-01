@@ -1,0 +1,28 @@
+# 24-puzzle Phase 2A calibration — proven-LB scaling on R — 2026-06-30
+# Machine: 32 GiB RAM. solve24 --prove-at-least, --parallel, RAYON_NUM_THREADS=8,
+#          make/unmake (IncHeuristicMut) heuristic path.
+# Board R (180 rotation): 0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+# root h: WD = 140, max(LC,WD) = 140, zpdb-k6 = 126  (WD dominates on R).
+# Parity: R blank travels cell 0->24 (Manhattan 8, even) => dist(R) is even,
+#         so an exhausted even threshold T proves depth >= T+2 (odd values impossible).
+# Bounded exhaust => node counts are EXACT and parallel-redundancy-free.
+# Wall-clock INCLUDES the one-time ~23s WD-table build; node counts do not.
+
+heuristic  prove>=  exhausts_thr        nodes     wall_s   throughput_Mn/s   result
+wd         144      142            1,229,990,754    32.0        38.45         depth >= 144
+wd         146      144           36,890,557,179   289.5       127.43         depth >= 146
+
+# Scaling: per-+2-threshold node growth ~= 29x  (~5.4 nodes/ply).
+#   Self-consistency: 29x predicts total@144 = 35.7B vs 36.9B actual.
+#   Search-only throughput ~= 138 Mnodes/s across 8 threads (nodes / (wall - 23s build)).
+#
+# Extrapolation (from 29x factor + 138 Mn/s):
+#   prove >= 148  (exhaust 146): ~1.1  T nodes  ~2.2  h
+#   prove >= 150  (exhaust 148): ~31   T nodes  ~2.6  days
+#   prove >= 152  (exhaust 150): ~900  T nodes  ~75   days   <- INFEASIBLE on this machine
+#
+# VERDICT: Rokicki's R >= 152 is not reproducible here (~75 days continuous compute).
+#   No heuristic in the arsenal helps: select == max(LC,WD) with the same root h=140 on R;
+#   zpdb is worse (126). The ~5.4/ply branching comes from WD's gap (140) to true (>=152);
+#   closing it needs a Rokicki-class heuristic (huge PDBs), out of scope for one 32 GiB box.
+#   Feasible validation targets: >= 148 (~2h) or >= 150 (~2-3 days). Current best: >= 146.

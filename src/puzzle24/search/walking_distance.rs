@@ -24,10 +24,43 @@
 use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
 use crate::puzzle24::state::{Move, State, W};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::OnceLock;
 
 /// A 5×5 row-distribution matrix.
 type WdMatrix = [[u8; W]; W];
+
+/// Fast, fully-avalanching hasher for the WD table's `u64` `pack` keys. The keys
+/// are structured (3-bit fields, each 0–5), so a weak-mixing hash like FxHash
+/// (a single multiply) clusters them in hashbrown's low-bit buckets and probes
+/// blow up. This is Murmur3's `fmix64` finalizer — 2 muls + 3 xor-shifts, far
+/// cheaper than the default SipHash yet distributing structured keys uniformly.
+#[derive(Default)]
+struct WdHasher(u64);
+impl Hasher for WdHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        // Not exercised for u64 keys, but keep a correct fallback.
+        for &b in bytes {
+            self.write_u64(b as u64);
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        let mut x = i ^ self.0;
+        x ^= x >> 33;
+        x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+        x ^= x >> 33;
+        x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+        x ^= x >> 33;
+        self.0 = x;
+    }
+}
+type WdBuild = BuildHasherDefault<WdHasher>;
 
 /// Pack `(matrix, blank-axis-index)` into a u64 key. Each stored cell holds a
 /// value ≤ 5 (3 bits); we omit the last column of every row (derivable from the
@@ -62,13 +95,14 @@ const GOAL_BLANK_IDX: u8 = 4;
 
 /// BFS from the goal WD-state, collecting every reachable matrix-and-blank
 /// combination with its distance to goal.
-fn build_table() -> HashMap<u64, u8> {
+fn build_table() -> HashMap<u64, u8, WdBuild> {
     let goal_m = goal_matrix();
     let goal_key = pack(&goal_m, GOAL_BLANK_IDX);
 
     // Reserve for the full reachable set (65,650,495) up front so the BFS never
     // pays for an incremental rehash.
-    let mut table: HashMap<u64, u8> = HashMap::with_capacity(66_000_000);
+    let mut table: HashMap<u64, u8, WdBuild> =
+        HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
     table.insert(goal_key, 0);
 
     let mut frontier: Vec<(WdMatrix, u8)> = vec![(goal_m, GOAL_BLANK_IDX)];
@@ -122,8 +156,8 @@ fn build_table() -> HashMap<u64, u8> {
     table
 }
 
-fn table() -> &'static HashMap<u64, u8> {
-    static T: OnceLock<HashMap<u64, u8>> = OnceLock::new();
+fn table() -> &'static HashMap<u64, u8, WdBuild> {
+    static T: OnceLock<HashMap<u64, u8, WdBuild>> = OnceLock::new();
     T.get_or_init(build_table)
 }
 

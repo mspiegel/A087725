@@ -365,13 +365,51 @@ It is inert in a bounded exhaust (never set) so 2A's LB and node count are uncha
 board-level *outer-loop* parallelism (running many candidate boards concurrently), which lands with 2D
 (no candidate stream yet).
 
-### 2A — Reproduce R ≥ 152 (headline milestone + stack validation)
-Push the proven LB on `R` from 144 (120 s) toward Rokicki's 152, validating the full stack against a
-published result and calibrating the *budget → threshold* scaling that sizes 2D's budgets. Mostly a
-run: `ladder24 --mode bounded --max-bound 152` (or `solve24 --prove-at-least 152`) on `R`, WD-led;
-parity means exhausting threshold 150 proves depth ≥ 152. Extrapolating the 1B calibration (~3–5×
-nodes per +2 threshold) this is ~hours–overnight, caffeinated/backgrounded. Independent of the rest —
-run first / in parallel.
+### 2A — Push the proven LB on R (stack validation + budget calibration)
+**Original goal was "reproduce Rokicki's R ≥ 152." Calibrated 2026-06-30: that is infeasible on this
+machine.** The `budget → threshold` scaling was measured directly with `solve24 --prove-at-least`
+(parallel, RAYON=8, make/unmake WD path), and it is far steeper than the 1B estimate.
+
+Measured on `R` (bounded exhaust — node counts are exact and parallel-redundancy-free):
+
+| run | exhausts thr | nodes | wall (incl. ~23s WD build) | proves |
+|---|---|---|---|---|
+| `wd --prove-at-least 144` | 142 | 1.23 B | 32.0 s | depth ≥ 144 |
+| `wd --prove-at-least 146` | 144 | 36.9 B | 289.5 s | **depth ≥ 146** |
+
+Per-+2-threshold growth is **~29×** (≈5.4 nodes/ply), self-consistent (29× predicts total@144 = 35.7 B
+vs 36.9 B actual). Search throughput ≈ 138 Mnodes/s across 8 threads. Extrapolation:
+
+| target | exhaust thr | est. nodes | est. wall |
+|---|---|---|---|
+| prove ≥ 148 | 146 | ~1.1 T | ~2.2 h |
+| prove ≥ 150 | 148 | ~31 T | ~2.6 days |
+| prove ≥ 152 | 150 | ~900 T | **~75 days (infeasible)** |
+
+**Why no heuristic swap rescues it:** on `R`, `select` resolves to `max(LC,WD)` with the *same* root
+h = 140 as WD (LC/zpdb do not beat WD there; zpdb = 126, see [Phase 1C] verdict). The ~5.4/ply
+branching is driven by WD's gap (140) to the true depth (≥ 152); closing it needs a Rokicki-class
+heuristic (huge PDBs / different method), out of scope for a 32 GiB single machine.
+
+**Revised target.** Best *feasible* validation: **prove ≥ 148 (~2 h)** or **≥ 150 (~2–3 days,
+overnight)** — both real improvements over the 144 baseline. Reproducing 152 is explicitly out of
+scope here and is recorded as a hardware/heuristic limit, not a stack bug. The parity rule still gives
++2 per exhausted threshold (`R`'s blank travels cell 0→24, Manhattan 8 = even, so `dist(R)` is even;
+exhausting an even threshold T proves ≥ T+2). Current best proven: **depth ≥ 146** (this session).
+Calibration data: `data/phase2a_calibration.txt`.
+
+**Implication for 2D.** The same ~29×/+2 wall governs the hunt: a per-board budget buys only a few
+thresholds above the board's root h. Size 2D budgets accordingly — many boards get a cheap shallow
+pass; only a handful justify multi-hour deep exhausts, and none will be pushed anywhere near 152.
+
+**WD-lookup throughput — optimization explored & rejected (2026-07-01).** The WD table lookup is
+~52% of per-node cost, so it was the obvious lever on the ~138 Mn/s. A dense flat `Vec<u8>`
+(62.6 MiB) indexed by an optimized O(rows) contingency-rank (the WD state space *is* exactly the
+65,650,495 margin-constrained matrices → a minimal-perfect dense index, no perfect-hash) benchmarked
+**1.9× faster in isolation but ~1.5–1.9× SLOWER end-to-end** (search ~71–100 vs ~137 Mn/s on R).
+Reason: `wd_rank` needs ~24 cache-missing table loads/node, whereas the HashMap's probe hits **hot**
+cache (queried WD states recur). `get_unchecked` and a gather-indices MLP split didn't close the
+gap. **Kept the shipped HashMap WD.** Full analysis in memory `wd-flat-table-rejected`.
 
 ### 2B — Test the frame-rule conjecture (gates the generator)
 Before betting the generator on it, measure whether frame-conformance predicts depth (the deferred
@@ -412,14 +450,15 @@ upper bound remain out of reach here).
 ### Order & dependencies
 ```text
 2P (parallelize) ··· optional throughput multiplier, feeds 2A and 2D
-2A (R≥152) ───────────────┐  (long-running: validates stack + sizes budgets)
+2A (push R LB) ───────────┐  (calibrated: ≥146 done; ≥148/≥150 feasible, 152 infeasible)
 2B (frame test) ─→ decide ─→ 2C (generate) ─→ 2D (bound) ─→ 2E (report)
                                ▲__________________│   (flywheel: deepest finds re-seed)
 ```
 `2P` is optional — both `2A` and `2D` run single-threaded without it, just slower. `2A` runs
 early/parallel; `2B` before `2C` (don't build the generator on an untested conjecture); `2C → 2D →
-2E` with the `2D → 2C` flywheel. **Most concrete next action: 2A** (near-pure run, headline result,
-budget calibration); **cheapest new code: 2B**; **biggest throughput lever: 2P**.
+2E` with the `2D → 2C` flywheel. **2A is calibrated (see above): ≥146 proven, budget→threshold scaling
+measured (~29×/+2), 152 shown infeasible here.** Next concrete action is now **2B** (cheapest new
+code, gates the generator); **biggest throughput lever remains 2P** (done).
 
 ---
 
