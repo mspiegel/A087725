@@ -92,7 +92,7 @@ required-features = ["mmap"]
 
 [[example]]
 name = "ladder24"
-required-features = ["mmap"]
+required-features = ["mmap", "parallel"]
 
 [[example]]
 name = "rceiling24"

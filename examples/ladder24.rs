@@ -13,7 +13,8 @@
 //!    high a threshold can we exhaust within T?" — the realistic frontier for the
 //!    deepest boards (this is how Rokicki proved `R ≥ 152`).
 //!
-//! Both regimes use the unified deadline-aware [`idastar_inc_ladder`] driver.
+//! Both regimes use the unified deadline-aware [`idastar_inc_ladder`] driver, or
+//! its shared-memory parallel counterpart with `--parallel` (2P).
 //!
 //! Run:
 //! ```text
@@ -36,8 +37,9 @@ use std::time::{Duration, Instant};
 
 use puzzle8::puzzle24::pdb::{ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
-    idastar_inc_ladder, IncHeuristic, IncManhattan, LadderOutcome, LinearConflictInc, MaxInc,
-    ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
+    idastar_inc_bounded_parallel, idastar_inc_ladder, IncHeuristic, IncManhattan, LadderOutcome,
+    LinearConflictInc, MaxInc, ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
+    WalkingDistanceInc,
 };
 use puzzle8::puzzle24::search::Heuristic;
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
@@ -134,6 +136,8 @@ struct Args {
     /// 3-way selector slack: choose zpdb-plus (over pure zpdb) when the classical
     /// terms are within this many of the PDB root. `0` = never combine (default).
     combine_slack: u8,
+    /// Use the shared-memory parallel IDA* driver (2P) per board.
+    parallel: bool,
     quiet: bool,
 }
 
@@ -164,6 +168,7 @@ fn parse_args() -> Result<Args, String> {
     let mut from = None;
     let mut top_n: Option<usize> = None;
     let mut combine_slack = 0u8;
+    let mut parallel = false;
     let mut quiet = false;
 
     let argv: Vec<String> = std::env::args().collect();
@@ -228,6 +233,7 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 combine_slack = argv.get(i).ok_or("--combine-slack needs a value")?.parse().map_err(|e| format!("--combine-slack: {}", e))?;
             }
+            "--parallel" => parallel = true,
             "--quiet" => quiet = true,
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
@@ -236,7 +242,7 @@ fn parse_args() -> Result<Args, String> {
     }
     Ok(Args {
         pdb_dir, heuristics, mode, walk_lengths, reps, seed, budget_secs, bound_budget_secs,
-        max_bound, from, top_n, combine_slack, quiet,
+        max_bound, from, top_n, combine_slack, parallel, quiet,
     })
 }
 
@@ -314,18 +320,28 @@ fn root_h<E: IncHeuristic>(e: &E, s: &State) -> u8 {
     e.root(s, &mut st).0
 }
 
-/// Run one board through the deadline-aware driver and record a [`Row`].
-fn run_board<E: IncHeuristic>(
+/// Run one board through the deadline-aware driver and record a [`Row`]. With
+/// `parallel`, uses the shared-memory parallel IDA* driver (2P) — same result,
+/// faster on multi-core.
+fn run_board<E: IncHeuristic + Sync>(
     e: &E,
     label: String,
     s: &State,
     max_bound: u8,
     budget: Duration,
-) -> Row {
+    parallel: bool,
+) -> Row
+where
+    E::Ctx: Send + Sync,
+{
     let rh = root_h(e, s);
     let deadline = Instant::now() + budget;
     let t = Instant::now();
-    let (outcome, stats) = idastar_inc_ladder(s, e, max_bound, Some(deadline));
+    let (outcome, stats) = if parallel {
+        idastar_inc_bounded_parallel(s, e, max_bound, Some(deadline))
+    } else {
+        idastar_inc_ladder(s, e, max_bound, Some(deadline))
+    };
     let elapsed = t.elapsed();
     let (solved_depth, lower_bound, outcome_str) = match outcome {
         LadderOutcome::Solved(sol) => {
@@ -361,11 +377,14 @@ fn print_table(rows: &[Row]) {
 }
 
 /// Run the optimal-solve regime (random walks) for one heuristic.
-fn run_optimal<E: IncHeuristic>(hname: &str, e: &E, boards: &[(String, State)], budget: Duration, quiet: bool) {
-    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}) ---", hname, budget);
+fn run_optimal<E: IncHeuristic + Sync>(hname: &str, e: &E, boards: &[(String, State)], budget: Duration, parallel: bool, quiet: bool)
+where
+    E::Ctx: Send + Sync,
+{
+    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}{}) ---", hname, budget, if parallel { ", parallel" } else { "" });
     let mut rows = Vec::new();
     for (label, s) in boards {
-        rows.push(run_board(e, label.clone(), s, u8::MAX, budget));
+        rows.push(run_board(e, label.clone(), s, u8::MAX, budget, parallel));
     }
     if !quiet {
         print_table(&rows);
@@ -381,11 +400,14 @@ fn run_optimal<E: IncHeuristic>(hname: &str, e: &E, boards: &[(String, State)], 
 }
 
 /// Run the bounded lower-bound regime (structured boards) for one heuristic.
-fn run_bounded<E: IncHeuristic>(hname: &str, e: &E, boards: &[(String, State)], max_bound: u8, budget: Duration, quiet: bool) {
-    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}) ---", hname, max_bound, budget);
+fn run_bounded<E: IncHeuristic + Sync>(hname: &str, e: &E, boards: &[(String, State)], max_bound: u8, budget: Duration, parallel: bool, quiet: bool)
+where
+    E::Ctx: Send + Sync,
+{
+    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}{}) ---", hname, max_bound, budget, if parallel { ", parallel" } else { "" });
     let mut rows = Vec::new();
     for (label, s) in boards {
-        rows.push(run_board(e, label.clone(), s, max_bound, budget));
+        rows.push(run_board(e, label.clone(), s, max_bound, budget, parallel));
     }
     if !quiet {
         print_table(&rows);
@@ -442,7 +464,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 /// `max(LC,WD)`, pure `zpdb`, and `zpdb-plus` per [`pick_heuristic`], then run the
 /// chosen one. Returns the row and the choice.
 #[allow(clippy::too_many_arguments)]
-fn run_board_select<C: IncHeuristic, Z: IncHeuristic, X: IncHeuristic>(
+fn run_board_select<C, Z, X>(
     cheap: &C,
     zpdb: &Z,
     zpdb_plus: &X,
@@ -451,16 +473,28 @@ fn run_board_select<C: IncHeuristic, Z: IncHeuristic, X: IncHeuristic>(
     s: &State,
     max_bound: u8,
     budget: Duration,
-) -> (Row, Pick) {
+    parallel: bool,
+) -> (Row, Pick)
+where
+    C: IncHeuristic + Sync,
+    Z: IncHeuristic + Sync,
+    X: IncHeuristic + Sync,
+    C::Ctx: Send + Sync,
+    Z::Ctx: Send + Sync,
+    X::Ctx: Send + Sync,
+{
     let cheap_root = root_h(cheap, s);
     let zpdb_root = root_h(zpdb, s);
     let pick = pick_heuristic(cheap_root, zpdb_root, slack);
     let deadline = Instant::now() + budget;
     let t = Instant::now();
-    let (outcome, stats) = match pick {
-        Pick::Cheap => idastar_inc_ladder(s, cheap, max_bound, Some(deadline)),
-        Pick::Zpdb => idastar_inc_ladder(s, zpdb, max_bound, Some(deadline)),
-        Pick::ZpdbPlus => idastar_inc_ladder(s, zpdb_plus, max_bound, Some(deadline)),
+    let (outcome, stats) = match (pick, parallel) {
+        (Pick::Cheap, false) => idastar_inc_ladder(s, cheap, max_bound, Some(deadline)),
+        (Pick::Zpdb, false) => idastar_inc_ladder(s, zpdb, max_bound, Some(deadline)),
+        (Pick::ZpdbPlus, false) => idastar_inc_ladder(s, zpdb_plus, max_bound, Some(deadline)),
+        (Pick::Cheap, true) => idastar_inc_bounded_parallel(s, cheap, max_bound, Some(deadline)),
+        (Pick::Zpdb, true) => idastar_inc_bounded_parallel(s, zpdb, max_bound, Some(deadline)),
+        (Pick::ZpdbPlus, true) => idastar_inc_bounded_parallel(s, zpdb_plus, max_bound, Some(deadline)),
     };
     let elapsed = t.elapsed();
     let tag = pick.tag();
@@ -499,14 +533,22 @@ fn pick_counts(picks: &[Pick]) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_optimal_select<C: IncHeuristic, Z: IncHeuristic, X: IncHeuristic>(
-    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], budget: Duration, quiet: bool,
-) {
-    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}, combine-slack {}) ---", hname, budget, slack);
+fn run_optimal_select<C, Z, X>(
+    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], budget: Duration, parallel: bool, quiet: bool,
+)
+where
+    C: IncHeuristic + Sync,
+    Z: IncHeuristic + Sync,
+    X: IncHeuristic + Sync,
+    C::Ctx: Send + Sync,
+    Z::Ctx: Send + Sync,
+    X::Ctx: Send + Sync,
+{
+    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}, combine-slack {}{}) ---", hname, budget, slack, if parallel { ", parallel" } else { "" });
     let mut rows = Vec::new();
     let mut picks = Vec::new();
     for (label, s) in boards {
-        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, u8::MAX, budget);
+        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, u8::MAX, budget, parallel);
         picks.push(pick);
         rows.push(row);
     }
@@ -524,14 +566,22 @@ fn run_optimal_select<C: IncHeuristic, Z: IncHeuristic, X: IncHeuristic>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_bounded_select<C: IncHeuristic, Z: IncHeuristic, X: IncHeuristic>(
-    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], max_bound: u8, budget: Duration, quiet: bool,
-) {
-    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}, combine-slack {}) ---", hname, max_bound, budget, slack);
+fn run_bounded_select<C, Z, X>(
+    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], max_bound: u8, budget: Duration, parallel: bool, quiet: bool,
+)
+where
+    C: IncHeuristic + Sync,
+    Z: IncHeuristic + Sync,
+    X: IncHeuristic + Sync,
+    C::Ctx: Send + Sync,
+    Z::Ctx: Send + Sync,
+    X::Ctx: Send + Sync,
+{
+    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}, combine-slack {}{}) ---", hname, max_bound, budget, slack, if parallel { ", parallel" } else { "" });
     let mut rows = Vec::new();
     let mut picks = Vec::new();
     for (label, s) in boards {
-        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, max_bound, budget);
+        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, max_bound, budget, parallel);
         picks.push(pick);
         rows.push(row);
     }
@@ -581,16 +631,17 @@ fn dispatch(
     opt_budget: Duration,
     bnd_budget: Duration,
     combine_slack: u8,
+    parallel: bool,
     quiet: bool,
 ) {
     macro_rules! run_modes {
         ($e:expr) => {{
             let e = $e;
             if matches!(mode, Mode::Optimal | Mode::Both) {
-                run_optimal(h.name(), &e, walks, opt_budget, quiet);
+                run_optimal(h.name(), &e, walks, opt_budget, parallel, quiet);
             }
             if matches!(mode, Mode::Bounded | Mode::Both) {
-                run_bounded(h.name(), &e, structured, max_bound, bnd_budget, quiet);
+                run_bounded(h.name(), &e, structured, max_bound, bnd_budget, parallel, quiet);
             }
         }};
     }
@@ -620,10 +671,10 @@ fn dispatch(
             let zpdb = ZpdbInc::new([&d[0], &d[1], &d[2], &d[3]]);
             let zpdb_plus = ZpdbPlusInc::new([&d[0], &d[1], &d[2], &d[3]]);
             if matches!(mode, Mode::Optimal | Mode::Both) {
-                run_optimal_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, walks, opt_budget, quiet);
+                run_optimal_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, walks, opt_budget, parallel, quiet);
             }
             if matches!(mode, Mode::Bounded | Mode::Both) {
-                run_bounded_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, structured, max_bound, bnd_budget, quiet);
+                run_bounded_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, structured, max_bound, bnd_budget, parallel, quiet);
             }
         }
     }
@@ -637,7 +688,8 @@ fn main() -> ExitCode {
                 eprintln!(
                     "usage: ladder24 [--pdb-dir DIR] [--heuristics csv] [--mode optimal|bounded|both]\n         \
                      [--walk-lengths csv] [--reps N] [--seed S] [--budget-secs T]\n         \
-                     [--bound-budget-secs T] [--max-bound K] [--from FILE] [--top-n N] [--quiet]\n       \
+                     [--bound-budget-secs T] [--max-bound K] [--from FILE] [--top-n N]\n         \
+                     [--combine-slack S] [--parallel] [--quiet]\n       \
                      heuristics: manhattan,lc,wd,zpdb-k6,zpdb-k7,zpdb-plus-k6,zpdb-plus-k7,select-k6,select-k7"
                 );
                 return ExitCode::SUCCESS;
@@ -719,7 +771,7 @@ fn main() -> ExitCode {
     let opt_budget = Duration::from_secs(args.budget_secs);
     let bnd_budget = Duration::from_secs(args.bound_budget_secs);
     for &h in &args.heuristics {
-        dispatch(h, &k6, &k7, &walks, &structured, args.mode, args.max_bound, opt_budget, bnd_budget, args.combine_slack, args.quiet);
+        dispatch(h, &k6, &k7, &walks, &structured, args.mode, args.max_bound, opt_budget, bnd_budget, args.combine_slack, args.parallel, args.quiet);
     }
 
     ExitCode::SUCCESS
