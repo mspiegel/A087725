@@ -16,7 +16,7 @@ use puzzle8::puzzle15::pdb::{
 use puzzle8::puzzle15::rank::unrank;
 use puzzle8::puzzle15::search::{
     idastar_inc_with_stats, idastar_with_stats, Heuristic, IncHeuristic,
-    LinearConflictHeuristic, WalkingDistanceHeuristic,
+    LinearConflictHeuristic, SearchStats, WalkingDistanceHeuristic,
 };
 
 fn main() {
@@ -86,7 +86,7 @@ fn main() {
         let wd = WalkingDistanceHeuristic.h(&s);
         let kp = korf_plus.h(&s);
         let zp = zpdb_plus.h(&s);
-        let mz = IncHeuristic::root(&zpdb, &s).0;
+        let mz = IncHeuristic::root(&zpdb, &s, &mut SearchStats::default()).0;
         kp_sum += kp as u32;
         za_sum += mz as u32;
         zp_sum += zp as u32;

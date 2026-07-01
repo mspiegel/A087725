@@ -26,7 +26,7 @@ pub use build::build_parallel;
 pub use db::{file_size_for, LoadError, PatternDb};
 pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
-    ZpdbCtx, ZpdbInc,
+    ZpdbCtx, ZpdbCtxMut, ZpdbInc,
 };
 pub use pattern::{Pattern, ProjectedState, ANON};
 pub use zdb::ZPatternDb;

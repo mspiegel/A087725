@@ -97,6 +97,34 @@ where
     }
 }
 
+impl<A, B> crate::puzzle24::search::idastar::IncHeuristicMut for MaxInc<A, B>
+where
+    A: crate::puzzle24::search::idastar::IncHeuristicMut,
+    B: crate::puzzle24::search::idastar::IncHeuristicMut,
+{
+    type Ctx = (A::Ctx, B::Ctx);
+
+    #[inline]
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.root(s);
+        let (hb, cb) = self.b.root(s);
+        (ha.max(hb), (ca, cb))
+    }
+
+    #[inline]
+    fn make(&self, ctx: &mut Self::Ctx, child: &State, m: crate::puzzle24::state::Move) -> u8 {
+        let ha = self.a.make(&mut ctx.0, child, m);
+        let hb = self.b.make(&mut ctx.1, child, m);
+        ha.max(hb)
+    }
+
+    #[inline]
+    fn unmake(&self, ctx: &mut Self::Ctx, m: crate::puzzle24::state::Move) {
+        self.a.unmake(&mut ctx.0, m);
+        self.b.unmake(&mut ctx.1, m);
+    }
+}
+
 /// Incremental Manhattan heuristic: maintains the running distance in O(1) per
 /// move. A single move slides exactly one tile by one cell, so the tile that
 /// moved into the parent's blank cell changes its Manhattan term by ±1 and
@@ -144,6 +172,45 @@ impl crate::puzzle24::search::idastar::IncHeuristic for IncManhattan {
         let delta = tile_manhattan(tile, b) as i16 - tile_manhattan(tile, nb) as i16;
         let h = (*parent as i16 + delta) as u8;
         (h, h)
+    }
+}
+
+/// Make/unmake context for [`IncManhattan`]: the running distance plus a LIFO
+/// stack of per-move deltas so [`unmake`](crate::puzzle24::search::idastar::IncHeuristicMut::unmake)
+/// can reverse without the child state. (Manhattan's `Copy` context is a single
+/// byte, so this exists only to satisfy the trait for use as a `MaxInc`/select
+/// component — there is no copy to save.)
+pub struct ManhattanMutCtx {
+    h: u8,
+    undo: Vec<i8>,
+}
+
+impl crate::puzzle24::search::idastar::IncHeuristicMut for IncManhattan {
+    type Ctx = ManhattanMutCtx;
+
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let h = ManhattanHeuristic.h(s);
+        (h, ManhattanMutCtx { h, undo: Vec::with_capacity(220) })
+    }
+
+    fn make(&self, ctx: &mut Self::Ctx, child: &State, m: crate::puzzle24::state::Move) -> u8 {
+        let nb = child.blank_pos() as usize;
+        let b = match m {
+            crate::puzzle24::state::Move::Up => nb + W,
+            crate::puzzle24::state::Move::Down => nb - W,
+            crate::puzzle24::state::Move::Left => nb + 1,
+            crate::puzzle24::state::Move::Right => nb - 1,
+        };
+        let tile = child.0[b];
+        let delta = tile_manhattan(tile, b) as i16 - tile_manhattan(tile, nb) as i16;
+        ctx.h = (ctx.h as i16 + delta) as u8;
+        ctx.undo.push(delta as i8);
+        ctx.h
+    }
+
+    fn unmake(&self, ctx: &mut Self::Ctx, _m: crate::puzzle24::state::Move) {
+        let delta = ctx.undo.pop().expect("unmake without matching make");
+        ctx.h = (ctx.h as i16 - delta as i16) as u8;
     }
 }
 
@@ -219,6 +286,48 @@ mod tests {
             assert_eq!(h_adv, h_fresh, "MaxInc advance vs fresh root diverged at step {}", step);
             s = ns;
             ctx = ctx_adv;
+        }
+    }
+
+    /// Manhattan make/unmake driver must match the copy driver (length + nodes).
+    /// Its `undo` delta stack must reverse each move exactly.
+    #[test]
+    fn manhattan_mut_idastar_matches_copy_length_and_nodes() {
+        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        let mut rng: u64 = 0x2B3C_4D5E_6F70_8191;
+        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        for _ in 0..5 {
+            let mut s = GOAL;
+            for _ in 0..12 {
+                let opts: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(opts[(next() as usize) % opts.len()]);
+            }
+            let (c, cs) = idastar_inc_with_stats(&s, &IncManhattan);
+            let (m, ms) = idastar_inc_mut_with_stats(&s, &IncManhattan);
+            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "Manhattan length differs");
+            assert_eq!(cs.nodes, ms.nodes, "Manhattan node count differs");
+        }
+    }
+
+    /// `MaxInc` make/unmake composition (here `max(Manhattan, LC)`) must match the
+    /// copy driver — verifies both members' mut paths compose correctly.
+    #[test]
+    fn maxinc_mut_idastar_matches_copy_length_and_nodes() {
+        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::LinearConflictInc;
+        let mx = MaxInc::new(IncManhattan, LinearConflictInc);
+        let mut rng: u64 = 0x9F1E_2D3C_4B5A_6978;
+        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        for _ in 0..5 {
+            let mut s = GOAL;
+            for _ in 0..14 {
+                let opts: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(opts[(next() as usize) % opts.len()]);
+            }
+            let (c, cs) = idastar_inc_with_stats(&s, &mx);
+            let (m, ms) = idastar_inc_mut_with_stats(&s, &mx);
+            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "MaxInc length differs");
+            assert_eq!(cs.nodes, ms.nodes, "MaxInc node count differs");
         }
     }
 }

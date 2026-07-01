@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use puzzle8::puzzle15::pdb::{KorfPdbInc, PatternDb};
-use puzzle8::puzzle15::search::IncHeuristic;
+use puzzle8::puzzle15::search::{IncHeuristic, SearchStats};
 use puzzle8::puzzle15::state::{Move, State, GOAL, N_CELLS};
 
 fn to_repo_goal(korf: &[u8; N_CELLS]) -> State {
@@ -105,7 +105,8 @@ fn dfs<E: IncHeuristic>(
             }
         }
         let (s_next, nb) = s.apply_at(m, blank);
-        let (ch, cc) = e.advance(&ctx, &s_next, m);
+        // This probe ignores the per-component counters; feed a throwaway.
+        let (ch, cc) = e.advance(&ctx, &s_next, m, &mut SearchStats::default());
         let (found, n) = dfs(&s_next, nb, cc, ch, g + 1, bound, Some(m), e, seen, c);
         if found {
             return (true, u8::MAX);
@@ -121,7 +122,7 @@ fn solve_counting<E: IncHeuristic>(start: &State, e: &E, c: &mut Counts) {
     if start == &GOAL {
         return;
     }
-    let (h0, ctx0) = e.root(start);
+    let (h0, ctx0) = e.root(start, &mut SearchStats::default());
     let mut bound = h0;
     let blank = start.blank_pos();
     loop {

@@ -20,11 +20,12 @@
 //! because the reflection preserves distance to GOAL; LC and WD are independently
 //! admissible, so their max with the ZPDB term is too.
 
-use super::heuristic::{ZpdbCtx, ZpdbInc};
+use super::heuristic::{ZpdbCtx, ZpdbCtxMut, ZpdbInc};
 use super::pattern::Pattern;
 use super::zdb::ZPatternDb;
 use crate::puzzle24::search::{
-    Heuristic, IncHeuristic, LcCtx, LinearConflictInc, SearchStats, WalkingDistanceInc, WdCtx,
+    Heuristic, IncHeuristic, IncHeuristicMut, LcCtx, LcMutCtx, LinearConflictInc, SearchStats,
+    WalkingDistanceInc, WdCtx, WdMutCtx,
 };
 use crate::puzzle24::state::{Move, State};
 
@@ -130,9 +131,12 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
 
     #[inline]
     fn root(&self, s: &State, stats: &mut SearchStats) -> (u8, Self::Ctx) {
-        let (h_zpdb, zctx) = self.zpdb.root(s, stats);
-        let (h_lc, lctx) = self.lc.root(s, stats);
-        let (h_wd, wctx) = self.wd.root(s, stats);
+        // UFCS: `ZpdbInc`/`LinearConflictInc`/`WalkingDistanceInc` implement both
+        // `IncHeuristic` and `IncHeuristicMut`, whose `root`s collide under method
+        // syntax.
+        let (h_zpdb, zctx) = IncHeuristic::root(&self.zpdb, s, stats);
+        let (h_lc, lctx) = IncHeuristic::root(&self.lc, s, stats);
+        let (h_wd, wctx) = IncHeuristic::root(&self.wd, s, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
         (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
     }
@@ -150,6 +154,44 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
         let (h_wd, wctx) = self.wd.advance(&parent.wd, child, m, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
         (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
+    }
+}
+
+/// Make/unmake context for [`ZpdbPlusInc`]: the three components' mutable
+/// contexts, each maintained in place (see [`ZpdbCtxMut`], [`LcMutCtx`],
+/// [`WdMutCtx`]). The zpdb component is the copy-heavy one, so this stack is
+/// where make/unmake pays off most for the combined heuristic.
+pub struct ZpdbPlusMutCtx<const N: usize> {
+    zpdb: ZpdbCtxMut<N>,
+    lc: LcMutCtx,
+    wd: WdMutCtx,
+}
+
+impl<'a, const N: usize> IncHeuristicMut for ZpdbPlusInc<'a, N> {
+    type Ctx = ZpdbPlusMutCtx<N>;
+
+    #[inline]
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let (h_zpdb, zctx) = IncHeuristicMut::root(&self.zpdb, s);
+        let (h_lc, lctx) = IncHeuristicMut::root(&self.lc, s);
+        let (h_wd, wctx) = IncHeuristicMut::root(&self.wd, s);
+        let h = h_zpdb.max(h_lc).max(h_wd);
+        (h, ZpdbPlusMutCtx { zpdb: zctx, lc: lctx, wd: wctx })
+    }
+
+    #[inline]
+    fn make(&self, ctx: &mut Self::Ctx, child: &State, m: Move) -> u8 {
+        let h_zpdb = self.zpdb.make(&mut ctx.zpdb, child, m);
+        let h_lc = self.lc.make(&mut ctx.lc, child, m);
+        let h_wd = self.wd.make(&mut ctx.wd, child, m);
+        h_zpdb.max(h_lc).max(h_wd)
+    }
+
+    #[inline]
+    fn unmake(&self, ctx: &mut Self::Ctx, m: Move) {
+        self.zpdb.unmake(&mut ctx.zpdb, m);
+        self.lc.unmake(&mut ctx.lc, m);
+        self.wd.unmake(&mut ctx.wd, m);
     }
 }
 
@@ -340,6 +382,35 @@ mod tests {
                 cur = cur.apply(m);
             }
             assert_eq!(cur, GOAL, "solution did not reach GOAL");
+        }
+    }
+
+    /// ZpdbPlus make/unmake (composing zpdb + LC + WD mutable contexts) must
+    /// match the copy driver on length and node count — the composite whose
+    /// zpdb component gains the most from make/unmake.
+    #[test]
+    fn zpdb_plus_mut_idastar_matches_copy_length_and_nodes() {
+        use crate::puzzle24::search::{
+            idastar_inc_mut_with_stats, idastar_inc_with_stats, WalkingDistanceHeuristic,
+        };
+        WalkingDistanceHeuristic::warm_up();
+        let zdbs = [
+            ZPatternDb::build(Pattern::new(&[1, 2, 3, 6])),
+            ZPatternDb::build(Pattern::new(&[4, 5, 9, 10])),
+        ];
+        let zplus = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
+        let mut rng: u64 = 0x1618_0339_8875_2440;
+        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        for _ in 0..5 {
+            let mut s = GOAL;
+            for _ in 0..16 {
+                let opts: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(opts[(next() as usize) % opts.len()]);
+            }
+            let (c, cs) = idastar_inc_with_stats(&s, &zplus);
+            let (m, ms) = idastar_inc_mut_with_stats(&s, &zplus);
+            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "ZpdbPlus length differs");
+            assert_eq!(cs.nodes, ms.nodes, "ZpdbPlus node count differs");
         }
     }
 }

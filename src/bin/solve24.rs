@@ -44,9 +44,9 @@ use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
-    idastar_inc_bounded_parallel, idastar_inc_bounded_with_stats, idastar_inc_with_stats,
-    BoundedOutcome, IncHeuristic, IncManhattan, LadderOutcome, LinearConflictInc, MaxInc,
-    SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
+    idastar_inc_bounded_parallel_mut, idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats,
+    BoundedOutcome, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LinearConflictInc,
+    MaxInc, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -291,13 +291,21 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     }
 }
 
-fn print_stats(st: &SearchStats) {
+fn print_stats(st: &SearchStats, elapsed: std::time::Duration) {
     println!("Nodes          : {}", st.nodes);
     println!("Iterations     : {}", st.iterations);
+    let secs = elapsed.as_secs_f64();
+    if secs > 0.0 {
+        println!("Throughput     : {:.2} Mnodes/s", st.nodes as f64 / secs / 1e6);
+    }
 }
 
 /// Drive an incremental heuristic, dispatching on bounded vs optimal mode.
-fn run_inc<E: IncHeuristic + Sync>(
+// Every heuristic is driven through the make/unmake ([`IncHeuristicMut`]) path —
+// strictly cheaper per node than the old `Copy` context path and the default
+// everywhere (there is no toggle). `IncHeuristic` is still required because the
+// parallel driver's shallow split reuses it to grow the work frontier.
+fn run_inc<E: IncHeuristic + IncHeuristicMut + Sync>(
     start: &State,
     e: &E,
     max_bound: Option<u8>,
@@ -305,11 +313,12 @@ fn run_inc<E: IncHeuristic + Sync>(
     t0: Instant,
 ) -> ExitCode
 where
-    E::Ctx: Send + Sync,
+    <E as IncHeuristic>::Ctx: Send + Sync,
 {
     if parallel {
         // Shared-memory parallel IDA* (2P). max_bound = None -> unbounded solve.
-        let (outcome, st) = idastar_inc_bounded_parallel(start, e, max_bound.unwrap_or(u8::MAX), None);
+        let (outcome, st) =
+            idastar_inc_bounded_parallel_mut(start, e, max_bound.unwrap_or(u8::MAX), None);
         let elapsed = t0.elapsed();
         return match outcome {
             LadderOutcome::Solved(s) => {
@@ -317,19 +326,19 @@ where
                     println!("Found within bound {} (optimal):", mb);
                 }
                 print_solution(start, &s, elapsed);
-                print_stats(&st);
+                print_stats(&st, elapsed);
                 ExitCode::SUCCESS
             }
             LadderOutcome::ProvedAtLeast(k) => {
                 println!("Lower bound: depth >= {}", k);
                 println!("Wall-clock     : {:.2?}", elapsed);
-                print_stats(&st);
+                print_stats(&st, elapsed);
                 ExitCode::SUCCESS
             }
             LadderOutcome::TimedOut(k) => {
                 // No deadline is passed here, so this is not expected.
                 println!("Lower bound: depth >= {} (timed out)", k);
-                print_stats(&st);
+                print_stats(&st, elapsed);
                 ExitCode::SUCCESS
             }
             LadderOutcome::Unsolvable => {
@@ -340,12 +349,12 @@ where
     }
     match max_bound {
         None => {
-            let (sol, st) = idastar_inc_with_stats(start, e);
+            let (sol, st) = idastar_inc_mut_with_stats(start, e);
             let elapsed = t0.elapsed();
             match sol {
                 Some(s) => {
                     print_solution(start, &s, elapsed);
-                    print_stats(&st);
+                    print_stats(&st, elapsed);
                     ExitCode::SUCCESS
                 }
                 None => {
@@ -355,19 +364,19 @@ where
             }
         }
         Some(mb) => {
-            let (outcome, st) = idastar_inc_bounded_with_stats(start, e, mb);
+            let (outcome, st) = idastar_inc_mut_bounded_with_stats(start, e, mb);
             let elapsed = t0.elapsed();
             match outcome {
                 BoundedOutcome::Solved(s) => {
                     println!("Found within bound {} (optimal):", mb);
                     print_solution(start, &s, elapsed);
-                    print_stats(&st);
+                    print_stats(&st, elapsed);
                     ExitCode::SUCCESS
                 }
                 BoundedOutcome::ProvedAtLeast(k) => {
                     println!("Lower bound: depth >= {}", k);
                     println!("Wall-clock     : {:.2?}", elapsed);
-                    print_stats(&st);
+                    print_stats(&st, elapsed);
                     ExitCode::SUCCESS
                 }
                 BoundedOutcome::Unsolvable => {
@@ -505,8 +514,10 @@ fn main() -> ExitCode {
             let cheap = MaxInc::new(LinearConflictInc, WalkingDistanceInc);
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let mut st = SearchStats::default();
-            let cheap_root = cheap.root(&start, &mut st).0;
-            let zpdb_root = zpdb.root(&start, &mut st).0;
+            // UFCS: both heuristics implement IncHeuristic and IncHeuristicMut,
+            // whose `root`s collide under method syntax.
+            let cheap_root = IncHeuristic::root(&cheap, &start, &mut st).0;
+            let zpdb_root = IncHeuristic::root(&zpdb, &start, &mut st).0;
             match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
                 Pick::Cheap => {
                     println!("Selected       : max(LC,WD)  (cheap_h {} >= zpdb_h {})", cheap_root, zpdb_root);

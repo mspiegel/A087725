@@ -628,6 +628,195 @@ where
     }
 }
 
+/// Make/unmake counterpart of [`idastar_inc_bounded_parallel`]: identical
+/// tree-splitting and identical results, but each worker searches its subtree
+/// with the allocation-free [`IncHeuristicMut`] make/unmake path instead of the
+/// `Copy` [`IncHeuristic`] path — cutting the per-node cost that dominates deep
+/// runs (profiled ~50% context copying).
+///
+/// The shallow split still uses the `Copy` [`IncHeuristic`] (it is cheap and
+/// keeps the frontier/node-count logic byte-identical to the copy driver); each
+/// worker then re-seeds a fresh mutable context from its subtree root via
+/// [`IncHeuristicMut::root`] and runs [`search_inc_mut`]. Node counts therefore
+/// match the copy parallel driver exactly. Requires the heuristic to implement
+/// *both* traits (as [`ZpdbInc`](crate::puzzle24::pdb::ZpdbInc) does).
+///
+/// Bounds: `E: IncHeuristic + IncHeuristicMut + Sync`; the split frontier of
+/// `Copy` contexts needs `<E as IncHeuristic>::Ctx: Send + Sync`. Each worker's
+/// mutable context is created and dropped inside its closure, never shared, so
+/// it needs no extra bound. Build with the `parallel` feature.
+#[cfg(feature = "parallel")]
+pub fn idastar_inc_bounded_parallel_mut<E>(
+    start: &State,
+    e: &E,
+    max_bound: u8,
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats)
+where
+    E: IncHeuristic + IncHeuristicMut + Sync,
+    <E as IncHeuristic>::Ctx: Send + Sync,
+{
+    use rayon::prelude::*;
+    use std::collections::VecDeque;
+
+    /// Subtree-root unit for the mut driver. Unlike the copy driver it does NOT
+    /// carry a per-node context: each worker re-roots a fresh mutable context
+    /// from `state`. It keeps the split's `Copy` context only transiently.
+    struct PUnit {
+        state: State,
+        blank: u8,
+        g: u8,
+        last: Option<Move>,
+        prefix: Vec<Move>,
+    }
+
+    const SPLIT_TARGET: usize = 4096;
+
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (LadderOutcome::Solved(Vec::new()), stats);
+    }
+    let (h0, ctx0) = IncHeuristic::root(e, start, &mut stats);
+    let blank0 = start.blank_pos();
+    let mut bound = h0;
+
+    loop {
+        if bound > max_bound {
+            return (LadderOutcome::ProvedAtLeast(bound), stats);
+        }
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                return (LadderOutcome::TimedOut(bound), stats);
+            }
+        }
+        stats.iterations += 1;
+
+        // ---- split: sequential BFS (Copy heuristic), same as the copy driver ----
+        struct SplitUnit<C> {
+            state: State,
+            blank: u8,
+            g: u8,
+            ctx: C,
+            last: Option<Move>,
+            prefix: Vec<Move>,
+        }
+        let mut frontier: VecDeque<SplitUnit<<E as IncHeuristic>::Ctx>> = VecDeque::new();
+        frontier.push_back(SplitUnit {
+            state: *start, blank: blank0, g: 0, ctx: ctx0, last: None, prefix: Vec::new(),
+        });
+        let mut min_f_split = u8::MAX;
+        let mut found_in_split: Option<Vec<Move>> = None;
+        while frontier.len() < SPLIT_TARGET {
+            let u = match frontier.pop_front() {
+                Some(u) => u,
+                None => break,
+            };
+            stats.nodes += 1;
+            if u.state == GOAL {
+                found_in_split = Some(u.prefix);
+                break;
+            }
+            for m in State::legal_moves_at(u.blank).iter() {
+                if let Some(prev) = u.last {
+                    if m == prev.inverse() {
+                        continue;
+                    }
+                }
+                let (s_next, nb) = u.state.apply_at(m, u.blank);
+                let (ch, cctx) = e.advance(&u.ctx, &s_next, m, &mut stats);
+                let cf = (u.g + 1).saturating_add(ch);
+                if cf > bound {
+                    stats.nodes += 1; // match search_inc's count-at-entry (see copy driver)
+                    if cf < min_f_split {
+                        min_f_split = cf;
+                    }
+                    continue;
+                }
+                let mut prefix = u.prefix.clone();
+                prefix.push(m);
+                frontier.push_back(SplitUnit {
+                    state: s_next, blank: nb, g: u.g + 1, ctx: cctx, last: Some(m), prefix,
+                });
+            }
+        }
+        if let Some(path) = found_in_split {
+            return (LadderOutcome::Solved(path), stats);
+        }
+        if frontier.is_empty() {
+            if min_f_split == u8::MAX {
+                return (LadderOutcome::Unsolvable, stats);
+            }
+            bound = min_f_split;
+            continue;
+        }
+
+        // ---- parallel: run search_inc_mut on each subtree, re-rooting the ctx ----
+        enum Wr {
+            Found(Vec<Move>),
+            Aborted,
+            Bound(u8),
+        }
+        // Drop the split's Copy contexts; workers re-root their own mutable ones.
+        let units: Vec<PUnit> = frontier
+            .into_iter()
+            .map(|u| PUnit { state: u.state, blank: u.blank, g: u.g, last: u.last, prefix: u.prefix })
+            .collect();
+        let found_flag = std::sync::atomic::AtomicBool::new(false);
+        let results: Vec<(Wr, SearchStats)> = units
+            .par_iter()
+            .map(|u| {
+                let mut st = SearchStats::default();
+                let mut path: Vec<Move> = Vec::new();
+                let (h_u, mut ctx) = IncHeuristicMut::root(e, &u.state);
+                let step = search_inc_mut(
+                    &u.state, u.blank, &mut ctx, h_u, u.g, bound, deadline, &found_flag,
+                    &mut path, u.last, e, &mut st,
+                );
+                let wr = match step {
+                    Step::Found => {
+                        let mut full = u.prefix.clone();
+                        full.extend(path);
+                        Wr::Found(full)
+                    }
+                    Step::Aborted => Wr::Aborted,
+                    Step::Bound(n) => Wr::Bound(n),
+                };
+                (wr, st)
+            })
+            .collect();
+
+        let mut found: Option<Vec<Move>> = None;
+        let mut aborted = false;
+        let mut min_f = min_f_split;
+        for (wr, st) in results {
+            stats.add(&st);
+            match wr {
+                Wr::Found(p) => {
+                    if found.is_none() {
+                        found = Some(p);
+                    }
+                }
+                Wr::Aborted => aborted = true,
+                Wr::Bound(n) => {
+                    if n < min_f {
+                        min_f = n;
+                    }
+                }
+            }
+        }
+        if let Some(p) = found {
+            return (LadderOutcome::Solved(p), stats);
+        }
+        if aborted {
+            return (LadderOutcome::TimedOut(bound), stats);
+        }
+        if min_f == u8::MAX {
+            return (LadderOutcome::Unsolvable, stats);
+        }
+        bound = min_f;
+    }
+}
+
 /// Make/unmake variant of [`IncHeuristic`]: instead of producing a fresh `Copy`
 /// context per node, the search threads a single `&mut Ctx`, mutating it in
 /// place before recursing and undoing on backtrack. This avoids the per-node
@@ -639,9 +828,14 @@ pub trait IncHeuristicMut {
     type Ctx;
     /// Evaluate at the search root: `(h(start), ctx0)`.
     fn root(&self, s: &State) -> (u8, Self::Ctx);
-    /// Mutate `ctx` by applying move `m`; return `h` of the resulting child.
-    fn make(&self, ctx: &mut Self::Ctx, m: Move) -> u8;
+    /// Mutate `ctx` by applying move `m`, returning `h` of the resulting child.
+    /// `child` is the post-move state (the search already computed it), so
+    /// positional heuristics can read the moved tile directly — mirroring
+    /// [`IncHeuristic::advance`]. Purely projection-based heuristics ignore it.
+    fn make(&self, ctx: &mut Self::Ctx, child: &State, m: Move) -> u8;
     /// Undo the most recent [`make`](Self::make) of `m`, restoring `ctx`.
+    /// Implementations restore via an undo record or a self-inverse operation,
+    /// so no state argument is needed.
     fn unmake(&self, ctx: &mut Self::Ctx, m: Move);
 }
 
@@ -658,11 +852,14 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    // Private, never-shared flag so `search_inc_mut` can take a non-optional
+    // `&AtomicBool`; in this sequential driver nothing else reads it.
+    let found = std::sync::atomic::AtomicBool::new(false);
     loop {
         stats.iterations += 1;
         // `ctx` is restored to the root projection after each iteration because
         // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, &mut path, None, e, &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -680,6 +877,44 @@ pub fn idastar_inc_mut<E: IncHeuristicMut>(start: &State, e: &E) -> Option<Vec<M
     idastar_inc_mut_with_stats(start, e).0
 }
 
+/// Make/unmake counterpart of [`idastar_inc_bounded_with_stats`]: bounded IDA\*
+/// that either solves optimally within `max_bound` or proves `dist ≥ K`. Same
+/// semantics and identical node counts as the copy driver (deterministic — no
+/// early-exit flag in play), just cheaper per node.
+pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
+    start: &State,
+    e: &E,
+    max_bound: u8,
+) -> (BoundedOutcome, SearchStats) {
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (BoundedOutcome::Solved(Vec::new()), stats);
+    }
+    let (h0, mut ctx) = e.root(start);
+    let mut bound = h0;
+    let mut path: Vec<Move> = Vec::with_capacity(220);
+    let blank = start.blank_pos();
+    let found = std::sync::atomic::AtomicBool::new(false); // private, never read here
+    loop {
+        if bound > max_bound {
+            return (BoundedOutcome::ProvedAtLeast(bound), stats);
+        }
+        stats.iterations += 1;
+        // `ctx` is restored after each iteration — `search_inc_mut` unmakes every
+        // move it makes on a `Bound` return.
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
+            Step::Found => return (BoundedOutcome::Solved(path), stats),
+            Step::Aborted => unreachable!("no deadline set"),
+            Step::Bound(next) => {
+                if next == u8::MAX {
+                    return (BoundedOutcome::Unsolvable, stats);
+                }
+                bound = next;
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn search_inc_mut<E: IncHeuristicMut>(
     s: &State,
@@ -688,17 +923,34 @@ fn search_inc_mut<E: IncHeuristicMut>(
     h_val: u8,
     g: u8,
     bound: u8,
+    deadline: Option<std::time::Instant>,
+    found: &std::sync::atomic::AtomicBool,
     path: &mut Vec<Move>,
     last: Option<Move>,
     e: &E,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
+    // Same periodic deadline / sibling-found early-exit as `search_inc`. On
+    // `Aborted` the whole search unwinds and `ctx` is discarded, so — like the
+    // `Found` path — we return without unmaking. In the sequential driver
+    // `found` is a private cell and `deadline` is `None`, so this never fires.
+    if stats.nodes & DEADLINE_CHECK_MASK == 0 {
+        if found.load(std::sync::atomic::Ordering::Relaxed) {
+            return Step::Aborted;
+        }
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                return Step::Aborted;
+            }
+        }
+    }
     let f = g.saturating_add(h_val);
     if f > bound {
         return Step::Bound(f);
     }
     if s == &GOAL {
+        found.store(true, std::sync::atomic::Ordering::Relaxed);
         return Step::Found;
     }
 
@@ -710,13 +962,13 @@ fn search_inc_mut<E: IncHeuristicMut>(
             }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
-        let child_h = e.make(ctx, m);
+        let child_h = e.make(ctx, &s_next, m);
         path.push(m);
-        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
-            // On Found, keep the accumulated path and return; the whole search
-            // terminates so `ctx` is discarded (no need to unmake).
+        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, stats) {
+            // On Found/Aborted the whole search terminates so `ctx` is discarded
+            // (no need to unmake); keep the accumulated path.
             Step::Found => return Step::Found,
-            Step::Aborted => unreachable!("no deadline in mut driver"),
+            Step::Aborted => return Step::Aborted,
             Step::Bound(n) => {
                 path.pop();
                 e.unmake(ctx, m); // restore path + ctx for the next sibling

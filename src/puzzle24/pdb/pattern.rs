@@ -205,6 +205,30 @@ impl ProjectedState {
         (ProjectedState { cells, pos_of }, cost)
     }
 
+    /// In-place variant of [`apply`](Self::apply): slide the blank in direction
+    /// `m`, mutating `self`, and return the projected-edge cost (`1` if a pattern
+    /// tile swapped with the blank, else `0`). No arrays are copied.
+    ///
+    /// A sliding move is its own inverse under direction reversal: after
+    /// `self.apply_in_place(m)`, calling `self.apply_in_place(m.inverse())`
+    /// restores `self` exactly (cells and `pos_of`). This is what makes the
+    /// make/unmake (`IncHeuristicMut`) projection path allocation- and
+    /// snapshot-free — only the derived PDB `h` values need saving to unmake.
+    #[inline]
+    pub fn apply_in_place(&mut self, m: Move) -> u8 {
+        let b = self.blank_pos() as usize;
+        let (nr, nc) = step(b, m);
+        let n = nr * W + nc;
+        let swapped = self.cells[n];
+        let cost = if swapped == ANON { 0 } else { 1 };
+        self.cells.swap(b, n);
+        self.pos_of[0] = n as u8;
+        if swapped != ANON {
+            self.pos_of[swapped as usize] = b as u8;
+        }
+        cost
+    }
+
     /// PDB index in `[0, pattern.num_projected_states())` — pattern-tile
     /// positions only, ascending tile-value order, O(k) via `pos_of`.
     #[inline]
@@ -400,6 +424,41 @@ mod tests {
             );
             let opts: Vec<Move> = s.legal_moves().iter().collect();
             let m = opts[(next() as usize) % opts.len()];
+            s = s.apply(m);
+            proj = proj.apply(m).0;
+        }
+    }
+
+    #[test]
+    fn apply_in_place_matches_apply_and_unmakes() {
+        // Over a random walk: (1) in-place slide reproduces `apply`'s state and
+        // cost, and (2) sliding back with `m.inverse()` restores the projection
+        // exactly — the property the make/unmake heuristic relies on.
+        let p = Pattern::new(&[3, 7, 11, 15, 19, 23]);
+        let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let mut s = GOAL;
+        let mut proj = ProjectedState::from_state(&s, p);
+        for _ in 0..4000 {
+            let opts: Vec<Move> = s.legal_moves().iter().collect();
+            let m = opts[(next() as usize) % opts.len()];
+
+            let (want, want_cost) = proj.apply(m);
+            let before = proj;
+            let got_cost = proj.apply_in_place(m);
+            assert_eq!(got_cost, want_cost, "in-place cost must match apply");
+            assert_eq!(proj, want, "in-place state must match apply");
+
+            // Unmake and confirm we land back exactly where we started.
+            proj.apply_in_place(m.inverse());
+            assert_eq!(proj, before, "slide + inverse-slide must be identity");
+
+            // Advance for real to keep walking.
             s = s.apply(m);
             proj = proj.apply(m).0;
         }
