@@ -25,6 +25,8 @@ use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
 use crate::puzzle24::state::{Move, State, W};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
+use std::io::{self, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// A 5×5 row-distribution matrix.
@@ -36,7 +38,7 @@ type WdMatrix = [[u8; W]; W];
 /// blow up. This is Murmur3's `fmix64` finalizer — 2 muls + 3 xor-shifts, far
 /// cheaper than the default SipHash yet distributing structured keys uniformly.
 #[derive(Default)]
-struct WdHasher(u64);
+pub struct WdHasher(u64);
 impl Hasher for WdHasher {
     #[inline]
     fn finish(&self) -> u64 {
@@ -60,7 +62,14 @@ impl Hasher for WdHasher {
         self.0 = x;
     }
 }
-type WdBuild = BuildHasherDefault<WdHasher>;
+pub type WdBuild = BuildHasherDefault<WdHasher>;
+
+/// A Walking-Distance-style distance table: `pack`ed `u64` key → distance-to-goal
+/// (`u8`), hashed by the fully-avalanching [`WdHasher`]. This is the concrete
+/// in-memory representation shared by the full row/column WD table and any future
+/// WD-style abstraction table (e.g. the wildcard-complement `hB` heuristic), and
+/// the type persisted by [`save_dist_table`] / [`load_dist_table`].
+pub type WdTable = HashMap<u64, u8, WdBuild>;
 
 /// Pack `(matrix, blank-axis-index)` into a u64 key. Each stored cell holds a
 /// value ≤ 5 (3 bits); we omit the last column of every row (derivable from the
@@ -156,20 +165,294 @@ fn build_table() -> HashMap<u64, u8, WdBuild> {
     table
 }
 
-fn table() -> &'static HashMap<u64, u8, WdBuild> {
-    static T: OnceLock<HashMap<u64, u8, WdBuild>> = OnceLock::new();
-    T.get_or_init(build_table)
+// ---------------------------------------------------------------------------
+// On-disk persistence: precompute the WD table once, reuse across processes.
+// ---------------------------------------------------------------------------
+//
+// The BFS in `build_table` is a one-off ~17–25 s cost paid per *process*. For
+// harnesses that spawn many short-lived processes (or just to avoid the startup
+// stall), the table can be built once by the `build_wd24` tool, pinned by SHA
+// (like the ZPDB artifacts), and loaded here instead of rebuilt. The in-memory
+// structure loaded is the *same* `WdTable` HashMap proven fastest for lookups
+// (cf. the rejected flat/rank encoding) — only the *construction* is replaced.
+//
+// The file format is deliberately generic (a `u64 → u8` distance table tagged by
+// a `kind`) so the future wildcard-complement `hB` heuristic can reuse the exact
+// same builder/loader path.
+
+/// Magic bytes at the head of a persisted WD-style distance table.
+pub const WD_TABLE_MAGIC: &[u8; 4] = b"WD24";
+/// On-disk format version.
+pub const WD_TABLE_VERSION: u32 = 1;
+/// `kind` tag for the full row/column Walking-Distance table (all 24 tiles
+/// tracked, shared by both axes). Future WD-style tables (e.g. `hB`) use other
+/// tags so a mismatched artifact is rejected at load rather than silently used.
+pub const WD_KIND_FULL: u32 = 0;
+/// The exact number of reachable states in the full 5×5 row-WD space, also pinned
+/// by `tests::table_size_matches_measured`. Used as a cheap load-time integrity
+/// check for `WD_KIND_FULL` artifacts.
+pub const FULL_WD_ENTRIES: u64 = 65_650_495;
+
+const WD_TABLE_HEADER_BYTES: usize = 24; // magic(4) ver(4) kind(4) reserved(4) entries(8)
+
+/// Where the full-WD table was obtained from, for honest startup logging.
+#[derive(Clone, Debug)]
+pub enum WdTableSource {
+    /// Loaded from a pre-built artifact.
+    Loaded { path: PathBuf, entries: usize },
+    /// Constructed in-process by the BFS.
+    Built { entries: usize },
+}
+
+/// Errors from [`load_dist_table`].
+#[derive(Debug)]
+pub enum WdLoadError {
+    Io(io::Error),
+    BadMagic([u8; 4]),
+    UnsupportedVersion(u32),
+    KindMismatch { in_file: u32, expected: u32 },
+    ReservedNonZero,
+    EntryMismatch { in_file: u64, expected: u64 },
+    SizeMismatch { got: u64, expected: u64 },
+    /// [`warm_up_from`] was called after the table was already initialized.
+    AlreadyInitialized,
+}
+
+impl From<io::Error> for WdLoadError {
+    fn from(e: io::Error) -> Self {
+        WdLoadError::Io(e)
+    }
+}
+
+impl std::fmt::Display for WdLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WdLoadError::Io(e) => write!(f, "I/O error: {}", e),
+            WdLoadError::BadMagic(m) => {
+                write!(f, "bad magic: {:?}, expected {:?}", m, WD_TABLE_MAGIC)
+            }
+            WdLoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {}", v),
+            WdLoadError::KindMismatch { in_file, expected } => {
+                write!(f, "kind mismatch: file {} vs expected {}", in_file, expected)
+            }
+            WdLoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
+            WdLoadError::EntryMismatch { in_file, expected } => {
+                write!(f, "entry count mismatch: file {} vs expected {}", in_file, expected)
+            }
+            WdLoadError::SizeMismatch { got, expected } => {
+                write!(f, "file size {} != expected {}", got, expected)
+            }
+            WdLoadError::AlreadyInitialized => {
+                write!(f, "WD table already initialized; warm_up_from must be called first")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WdLoadError {}
+
+/// Serialize a WD-style distance table to `path` in a byte-deterministic format
+/// (entries sorted by key), so repeated builds hash identically and the artifact
+/// can be SHA-pinned. Layout: a 24-byte header (`magic`, `version`, `kind`,
+/// `reserved=0`, `entries`) followed by all keys as little-endian `u64`s (sorted
+/// ascending) and then all matching distances as `u8`s (a struct-of-arrays that
+/// keeps the key block 8-aligned).
+pub fn save_dist_table(path: &Path, kind: u32, table: &WdTable) -> io::Result<()> {
+    let mut entries: Vec<(u64, u8)> = table.iter().map(|(&k, &v)| (k, v)).collect();
+    entries.sort_unstable_by_key(|&(k, _)| k);
+
+    let f = std::fs::File::create(path)?;
+    let mut w = BufWriter::new(f);
+    w.write_all(WD_TABLE_MAGIC)?;
+    w.write_all(&WD_TABLE_VERSION.to_le_bytes())?;
+    w.write_all(&kind.to_le_bytes())?;
+    w.write_all(&0u32.to_le_bytes())?; // reserved
+    w.write_all(&(entries.len() as u64).to_le_bytes())?;
+    for &(k, _) in &entries {
+        w.write_all(&k.to_le_bytes())?;
+    }
+    for &(_, v) in &entries {
+        w.write_all(&[v])?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Load a WD-style distance table written by [`save_dist_table`]. Validates the
+/// magic, version, `kind` (must equal `expected_kind`), reserved bytes, exact
+/// file length, and — when `expected_entries` is `Some` — the entry count. These
+/// cheap checks reject a corrupt or stale artifact; the external `.sha256` pin is
+/// the full-integrity guarantee. Returns the same `WdTable` HashMap `build_table`
+/// would have produced.
+pub fn load_dist_table(
+    path: &Path,
+    expected_kind: u32,
+    expected_entries: Option<u64>,
+) -> Result<WdTable, WdLoadError> {
+    let mut f = std::fs::File::open(path)?;
+    let mut header = [0u8; WD_TABLE_HEADER_BYTES];
+    f.read_exact(&mut header)?;
+
+    let magic: [u8; 4] = header[0..4].try_into().unwrap();
+    if &magic != WD_TABLE_MAGIC {
+        return Err(WdLoadError::BadMagic(magic));
+    }
+    let version = u32::from_le_bytes(header[4..8].try_into().unwrap());
+    if version != WD_TABLE_VERSION {
+        return Err(WdLoadError::UnsupportedVersion(version));
+    }
+    let kind = u32::from_le_bytes(header[8..12].try_into().unwrap());
+    if kind != expected_kind {
+        return Err(WdLoadError::KindMismatch { in_file: kind, expected: expected_kind });
+    }
+    let reserved = u32::from_le_bytes(header[12..16].try_into().unwrap());
+    if reserved != 0 {
+        return Err(WdLoadError::ReservedNonZero);
+    }
+    let n = u64::from_le_bytes(header[16..24].try_into().unwrap());
+    if let Some(exp) = expected_entries {
+        if n != exp {
+            return Err(WdLoadError::EntryMismatch { in_file: n, expected: exp });
+        }
+    }
+
+    // Exact-size check: header + n keys (8 B) + n values (1 B). Guards against a
+    // truncated or padded file before we allocate the map.
+    let file_len = f.metadata()?.len();
+    let expected_len = WD_TABLE_HEADER_BYTES as u64 + n * 8 + n;
+    if file_len != expected_len {
+        return Err(WdLoadError::SizeMismatch { got: file_len, expected: expected_len });
+    }
+
+    let n = n as usize;
+    let mut key_bytes = vec![0u8; n * 8];
+    f.read_exact(&mut key_bytes)?;
+    let mut vals = vec![0u8; n];
+    f.read_exact(&mut vals)?;
+
+    let mut table: WdTable = HashMap::with_capacity_and_hasher(n, WdBuild::default());
+    for (chunk, &v) in key_bytes.chunks_exact(8).zip(vals.iter()) {
+        let k = u64::from_le_bytes(chunk.try_into().unwrap());
+        table.insert(k, v);
+    }
+    Ok(table)
+}
+
+/// Build the full row/column WD table via BFS (the authoritative constructor).
+/// Exposed for the `build_wd24` persistence tool; normal solving goes through the
+/// lazily-initialized [`table`].
+pub fn build_full_table() -> WdTable {
+    build_table()
+}
+
+static T: OnceLock<WdTable> = OnceLock::new();
+static SOURCE: OnceLock<WdTableSource> = OnceLock::new();
+
+/// Load-or-build cascade for the full WD table:
+/// 1. If `WD24_TABLE` is set, load that path — and *panic* on failure (the user
+///    explicitly pointed at an artifact; silently rebuilding would mask the
+///    misconfiguration).
+/// 2. Else if `data/wd24.bin` exists, load it — on failure *warn and fall back*
+///    to BFS (an opportunistic default; a failed load can't corrupt a result,
+///    only a successfully-loaded-but-wrong table could, which the header/count
+///    checks reject).
+/// 3. Else build via BFS (the original behavior).
+fn load_or_build() -> (WdTable, WdTableSource) {
+    if let Ok(p) = std::env::var("WD24_TABLE") {
+        let path = PathBuf::from(&p);
+        match load_dist_table(&path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)) {
+            Ok(m) => {
+                let entries = m.len();
+                return (m, WdTableSource::Loaded { path, entries });
+            }
+            Err(e) => panic!(
+                "WD24_TABLE={} is set but the table failed to load: {}",
+                path.display(),
+                e
+            ),
+        }
+    }
+
+    let default = PathBuf::from("data/wd24.bin");
+    if default.exists() {
+        match load_dist_table(&default, WD_KIND_FULL, Some(FULL_WD_ENTRIES)) {
+            Ok(m) => {
+                let entries = m.len();
+                return (m, WdTableSource::Loaded { path: default, entries });
+            }
+            Err(e) => eprintln!(
+                "warning: {} exists but failed to load ({}); rebuilding via BFS. \
+                 Remove or rebuild it with `build_wd24`.",
+                default.display(),
+                e
+            ),
+        }
+    }
+
+    let m = build_table();
+    let entries = m.len();
+    (m, WdTableSource::Built { entries })
+}
+
+fn table() -> &'static WdTable {
+    T.get_or_init(|| {
+        let (m, src) = load_or_build();
+        let _ = SOURCE.set(src);
+        m
+    })
 }
 
 /// `WD_row(s) + WD_col(s)`. Admissible.
 pub struct WalkingDistanceHeuristic;
 
 impl WalkingDistanceHeuristic {
-    /// Force the lookup table to be built. Optional — `h` will build on first
-    /// call regardless. The 5×5 BFS is heavier than the 4×4 one, so warming up
-    /// at startup keeps the first solve from paying for it.
+    /// Force the lookup table to be initialized. Optional — `h` will initialize
+    /// on first call regardless. Prefers a pre-built artifact (`WD24_TABLE` env
+    /// var, else `data/wd24.bin`) and falls back to the ~17–25 s BFS; warming up
+    /// at startup keeps the first solve from paying for whichever path is taken.
     pub fn warm_up() {
         let _ = table();
+    }
+
+    /// [`warm_up`](Self::warm_up), then print one honest line to stderr saying
+    /// whether the table was loaded (and from where) or built via BFS, with the
+    /// elapsed time. A convenience so the CLIs don't each reimplement — and don't
+    /// print a misleading "building…" when the table was actually loaded.
+    pub fn warm_up_verbose() {
+        let t = std::time::Instant::now();
+        Self::warm_up();
+        let elapsed = t.elapsed();
+        match Self::table_source() {
+            Some(WdTableSource::Loaded { path, entries }) => {
+                eprintln!(
+                    "WD table: loaded {} entries from {} in {:?}",
+                    entries,
+                    path.display(),
+                    elapsed
+                );
+            }
+            Some(WdTableSource::Built { entries }) => {
+                eprintln!("WD table: built {} entries via BFS in {:?}", entries, elapsed);
+            }
+            None => {}
+        }
+    }
+
+    /// Force-initialize the table from a specific artifact `path`, bypassing the
+    /// env-var/default/BFS cascade. Must be called before any other WD lookup
+    /// (returns [`WdLoadError::AlreadyInitialized`] otherwise).
+    pub fn warm_up_from(path: &Path) -> Result<(), WdLoadError> {
+        let m = load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES))?;
+        let entries = m.len();
+        T.set(m).map_err(|_| WdLoadError::AlreadyInitialized)?;
+        let _ = SOURCE.set(WdTableSource::Loaded { path: path.to_path_buf(), entries });
+        Ok(())
+    }
+
+    /// How the (already-initialized) table was obtained, or `None` if the table
+    /// has not been initialized yet (no lookup or `warm_up*` has run).
+    pub fn table_source() -> Option<WdTableSource> {
+        SOURCE.get().cloned()
     }
 
     /// Size of the reachable WD-state space, for diagnostics.
@@ -614,5 +897,113 @@ mod tests {
             );
             assert_eq!(cs.nodes, ms.nodes, "WD mut/copy node count differs");
         }
+    }
+
+    // --- persistence (save_dist_table / load_dist_table) ---
+
+    fn tmp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("{}_{}", std::process::id(), name))
+    }
+
+    /// A small synthetic table so the persistence tests don't pay the full BFS.
+    /// Uses a non-`FULL` kind and no entry-count expectation on load.
+    const TEST_KIND: u32 = 0xABCD;
+    fn synthetic_table() -> WdTable {
+        let mut t: WdTable = HashMap::with_capacity_and_hasher(8, WdBuild::default());
+        for i in 0u64..37 {
+            // Keys spanning both u32 halves; values in the u8 distance range.
+            let key = (i.wrapping_mul(0x9E37_79B9_7F4A_7C15)) & ((1 << 63) - 1);
+            t.insert(key, (i % 200) as u8);
+        }
+        t
+    }
+
+    #[test]
+    fn dist_table_round_trip_synthetic() {
+        let path = tmp_path("wd_roundtrip.bin");
+        let table = synthetic_table();
+        save_dist_table(&path, TEST_KIND, &table).unwrap();
+        let loaded = load_dist_table(&path, TEST_KIND, Some(table.len() as u64)).unwrap();
+        assert_eq!(loaded, table, "round-trip changed the table");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn dist_table_serialization_is_deterministic() {
+        // Byte-identical output across writes ⇒ the SHA-256 pin is stable. The
+        // HashMap iteration order is not deterministic, so this exercises the
+        // key-sort in `save_dist_table`.
+        let table = synthetic_table();
+        let p1 = tmp_path("wd_det1.bin");
+        let p2 = tmp_path("wd_det2.bin");
+        save_dist_table(&p1, TEST_KIND, &table).unwrap();
+        save_dist_table(&p2, TEST_KIND, &table).unwrap();
+        let b1 = std::fs::read(&p1).unwrap();
+        let b2 = std::fs::read(&p2).unwrap();
+        assert_eq!(b1, b2, "serialization is not byte-deterministic");
+        let _ = std::fs::remove_file(&p1);
+        let _ = std::fs::remove_file(&p2);
+    }
+
+    #[test]
+    fn load_rejects_kind_mismatch() {
+        let path = tmp_path("wd_kind.bin");
+        save_dist_table(&path, TEST_KIND, &synthetic_table()).unwrap();
+        let err = load_dist_table(&path, WD_KIND_FULL, None).unwrap_err();
+        assert!(matches!(err, WdLoadError::KindMismatch { .. }), "got {:?}", err);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_rejects_entry_count_mismatch() {
+        let path = tmp_path("wd_count.bin");
+        let table = synthetic_table();
+        save_dist_table(&path, TEST_KIND, &table).unwrap();
+        let wrong = table.len() as u64 + 1;
+        let err = load_dist_table(&path, TEST_KIND, Some(wrong)).unwrap_err();
+        assert!(matches!(err, WdLoadError::EntryMismatch { .. }), "got {:?}", err);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_rejects_bad_magic() {
+        let path = tmp_path("wd_magic.bin");
+        save_dist_table(&path, TEST_KIND, &synthetic_table()).unwrap();
+        // Corrupt the first magic byte.
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[0] ^= 0xFF;
+        std::fs::write(&path, &bytes).unwrap();
+        let err = load_dist_table(&path, TEST_KIND, None).unwrap_err();
+        assert!(matches!(err, WdLoadError::BadMagic(_)), "got {:?}", err);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_rejects_truncation() {
+        let path = tmp_path("wd_trunc.bin");
+        save_dist_table(&path, TEST_KIND, &synthetic_table()).unwrap();
+        // Drop the final byte → declared entry count no longer matches the size.
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes.pop();
+        std::fs::write(&path, &bytes).unwrap();
+        let err = load_dist_table(&path, TEST_KIND, None).unwrap_err();
+        assert!(matches!(err, WdLoadError::SizeMismatch { .. }), "got {:?}", err);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// End-to-end on the *real* full WD table: build via BFS, persist, reload, and
+    /// confirm the reloaded table is identical — the exact path the `build_wd24`
+    /// tool and the `data/wd24.bin` load cascade rely on. Ignored by default
+    /// because the BFS is the ~17–25 s cost this whole feature exists to avoid.
+    #[test]
+    #[ignore = "full WD BFS (~17-25s); run with --ignored"]
+    fn full_wd_table_build_save_load_round_trip() {
+        let table = build_full_table();
+        assert_eq!(table.len() as u64, FULL_WD_ENTRIES);
+        let path = tmp_path("wd24_full_roundtrip.bin");
+        save_dist_table(&path, WD_KIND_FULL, &table).unwrap();
+        let loaded = load_dist_table(&path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)).unwrap();
+        assert_eq!(loaded, table, "full-table round-trip changed the table");
+        let _ = std::fs::remove_file(&path);
     }
 }

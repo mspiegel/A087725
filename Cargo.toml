@@ -67,6 +67,10 @@ name = "build_pdb24"
 required-features = ["parallel", "mmap", "sha"]
 
 [[bin]]
+name = "build_wd24"
+required-features = ["sha"]
+
+[[bin]]
 name = "solve24"
 required-features = ["mmap", "parallel"]
 

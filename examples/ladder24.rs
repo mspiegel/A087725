@@ -750,10 +750,7 @@ fn main() -> ExitCode {
     // WD table is needed by any WD/zpdb-plus/select heuristic and by `--top-n`
     // screening (the cheap catalog score is max(LC,WD)).
     if need_wd || args.top_n.is_some() {
-        eprintln!("building Walking Distance table (one-off, ~65.65M states)…");
-        let t = Instant::now();
-        WalkingDistanceHeuristic::warm_up();
-        eprintln!("  WD table built in {:?}", t.elapsed());
+        WalkingDistanceHeuristic::warm_up_verbose();
     }
 
     // Catalog triage (#2): cheaply score all candidates, keep the top-N hardest.

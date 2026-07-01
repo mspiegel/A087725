@@ -136,10 +136,7 @@ fn main() {
     }
 
     // Reference (non-PDB) heuristics. WD on R is the number to beat (≈140).
-    eprintln!("building Walking Distance table (one-off)…");
-    let t = Instant::now();
-    WalkingDistanceHeuristic::warm_up();
-    eprintln!("  WD table built in {:?}\n", t.elapsed());
+    WalkingDistanceHeuristic::warm_up_verbose();
 
     // Candidate partitions (our convention; tiles 1..=24, blank goal cell 24).
     let mut partitions: Vec<(String, [[u8; 6]; 4])> = vec![

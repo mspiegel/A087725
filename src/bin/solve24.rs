@@ -444,8 +444,7 @@ fn main() -> ExitCode {
         HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, t0),
         HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, t0),
         HeuristicChoice::Wd => {
-            eprintln!("building Walking Distance table (one-off)…");
-            WalkingDistanceHeuristic::warm_up();
+            WalkingDistanceHeuristic::warm_up_verbose();
             run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::Korf => {
@@ -491,8 +490,7 @@ fn main() -> ExitCode {
                 }
             };
             // Walking Distance needs its (heavy) table built before the search.
-            eprintln!("building Walking Distance table (one-off)…");
-            WalkingDistanceHeuristic::warm_up();
+            WalkingDistanceHeuristic::warm_up_verbose();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             run_inc(&start, &inc, args.max_bound, args.parallel, t0)
         }
@@ -508,8 +506,7 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            eprintln!("building Walking Distance table (one-off)…");
-            WalkingDistanceHeuristic::warm_up();
+            WalkingDistanceHeuristic::warm_up_verbose();
             // Auto-pick per board from the root heuristics (Phase 1C policy).
             let cheap = MaxInc::new(LinearConflictInc, WalkingDistanceInc);
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);

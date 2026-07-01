@@ -106,8 +106,7 @@ fn main() {
         .unwrap_or(0);
     let mask: u64 = (1u64 << shift) - 1;
 
-    eprintln!("building WD table…");
-    WalkingDistanceHeuristic::warm_up();
+    WalkingDistanceHeuristic::warm_up_verbose();
     let r = r_board();
     let blank = r.blank_pos();
 
