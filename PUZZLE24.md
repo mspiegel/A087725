@@ -351,6 +351,16 @@ minor overhead.)
 push past 152), and 2D wants the outer-loop parallelism. Both 2A and 2D *work* without it — it is a
 throughput multiplier, not a hard blocker, so treat it as optional-but-recommended.
 
+**Status (implemented 2026-06-30).** The within-search lever is done: `idastar_inc_bounded_parallel`
+(`src/puzzle24/search/idastar.rs`, `parallel` feature) = per-threshold frontier-split (BFS to ~4096
+subtree roots) + `par_iter` over the unmodified `search_inc` + OR/MIN/SUM reduce; `solve24 --parallel`
+wires it (now requires `parallel`). Tests assert parallel == sequential outcomes *and* identical
+exhaust node counts (the split counts boundary-pruned children to match `search_inc`). Measured ~2.7×
+on 12 cores for a depth-68 solve (348 ms vs 952 ms); bounded-LB (2A) gets the full win with zero
+redundant work. *Deferred:* (i) a shared atomic "found" flag to early-exit workers in *solving* mode
+(parallel currently explores the full final tree there — fine for bounded-LB); (ii) the board-level
+outer-loop parallelism, which lands with 2D (no candidate stream yet).
+
 ### 2A — Reproduce R ≥ 152 (headline milestone + stack validation)
 Push the proven LB on `R` from 144 (120 s) toward Rokicki's 152, validating the full stack against a
 published result and calibrating the *budget → threshold* scaling that sizes 2D's budgets. Mostly a

@@ -421,6 +421,189 @@ pub fn idastar_inc_ladder<E: IncHeuristic>(
     }
 }
 
+/// Parallel (shared-memory) variant of [`idastar_inc_ladder`] — same semantics
+/// and identical results, only faster on a multi-core machine (Phase 2 "2P").
+///
+/// Each threshold iteration is parallelized by **tree-splitting + work-stealing**:
+/// a cheap sequential breadth-first expansion grows a *frontier* of subtree roots
+/// (≫ #cores), then `rayon` runs the unmodified sequential [`search_inc`] on each
+/// subtree concurrently, and the per-subtree results are reduced — OR the "found"
+/// flags, MIN the smallest-`f`-over-threshold (the next bound), SUM the stats.
+///
+/// Correctness is unchanged from the sequential driver: exhausting a threshold in
+/// parallel still proves `dist ≥ next`, the MIN reduction is order-independent, and
+/// the first solution found at the successful threshold is optimal (any worker's is
+/// optimal-length). IDA\* stays memory-light — each worker holds one path + a
+/// `Copy` context — so this does not blow up like parallel A\*. The bounded
+/// lower-bound case (no early exit) has *zero* redundant work.
+///
+/// Bounds: `E: Sync` (the heuristic is shared) and `E::Ctx: Send + Sync` (the
+/// frontier of `Copy` contexts is shared across workers) — satisfied by every
+/// heuristic here. Build with the `parallel` feature.
+#[cfg(feature = "parallel")]
+pub fn idastar_inc_bounded_parallel<E>(
+    start: &State,
+    e: &E,
+    max_bound: u8,
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats)
+where
+    E: IncHeuristic + Sync,
+    E::Ctx: Send + Sync,
+{
+    use rayon::prelude::*;
+    use std::collections::VecDeque;
+
+    /// One subtree-root work unit: a node plus the move-prefix that reaches it,
+    /// so a worker that finds the goal can return the full path from `start`.
+    struct PUnit<C> {
+        state: State,
+        blank: u8,
+        g: u8,
+        ctx: C,
+        h: u8,
+        last: Option<Move>,
+        prefix: Vec<Move>,
+    }
+
+    /// Grow the frontier to ~this many subtree roots before going parallel — far
+    /// more than #cores so work-stealing balances the wildly-varying subtree sizes.
+    const SPLIT_TARGET: usize = 4096;
+
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (LadderOutcome::Solved(Vec::new()), stats);
+    }
+    let (h0, ctx0) = e.root(start, &mut stats);
+    let blank0 = start.blank_pos();
+    let mut bound = h0;
+
+    loop {
+        if bound > max_bound {
+            return (LadderOutcome::ProvedAtLeast(bound), stats);
+        }
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                return (LadderOutcome::TimedOut(bound), stats);
+            }
+        }
+        stats.iterations += 1;
+
+        // ---- split: sequential BFS growing a frontier of subtree roots ----
+        let mut frontier: VecDeque<PUnit<E::Ctx>> = VecDeque::new();
+        frontier.push_back(PUnit {
+            state: *start, blank: blank0, g: 0, ctx: ctx0, h: h0, last: None, prefix: Vec::new(),
+        });
+        let mut min_f_split = u8::MAX;
+        let mut found_in_split: Option<Vec<Move>> = None;
+        while frontier.len() < SPLIT_TARGET {
+            let u = match frontier.pop_front() {
+                Some(u) => u,
+                None => break, // tree exhausted during split
+            };
+            stats.nodes += 1;
+            if u.state == GOAL {
+                found_in_split = Some(u.prefix);
+                break;
+            }
+            for m in State::legal_moves_at(u.blank).iter() {
+                if let Some(prev) = u.last {
+                    if m == prev.inverse() {
+                        continue;
+                    }
+                }
+                let (s_next, nb) = u.state.apply_at(m, u.blank);
+                let (ch, cctx) = e.advance(&u.ctx, &s_next, m, &mut stats);
+                let cf = (u.g + 1).saturating_add(ch);
+                if cf > bound {
+                    // Count the boundary-pruned child to match `search_inc`, which
+                    // increments `nodes` at entry *before* the `f > bound` prune.
+                    // (Non-pruned children are counted instead when popped/searched,
+                    // so every node is tallied exactly once.)
+                    stats.nodes += 1;
+                    if cf < min_f_split {
+                        min_f_split = cf;
+                    }
+                    continue;
+                }
+                let mut prefix = u.prefix.clone();
+                prefix.push(m);
+                frontier.push_back(PUnit {
+                    state: s_next, blank: nb, g: u.g + 1, ctx: cctx, h: ch, last: Some(m), prefix,
+                });
+            }
+        }
+        if let Some(path) = found_in_split {
+            return (LadderOutcome::Solved(path), stats);
+        }
+        if frontier.is_empty() {
+            // Whole threshold exhausted during the split (small tree).
+            if min_f_split == u8::MAX {
+                return (LadderOutcome::Unsolvable, stats);
+            }
+            bound = min_f_split;
+            continue;
+        }
+
+        // ---- parallel: run sequential search_inc on each subtree, then reduce ----
+        enum Wr {
+            Found(Vec<Move>),
+            Aborted,
+            Bound(u8),
+        }
+        let units: Vec<PUnit<E::Ctx>> = frontier.into_iter().collect();
+        let results: Vec<(Wr, SearchStats)> = units
+            .par_iter()
+            .map(|u| {
+                let mut st = SearchStats::default();
+                let mut path: Vec<Move> = Vec::new();
+                let step =
+                    search_inc(&u.state, u.blank, u.ctx, u.h, u.g, bound, deadline, &mut path, u.last, e, &mut st);
+                let wr = match step {
+                    Step::Found => {
+                        let mut full = u.prefix.clone();
+                        full.extend(path);
+                        Wr::Found(full)
+                    }
+                    Step::Aborted => Wr::Aborted,
+                    Step::Bound(n) => Wr::Bound(n),
+                };
+                (wr, st)
+            })
+            .collect();
+
+        let mut found: Option<Vec<Move>> = None;
+        let mut aborted = false;
+        let mut min_f = min_f_split;
+        for (wr, st) in results {
+            stats.add(&st);
+            match wr {
+                Wr::Found(p) => {
+                    if found.is_none() {
+                        found = Some(p);
+                    }
+                }
+                Wr::Aborted => aborted = true,
+                Wr::Bound(n) => {
+                    if n < min_f {
+                        min_f = n;
+                    }
+                }
+            }
+        }
+        if let Some(p) = found {
+            return (LadderOutcome::Solved(p), stats);
+        }
+        if aborted {
+            return (LadderOutcome::TimedOut(bound), stats);
+        }
+        if min_f == u8::MAX {
+            return (LadderOutcome::Unsolvable, stats);
+        }
+        bound = min_f;
+    }
+}
+
 /// Make/unmake variant of [`IncHeuristic`]: instead of producing a fresh `Copy`
 /// context per node, the search threads a single `&mut Ctx`, mutating it in
 /// place before recursing and undoing on backtrack. This avoids the per-node
@@ -774,6 +957,84 @@ mod tests {
         }
         for &t in &thresholds {
             assert!(t < truth, "telemetry fired at solving threshold {} (depth {})", t, truth);
+        }
+    }
+
+    // ---------- parallel driver (2P) -----------------------------------------
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_solves_optimally_and_matches_sequential() {
+        use super::super::heuristic::IncManhattan;
+        let table = bfs_distances(8);
+        for (raw, &truth) in table.iter().take(3000) {
+            let s = State(*raw);
+            // Unbounded parallel solve must return the optimal length and a path
+            // that replays to GOAL — identical outcome to the sequential ladder.
+            let (par, _) = idastar_inc_bounded_parallel(&s, &IncManhattan, u8::MAX, None);
+            let par_sol = match &par {
+                LadderOutcome::Solved(sol) => {
+                    assert_eq!(sol.len() as u8, truth, "parallel non-optimal for {:?}", raw);
+                    let mut cur = s;
+                    for m in sol {
+                        cur = cur.apply(*m);
+                    }
+                    assert_eq!(cur, GOAL, "parallel path doesn't reach GOAL for {:?}", raw);
+                    sol.clone()
+                }
+                other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+            };
+            // Same optimal length as the sequential ladder driver.
+            let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, u8::MAX, None);
+            match seq {
+                LadderOutcome::Solved(a) => {
+                    assert_eq!(a.len(), par_sol.len(), "parallel vs sequential length mismatch for {:?}", raw);
+                }
+                other => panic!("expected sequential Solved, got {:?}", other),
+            }
+        }
+    }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_bounded_proves_same_lower_bound_as_sequential() {
+        use super::super::heuristic::IncManhattan;
+        let table = bfs_distances(8);
+        for (raw, &truth) in table.iter() {
+            if truth == 0 {
+                continue;
+            }
+            let s = State(*raw);
+            // max_bound = depth-1: parallel must prove depth >= truth, matching
+            // the sequential ladder exactly.
+            let (par, _) = idastar_inc_bounded_parallel(&s, &IncManhattan, truth - 1, None);
+            assert_eq!(par, LadderOutcome::ProvedAtLeast(truth), "parallel LB wrong for {:?}", raw);
+            let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, truth - 1, None);
+            assert_eq!(seq, par, "parallel vs sequential LB mismatch for {:?}", raw);
+        }
+    }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_exhaust_node_count_matches_sequential() {
+        // For a bounded *exhaust* (no early exit), parallel and sequential explore
+        // the identical node set, so the node counters must agree exactly — guards
+        // the split's boundary-prune counting against regressions.
+        use super::super::heuristic::IncManhattan;
+        let table = bfs_distances(8);
+        for (raw, &truth) in table.iter() {
+            if truth < 2 {
+                continue;
+            }
+            let s = State(*raw);
+            let mb = truth - 1; // exhausts every threshold up to the proof of `truth`
+            let (_, seq_stats) = idastar_inc_bounded_with_stats(&s, &IncManhattan, mb);
+            let (_, par_stats) = idastar_inc_bounded_parallel(&s, &IncManhattan, mb, None);
+            assert_eq!(
+                seq_stats.nodes, par_stats.nodes,
+                "node count mismatch (seq {} vs par {}) for {:?}",
+                seq_stats.nodes, par_stats.nodes, raw
+            );
         }
     }
 }

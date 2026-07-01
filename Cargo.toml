@@ -68,7 +68,7 @@ required-features = ["parallel", "mmap", "sha"]
 
 [[bin]]
 name = "solve24"
-required-features = ["mmap"]
+required-features = ["mmap", "parallel"]
 
 [[bin]]
 name = "verify15"

@@ -39,8 +39,8 @@ use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
-    idastar_inc_bounded_with_stats, idastar_inc_with_stats, BoundedOutcome, IncHeuristic,
-    IncManhattan, SearchStats, WalkingDistanceHeuristic,
+    idastar_inc_bounded_parallel, idastar_inc_bounded_with_stats, idastar_inc_with_stats,
+    BoundedOutcome, IncHeuristic, IncManhattan, LadderOutcome, SearchStats, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -75,13 +75,15 @@ struct Args {
     pdb_set: PdbSet,
     /// Cap the IDA* threshold here; `None` = unbounded optimal solve.
     max_bound: Option<u8>,
+    /// Use the shared-memory parallel IDA* driver (2P).
+    parallel: bool,
 }
 
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
          [--heuristic korf|manhattan|zpdb|zpdb-plus] [--pdb-set k6|k7]\n         \
-         [--max-bound T | --prove-at-least T]",
+         [--max-bound T | --prove-at-least T] [--parallel]",
         prog
     );
 }
@@ -93,6 +95,7 @@ fn parse_args() -> Result<Args, String> {
     let mut heuristic = HeuristicChoice::Zpdb;
     let mut pdb_set = PdbSet::K6;
     let mut max_bound = None;
+    let mut parallel = false;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -150,12 +153,13 @@ fn parse_args() -> Result<Args, String> {
                 // Exhausting every threshold < T proves depth >= T.
                 max_bound = Some(t - 1);
             }
+            "--parallel" => parallel = true,
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {}", other)),
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound })
+    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -246,12 +250,47 @@ fn print_stats(st: &SearchStats) {
 }
 
 /// Drive an incremental heuristic, dispatching on bounded vs optimal mode.
-fn run_inc<E: IncHeuristic>(
+fn run_inc<E: IncHeuristic + Sync>(
     start: &State,
     e: &E,
     max_bound: Option<u8>,
+    parallel: bool,
     t0: Instant,
-) -> ExitCode {
+) -> ExitCode
+where
+    E::Ctx: Send + Sync,
+{
+    if parallel {
+        // Shared-memory parallel IDA* (2P). max_bound = None -> unbounded solve.
+        let (outcome, st) = idastar_inc_bounded_parallel(start, e, max_bound.unwrap_or(u8::MAX), None);
+        let elapsed = t0.elapsed();
+        return match outcome {
+            LadderOutcome::Solved(s) => {
+                if let Some(mb) = max_bound {
+                    println!("Found within bound {} (optimal):", mb);
+                }
+                print_solution(start, &s, elapsed);
+                print_stats(&st);
+                ExitCode::SUCCESS
+            }
+            LadderOutcome::ProvedAtLeast(k) => {
+                println!("Lower bound: depth >= {}", k);
+                println!("Wall-clock     : {:.2?}", elapsed);
+                print_stats(&st);
+                ExitCode::SUCCESS
+            }
+            LadderOutcome::TimedOut(k) => {
+                // No deadline is passed here, so this is not expected.
+                println!("Lower bound: depth >= {} (timed out)", k);
+                print_stats(&st);
+                ExitCode::SUCCESS
+            }
+            LadderOutcome::Unsolvable => {
+                eprintln!("position is unsolvable");
+                ExitCode::FAILURE
+            }
+        };
+    }
     match max_bound {
         None => {
             let (sol, st) = idastar_inc_with_stats(start, e);
@@ -346,7 +385,7 @@ fn main() -> ExitCode {
 
     let t0 = Instant::now();
     match args.heuristic {
-        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, t0),
+        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, t0),
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {
                 Ok(d) => d,
@@ -360,7 +399,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::Zpdb => {
             let dir = match require_dir(&args, "zpdb") {
@@ -375,7 +414,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::ZpdbPlus => {
             let dir = match require_dir(&args, "zpdb-plus") {
@@ -393,7 +432,7 @@ fn main() -> ExitCode {
             eprintln!("building Walking Distance table (one-off)…");
             WalkingDistanceHeuristic::warm_up();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
         }
     }
 }

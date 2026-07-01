@@ -13,6 +13,8 @@ pub use idastar::{
     idastar_inc_ladder, idastar_inc_mut, idastar_inc_mut_with_stats, idastar_inc_with_stats,
     idastar_with_stats, BoundedOutcome, IncHeuristic, IncHeuristicMut, LadderOutcome, SearchStats,
 };
+#[cfg(feature = "parallel")]
+pub use idastar::idastar_inc_bounded_parallel;
 
 /// Test-only helpers shared across the search tests.
 #[cfg(test)]
