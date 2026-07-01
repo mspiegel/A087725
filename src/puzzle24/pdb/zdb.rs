@@ -76,6 +76,21 @@ impl ZPatternDb {
         Self { pattern, layout, storage: Storage::Owned(packed) }
     }
 
+    /// Wrap an already-packed 1-bit table (e.g. from the frontier-free
+    /// [`zbuild::build_zpdb_2bit_packed`], which never materializes a byte
+    /// `dist`). `packed` must be exactly `(total + 7) / 8` bytes.
+    pub fn from_packed(pattern: Pattern, packed: Vec<u8>) -> Self {
+        let layout = ZpdbLayout::new(pattern);
+        assert_eq!(
+            packed.len() as u64,
+            (layout.total() + 7) / 8,
+            "packed length {} != (total + 7)/8 = {}",
+            packed.len(),
+            (layout.total() + 7) / 8
+        );
+        Self { pattern, layout, storage: Storage::Owned(packed) }
+    }
+
     /// Build the ZPDB end-to-end (single-threaded BFS, then pack).
     pub fn build(pattern: Pattern) -> Self {
         let (dist, _) = zbuild::build_zpdb(pattern);

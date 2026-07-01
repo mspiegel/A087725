@@ -430,6 +430,17 @@ impl ZpdbLayout {
         let count = self.counts[sr] as u64;
         let pr = rem / count;
         let region = (rem % count) as u8;
+        self.unrank_in_cohort(sr, pr, region)
+    }
+
+    /// Reconstruct the representative for a state already decomposed into its
+    /// shape-rank `sr`, permutation-rank `pr`, and blank `region` — steps 2–5 of
+    /// [`unrank_representative`](Self::unrank_representative), skipping the cohort
+    /// binary-search. Used by the frontier-free 2-bit build sweep, which already
+    /// knows `sr` from cohort iteration and would otherwise pay the search per
+    /// (re-)expanded node.
+    pub fn unrank_in_cohort(&self, sr: usize, pr: u64, region: u8) -> ProjectedState {
+        debug_assert!(sr < self.counts.len(), "shape rank {} out of range", sr);
 
         // 2. Combinadic unrank of the shape `sr` → k ascending occupied cells.
         let mut occ_cells = [0u8; 8];

@@ -39,6 +39,34 @@ pub fn pack_bits(dist: &[u8]) -> Vec<u8> {
     packed
 }
 
+/// Compact a 2-bit-per-state working array (from the frontier-free build) into
+/// the 1-bit codec table **in place**. Each 2-bit field is `0b1<bit1>` for a
+/// visited state, so its low bit is exactly the stored codec bit `(h >> 1) & 1`
+/// (identical to [`pack_bits`]). `buf` holds `(total + 3) / 4` bytes on entry;
+/// on return its first `(total + 7) / 8` bytes are the packed table and it is
+/// truncated to that length.
+///
+/// The forward pass is safe in place: output byte `w` reads only input bytes
+/// `2w` and `2w+1` and writes byte `w ≤ 2w`, and byte `w` is never read again by
+/// any later output byte (which start at input byte `2(w+1) > w`).
+pub fn pack1_from_2bit_inplace(buf: &mut Vec<u8>, total: usize) {
+    let out_len = (total + 7) / 8;
+    debug_assert!(buf.len() >= (total + 3) / 4, "2-bit buffer too small");
+    for w in 0..out_len {
+        let mut byte = 0u8;
+        for b in 0..8usize {
+            let i = w * 8 + b;
+            if i >= total {
+                break;
+            }
+            let field = (buf[i / 4] >> (2 * (i % 4))) & 0b11;
+            byte |= (field & 1) << b;
+        }
+        buf[w] = byte;
+    }
+    buf.truncate(out_len);
+}
+
 /// Diagnostic inverse of [`pack_bits`] *up to the stored bit*: returns `len`
 /// values each in `{0, 2}` (the stored bit 1 shifted into value position).
 /// Used by tests and the round-trip check; hot-path code uses

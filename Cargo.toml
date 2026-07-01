@@ -99,6 +99,10 @@ name = "rceiling24"
 required-features = ["parallel", "mmap"]
 
 [[example]]
+name = "dupprobe24"
+required-features = ["parallel", "mmap"]
+
+[[example]]
 name = "antipode_anchor15"
 required-features = ["mmap", "parallel"]
 

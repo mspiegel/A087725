@@ -201,6 +201,139 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
     (out, layout)
 }
 
+/// Load the 2-bit code of state `idx` from the packed atomic working array.
+#[cfg(feature = "parallel")]
+#[inline]
+fn load_2bit(view: &[std::sync::atomic::AtomicU8], idx: u64) -> u8 {
+    use std::sync::atomic::Ordering;
+    let byte = view[(idx / 4) as usize].load(Ordering::Relaxed);
+    (byte >> (2 * (idx % 4))) & 0b11
+}
+
+/// Mark state `idx` with 2-bit `code` **iff it is currently unvisited (`00`)**.
+/// Returns true iff this call performed the mark (i.e. `idx` was newly visited).
+/// CAS-guarded — a blind `fetch_or` would flip an already-visited neighbor's
+/// bit1 (the codec bit) and silently corrupt the table.
+#[cfg(feature = "parallel")]
+#[inline]
+fn mark_if_unvisited(view: &[std::sync::atomic::AtomicU8], idx: u64, code: u8) -> bool {
+    use std::sync::atomic::Ordering;
+    let a = &view[(idx / 4) as usize];
+    let shift = 2 * (idx % 4) as u8;
+    let mut cur = a.load(Ordering::Relaxed);
+    loop {
+        if (cur >> shift) & 0b11 != 0 {
+            return false; // already visited
+        }
+        let new = cur | (code << shift);
+        match a.compare_exchange_weak(cur, new, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return true,
+            Err(actual) => cur = actual,
+        }
+    }
+}
+
+/// Memory-frugal zero-aware PDB build: a **frontier-free 2-bit BFS** that returns
+/// the already-packed 1-bit codec table (identical to `pack_bits(&build_zpdb(p))`).
+///
+/// Instead of the byte `dist` array + explicit frontier of [`build_zpdb_parallel`]
+/// (which needs ~80 GiB of `dist` alone at k=8), this holds a single **2-bit per
+/// state** working array — `00` = unvisited, else `0b1<bit1>` where `bit1 =
+/// (h>>1)&1` is the codec bit — and no frontier. Peak memory is `(total+3)/4`
+/// bytes (~20 GiB for k=8, vs infeasible), compacted in place to `(total+7)/8`.
+///
+/// The build is layer-synchronous (layer index = distance `h`). Each layer `d`
+/// sweeps the array: a state is the current frontier iff it is visited, its shape
+/// parity ([`ZpdbLayout::shape_parity`]) equals `d&1`, and its stored `bit1`
+/// equals `(d>>1)&1` — together `h ≡ d (mod 4)`, so the sweep also re-hits depths
+/// `d-4, d-8, …` whose re-expansion marks nothing new (harmless). Newly-visited
+/// successors are opposite-parity, so they are never re-selected within the same
+/// layer — intra-layer races are benign; the parallel `.sum()` is the barrier.
+///
+/// Trades build time (per-state re-expansion, ~2–5×) for memory; intended for
+/// k≥8, where the frontier build is infeasible. `build_zpdb_parallel` remains the
+/// fast path for k≤7.
+#[cfg(feature = "parallel")]
+pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
+    use rayon::prelude::*;
+    use std::sync::atomic::AtomicU8;
+
+    let layout = ZpdbLayout::new(pattern);
+    let total = layout.total();
+    let n_bytes = (total as usize + 3) / 4;
+    let mut buf: Vec<u8> = vec![0u8; n_bytes]; // 00 = unvisited everywhere
+
+    let cb = layout.cohort_base();
+    let counts = layout.region_counts();
+    let sp = layout.shape_parity();
+    let num_shapes = counts.len();
+    debug_assert_eq!(cb.len(), num_shapes);
+
+    // SAFETY: AtomicU8 has the same layout as u8; `buf` outlives `view` and is
+    // only touched through `view` (all-atomic) until `view` is dropped below.
+    let view: &[AtomicU8] =
+        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const AtomicU8, n_bytes) };
+
+    // Seed the single goal state at depth 0 (bit1 = 0 ⇒ code 0b10).
+    let goal = ProjectedState::goal(pattern);
+    let goal_rank = layout.rank(&goal, pattern);
+    mark_if_unvisited(view, goal_rank, 0b10);
+
+    let mut cumulative: u64 = 1;
+    let mut d: usize = 0;
+    loop {
+        let parity = (d & 1) as u8;
+        let want_bit1 = ((d >> 1) & 1) as u8;
+        let next_code = 0b10u8 | (((d + 1) >> 1) & 1) as u8;
+
+        let marked: u64 = (0..num_shapes)
+            .into_par_iter()
+            .map(|sr| {
+                if sp[sr] != parity {
+                    return 0u64; // wrong-parity cohort: no depth-d frontier here
+                }
+                let start = cb[sr];
+                let end = if sr + 1 < num_shapes { cb[sr + 1] } else { total };
+                let count = counts[sr] as u64;
+                let mut local: u64 = 0;
+                let mut succ: Vec<ProjectedState> = Vec::new();
+                for i in start..end {
+                    let code = load_2bit(view, i);
+                    if code == 0 || (code & 1) != want_bit1 {
+                        continue; // unvisited, or not h ≡ d (mod 4)
+                    }
+                    let offset = i - start;
+                    let s = layout.unrank_in_cohort(sr, offset / count, (offset % count) as u8);
+                    succ.clear();
+                    gen_moves(&layout, &s, &mut succ);
+                    for ns in succ.drain(..) {
+                        let idx = layout.rank(&ns, pattern);
+                        if mark_if_unvisited(view, idx, next_code) {
+                            local += 1;
+                        }
+                    }
+                }
+                local
+            })
+            .sum();
+
+        if marked == 0 {
+            break;
+        }
+        cumulative += marked;
+        d += 1;
+    }
+
+    // `view` is no longer used; safe to mutate `buf` directly now.
+    assert_eq!(
+        cumulative, total,
+        "frontier-free BFS covered {} of {} states — graph not fully reached",
+        cumulative, total
+    );
+    super::zcodec::pack1_from_2bit_inplace(&mut buf, total as usize);
+    (buf, layout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +442,107 @@ mod tests {
     fn zpdb_parallel_matches_sequential_k4() {
         let p = Pattern::new(&[2, 5, 8, 11]);
         assert_eq!(build_zpdb(p).0, build_zpdb_parallel(p).0);
+    }
+
+    /// The frontier-free 2-bit builder must emit byte-identical packed tables to
+    /// `pack_bits(build_zpdb(..))` (the verified sequential oracle). This single
+    /// gate catches every corruption mode: CAS marking, the parity+bit1 frontier
+    /// predicate, the in-place 2→1 compaction, and the AtomicU8 reinterpret.
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn zpdb_2bit_packed_matches_pack_bits_k2_k3_k4() {
+        use super::super::zcodec::pack_bits;
+        for tiles in [&[1u8, 2][..], &[1, 7, 13], &[2, 5, 8, 11]] {
+            let p = Pattern::new(tiles);
+            let packed = build_zpdb_2bit_packed(p).0;
+            let reference = pack_bits(&build_zpdb(p).0);
+            assert_eq!(packed, reference, "2-bit packed != pack_bits(build_zpdb) for {:?}", tiles);
+        }
+    }
+
+    /// The packed table from the 2-bit builder must decode (through `from_packed`
+    /// + the codec's cold-lookup) back to the true distances — ties the new
+    /// builder to the query path, not just the packing.
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn zpdb_2bit_packed_decodes_to_true_dist_k3() {
+        let p = Pattern::new(&[1, 7, 13]);
+        let (dist, layout) = build_zpdb(p);
+        let (packed, _) = build_zpdb_2bit_packed(p);
+        let zdb = super::super::zdb::ZPatternDb::from_packed(p, packed);
+        for idx in 0..layout.total() {
+            let s = layout.unrank_representative(idx);
+            assert_eq!(
+                zdb.cold_lookup_proj(&s),
+                dist[idx as usize],
+                "decode mismatch at idx {}",
+                idx
+            );
+        }
+    }
+
+    /// Full k=7 correctness + performance probe: build one k7 part BOTH ways and
+    /// assert byte-identical packed output (the frontier path is itself SHA-pinned
+    /// to the committed k7 artifacts, so this transitively proves the frontier-free
+    /// builder matches them), and report the re-expansion time multiplier.
+    #[cfg(feature = "parallel")]
+    #[test]
+    #[ignore = "full k7 build both ways (~30-60 min); correctness + perf probe, --nocapture"]
+    fn zpdb_2bit_packed_matches_parallel_k7() {
+        use super::super::zcodec::pack_bits;
+        use std::time::Instant;
+        let p = Pattern::new(&[1, 2, 3, 6, 7, 8, 11]); // K7 partition, part a
+        let t = Instant::now();
+        let frontier = pack_bits(&build_zpdb_parallel(p).0);
+        let t_frontier = t.elapsed();
+        let t = Instant::now();
+        let frugal = build_zpdb_2bit_packed(p).0;
+        let t_frugal = t.elapsed();
+        println!(
+            "k7 frontier build {:.1?}, frontier-free {:.1?} ({:.2}x slower)",
+            t_frontier,
+            t_frugal,
+            t_frugal.as_secs_f64() / t_frontier.as_secs_f64()
+        );
+        assert_eq!(frugal, frontier, "k7 frontier-free != frontier build");
+    }
+
+    /// k=8 sizing pre-flight: build only the layout (cheap) and report the
+    /// working-array (2-bit) and packed (1-bit) byte sizes, to confirm the
+    /// frontier-free build fits RAM before launching a multi-hour k8 build.
+    #[cfg(feature = "parallel")]
+    #[test]
+    #[ignore = "k8 layout sizing pre-flight; run with --ignored --nocapture"]
+    fn zpdb_k8_layout_size_preflight() {
+        let p = Pattern::new(&[1, 2, 3, 6, 7, 8, 11, 12]); // total() depends only on k=8
+        let layout = ZpdbLayout::new(p);
+        let total = layout.total();
+        let gib = |b: u64| b as f64 / (1u64 << 30) as f64;
+        println!("k8 total()          = {}", total);
+        println!("2-bit working bytes = {} ({:.2} GiB)", (total + 3) / 4, gib((total + 3) / 4));
+        println!("1-bit packed bytes  = {} ({:.2} GiB)", (total + 7) / 8, gib((total + 7) / 8));
+    }
+
+    /// Full k=6 equivalence to the fast frontier builder (the k≤7 shipped path).
+    #[cfg(feature = "parallel")]
+    #[test]
+    #[ignore = "full k6 frontier-free builds (~minutes); run with --ignored"]
+    fn zpdb_2bit_packed_matches_parallel_k6() {
+        use super::super::zcodec::pack_bits;
+        for tiles in [
+            &[1u8, 2, 3, 6, 7, 8][..],
+            &[4, 5, 9, 10, 14, 15],
+            &[11, 12, 16, 17, 21, 22],
+            &[13, 18, 19, 20, 23, 24],
+        ] {
+            let p = Pattern::new(tiles);
+            assert_eq!(
+                build_zpdb_2bit_packed(p).0,
+                pack_bits(&build_zpdb_parallel(p).0),
+                "k6 mismatch {:?}",
+                tiles
+            );
+        }
     }
 
     #[cfg(feature = "parallel")]

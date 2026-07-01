@@ -20,7 +20,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::pattern::Pattern;
-use puzzle8::puzzle24::pdb::zbuild::build_zpdb_parallel;
+use puzzle8::puzzle24::pdb::zbuild::{build_zpdb_2bit_packed, build_zpdb_parallel};
 use puzzle8::puzzle24::pdb::zdb::ZPatternDb;
 use puzzle8::puzzle24::pdb::PatternDb;
 
@@ -229,17 +229,28 @@ fn main() -> ExitCode {
         }
     }
     if args.zero_aware {
-        let (dist, layout) = build_zpdb_parallel(pattern);
-        println!("ZPDB BFS complete in {:.2?}", t0.elapsed());
-        println!("  ZPDB entries : {}", layout.total());
-        let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
-        let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
-        println!("  Max depth    : {}", maxd);
-        if unvisited != 0 {
-            eprintln!("error: ZPDB build left {} unvisited entries", unvisited);
-            return ExitCode::FAILURE;
-        }
-        let zdb = ZPatternDb::from_dist(pattern, &dist);
+        // k>=8: the frontier build's byte `dist` (~80 GiB at k=8) and u32 frontier
+        // are infeasible; use the frontier-free 2-bit builder (~20 GiB, packs
+        // directly). k<=7: the fast, SHA-pinned frontier build.
+        let zdb = if pattern.size() >= 8 {
+            let (packed, layout) = build_zpdb_2bit_packed(pattern);
+            println!("ZPDB (frontier-free 2-bit) BFS complete in {:.2?}", t0.elapsed());
+            println!("  ZPDB entries : {}", layout.total());
+            println!("  Packed bytes : {}", packed.len());
+            ZPatternDb::from_packed(pattern, packed)
+        } else {
+            let (dist, layout) = build_zpdb_parallel(pattern);
+            println!("ZPDB BFS complete in {:.2?}", t0.elapsed());
+            println!("  ZPDB entries : {}", layout.total());
+            let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
+            let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
+            println!("  Max depth    : {}", maxd);
+            if unvisited != 0 {
+                eprintln!("error: ZPDB build left {} unvisited entries", unvisited);
+                return ExitCode::FAILURE;
+            }
+            ZPatternDb::from_dist(pattern, &dist)
+        };
         if let Err(e) = zdb.save(&args.out) {
             eprintln!("error: writing {}: {}", args.out.display(), e);
             return ExitCode::FAILURE;
