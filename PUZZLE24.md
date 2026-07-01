@@ -356,11 +356,14 @@ throughput multiplier, not a hard blocker, so treat it as optional-but-recommend
 subtree roots) + `par_iter` over the unmodified `search_inc` + OR/MIN/SUM reduce; **`solve24
 --parallel` and `ladder24 --parallel`** wire it (both now require `parallel`). Tests assert parallel
 == sequential outcomes *and* identical exhaust node counts (the split counts boundary-pruned children
-to match `search_inc`). Measured ~2.7× on 12 cores for a depth-68 solve (348 ms vs 952 ms) and ~2.4×
-on a depth-88 ladder solve; bounded-LB (2A) gets the full win with zero redundant work. *Deferred:*
-(i) a shared atomic "found" flag to early-exit workers in *solving* mode (parallel currently explores
-the full final tree there — fine for bounded-LB); (ii) the board-level *outer-loop* parallelism
-(running many candidate boards concurrently), which lands with 2D (no candidate stream yet).
+to match `search_inc`). Bounded-LB (2A) gets the full win with zero redundant work (~6× raw
+throughput on 12 cores). A **shared atomic "found" flag** (checked every ~16k nodes; set at the goal)
+early-exits workers in *solving* mode — modest, because parallel solving explores all frontier
+subtrees concurrently without knowing which holds the goal, so by the time one worker finds it the
+others are mostly done; the flag only trims the tail (depth-68 solve: 2.7×→3.1×, 10.4M→9.4M nodes).
+It is inert in a bounded exhaust (never set) so 2A's LB and node count are unchanged. *Deferred:* the
+board-level *outer-loop* parallelism (running many candidate boards concurrently), which lands with 2D
+(no candidate stream yet).
 
 ### 2A — Reproduce R ≥ 152 (headline milestone + stack validation)
 Push the proven LB on `R` from 144 (120 s) toward Rokicki's 152, validating the full stack against a

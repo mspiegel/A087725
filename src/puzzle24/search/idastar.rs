@@ -208,9 +208,12 @@ pub fn idastar_inc_with_stats<E: IncHeuristic>(
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    // Private, never-read cell so the shared `search_inc` signature is uniform;
+    // in this sequential driver it is only set at the goal and then discarded.
+    let found = std::sync::atomic::AtomicBool::new(false);
     loop {
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, None, &mut path, None, e, &mut stats) {
+        match search_inc(start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -241,15 +244,26 @@ fn search_inc<E: IncHeuristic>(
     g: u8,
     bound: u8,
     deadline: Option<std::time::Instant>,
+    found: &std::sync::atomic::AtomicBool,
     path: &mut Vec<Move>,
     last: Option<Move>,
     e: &E,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
-    if let Some(dl) = deadline {
-        if stats.nodes & DEADLINE_CHECK_MASK == 0 && std::time::Instant::now() >= dl {
+    // Every ~16k nodes, check for a deadline or a sibling worker having already
+    // found the goal (parallel solving early-exit). Both surface as `Aborted`;
+    // the caller distinguishes them (found ⇒ another worker's `Found` wins). In
+    // the sequential drivers `found` is a private cell nobody else reads, so the
+    // load is a harmless no-op there.
+    if stats.nodes & DEADLINE_CHECK_MASK == 0 {
+        if found.load(std::sync::atomic::Ordering::Relaxed) {
             return Step::Aborted;
+        }
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                return Step::Aborted;
+            }
         }
     }
     let f = g.saturating_add(h_val);
@@ -257,6 +271,9 @@ fn search_inc<E: IncHeuristic>(
         return Step::Bound(f);
     }
     if s == &GOAL {
+        // Signal any parallel siblings to stop — every goal at this threshold is
+        // optimal-length, so the first one found is a valid optimal solution.
+        found.store(true, std::sync::atomic::Ordering::Relaxed);
         return Step::Found;
     }
 
@@ -270,7 +287,7 @@ fn search_inc<E: IncHeuristic>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let (child_h, child_ctx) = e.advance(&ctx, &s_next, m, stats);
         path.push(m);
-        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, deadline, path, Some(m), e, stats) {
+        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, stats) {
             Step::Found => return Step::Found,
             Step::Aborted => return Step::Aborted,
             Step::Bound(n) => {
@@ -341,13 +358,14 @@ where
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    let found = std::sync::atomic::AtomicBool::new(false); // private, never read here
     loop {
         if bound > max_bound {
             return (BoundedOutcome::ProvedAtLeast(bound), stats);
         }
         stats.iterations += 1;
         let iter_start = std::time::Instant::now();
-        match search_inc(start, blank, ctx0, h0, 0, bound, None, &mut path, None, e, &mut stats) {
+        match search_inc(start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -401,12 +419,13 @@ pub fn idastar_inc_ladder<E: IncHeuristic>(
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    let found = std::sync::atomic::AtomicBool::new(false); // private, never read here
     loop {
         if bound > max_bound {
             return (LadderOutcome::ProvedAtLeast(bound), stats);
         }
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, deadline, &mut path, None, e, &mut stats) {
+        match search_inc(start, blank, ctx0, h0, 0, bound, deadline, &found, &mut path, None, e, &mut stats) {
             Step::Found => return (LadderOutcome::Solved(path), stats),
             // `bound` is the deepest threshold reached; the prior iteration
             // proved depth ≥ bound, so that is the lower bound at timeout.
@@ -552,13 +571,18 @@ where
             Bound(u8),
         }
         let units: Vec<PUnit<E::Ctx>> = frontier.into_iter().collect();
+        // Shared early-exit flag: the first worker to reach the goal sets it, and
+        // the others bail (their goals would be the same optimal length). Only ever
+        // set in a *solving* iteration; in a bounded exhaust it stays false, so the
+        // proven LB is identical to the sequential driver (no early exit).
+        let found_flag = std::sync::atomic::AtomicBool::new(false);
         let results: Vec<(Wr, SearchStats)> = units
             .par_iter()
             .map(|u| {
                 let mut st = SearchStats::default();
                 let mut path: Vec<Move> = Vec::new();
                 let step =
-                    search_inc(&u.state, u.blank, u.ctx, u.h, u.g, bound, deadline, &mut path, u.last, e, &mut st);
+                    search_inc(&u.state, u.blank, u.ctx, u.h, u.g, bound, deadline, &found_flag, &mut path, u.last, e, &mut st);
                 let wr = match step {
                     Step::Found => {
                         let mut full = u.prefix.clone();
