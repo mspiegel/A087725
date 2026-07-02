@@ -284,3 +284,28 @@ but PoC scale caps it at mid-depth boards. Antipode-level performance (and hence
 the 24-puzzle R goal) requires DeepCubeA-class capacity + ~10⁶ steps — which is also where the GPU
 crossover finally favors Metal. That is a deliberate compute investment, out of scope for a laptop
 session; the code is ready for it (pure `train_ml15` hyperparameter scale-up + `--metal`).
+
+### Scale-up architecture (2026-07-02)
+
+Upgraded the value net from a fixed 4-layer MLP to a **DeepCubeA-style residual MLP**, configurable
+by width and depth: `256 → hidden` input projection, then `blocks` residual blocks
+(`y = relu(x + norm(l2(relu(norm(l1(x)))))`), then `hidden → 1`. Exposed via `--hidden` / `--blocks`
+on `train_ml15` and `eval_ml15` (default hidden 512, blocks 4); `DaviConfig` carries `blocks`. The
+target-net sync is architecture-agnostic (copies vars by name), so no change there.
+
+- **Normalization is no-bias LayerNorm, not BatchNorm.** LayerNorm normalizes per-sample, so it's
+  identical for batch=1 (BWAS root) and batch=10⁴ (DAVI) and needs no train/eval mode across the
+  target sync — BatchNorm's batch stats would break the variable-size search forwards. The **no-bias**
+  variant is mandatory for Metal: candle 0.9's *fused* layer-norm (used only when an affine bias is
+  present) has **no Metal kernel** ("no metal implementation for layer-norm"); the bias-free path is
+  built from primitive ops Metal supports. (candle's CPU rng also can't be `set_seed`'d, so training
+  tests use a stable config + a sawtooth-robust "best loss in second half" metric instead of seeding.)
+- **Backend crossover flipped, as predicted.** At hidden 1024 / 4 blocks / batch 1024, **Metal is
+  ~4× faster per call** than CPU on every phase (target_eval 291→71 ms, backward 245→52, online_fwd
+  92→21, bwas/heuristic 105→29). Contrast hidden 256, where CPU won ~7×. So the scale-up runs with
+  `--metal`; the sizing rule (per-call `ms/call` crossover from `--profile`, not wall-clock) held.
+  Training is stable at the big config (loss 480→83 over 30 steps, no NaN/divergence).
+- **Compute estimate.** At hidden 1024 Metal, a solver step is ~145 ms (target_eval + online_fwd +
+  backward); a DeepCubeA-scale ~10⁶-step run is ~1.5–2 days on this M2 Pro, plus BWAS in gen/eval.
+  Staged runs (e.g. 100k–200k steps, ~4–8 h) can first test whether the bigger net breaks past the
+  mid-depth ceiling before committing to the full run.

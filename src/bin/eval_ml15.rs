@@ -21,7 +21,7 @@ use puzzle8::puzzle15::ml::bwas::BwasConfig;
 use puzzle8::puzzle15::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle15::ml::eval::{run, EvalConfig};
 use puzzle8::puzzle15::ml::profile;
-use puzzle8::puzzle15::ml::value_net::{ValueNet, DEFAULT_HIDDEN};
+use puzzle8::puzzle15::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
 use puzzle8::puzzle15::state::State;
 
 fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
@@ -40,6 +40,7 @@ fn main() -> ExitCode {
         .and_then(|i| argv.get(i + 1))
         .map(PathBuf::from);
     let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
+    let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
     let antipodes: String = arg(&argv, "--antipodes", "data/pdb15_antipodes.txt".to_string());
     let weight: f32 = arg(&argv, "--weight", 2.0);
     let batch: usize = arg(&argv, "--batch", 1000);
@@ -64,10 +65,10 @@ fn main() -> ExitCode {
     } else {
         candle_core::Device::Cpu
     };
-    println!("device: {}, hidden: {}", device_kind(&device), hidden);
+    println!("device: {}, hidden: {}, blocks: {}", device_kind(&device), hidden, blocks);
 
     let mut varmap = VarMap::new();
-    let net = match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden) {
+    let net = match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("error building net: {}", e);

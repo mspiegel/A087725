@@ -151,7 +151,7 @@ mod tests {
             generator_steps_per_round: 5,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, lr: 1e-3, target_sync_every: 10 },
+            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
@@ -190,7 +190,8 @@ mod tests {
         use candle_core::DType;
         use candle_nn::{VarBuilder, VarMap};
         let mut vm = VarMap::new();
-        let _net = ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32).unwrap();
+        let _net =
+            ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32, 1).unwrap();
         vm.load(checkpoint::value_latest_path(&dir)).unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);

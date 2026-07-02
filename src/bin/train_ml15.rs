@@ -40,6 +40,7 @@ fn main() -> ExitCode {
     let batch: usize = arg(&argv, "--batch", 4096);
     let gen_frac: f32 = arg(&argv, "--gen-frac", 0.5);
     let hidden: usize = arg(&argv, "--hidden", 512);
+    let blocks: usize = arg(&argv, "--blocks", 4);
     let solver_k: u32 = arg(&argv, "--solver-k", 40);
     let gen_k: u32 = arg(&argv, "--gen-k", 25);
     let solver_weight: f32 = arg(&argv, "--solver-weight", 2.0);
@@ -72,13 +73,14 @@ fn main() -> ExitCode {
         candle_core::Device::Cpu
     };
     println!(
-        "device: {}, rounds: {}, solver-steps/round: {}, gen-steps/round: {}, batch: {}, hidden: {}",
+        "device: {}, rounds: {}, solver-steps/round: {}, gen-steps/round: {}, batch: {}, hidden: {}, blocks: {}",
         device_kind(&device),
         rounds,
         solver_steps,
         gen_steps,
         batch,
         hidden,
+        blocks,
     );
 
     let solver_bwas = BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: solver_budget };
@@ -88,7 +90,7 @@ fn main() -> ExitCode {
         generator_steps_per_round: gen_steps,
         solver_batch: batch,
         generator_frac: gen_frac,
-        davi: DaviConfig { k_max: solver_k, hidden, lr: 1e-3, target_sync_every: 1000 },
+        davi: DaviConfig { k_max: solver_k, hidden, blocks, lr: 1e-3, target_sync_every: 1000 },
         generator: GeneratorConfig {
             k_max: gen_k,
             hidden,

@@ -28,7 +28,7 @@ fn end_to_end_tiny_cotraining_run() {
         generator_steps_per_round: 4,
         solver_batch: 32,
         generator_frac: 0.5,
-        davi: DaviConfig { k_max: 8, hidden: 32, lr: 1e-3, target_sync_every: 8 },
+        davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 8 },
         generator: GeneratorConfig {
             k_max: 8,
             hidden: 32,
