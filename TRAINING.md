@@ -257,3 +257,30 @@ constraint — matching the earlier analysis that the 24-puzzle port would face 
 value net once step throughput allows; and only then would the generator's reward begin to decline
 as the curriculum bites. The code is structured so these are pure hyperparameter changes to
 `train_ml15`, no new components.
+
+### Continuation + ceiling characterization (2026-07-02)
+
+Profiling (added `--profile`) overturned two guesses and produced the key throughput finding:
+- **CPU is ~7× faster than Metal at this net size** (real 12.7s vs 90.9s on an identical config);
+  Metal is dominated by per-dispatch latency + one-time shader compilation (~85s fixed overhead),
+  and candle's CPU gemm is multi-threaded (~2 cores). **Default backend is now CPU**; `--metal` opts
+  in (worthwhile only for a much larger net/batch — decide by the per-call `ms/call` crossover in
+  `--profile`, not total wall-clock). Solver training is cheap (~5 ms/step CPU).
+- Relative compute: **`bwas/heuristic` dominates (66–84%)**; the DAVI host-sync/reduction (~3%) and
+  the exact `idastar`+WD baseline (~0%) are negligible — so the "on-device DAVI reduction" idea is
+  not worth doing; batching BWAS across many boards is the real compute lever if needed.
+
+A resumed continuation (`--resume`, +24 rounds on CPU) and a search-vs-capacity diagnostic then
+characterized the ceiling:
+- **More training helped**: fixed 60-board holdout climbed **26 → 33** solved (progress is lumpy and
+  target-sync-gated — a jump coincided with the 10-round `target_sync_every`).
+- **More search budget helped too**: same checkpoint on the same holdout went **33 → 41** at a 12.5×
+  budget (40k→500k nodes), `mean_len` 9.48→11.32 — so the mid-depth regime is *partly* search-limited.
+- **But the deep regime is purely value-limited**: antipodes stayed **0/17 at every budget** — the
+  hidden-256 net does not represent depth-80 cost-to-go, so no search budget reaches them.
+
+**Conclusion:** the approach is sound and improves along both cheap axes (training, search budget),
+but PoC scale caps it at mid-depth boards. Antipode-level performance (and hence a useful transfer to
+the 24-puzzle R goal) requires DeepCubeA-class capacity + ~10⁶ steps — which is also where the GPU
+crossover finally favors Metal. That is a deliberate compute investment, out of scope for a laptop
+session; the code is ready for it (pure `train_ml15` hyperparameter scale-up + `--metal`).
