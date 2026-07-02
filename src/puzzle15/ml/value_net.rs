@@ -6,22 +6,47 @@
 //! encoded board (see TRAINING.md). Trained by DAVI (`super::davi`) and consumed
 //! by the weighted search (`super::bwas`).
 //!
-//! **Normalization = LayerNorm (no-bias), not BatchNorm** (a deliberate
-//! deviation from DeepCubeA's batchnorm): the value net is evaluated on
-//! *variable-size* batches during BWAS search — down to a single node at the
-//! root — where batch statistics are meaningless/unstable, and it doubles as the
-//! target net under DAVI. LayerNorm normalizes per-sample across features, so it
-//! behaves identically for batch=1 or batch=10000 and needs no train/eval mode
-//! or running-stat handling across the target sync. The **no-bias** variant is
-//! required for the Metal backend: candle 0.9's *fused* layer-norm (taken only
-//! when an affine bias is present) has no Metal kernel, whereas the bias-free
-//! path is built from primitive ops that Metal supports.
+//! **Normalization = a hand-written RmsNorm**, not BatchNorm and not candle's
+//! LayerNorm. Rationale, in order:
+//! - *Per-sample, not per-batch* (the BatchNorm deviation from DeepCubeA): the
+//!   net is evaluated on variable-size batches during BWAS search — down to a
+//!   single node at the root — and doubles as the DAVI target net, so batch
+//!   statistics are meaningless/unstable. RmsNorm normalizes each row across
+//!   features, identical for batch=1 or batch=10000, no train/eval mode.
+//! - *Hand-written from primitive ops*: candle 0.9 ships **no Metal kernel** for
+//!   either fused layer-norm or fused rms-norm, so both would crash on the GPU.
+//!   The primitive-op formulation (`x / sqrt(mean(x^2)+eps) * weight`) runs on
+//!   Metal and, per `ml_bench`, is ~1.5× cheaper per-op than candle's manual
+//!   LayerNorm (it skips mean-centering) — a ~1.23× faster residual block, which
+//!   matters because on Metal the *matmuls run near peak* and the normalization
+//!   is the dominant remaining overhead (~57% of a LayerNorm block).
 
-use candle_core::{Device, Module, Result, Tensor};
-use candle_nn::{layer_norm_no_bias, linear, LayerNorm, Linear, VarBuilder};
+use candle_core::{Device, Module, Result, Tensor, D};
+use candle_nn::{linear, Init, Linear, VarBuilder};
 
 use super::encoding::{encode_batch, ENCODED_DIM};
 use crate::puzzle15::state::State;
+
+/// RmsNorm built from primitive ops (Metal-compatible): a learnable per-feature
+/// scale, no bias, no mean subtraction. `y = x / sqrt(mean(x^2) + eps) * weight`.
+struct RmsNorm {
+    weight: Tensor,
+    eps: f64,
+}
+
+impl RmsNorm {
+    fn new(size: usize, eps: f64, vb: VarBuilder) -> Result<Self> {
+        let weight = vb.get_with_hints(size, "weight", Init::Const(1.0))?;
+        Ok(Self { weight, eps })
+    }
+
+    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        let d = x.dim(D::Minus1)? as f64;
+        let ms = (x.sqr()?.sum_keepdim(D::Minus1)? / d)?;
+        let x_normed = x.broadcast_div(&(ms + self.eps)?.sqrt()?)?;
+        x_normed.broadcast_mul(&self.weight)
+    }
+}
 
 /// Default hidden width for the residual body (see TRAINING.md §hyperparameters).
 pub const DEFAULT_HIDDEN: usize = 512;
@@ -30,22 +55,22 @@ pub const DEFAULT_BLOCKS: usize = 4;
 
 const LN_EPS: f64 = 1e-5;
 
-/// A pre-norm residual block operating at a fixed `width`:
+/// A residual block operating at a fixed `width`:
 /// `y = relu( x + norm2(l2( relu(norm1(l1(x))) )) )`.
 struct ResBlock {
     l1: Linear,
-    n1: LayerNorm,
+    n1: RmsNorm,
     l2: Linear,
-    n2: LayerNorm,
+    n2: RmsNorm,
 }
 
 impl ResBlock {
     fn new(width: usize, vb: VarBuilder) -> Result<Self> {
         Ok(Self {
             l1: linear(width, width, vb.pp("l1"))?,
-            n1: layer_norm_no_bias(width, LN_EPS, vb.pp("n1"))?,
+            n1: RmsNorm::new(width, LN_EPS, vb.pp("n1"))?,
             l2: linear(width, width, vb.pp("l2"))?,
-            n2: layer_norm_no_bias(width, LN_EPS, vb.pp("n2"))?,
+            n2: RmsNorm::new(width, LN_EPS, vb.pp("n2"))?,
         })
     }
 
@@ -61,7 +86,7 @@ impl ResBlock {
 /// output activation — DAVI regresses a raw scalar).
 pub struct ValueNet {
     in_proj: Linear,
-    in_norm: LayerNorm,
+    in_norm: RmsNorm,
     blocks: Vec<ResBlock>,
     out: Linear,
 }
@@ -73,7 +98,7 @@ impl ValueNet {
     /// `hidden`/`blocks` so their parameter names line up for the target sync.
     pub fn new(vb: VarBuilder, hidden: usize, blocks: usize) -> Result<Self> {
         let in_proj = linear(ENCODED_DIM, hidden, vb.pp("in_proj"))?;
-        let in_norm = layer_norm_no_bias(hidden, LN_EPS, vb.pp("in_norm"))?;
+        let in_norm = RmsNorm::new(hidden, LN_EPS, vb.pp("in_norm"))?;
         let mut body = Vec::with_capacity(blocks);
         for i in 0..blocks {
             body.push(ResBlock::new(hidden, vb.pp(format!("block{i}")))?);
