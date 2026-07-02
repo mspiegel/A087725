@@ -11,6 +11,8 @@ pub mod symmetry;
 pub mod search;
 pub mod pdb;
 pub mod enumerate;
+#[cfg(feature = "ml")]
+pub mod ml;
 
 pub use state::{
     GOAL, N_STATES, N_CELLS, N_TILES, W, DIAMETER, Move, MoveSet, State,

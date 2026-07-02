@@ -26,11 +26,23 @@ puzzle24 = ["parallel", "mmap"]
 # counter bumps cost ~5-10% wall time. Turn on to derive accurate ns/call per
 # component when paired with a samply profile (`enumerate15` prints totals).
 verifier-stats = []
+# 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
+# See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
+# automatically on macOS via the target block below, with runtime CPU fallback
+# through Device::metal_if_available.
+ml = ["parallel", "dep:candle-core", "dep:candle-nn"]
 
 [dependencies]
 rayon = { version = "1.10", optional = true }
 memmap2 = { version = "0.9", optional = true }
 sha2 = { version = "0.10", optional = true }
+candle-core = { version = "0.9", optional = true }
+candle-nn = { version = "0.9", optional = true }
+
+# macOS builds of the `ml` feature get the real Metal backend; other OSes fall
+# back to candle's CPU backend. Cargo unions this with the base declaration.
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { version = "0.9", optional = true, features = ["metal"] }
 
 [dev-dependencies]
 
@@ -77,6 +89,18 @@ required-features = ["mmap", "parallel"]
 [[bin]]
 name = "verify15"
 required-features = ["mmap"]
+
+[[bin]]
+name = "ml_probe"
+required-features = ["ml"]
+
+[[bin]]
+name = "eval_ml15"
+required-features = ["ml"]
+
+[[bin]]
+name = "train_ml15"
+required-features = ["ml"]
 
 [[bin]]
 name = "build_pol8"
