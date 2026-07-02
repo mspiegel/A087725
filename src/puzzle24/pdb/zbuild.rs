@@ -253,8 +253,14 @@ fn mark_if_unvisited(view: &[std::sync::atomic::AtomicU8], idx: u64, code: u8) -
 /// Trades build time (per-state re-expansion, ~2–5×) for memory; intended for
 /// k≥8, where the frontier build is infeasible. `build_zpdb_parallel` remains the
 /// fast path for k≤7.
+///
+/// Returns `(packed, layout, eccentricity)`, where `eccentricity` is the deepest
+/// BFS layer reached — i.e. the maximum PDB value / abstract-graph radius. This is
+/// free here (the build is layer-synchronous), and cannot be recovered from the
+/// 1-bit `packed` table afterwards (it stores only distance parity), so it is
+/// surfaced now for e.g. `Σ eccentricity` additive-family ceiling calculations.
 #[cfg(feature = "parallel")]
-pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
+pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
     use rayon::prelude::*;
     use std::sync::atomic::AtomicU8;
 
@@ -331,7 +337,7 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
         cumulative, total
     );
     super::zcodec::pack1_from_2bit_inplace(&mut buf, total as usize);
-    (buf, layout)
+    (buf, layout, d as u8)
 }
 
 #[cfg(test)]
@@ -454,9 +460,13 @@ mod tests {
         use super::super::zcodec::pack_bits;
         for tiles in [&[1u8, 2][..], &[1, 7, 13], &[2, 5, 8, 11]] {
             let p = Pattern::new(tiles);
-            let packed = build_zpdb_2bit_packed(p).0;
-            let reference = pack_bits(&build_zpdb(p).0);
+            let (packed, _, ecc) = build_zpdb_2bit_packed(p);
+            let dist = build_zpdb(p).0;
+            let reference = pack_bits(&dist);
             assert_eq!(packed, reference, "2-bit packed != pack_bits(build_zpdb) for {:?}", tiles);
+            // The exposed eccentricity must equal the true max distance (oracle).
+            let true_ecc = *dist.iter().max().unwrap();
+            assert_eq!(ecc, true_ecc, "eccentricity {} != oracle max {} for {:?}", ecc, true_ecc, tiles);
         }
     }
 
@@ -468,7 +478,7 @@ mod tests {
     fn zpdb_2bit_packed_decodes_to_true_dist_k3() {
         let p = Pattern::new(&[1, 7, 13]);
         let (dist, layout) = build_zpdb(p);
-        let (packed, _) = build_zpdb_2bit_packed(p);
+        let (packed, _, _) = build_zpdb_2bit_packed(p);
         let zdb = super::super::zdb::ZPatternDb::from_packed(p, packed);
         for idx in 0..layout.total() {
             let s = layout.unrank_representative(idx);

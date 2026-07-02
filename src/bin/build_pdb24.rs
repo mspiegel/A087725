@@ -233,10 +233,11 @@ fn main() -> ExitCode {
         // are infeasible; use the frontier-free 2-bit builder (~20 GiB, packs
         // directly). k<=7: the fast, SHA-pinned frontier build.
         let zdb = if pattern.size() >= 8 {
-            let (packed, layout) = build_zpdb_2bit_packed(pattern);
+            let (packed, layout, maxd) = build_zpdb_2bit_packed(pattern);
             println!("ZPDB (frontier-free 2-bit) BFS complete in {:.2?}", t0.elapsed());
             println!("  ZPDB entries : {}", layout.total());
             println!("  Packed bytes : {}", packed.len());
+            println!("  Max depth    : {}  (eccentricity — sum across a partition for the Σ-ecc bound)", maxd);
             ZPatternDb::from_packed(pattern, packed)
         } else {
             let (dist, layout) = build_zpdb_parallel(pattern);
