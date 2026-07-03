@@ -15,6 +15,9 @@ pub mod symmetry;
 pub mod search;
 pub mod pdb;
 
+#[cfg(feature = "ml")]
+pub mod ml;
+
 pub use rank::{rank, unrank};
 pub use state::{
     DIAMETER_LOWER, DIAMETER_UPPER, Move, MoveSet, State, GOAL, N_CELLS, N_STATES, N_TILES, W,

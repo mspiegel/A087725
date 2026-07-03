@@ -103,6 +103,14 @@ name = "train_ml15"
 required-features = ["ml"]
 
 [[bin]]
+name = "train_ml24"
+required-features = ["ml"]
+
+[[bin]]
+name = "eval_ml24"
+required-features = ["ml"]
+
+[[bin]]
 name = "ml_bench"
 required-features = ["ml"]
 
