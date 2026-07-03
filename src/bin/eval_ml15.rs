@@ -52,18 +52,18 @@ fn main() -> ExitCode {
         profile::set_enabled(true);
     }
 
-    // Default CPU (see train_ml15: ~7x faster than Metal at PoC net size);
-    // `--metal` opts into the GPU.
-    let device = if argv.iter().any(|a| a == "--metal") {
+    // Default to the GPU (Metal-if-available, CPU fallback; see train_ml15).
+    // `--cpu` forces the CPU backend.
+    let device = if argv.iter().any(|a| a == "--cpu") {
+        candle_core::Device::Cpu
+    } else {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init Metal device: {}", e);
+                eprintln!("error: could not init device: {}", e);
                 return ExitCode::FAILURE;
             }
         }
-    } else {
-        candle_core::Device::Cpu
     };
     println!("device: {}, hidden: {}, blocks: {}", device_kind(&device), hidden, blocks);
 

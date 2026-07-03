@@ -232,9 +232,8 @@ on shallow scrambles; value-net save/load round-trips; policy masks illegal + ba
 value net is trained purely on raw one-hot state (no admissible heuristic in the solver, as
 designed); the generator's regret reward is computed against exact `idastar`+WD.
 
-**Mechanism validated; solver under-trained (a compute-scale limitation, not a bug).** A right-sized
-PoC run (8 rounds × 100 solver steps × batch 1024, hidden 256, ~20 min; per-step ≈1.5 s on the
-laptop Metal backend) showed:
+**Mechanism validated; solver under-trained (a capacity limitation, not a bug).** A right-sized
+PoC run (8 rounds × 100 solver steps × batch 1024, hidden 256) showed:
 - **Loop is stable** across all 8 rounds — no crash, NaN, or generator collapse. Checkpoints +
   `metrics.tsv` written to the (gitignored) `data/ml15/`.
 - **Generator works**: consistently large regret (gen_reward +60…+97 every round) — it reliably
@@ -258,20 +257,10 @@ value net once step throughput allows; and only then would the generator's rewar
 as the curriculum bites. The code is structured so these are pure hyperparameter changes to
 `train_ml15`, no new components.
 
-### Continuation + ceiling characterization (2026-07-02)
+### Ceiling characterization of the hidden-256 net (2026-07-02)
 
-Profiling (added `--profile`) overturned two guesses and produced the key throughput finding:
-- **CPU is ~7× faster than Metal at this net size** (real 12.7s vs 90.9s on an identical config);
-  Metal is dominated by per-dispatch latency + one-time shader compilation (~85s fixed overhead),
-  and candle's CPU gemm is multi-threaded (~2 cores). **Default backend is now CPU**; `--metal` opts
-  in (worthwhile only for a much larger net/batch — decide by the per-call `ms/call` crossover in
-  `--profile`, not total wall-clock). Solver training is cheap (~5 ms/step CPU).
-- Relative compute: **`bwas/heuristic` dominates (66–84%)**; the DAVI host-sync/reduction (~3%) and
-  the exact `idastar`+WD baseline (~0%) are negligible — so the "on-device DAVI reduction" idea is
-  not worth doing; batching BWAS across many boards is the real compute lever if needed.
-
-A resumed continuation (`--resume`, +24 rounds on CPU) and a search-vs-capacity diagnostic then
-characterized the ceiling:
+A resumed continuation (`--resume`, +24 rounds) and a search-vs-capacity diagnostic characterized the
+hidden-256 PoC's ceiling:
 - **More training helped**: fixed 60-board holdout climbed **26 → 33** solved (progress is lumpy and
   target-sync-gated — a jump coincided with the 10-round `target_sync_every`).
 - **More search budget helped too**: same checkpoint on the same holdout went **33 → 41** at a 12.5×
@@ -280,10 +269,9 @@ characterized the ceiling:
   hidden-256 net does not represent depth-80 cost-to-go, so no search budget reaches them.
 
 **Conclusion:** the approach is sound and improves along both cheap axes (training, search budget),
-but PoC scale caps it at mid-depth boards. Antipode-level performance (and hence a useful transfer to
-the 24-puzzle R goal) requires DeepCubeA-class capacity + ~10⁶ steps — which is also where the GPU
-crossover finally favors Metal. That is a deliberate compute investment, out of scope for a laptop
-session; the code is ready for it (pure `train_ml15` hyperparameter scale-up + `--metal`).
+but the hidden-256 net caps at mid-depth boards; reaching the antipodes (and a useful transfer to the
+24-puzzle R goal) needs more model capacity. That motivated the scale-up below. Whether hidden-1024
+clears this ceiling is the pending capacity check.
 
 ### Scale-up architecture (2026-07-02)
 
@@ -293,19 +281,48 @@ by width and depth: `256 → hidden` input projection, then `blocks` residual bl
 on `train_ml15` and `eval_ml15` (default hidden 512, blocks 4); `DaviConfig` carries `blocks`. The
 target-net sync is architecture-agnostic (copies vars by name), so no change there.
 
-- **Normalization is no-bias LayerNorm, not BatchNorm.** LayerNorm normalizes per-sample, so it's
-  identical for batch=1 (BWAS root) and batch=10⁴ (DAVI) and needs no train/eval mode across the
-  target sync — BatchNorm's batch stats would break the variable-size search forwards. The **no-bias**
-  variant is mandatory for Metal: candle 0.9's *fused* layer-norm (used only when an affine bias is
-  present) has **no Metal kernel** ("no metal implementation for layer-norm"); the bias-free path is
-  built from primitive ops Metal supports. (candle's CPU rng also can't be `set_seed`'d, so training
-  tests use a stable config + a sawtooth-robust "best loss in second half" metric instead of seeding.)
-- **Backend crossover flipped, as predicted.** At hidden 1024 / 4 blocks / batch 1024, **Metal is
-  ~4× faster per call** than CPU on every phase (target_eval 291→71 ms, backward 245→52, online_fwd
-  92→21, bwas/heuristic 105→29). Contrast hidden 256, where CPU won ~7×. So the scale-up runs with
-  `--metal`; the sizing rule (per-call `ms/call` crossover from `--profile`, not wall-clock) held.
-  Training is stable at the big config (loss 480→83 over 30 steps, no NaN/divergence).
-- **Compute estimate.** At hidden 1024 Metal, a solver step is ~145 ms (target_eval + online_fwd +
-  backward); a DeepCubeA-scale ~10⁶-step run is ~1.5–2 days on this M2 Pro, plus BWAS in gen/eval.
-  Staged runs (e.g. 100k–200k steps, ~4–8 h) can first test whether the bigger net breaks past the
-  mid-depth ceiling before committing to the full run.
+- **Normalization is a hand-rolled RmsNorm — not BatchNorm, and not candle's fused norms.** It
+  normalizes per-sample, so it's identical for batch=1 (BWAS root) and batch=10⁴ (DAVI) and needs no
+  train/eval mode across the target sync — BatchNorm's batch statistics would break the variable-size
+  search forwards. It's hand-rolled from primitive ops because **candle 0.9 ships no Metal kernel for
+  fused layer-norm *or* fused rms-norm** (both crash on Metal); the primitive-op path runs on Metal
+  and, per `ml_bench`, is ~1.5× cheaper per-op than a mean-centering LayerNorm. (candle's CPU rng also
+  can't be `set_seed`'d, so training tests use a stable config + a sawtooth-robust "best loss in
+  second half" metric instead of seeding.)
+- **Training is stable at the big config** — loss decreases, no NaN/divergence.
+- Real per-step throughput, backend choice, and feasibility were only measured correctly *after* the
+  generator-rollout fix — see **"Perf breakthrough"** immediately below.
+
+### Perf breakthrough (2026-07-02) — the real bottleneck was the generator rollouts
+
+Every earlier "training is catastrophically slow" symptom (round 0 taking hours, the "62h /
+infeasible" verdict, the CPU-vs-Metal flip-flopping) traced to **one bug in our own code**, not
+candle, the net size, buffer pools, or sleep: the solver's per-step batch was built by re-rolling
+`n_gen = batch·gen_frac` generator boards **every step**, and each board rolls the policy net **one
+move at a time** (batch-1 forwards). At batch 1024 that's ~10k tiny forwards/step ≈ **975 ms/step**
+(~65% of the step) — and it lived in `alternate.rs`, *outside* `train_step`, so every value-net
+profile (which timed only `train_step`) missed it. That, not the value net, is why the real per-step
+was ~11× my phase-sum estimates.
+
+**Fix** (commit on `ml-scaleup`): (1) the generator is frozen for the whole solver phase, so roll its
+boards **once per round into a pool** (`batch·8`) and sample the per-step generator boards from it;
+(2) `Generator::sample_pool` rolls the whole pool in **lockstep** — one batched policy forward per
+move-step instead of `n·k` tiny forwards. Pool gen dropped from ~15 s to **729 ms (CPU) / 387 ms
+(Metal)**.
+
+**Corrected numbers** (hidden 1024, batch 1024, real per-step via windowed timing, *not* phase sums):
+
+| | blocks 2 | blocks 4 |
+|---|--:|--:|
+| **Metal** | 67 ms | **116 ms** |
+| CPU | 276 ms | 537 ms |
+
+So **Metal is ~4× faster than CPU for the value net**, and the **default backend is Metal** (`--cpu`
+forces CPU). The earlier "CPU is faster" was entirely the batch-1 rollout tax, which is *worst* on
+Metal (dispatch-bound); with it gone, the value net's large batched matmuls dominate, where Metal
+wins (near-peak). Feasibility is now: **30k-step capacity check ≈ 1 h, 150k-step run ≈ 5 h** on Metal.
+
+Diagnostic tooling added along the way: windowed per-step `ms/step` logging in the solver loop
+(~10 windows/round) and pool-gen timing — both behind `verbose`. Lesson: **profile the actual
+training loop's wall-clock, not just the instrumented sub-phases** — the phase timers hid the real
+cost for a long time.
