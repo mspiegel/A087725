@@ -65,10 +65,10 @@ mod tests {
         let dev = Device::Cpu;
         let dir = std::env::temp_dir().join(format!("ml_ckpt_{}", std::process::id()));
         let vm_v = VarMap::new();
-        let _net = ValueNet::new(VarBuilder::from_varmap(&vm_v, DType::F32, &dev), 16).unwrap();
+        let _net = ValueNet::new(VarBuilder::from_varmap(&vm_v, DType::F32, &dev), 16, 2).unwrap();
         let vm_p = VarMap::new();
         // Reuse a ValueNet shape for the "policy" slot — this test only checks I/O.
-        let _p = ValueNet::new(VarBuilder::from_varmap(&vm_p, DType::F32, &dev), 16).unwrap();
+        let _p = ValueNet::new(VarBuilder::from_varmap(&vm_p, DType::F32, &dev), 16, 2).unwrap();
 
         save(&dir, 3, &vm_v, &vm_p).unwrap();
         assert!(value_path(&dir, 3).exists());
@@ -76,7 +76,7 @@ mod tests {
 
         // A fresh varmap+net can load the latest checkpoint.
         let mut vm2 = VarMap::new();
-        let _n2 = ValueNet::new(VarBuilder::from_varmap(&vm2, DType::F32, &dev), 16).unwrap();
+        let _n2 = ValueNet::new(VarBuilder::from_varmap(&vm2, DType::F32, &dev), 16, 2).unwrap();
         vm2.load(value_latest_path(&dir)).unwrap();
 
         append_metrics(&dir, "round\tx", "3\t1.5").unwrap();

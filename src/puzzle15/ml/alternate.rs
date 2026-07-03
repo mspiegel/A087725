@@ -73,16 +73,44 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
 
     for round in 0..cfg.rounds {
         // ---- Solver phase (generator frozen; boards mix uniform + generator) ----
+        // The generator is frozen for the whole solver phase, so roll its boards
+        // ONCE into a pool and sample the per-step batch from it — instead of
+        // re-rolling every step. `sample_board` does a batch-1 policy-net forward
+        // per move, so re-rolling n_gen boards each step dominated per-step cost
+        // (~975 ms/step at batch 1024); pooling amortizes it to ~nothing. The
+        // pool is regenerated each round so it tracks the updated generator.
+        let gen_pool: Vec<State> = if n_gen > 0 {
+            let pool_size = (cfg.solver_batch * 8).max(1024);
+            let t = std::time::Instant::now();
+            let pool = generator.sample_pool(pool_size, &mut rng)?;
+            if cfg.verbose {
+                eprintln!("    [pool] {} gen boards in {:.0} ms", pool_size, t.elapsed().as_secs_f64() * 1000.0);
+            }
+            pool
+        } else {
+            Vec::new()
+        };
+
         let mut loss_sum = 0.0f32;
-        for _ in 0..cfg.solver_steps_per_round {
+        let mut win = std::time::Instant::now();
+        // ~10 timing windows per round regardless of round length.
+        let win_every = (cfg.solver_steps_per_round / 10).max(1);
+        for i in 0..cfg.solver_steps_per_round {
             let mut batch: Vec<State> = Vec::with_capacity(cfg.solver_batch);
             for _ in 0..n_gen {
-                batch.push(generator.sample_board(&mut rng));
+                let idx = rng.gen_range(0, (gen_pool.len() - 1) as u32) as usize;
+                batch.push(gen_pool[idx]);
             }
             for _ in 0..n_uni {
                 batch.push(scramble(&mut rng, cfg.davi.k_max).0);
             }
             loss_sum += davi.train_step(&batch)?;
+            // Windowed per-step timing to expose any degradation over a round.
+            if cfg.verbose && (i + 1) % win_every == 0 {
+                let ms = win.elapsed().as_secs_f64() * 1000.0 / win_every as f64;
+                eprintln!("    [solver {}/{}] {:.0} ms/step", i + 1, cfg.solver_steps_per_round, ms);
+                win = std::time::Instant::now();
+            }
         }
         let solver_loss = loss_sum / cfg.solver_steps_per_round.max(1) as f32;
 
@@ -151,7 +179,7 @@ mod tests {
             generator_steps_per_round: 5,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, lr: 1e-3, target_sync_every: 10 },
+            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
@@ -190,7 +218,8 @@ mod tests {
         use candle_core::DType;
         use candle_nn::{VarBuilder, VarMap};
         let mut vm = VarMap::new();
-        let _net = ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32).unwrap();
+        let _net =
+            ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32, 1).unwrap();
         vm.load(checkpoint::value_latest_path(&dir)).unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);

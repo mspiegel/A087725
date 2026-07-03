@@ -40,6 +40,7 @@ fn main() -> ExitCode {
     let batch: usize = arg(&argv, "--batch", 4096);
     let gen_frac: f32 = arg(&argv, "--gen-frac", 0.5);
     let hidden: usize = arg(&argv, "--hidden", 512);
+    let blocks: usize = arg(&argv, "--blocks", 4);
     let solver_k: u32 = arg(&argv, "--solver-k", 40);
     let gen_k: u32 = arg(&argv, "--gen-k", 25);
     let solver_weight: f32 = arg(&argv, "--solver-weight", 2.0);
@@ -56,29 +57,31 @@ fn main() -> ExitCode {
         profile::set_enabled(true);
     }
 
-    // Default to CPU: measured ~7x faster than Metal at this PoC net size
-    // (hidden 256, small batches) — Metal's per-dispatch latency + one-time
-    // shader compilation dominate, and candle's CPU gemm is multi-threaded.
-    // `--metal` opts into the GPU (worthwhile only for a much larger net/batch).
-    let device = if argv.iter().any(|a| a == "--metal") {
+    // Default to the GPU (Metal-if-available, CPU fallback). Once the generator's
+    // batch-1 rollouts are pooled + batched (alternate.rs / Generator::sample_pool),
+    // per-step cost is the value net's large batched matmuls, where Metal is ~4x
+    // faster than CPU (116 vs 537 ms/step at hidden 1024, blocks 4). `--cpu` forces
+    // the CPU backend.
+    let device = if argv.iter().any(|a| a == "--cpu") {
+        candle_core::Device::Cpu
+    } else {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init Metal device: {}", e);
+                eprintln!("error: could not init device: {}", e);
                 return ExitCode::FAILURE;
             }
         }
-    } else {
-        candle_core::Device::Cpu
     };
     println!(
-        "device: {}, rounds: {}, solver-steps/round: {}, gen-steps/round: {}, batch: {}, hidden: {}",
+        "device: {}, rounds: {}, solver-steps/round: {}, gen-steps/round: {}, batch: {}, hidden: {}, blocks: {}",
         device_kind(&device),
         rounds,
         solver_steps,
         gen_steps,
         batch,
         hidden,
+        blocks,
     );
 
     let solver_bwas = BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: solver_budget };
@@ -88,7 +91,7 @@ fn main() -> ExitCode {
         generator_steps_per_round: gen_steps,
         solver_batch: batch,
         generator_frac: gen_frac,
-        davi: DaviConfig { k_max: solver_k, hidden, lr: 1e-3, target_sync_every: 1000 },
+        davi: DaviConfig { k_max: solver_k, hidden, blocks, lr: 1e-3, target_sync_every: 1000 },
         generator: GeneratorConfig {
             k_max: gen_k,
             hidden,

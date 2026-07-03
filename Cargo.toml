@@ -103,6 +103,14 @@ name = "train_ml15"
 required-features = ["ml"]
 
 [[bin]]
+name = "ml_bench"
+required-features = ["ml"]
+
+[[bin]]
+name = "verify_antipodes15"
+required-features = ["ml"]
+
+[[bin]]
 name = "build_pol8"
 required-features = ["sha"]
 
