@@ -8,7 +8,8 @@
 //!       [--rounds 40] [--solver-steps 3000] [--gen-steps 400] \
 //!       [--batch 4096] [--gen-frac 0.5] [--hidden 1024] [--blocks 6] \
 //!       [--solver-k 50] [--gen-k 40] \
-//!       [--solver-weight 2.5] [--solver-sbatch 2000] [--solver-budget 300000] \
+//!       [--solver-weight 2.5] [--solver-sbatch 2000] \
+//!       [--solver-budget 30000 (generator reward)] [--eval-budget 300000] \
 //!       [--baseline wd|manhattan] [--beam-width 1000] [--beam-budget 2000000] \
 //!       [--eval-every 2] [--holdout 100] [--depth-min 20] [--depth-max 50] \
 //!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--quiet]
@@ -39,8 +40,12 @@ fn main() -> ExitCode {
 
     let rounds: u32 = arg(&argv, "--rounds", 40);
     let solver_steps: u32 = arg(&argv, "--solver-steps", 3000);
-    let gen_steps: u32 = arg(&argv, "--gen-steps", 400);
-    let batch: usize = arg(&argv, "--batch", 4096);
+    // Defaults reflect the 15-puzzle lessons: batch 1024 (the GPU saturates
+    // there — a bigger batch is more compute for the same throughput and fewer
+    // updates); gen-steps kept modest (each runs the learned BWAS solve, which is
+    // the gen-phase cost).
+    let gen_steps: u32 = arg(&argv, "--gen-steps", 100);
+    let batch: usize = arg(&argv, "--batch", 1024);
     let gen_frac: f32 = arg(&argv, "--gen-frac", 0.5);
     let hidden: usize = arg(&argv, "--hidden", 1024);
     let blocks: usize = arg(&argv, "--blocks", 6);
@@ -48,7 +53,12 @@ fn main() -> ExitCode {
     let gen_k: u32 = arg(&argv, "--gen-k", 40);
     let solver_weight: f32 = arg(&argv, "--solver-weight", 2.5);
     let solver_sbatch: usize = arg(&argv, "--solver-sbatch", 2000);
-    let solver_budget: u64 = arg(&argv, "--solver-budget", 300_000);
+    // The generator-reward BWAS wants a LOW budget (cheap, fails fast); the eval
+    // BWAS wants a HIGH budget (else the metric is search-limited and reads ~0
+    // even when the value function is good — the 15-puzzle lesson). Keep them
+    // separate.
+    let solver_budget: u64 = arg(&argv, "--solver-budget", 30_000);
+    let eval_budget: u64 = arg(&argv, "--eval-budget", 300_000);
     let beam_width: usize = arg(&argv, "--beam-width", 1000);
     let beam_budget: u64 = arg(&argv, "--beam-budget", 2_000_000);
     let eval_every: u32 = arg(&argv, "--eval-every", 2);
@@ -119,7 +129,9 @@ fn main() -> ExitCode {
         },
         eval_every,
         eval: EvalConfig {
-            bwas: solver_bwas,
+            // High-budget eval so the metric reflects the value function, not the
+            // search budget (decoupled from the cheap generator-reward budget).
+            bwas: BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: eval_budget },
             holdout_n: holdout,
             depth_min,
             depth_max,
