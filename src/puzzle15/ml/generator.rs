@@ -12,10 +12,11 @@
 //! is backpropagated through the accumulated per-step log-probabilities; a
 //! running EMA `reward` baseline reduces gradient variance.
 
-use candle_core::{DType, Device, Result, Tensor};
+use candle_core::{DType, Device, Module, Result, Tensor};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 
 use super::bwas::{search, BwasConfig, BwasOutcome};
+use super::encoding::encode_batch;
 use super::policy_net::{sample_move, PolicyNet, DEFAULT_HIDDEN};
 use super::scramble::Rng;
 use crate::puzzle15::search::{idastar, WalkingDistanceHeuristic};
@@ -138,6 +139,80 @@ impl Generator {
         Ok(reward)
     }
 
+    /// Inference-only batched rollout: sample `n` boards from the current policy
+    /// in **lockstep** — one batched policy forward per move-step over all still-
+    /// active boards — instead of `n` separate move-by-move rollouts. Equivalent
+    /// distribution to calling `sample_board` `n` times, but turns ~`n·k` tiny
+    /// batch-1 forwards into ~`k` big batched forwards (≈100× faster pool build).
+    pub fn sample_pool(&self, n: usize, rng: &mut Rng) -> Result<Vec<State>> {
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        // Per-board target walk length in [1, k_max] (matches `sample_board`).
+        let lens: Vec<u32> = (0..n).map(|_| rng.gen_range(1, self.k_max)).collect();
+        let max_k = *lens.iter().max().unwrap();
+
+        let mut states = vec![GOAL; n];
+        let mut blanks: Vec<u8> = states.iter().map(|s| s.blank_pos()).collect();
+        let mut last: Vec<Option<Move>> = vec![None; n];
+
+        for step in 0..max_k {
+            // Boards still walking this step.
+            let active: Vec<usize> = (0..n).filter(|&i| step < lens[i]).collect();
+            if active.is_empty() {
+                break;
+            }
+            let active_states: Vec<State> = active.iter().map(|&i| states[i]).collect();
+            let x = encode_batch(&active_states, &self.device)?; // [A, 256]
+            let logits = self.net.forward(&x)?; // [A, 4]
+            let rows: Vec<Vec<f32>> = logits.to_vec2::<f32>()?;
+
+            for (a, &i) in active.iter().enumerate() {
+                let blank = blanks[i];
+                let banned = last[i].map(|m| m.inverse());
+                let legal = State::legal_moves_at(blank);
+                let row = &rows[a];
+                let allowed = |k: usize| legal.contains(Move::ALL[k]) && Some(Move::ALL[k]) != banned;
+
+                // Masked softmax weights over allowed moves (max-subtracted).
+                let mut mx = f32::NEG_INFINITY;
+                for k in 0..4 {
+                    if allowed(k) {
+                        mx = mx.max(row[k]);
+                    }
+                }
+                let mut w = [0f32; 4];
+                let mut sum = 0.0f32;
+                for k in 0..4 {
+                    if allowed(k) {
+                        let e = (row[k] - mx).exp();
+                        w[k] = e;
+                        sum += e;
+                    }
+                }
+                // Categorical sample; on float underflow `chosen` holds the last
+                // allowed move (always ≥1 allowed since legal has ≥2 and banned
+                // removes ≤1).
+                let mut acc = rng.gen_f32() * sum;
+                let mut chosen = (0..4).find(|&k| allowed(k)).unwrap();
+                for k in 0..4 {
+                    if w[k] > 0.0 {
+                        chosen = k;
+                        acc -= w[k];
+                        if acc <= 0.0 {
+                            break;
+                        }
+                    }
+                }
+                let (ns, nb) = states[i].apply_at(Move::ALL[chosen], blank);
+                states[i] = ns;
+                blanks[i] = nb;
+                last[i] = Some(Move::ALL[chosen]);
+            }
+        }
+        Ok(states)
+    }
+
     /// Inference-only rollout: sample a board from the current policy (log-probs
     /// discarded). Used to feed generator boards into the solver's DAVI training.
     pub fn sample_board(&self, rng: &mut Rng) -> State {
@@ -236,5 +311,18 @@ mod tests {
         for _ in 0..100 {
             assert!(g.sample_board(&mut rng).is_solvable());
         }
+    }
+
+    #[test]
+    fn sample_pool_is_solvable_and_correct_count() {
+        let g = cpu_generator(20, 100_000);
+        let mut rng = Rng::new(9);
+        let pool = g.sample_pool(200, &mut rng).unwrap();
+        assert_eq!(pool.len(), 200);
+        for s in &pool {
+            assert!(s.is_solvable());
+        }
+        // Empty request is handled.
+        assert!(g.sample_pool(0, &mut rng).unwrap().is_empty());
     }
 }
