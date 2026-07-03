@@ -10,13 +10,15 @@
 //! Boards whose optimal exceeds the `idastar` bound are counted as "unlabeled"
 //! and excluded from the excess statistic (but still counted for solve rate).
 
+use super::beam::{beam_search, BeamConfig};
 use super::bwas::{search, BwasConfig, BwasOutcome};
+use super::generator::BaselineHeuristic;
 use super::scramble::{scramble_exact, Rng};
 use crate::puzzle24::search::{
-    idastar_inc_mut_bounded_with_stats, BoundedOutcome, IncHeuristicMut, LinearConflictInc, MaxInc,
-    WalkingDistanceHeuristic, WalkingDistanceInc,
+    idastar_inc_mut_bounded_with_stats, BoundedOutcome, Heuristic, IncHeuristicMut,
+    LinearConflictInc, ManhattanHeuristic, MaxInc, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
-use crate::puzzle24::state::State;
+use crate::puzzle24::state::{State, DIAMETER_LOWER, N_CELLS};
 
 /// Admissible heuristic used to compute the true-optimal labels via `idastar`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,10 +172,189 @@ where
     }
 }
 
+// ─────────────────────────── deep mode ───────────────────────────
+//
+// Past ~depth 50 there is no feasible optimal solver, so the mid-depth
+// excess-over-optimal metric is unavailable. Instead we grade the learned solver
+// against the fast suboptimal **beam baseline** (the same reference the generator
+// trains against), on deep random-walk boards and optionally the `R` board. The
+// headline number is `mean_excess_over_beam` (learned − beam, over boards both
+// solve) — **negative means the learned solver beats beam** — plus the WD lower
+// bound and `DIAMETER_LOWER` for absolute context on `R`.
+
+/// The `R` board — 180° rotation (blank fixed at cell 0, tile `25-i` at cell `i`);
+/// the canonical hard 24-puzzle board (Rokicki LB 152, WD 140).
+pub fn r_board() -> State {
+    let mut c = [0u8; N_CELLS];
+    for i in 1..N_CELLS {
+        c[i] = (25 - i) as u8;
+    }
+    State(c)
+}
+
+pub struct DeepEvalConfig {
+    /// BWAS config for the learned solver.
+    pub bwas: BwasConfig,
+    /// Beam config for the baseline reference solver.
+    pub beam: BeamConfig,
+    /// Admissible heuristic for the beam baseline (Wd in production).
+    pub baseline: BaselineHeuristic,
+    /// Number of deep random-walk holdout boards.
+    pub holdout_n: usize,
+    /// Inclusive walk-length range (deep, e.g. 60..120).
+    pub depth_min: u32,
+    pub depth_max: u32,
+    pub seed: u64,
+    /// Also evaluate the canonical `R` board and report it explicitly.
+    pub include_r: bool,
+}
+
+/// The `R`-board line of a deep eval (reported separately for context).
+#[derive(Debug, Clone)]
+pub struct RBoardResult {
+    pub learned: Option<u32>,
+    pub beam: Option<u32>,
+    /// Walking-Distance lower bound on `R` (should be 140).
+    pub wd_lb: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeepEvalReport {
+    pub n: usize,
+    pub learned_solved: usize,
+    pub beam_solved: usize,
+    /// Boards solved by *both* (the fair-comparison set for excess/wins).
+    pub both_solved: usize,
+    pub mean_learned_len: Option<f32>,
+    pub mean_beam_len: Option<f32>,
+    /// Mean(learned − beam) over both-solved boards; **negative = learned better**.
+    pub mean_excess_over_beam: Option<f32>,
+    /// Count of both-solved boards where learned is strictly shorter than beam.
+    pub learned_wins: usize,
+    pub r_line: Option<RBoardResult>,
+}
+
+impl DeepEvalReport {
+    pub fn print(&self) {
+        eprintln!("── evaluation (deep, vs beam baseline) ──");
+        eprintln!(
+            "  solved: learned {}/{}, beam {}/{}, both {}/{}",
+            self.learned_solved, self.n, self.beam_solved, self.n, self.both_solved, self.n,
+        );
+        eprintln!(
+            "  mean len: learned {}, beam {}",
+            self.mean_learned_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+            self.mean_beam_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+        );
+        eprintln!(
+            "  mean excess over beam (both-solved): {}  [negative = learned beats beam], learned wins {}/{}",
+            self.mean_excess_over_beam
+                .map(|v| format!("{:+.2}", v))
+                .unwrap_or_else(|| "-".into()),
+            self.learned_wins,
+            self.both_solved,
+        );
+        if let Some(r) = &self.r_line {
+            eprintln!(
+                "  R board: learned {}, beam {}  (WD LB {}, DIAMETER_LOWER {})",
+                r.learned.map(|v| v.to_string()).unwrap_or_else(|| "unsolved".into()),
+                r.beam.map(|v| v.to_string()).unwrap_or_else(|| "unsolved".into()),
+                r.wd_lb,
+                DIAMETER_LOWER,
+            );
+        }
+    }
+}
+
+/// Deep-mode eval: grade `value_of` (the learned solver) against the beam
+/// baseline on deep boards. No optimal labels (infeasible past ~depth 50).
+pub fn run_deep<F>(value_of: F, cfg: &DeepEvalConfig) -> DeepEvalReport
+where
+    F: Fn(&[State]) -> Vec<f32>,
+{
+    let beam_h: Box<dyn Heuristic + Send + Sync> = match cfg.baseline {
+        BaselineHeuristic::Wd => {
+            WalkingDistanceHeuristic::warm_up();
+            Box::new(WalkingDistanceHeuristic)
+        }
+        BaselineHeuristic::Manhattan => Box::new(ManhattanHeuristic),
+    };
+
+    // Deep random-walk holdout (+ optional R board).
+    let mut rng = Rng::new(cfg.seed);
+    let dmax = cfg.depth_max.max(cfg.depth_min);
+    let mut boards: Vec<(bool, State)> = (0..cfg.holdout_n)
+        .map(|_| {
+            let k = rng.gen_range(cfg.depth_min.max(1), dmax);
+            (false, scramble_exact(&mut rng, k))
+        })
+        .collect();
+    if cfg.include_r {
+        boards.push((true, r_board()));
+    }
+
+    let mut learned_solved = 0usize;
+    let mut beam_solved = 0usize;
+    let mut both_solved = 0usize;
+    let mut learned_len_sum = 0u64;
+    let mut beam_len_sum = 0u64;
+    let mut excess_sum = 0i64;
+    let mut learned_wins = 0usize;
+    let mut r_line = None;
+
+    for (is_r, board) in &boards {
+        let learned = match search(board, &cfg.bwas, &value_of) {
+            BwasOutcome::Solved { moves, .. } => Some(moves.len() as u32),
+            BwasOutcome::BudgetExceeded { .. } => None,
+        };
+        let beam = beam_search(board, beam_h.as_ref(), &cfg.beam).map(|m| m.len() as u32);
+
+        // The R board is reported separately and excluded from the aggregate
+        // holdout statistics (it is not a random-walk sample).
+        if *is_r {
+            let wd_lb = {
+                WalkingDistanceHeuristic::warm_up();
+                WalkingDistanceHeuristic.h(board)
+            };
+            r_line = Some(RBoardResult { learned, beam, wd_lb });
+            continue;
+        }
+
+        if let Some(l) = learned {
+            learned_solved += 1;
+            learned_len_sum += l as u64;
+        }
+        if let Some(b) = beam {
+            beam_solved += 1;
+            beam_len_sum += b as u64;
+        }
+        if let (Some(l), Some(b)) = (learned, beam) {
+            both_solved += 1;
+            excess_sum += l as i64 - b as i64;
+            if l < b {
+                learned_wins += 1;
+            }
+        }
+    }
+
+    DeepEvalReport {
+        n: cfg.holdout_n,
+        learned_solved,
+        beam_solved,
+        both_solved,
+        mean_learned_len: (learned_solved > 0)
+            .then(|| learned_len_sum as f32 / learned_solved as f32),
+        mean_beam_len: (beam_solved > 0).then(|| beam_len_sum as f32 / beam_solved as f32),
+        mean_excess_over_beam: (both_solved > 0)
+            .then(|| excess_sum as f32 / both_solved as f32),
+        learned_wins,
+        r_line,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle24::search::{Heuristic, ManhattanHeuristic};
 
     fn manhattan_batch(states: &[State]) -> Vec<f32> {
         states.iter().map(|s| ManhattanHeuristic.h(s) as f32).collect()
@@ -198,5 +379,41 @@ mod tests {
         // Shallow boards must all get a true-optimal label within bound 20.
         assert_eq!(rep.optimal_labeled_n, 12, "all shallow boards should be labeled");
         assert!(rep.mean_excess_over_optimal.is_some());
+    }
+
+    #[test]
+    fn deep_harness_grades_vs_beam() {
+        // Manhattan baseline (table-free) + moderate walks. The "learned solver"
+        // here is Manhattan-BWAS, so it and the beam should both solve most
+        // boards; this checks the deep grading path is populated and consistent.
+        let cfg = DeepEvalConfig {
+            bwas: BwasConfig { weight: 2.0, batch_size: 16, node_budget: 300_000 },
+            beam: BeamConfig { width: 200, max_depth: 80, node_budget: 500_000 },
+            baseline: BaselineHeuristic::Manhattan,
+            holdout_n: 8,
+            depth_min: 12,
+            depth_max: 24,
+            seed: 55,
+            include_r: false,
+        };
+        let rep = run_deep(manhattan_batch, &cfg);
+        assert_eq!(rep.n, 8);
+        assert!(rep.learned_solved >= 6, "learned solved too few: {}", rep.learned_solved);
+        assert!(rep.beam_solved >= 6, "beam solved too few: {}", rep.beam_solved);
+        assert!(rep.both_solved >= 6);
+        assert!(rep.mean_learned_len.is_some() && rep.mean_beam_len.is_some());
+        assert!(rep.mean_excess_over_beam.is_some());
+        assert!(rep.learned_wins <= rep.both_solved);
+        assert!(rep.r_line.is_none());
+    }
+
+    #[test]
+    fn r_board_is_valid() {
+        let r = r_board();
+        assert!(r.is_solvable(), "R board must be solvable");
+        assert_eq!(r.0[0], 0, "R blank at cell 0");
+        for i in 1..N_CELLS {
+            assert_eq!(r.0[i], (25 - i) as u8, "R cell {i}");
+        }
     }
 }
