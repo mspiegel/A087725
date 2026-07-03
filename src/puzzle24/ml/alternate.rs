@@ -4,7 +4,8 @@
 //! DAVI steps on a batch that mixes uniform-random scrambles with boards from
 //! the current (frozen) generator; then (2) freeze the solver and train the
 //! generator for `generator_steps_per_round` REINFORCE rounds against it.
-//! Periodically evaluate on the mid-depth holdout and checkpoint both networks.
+//! Periodically evaluate (mid-depth excess-over-optimal, or deep
+//! excess-over-beam — see `EvalSpec`) and checkpoint both networks.
 
 use std::path::PathBuf;
 
@@ -12,10 +13,18 @@ use candle_core::{Device, Result};
 
 use super::checkpoint;
 use super::davi::{Davi, DaviConfig};
-use super::eval::{self, EvalConfig};
+use super::eval::{self, DeepEvalConfig, EvalConfig};
 use super::generator::{Generator, GeneratorConfig};
 use super::scramble::{scramble, Rng};
 use crate::puzzle24::state::State;
+
+/// Which in-loop eval to run each checkpoint: mid-depth (excess-over-optimal via
+/// IDA\*, feasible ≤~depth 50) or deep (excess-over-beam, for the scale-to-`R`
+/// regime where no optimal solver exists).
+pub enum EvalSpec {
+    MidDepth(EvalConfig),
+    Deep(DeepEvalConfig),
+}
 
 pub struct AlternationConfig {
     pub rounds: u32,
@@ -29,7 +38,7 @@ pub struct AlternationConfig {
     pub generator: GeneratorConfig,
     /// Evaluate + checkpoint every this many rounds (0 = only at the end).
     pub eval_every: u32,
-    pub eval: EvalConfig,
+    pub eval: EvalSpec,
     pub checkpoint_dir: PathBuf,
     pub seed: u64,
     pub verbose: bool,
@@ -39,8 +48,10 @@ pub struct AlternationConfig {
     pub resume: bool,
 }
 
-const METRICS_HEADER: &str =
+const MID_METRICS_HEADER: &str =
     "round\tsolver_loss\tgen_reward\tgen_baseline\tholdout_solved\tholdout_mean_len\toptimal_labeled\tmean_excess";
+const DEEP_METRICS_HEADER: &str =
+    "round\tsolver_loss\tgen_reward\tgen_baseline\tlearned_solved\tbeam_solved\tmean_len_learned\tmean_len_beam\tmean_excess_beam\tlearned_wins\tr_learned/beam";
 
 /// Run the full co-training loop. Returns after `rounds` rounds, having written
 /// checkpoints and metrics to `checkpoint_dir`.
@@ -137,26 +148,61 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         let is_last = round + 1 == cfg.rounds;
         let do_eval = is_last || (cfg.eval_every > 0 && (round + 1) % cfg.eval_every == 0);
         if do_eval {
-            let report = eval::run(|s| davi.value_of(s).expect("solver value_of failed"), &cfg.eval);
-            if cfg.verbose {
-                report.print();
-            }
-            checkpoint::save(&cfg.checkpoint_dir, round, davi.online_varmap(), generator.varmap())?;
-            let line = format!(
-                "{}\t{:.4}\t{:.3}\t{:.3}\t{}\t{}\t{}\t{}",
+            let prefix = format!(
+                "{}\t{:.4}\t{:.3}\t{:.3}",
                 round,
                 solver_loss,
                 gen_reward,
                 generator.reward_baseline(),
-                report.holdout_solved,
-                report.holdout_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
-                report.optimal_labeled_n,
-                report
-                    .mean_excess_over_optimal
-                    .map(|v| format!("{:+.2}", v))
-                    .unwrap_or_else(|| "-".into()),
             );
-            checkpoint::append_metrics(&cfg.checkpoint_dir, METRICS_HEADER, &line)?;
+            let opt = |v: Option<f32>| v.map(|x| format!("{:.2}", x)).unwrap_or_else(|| "-".into());
+            let optsign = |v: Option<f32>| v.map(|x| format!("{:+.2}", x)).unwrap_or_else(|| "-".into());
+            let (header, line) = match &cfg.eval {
+                EvalSpec::MidDepth(ec) => {
+                    let r = eval::run(|s| davi.value_of(s).expect("solver value_of failed"), ec);
+                    if cfg.verbose {
+                        r.print();
+                    }
+                    let line = format!(
+                        "{}\t{}\t{}\t{}\t{}",
+                        prefix,
+                        r.holdout_solved,
+                        opt(r.holdout_mean_len),
+                        r.optimal_labeled_n,
+                        optsign(r.mean_excess_over_optimal),
+                    );
+                    (MID_METRICS_HEADER, line)
+                }
+                EvalSpec::Deep(dc) => {
+                    let r = eval::run_deep(|s| davi.value_of(s).expect("solver value_of failed"), dc);
+                    if cfg.verbose {
+                        r.print();
+                    }
+                    let rcol = r
+                        .r_line
+                        .as_ref()
+                        .map(|rr| {
+                            let l = rr.learned.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
+                            let b = rr.beam.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
+                            format!("{}/{}", l, b)
+                        })
+                        .unwrap_or_else(|| "-".into());
+                    let line = format!(
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        prefix,
+                        r.learned_solved,
+                        r.beam_solved,
+                        opt(r.mean_learned_len),
+                        opt(r.mean_beam_len),
+                        optsign(r.mean_excess_over_beam),
+                        r.learned_wins,
+                        rcol,
+                    );
+                    (DEEP_METRICS_HEADER, line)
+                }
+            };
+            checkpoint::save(&cfg.checkpoint_dir, round, davi.online_varmap(), generator.varmap())?;
+            checkpoint::append_metrics(&cfg.checkpoint_dir, header, &line)?;
         }
     }
     Ok(())
@@ -194,7 +240,7 @@ mod tests {
                 fail_penalty: 400.0,
             },
             eval_every: 1,
-            eval: EvalConfig {
+            eval: EvalSpec::MidDepth(EvalConfig {
                 bwas: small_bwas,
                 holdout_n: 6,
                 depth_min: 4,
@@ -202,7 +248,7 @@ mod tests {
                 seed: 1,
                 optimal_max_bound: 16,
                 label_heuristic: LabelHeuristic::Lc,
-            },
+            }),
             checkpoint_dir: dir.clone(),
             seed: 1,
             verbose: false,
@@ -228,6 +274,59 @@ mod tests {
         let _net =
             ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32, 1).unwrap();
         vm.load(checkpoint::value_latest_path(&dir)).unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tiny_deep_loop_writes_deep_metrics() {
+        // Same tiny loop but with the deep (excess-over-beam) in-loop eval;
+        // Manhattan baseline so no WD table is needed. Verifies the Deep branch
+        // runs and writes the deep metrics header.
+        let dir = std::env::temp_dir().join(format!("ml24_altdeep_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let small_bwas = BwasConfig { weight: 2.0, batch_size: 16, node_budget: 50_000 };
+        let small_beam = BeamConfig { width: 100, max_depth: 60, node_budget: 200_000 };
+        let cfg = AlternationConfig {
+            rounds: 1,
+            solver_steps_per_round: 5,
+            generator_steps_per_round: 3,
+            solver_batch: 32,
+            generator_frac: 0.5,
+            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
+            generator: GeneratorConfig {
+                k_max: 8,
+                hidden: 32,
+                lr: 1e-3,
+                baseline_decay: 0.9,
+                solver_bwas: small_bwas,
+                beam: small_beam,
+                baseline: BaselineHeuristic::Manhattan,
+                fail_penalty: 400.0,
+            },
+            eval_every: 1,
+            eval: EvalSpec::Deep(DeepEvalConfig {
+                bwas: small_bwas,
+                beam: small_beam,
+                baseline: BaselineHeuristic::Manhattan,
+                holdout_n: 5,
+                depth_min: 10,
+                depth_max: 20,
+                seed: 3,
+                include_r: false,
+            }),
+            checkpoint_dir: dir.clone(),
+            seed: 2,
+            verbose: false,
+            resume: false,
+        };
+
+        run(&cfg, Device::Cpu).unwrap();
+
+        let metrics = std::fs::read_to_string(dir.join("metrics.tsv")).unwrap();
+        assert!(metrics.contains("mean_excess_beam"), "deep metrics header missing: {metrics}");
+        assert!(checkpoint::value_latest_path(&dir).exists(), "no checkpoint written");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
