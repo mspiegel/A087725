@@ -73,15 +73,17 @@ pub struct EvalReport {
 
 impl EvalReport {
     pub fn print(&self) {
-        println!("── evaluation (mid-depth) ──");
-        println!(
+        // eprintln (stderr, unbuffered) so eval stats stream live in a captured
+        // log, matching the round/solver lines — not block-buffered like stdout.
+        eprintln!("── evaluation (mid-depth) ──");
+        eprintln!(
             "  holdout: solved {}/{} ({:.1}% fail), mean len {}",
             self.holdout_solved,
             self.holdout_n,
             self.holdout_fail_rate * 100.0,
             self.holdout_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
         );
-        println!(
+        eprintln!(
             "  optimal-labeled: {}/{}, mean excess over optimal: {}",
             self.optimal_labeled_n,
             self.holdout_n,
