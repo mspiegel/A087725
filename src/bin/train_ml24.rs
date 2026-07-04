@@ -13,18 +13,20 @@
 //!       [--baseline wd|manhattan] [--beam-width 1000] [--beam-budget 2000000] \
 //!       [--eval-every 2] [--holdout 100] [--depth-min 20] [--depth-max 50] \
 //!       [--eval-mode middepth|deep] [--eval-depth-min 60] [--eval-depth-max 120] [--eval-with-r] \
+//!       [--gen-reward wd|regret] [--adv-lambda 1.0] [--entropy-beta 0.01] \
+//!       [--curriculum --k-start 50 --k-end 160] \
 //!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--quiet]
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use puzzle8::puzzle24::ml::alternate::{run, AlternationConfig, EvalSpec};
+use puzzle8::puzzle24::ml::alternate::{run, AlternationConfig, Curriculum, EvalSpec};
 use puzzle8::puzzle24::ml::beam::BeamConfig;
 use puzzle8::puzzle24::ml::bwas::BwasConfig;
 use puzzle8::puzzle24::ml::davi::DaviConfig;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::eval::{DeepEvalConfig, EvalConfig, LabelHeuristic};
-use puzzle8::puzzle24::ml::generator::{BaselineHeuristic, GeneratorConfig};
+use puzzle8::puzzle24::ml::generator::{BaselineHeuristic, GeneratorConfig, GeneratorReward};
 use puzzle8::puzzle24::ml::profile;
 use puzzle8::puzzle24::search::WalkingDistanceHeuristic;
 
@@ -79,6 +81,20 @@ fn main() -> ExitCode {
     let baseline = match arg(&argv, "--baseline", "wd".to_string()).as_str() {
         "manhattan" => BaselineHeuristic::Manhattan,
         _ => BaselineHeuristic::Wd,
+    };
+    // Generator reward: WdDepth (hack-proof depth composite, default) or the
+    // legacy Regret. --adv-lambda is the composite's λ; --curriculum ramps the
+    // walk length k (depth) from --k-start to --k-end over the run.
+    let gen_reward = match arg(&argv, "--gen-reward", "wd".to_string()).as_str() {
+        "regret" => GeneratorReward::Regret,
+        _ => GeneratorReward::WdDepth,
+    };
+    let entropy_beta: f32 = arg(&argv, "--entropy-beta", 0.01);
+    let adv_lambda: f32 = arg(&argv, "--adv-lambda", 1.0);
+    let curriculum = if argv.iter().any(|a| a == "--curriculum") {
+        Some(Curriculum { k_start: arg(&argv, "--k-start", 50), k_end: arg(&argv, "--k-end", 160) })
+    } else {
+        None
     };
     let verbose = !argv.iter().any(|a| a == "--quiet");
     let resume = argv.iter().any(|a| a == "--resume");
@@ -161,9 +177,13 @@ fn main() -> ExitCode {
             beam,
             baseline,
             fail_penalty: 400.0,
+            reward: gen_reward,
+            entropy_beta,
+            adv_lambda,
         },
         eval_every,
         eval: eval_spec,
+        curriculum,
         checkpoint_dir: PathBuf::from(out),
         seed,
         verbose,

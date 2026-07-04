@@ -1,19 +1,21 @@
 //! The adversarial board generator, trained by REINFORCE.
 //!
 //! A rollout walks from GOAL for `k ~ Uniform(1, k_max)` steps, choosing each
-//! move from the policy network (`super::policy_net`). The resulting board `b`
-//! is scored by **regret** against a fixed, non-learned baseline (GANCO): run
-//! the current learned solver (BWAS over the value net) and a fast **beam-search
-//! suboptimal solver** (`super::beam`, admissible heuristic — Walking Distance by
-//! default) on `b`, and reward the generator by
-//!   `reward = cost_learned(b) − cost_baseline(b)`.
-//! High reward = boards where the *learned* solver underperforms the fixed
-//! reference solver. The REINFORCE loss `-(reward − baseline) · Σ log π(move_t)`
-//! is backpropagated through the accumulated per-step log-probabilities; a
-//! running EMA `reward` baseline reduces gradient variance.
+//! move from the policy network (`super::policy_net`). The resulting board `b` is
+//! scored by one of two rewards ([`GeneratorReward`]):
 //!
-//! Unlike the 15-puzzle, there is no exact-optimal baseline (the 24-puzzle has no
-//! feasible optimal solver past ~depth 50), so the baseline is the beam solver.
+//! - **`WdDepth` (default):** `WD(b) + λ·max(0, WD(b) − V(b))` — the admissible
+//!   Walking-Distance lower bound (certifies genuine depth, hack-proof) plus an
+//!   adversarial term that rewards boards the learned solver *provably*
+//!   underestimates. WD is computed incrementally along the walk; only a value
+//!   forward `V(b)` is needed (no BWAS/beam solve). This drives the generator to
+//!   produce genuinely deep boards near the solver's frontier.
+//! - **`Regret` (legacy):** GANCO regret `cost_learned(b) − cost_beam(b)` vs a
+//!   fast beam baseline (`super::beam`) — kept for A/B.
+//!
+//! The REINFORCE loss `-(reward − baseline)·Σ log π(move_t) − β·Σ H_t` (policy
+//! gradient + an entropy bonus for diversity) is backpropagated through the
+//! per-step log-probabilities; a running EMA `reward` baseline reduces variance.
 
 use candle_core::{DType, Device, Module, Result, Tensor};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
@@ -21,9 +23,12 @@ use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use super::beam::{beam_search, BeamConfig};
 use super::bwas::{search, BwasConfig, BwasOutcome};
 use super::encoding::encode_batch;
-use super::policy_net::{sample_move, PolicyNet, DEFAULT_HIDDEN};
+use super::policy_net::{sample_move, sample_move_full, PolicyNet, DEFAULT_HIDDEN};
 use super::scramble::Rng;
-use crate::puzzle24::search::{Heuristic, ManhattanHeuristic, WalkingDistanceHeuristic};
+use crate::puzzle24::search::{
+    Heuristic, IncHeuristic, ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
+    WalkingDistanceInc,
+};
 use crate::puzzle24::state::{Move, State, GOAL};
 
 /// Which admissible heuristic the beam baseline uses.
@@ -34,6 +39,45 @@ pub enum BaselineHeuristic {
     Wd,
     /// Manhattan — table-free (used in tests to avoid the WD warm-up).
     Manhattan,
+}
+
+/// How the generator's per-rollout reward is computed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeneratorReward {
+    /// Legacy GANCO regret vs the beam baseline: `cost_learned − cost_beam`.
+    /// (Runs a BWAS solve + a beam solve per rollout.)
+    Regret,
+    /// Hack-proof depth composite: `WD(board) + λ·max(0, WD − V(board))` — the
+    /// admissible WD lower bound (certifies depth) plus an adversarial term on
+    /// boards the learned solver *provably* underestimates. Needs only a value
+    /// forward, no BWAS/beam solve.
+    WdDepth,
+}
+
+/// The `WdDepth` reward: WD floor + adversarial term. `wd` = Walking-Distance
+/// lower bound of the board, `v` = the learned solver's value estimate, `lambda`
+/// = adversarial weight. `max(0, wd−v)` is nonzero only when the solver
+/// underestimates below the admissible floor (a certified error).
+fn composite_reward(wd: f32, v: f32, lambda: f32) -> f32 {
+    wd + lambda * (wd - v).max(0.0)
+}
+
+/// Policy entropy `H = -Σ_i p_i log p_i` from a `[4]` log-prob tensor (graph).
+/// Masked entries are ≈ `-1e30`, so `exp()→0` and `p·log p→-0.0` — NaN-safe.
+fn entropy_of(logp4: &Tensor) -> Result<Tensor> {
+    let p = logp4.exp()?; // [4] probs
+    let plogp = p.mul(logp4)?; // [4], Σ ≤ 0
+    plogp.sum_all()?.neg()
+}
+
+/// One rollout step's data for the policy-gradient + entropy loss.
+struct Step {
+    /// Chosen move's log-prob (scalar graph tensor).
+    lp: Tensor,
+    /// Full `[4]` masked log-prob distribution (graph tensor, for entropy).
+    logp4: Tensor,
+    /// WD lower bound of the board *after* this move (0 in `Regret` mode, unused).
+    wd_child: u8,
 }
 
 pub struct GeneratorConfig {
@@ -52,6 +96,12 @@ pub struct GeneratorConfig {
     /// Cost charged when a solver exceeds its budget (must be strictly worse than
     /// any real 24-puzzle solution length; the diameter upper bound is 205).
     pub fail_penalty: f32,
+    /// How the per-rollout reward is computed.
+    pub reward: GeneratorReward,
+    /// Entropy-bonus weight in the REINFORCE loss (0 = off).
+    pub entropy_beta: f32,
+    /// Adversarial-term weight λ in the `WdDepth` composite (0 = pure WD).
+    pub adv_lambda: f32,
 }
 
 impl Default for GeneratorConfig {
@@ -65,6 +115,9 @@ impl Default for GeneratorConfig {
             beam: BeamConfig::default(),
             baseline: BaselineHeuristic::Wd,
             fail_penalty: 400.0,
+            reward: GeneratorReward::WdDepth,
+            entropy_beta: 0.01,
+            adv_lambda: 1.0,
         }
     }
 }
@@ -80,6 +133,9 @@ pub struct Generator {
     beam_cfg: BeamConfig,
     beam_h: Box<dyn Heuristic + Send + Sync>,
     fail_penalty: f32,
+    reward: GeneratorReward,
+    entropy_beta: f32,
+    adv_lambda: f32,
     reward_baseline: f32,
 }
 
@@ -93,6 +149,11 @@ impl Generator {
             }
             BaselineHeuristic::Manhattan => Box::new(ManhattanHeuristic),
         };
+        // The WdDepth reward evaluates incremental WD during every rollout, so its
+        // table must be up even when the beam baseline is Manhattan.
+        if cfg.reward == GeneratorReward::WdDepth {
+            WalkingDistanceHeuristic::warm_up();
+        }
 
         let varmap = VarMap::new();
         let net = PolicyNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), cfg.hidden)?;
@@ -108,60 +169,103 @@ impl Generator {
             beam_cfg: cfg.beam,
             beam_h,
             fail_penalty: cfg.fail_penalty,
+            reward: cfg.reward,
+            entropy_beta: cfg.entropy_beta,
+            adv_lambda: cfg.adv_lambda,
             reward_baseline: 0.0,
         })
     }
 
-    /// Roll out a board from GOAL, returning the board and the per-step chosen
-    /// log-probabilities (graph tensors, for the policy-gradient backward pass).
-    fn rollout(&self, rng: &mut Rng) -> Result<(State, Vec<Tensor>)> {
+    /// Update the rollout walk-length cap (the curriculum knob). Clamped to ≥ 1.
+    pub fn set_k_max(&mut self, k: u32) {
+        self.k_max = k.max(1);
+    }
+
+    /// Roll out a board from GOAL, returning the board and per-step [`Step`]
+    /// records (chosen log-prob, full distribution for entropy, and the board's
+    /// WD after each move). Incremental WD is only threaded in `WdDepth` mode, so
+    /// `Regret` rollouts never touch the WD table (`wd_child` stays 0 there).
+    fn rollout(&self, rng: &mut Rng) -> Result<(State, Vec<Step>)> {
         let k = rng.gen_range(1, self.k_max);
         let mut s = GOAL;
         let mut blank = s.blank_pos();
         let mut last: Option<Move> = None;
-        let mut log_probs = Vec::with_capacity(k as usize);
+        let track_wd = self.reward == GeneratorReward::WdDepth;
+        let wd = WalkingDistanceInc;
+        let mut stats = SearchStats::default();
+        let mut ctx = if track_wd { Some(wd.root(&s, &mut stats).1) } else { None };
+        let mut steps = Vec::with_capacity(k as usize);
         for _ in 0..k {
             let banned = last.map(|m| m.inverse());
-            let (m, lp) = sample_move(&self.net, &s, blank, banned, &self.device, rng)?;
-            log_probs.push(lp);
+            let (m, lp, logp4) =
+                sample_move_full(&self.net, &s, blank, banned, &self.device, rng)?;
             let (ns, nb) = s.apply_at(m, blank);
+            let wd_child = if let Some(c) = ctx {
+                let (h, cc) = wd.advance(&c, &ns, m, &mut stats);
+                ctx = Some(cc);
+                h
+            } else {
+                0
+            };
+            steps.push(Step { lp, logp4, wd_child });
             s = ns;
             blank = nb;
             last = Some(m);
         }
-        Ok((s, log_probs))
+        Ok((s, steps))
     }
 
     /// One REINFORCE update against the (frozen) learned solver `solver_value_of`.
-    /// Returns the regret reward for this rollout.
+    /// Returns the per-rollout reward (regret, or the WD-depth composite).
     pub fn train_round<F>(&mut self, solver_value_of: F, rng: &mut Rng) -> Result<f32>
     where
         F: Fn(&[State]) -> Vec<f32>,
     {
-        let (board, log_probs) = self.rollout(rng)?;
+        let (board, steps) = self.rollout(rng)?;
 
-        // Learned solver cost under its node budget.
-        let cost_learned = match search(&board, &self.solver_bwas, &solver_value_of) {
-            BwasOutcome::Solved { moves, .. } => moves.len() as f32,
-            BwasOutcome::BudgetExceeded { .. } => self.fail_penalty,
+        let reward = match self.reward {
+            GeneratorReward::Regret => {
+                // Learned solver cost under its node budget.
+                let cost_learned = match search(&board, &self.solver_bwas, &solver_value_of) {
+                    BwasOutcome::Solved { moves, .. } => moves.len() as f32,
+                    BwasOutcome::BudgetExceeded { .. } => self.fail_penalty,
+                };
+                // Fixed suboptimal beam baseline with an admissible heuristic.
+                let t = std::time::Instant::now();
+                let cost_baseline = match beam_search(&board, self.beam_h.as_ref(), &self.beam_cfg) {
+                    Some(mv) => mv.len() as f32,
+                    None => self.fail_penalty,
+                };
+                super::profile::record_if("gen/baseline_beam", t);
+                cost_learned - cost_baseline
+            }
+            GeneratorReward::WdDepth => {
+                // WD floor (admissible ⇒ certifies depth) + adversarial term on
+                // boards the solver provably underestimates. Only a value forward.
+                let wd = steps.last().map(|s| s.wd_child).unwrap_or(0) as f32;
+                let v = solver_value_of(std::slice::from_ref(&board))[0];
+                composite_reward(wd, v, self.adv_lambda)
+            }
         };
-        // Fixed baseline: fast suboptimal beam search with an admissible heuristic.
-        let t = std::time::Instant::now();
-        let cost_baseline = match beam_search(&board, self.beam_h.as_ref(), &self.beam_cfg) {
-            Some(mv) => mv.len() as f32,
-            None => self.fail_penalty,
-        };
-        super::profile::record_if("gen/baseline_beam", t);
-
-        let reward = cost_learned - cost_baseline;
         let advantage = reward - self.reward_baseline;
 
-        // REINFORCE loss = -advantage * sum(log_probs).
-        let mut sum_lp = log_probs[0].clone();
-        for lp in &log_probs[1..] {
-            sum_lp = sum_lp.add(lp)?;
+        // Policy-gradient term: -advantage · Σ log π(move_t).
+        let mut sum_lp = steps[0].lp.clone();
+        for st in &steps[1..] {
+            sum_lp = sum_lp.add(&st.lp)?;
         }
-        let loss = sum_lp.affine(-(advantage as f64), 0.0)?;
+        let pg = sum_lp.affine(-(advantage as f64), 0.0)?;
+
+        // Entropy bonus: subtract β·Σ H_t to *maximise* policy entropy (diversity).
+        let loss = if self.entropy_beta > 0.0 {
+            let mut sum_h = entropy_of(&steps[0].logp4)?;
+            for st in &steps[1..] {
+                sum_h = sum_h.add(&entropy_of(&st.logp4)?)?;
+            }
+            pg.sub(&sum_h.affine(self.entropy_beta as f64, 0.0)?)?
+        } else {
+            pg
+        };
         self.opt.backward_step(&loss)?;
 
         // EMA baseline update.
@@ -281,7 +385,7 @@ mod tests {
         vec![0.0; states.len()]
     }
 
-    /// Test generator: Manhattan baseline (no WD warm-up), small nets/beam.
+    /// Test generator: Regret + Manhattan baseline (no WD warm-up), small nets.
     fn cpu_generator(k_max: u32, budget: u64) -> Generator {
         Generator::new(
             &GeneratorConfig {
@@ -293,6 +397,31 @@ mod tests {
                 beam: BeamConfig { width: 200, max_depth: 80, node_budget: 500_000 },
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
+                reward: GeneratorReward::Regret,
+                entropy_beta: 0.01,
+                adv_lambda: 1.0,
+            },
+            Device::Cpu,
+        )
+        .unwrap()
+    }
+
+    /// Test generator in `WdDepth` mode (warms the WD table — gate callers on
+    /// `data/wd24.bin`). Manhattan beam baseline is unused in this mode.
+    fn wd_generator(k_max: u32) -> Generator {
+        Generator::new(
+            &GeneratorConfig {
+                k_max,
+                hidden: 32,
+                lr: 1e-3,
+                baseline_decay: 0.9,
+                solver_bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: 10_000 },
+                beam: BeamConfig { width: 100, max_depth: 80, node_budget: 200_000 },
+                baseline: BaselineHeuristic::Manhattan,
+                fail_penalty: 400.0,
+                reward: GeneratorReward::WdDepth,
+                entropy_beta: 0.01,
+                adv_lambda: 1.0,
             },
             Device::Cpu,
         )
@@ -370,6 +499,9 @@ mod tests {
                 beam: BeamConfig { width: 200, max_depth: 100, node_budget: 500_000 },
                 baseline: BaselineHeuristic::Wd,
                 fail_penalty: 400.0,
+                reward: GeneratorReward::Regret,
+                entropy_beta: 0.01,
+                adv_lambda: 1.0,
             },
             Device::Cpu,
         )
@@ -379,5 +511,97 @@ mod tests {
             let r = g.train_round(constant_value, &mut rng).unwrap();
             assert!(r.is_finite(), "WD-baseline reward not finite: {}", r);
         }
+    }
+
+    #[test]
+    fn composite_reward_properties() {
+        // Floor: reward ≥ wd. Self-clear: v ≥ wd ⇒ reward == wd. And the reward is
+        // non-decreasing in wd (the derivative 1 + λ·[wd>v] ≥ 0).
+        for &lambda in &[0.0f32, 0.5, 1.0, 2.0] {
+            for &wd in &[0.0f32, 10.0, 50.0, 140.0] {
+                assert!(composite_reward(wd, 0.0, lambda) >= wd, "floor violated");
+                assert_eq!(composite_reward(wd, wd, lambda), wd, "not self-cleared at v==wd");
+                assert_eq!(composite_reward(wd, wd + 5.0, lambda), wd, "not clamped at v>wd");
+            }
+        }
+        let (v, lambda) = (20.0f32, 1.0);
+        let mut prev = f32::NEG_INFINITY;
+        for wd in 0..=140 {
+            let r = composite_reward(wd as f32, v, lambda);
+            assert!(r >= prev - 1e-6, "not non-decreasing at wd={}", wd);
+            prev = r;
+        }
+    }
+
+    #[test]
+    fn entropy_is_bounded_and_finite() {
+        let dev = Device::Cpu;
+        // Uniform over 4 legal moves ⇒ H = ln 4 (the max).
+        let uniform = Tensor::from_vec(vec![(0.25f32).ln(); 4], (4,), &dev).unwrap();
+        let h = entropy_of(&uniform).unwrap().to_scalar::<f32>().unwrap();
+        assert!((h - (4f32).ln()).abs() < 1e-4, "uniform entropy {} != ln4", h);
+        // Two moves masked to -1e30 (as log_softmax would): H = ln 2, and finite
+        // (the `0·(-1e30)` terms are -0.0, not NaN).
+        let masked =
+            Tensor::from_vec(vec![(0.5f32).ln(), (0.5f32).ln(), -1e30, -1e30], (4,), &dev).unwrap();
+        let h2 = entropy_of(&masked).unwrap().to_scalar::<f32>().unwrap();
+        assert!(h2.is_finite() && (0.0..=(4f32).ln() + 1e-3).contains(&h2), "bad masked H {}", h2);
+        assert!((h2 - (2f32).ln()).abs() < 1e-3, "masked entropy {} != ln2", h2);
+    }
+
+    #[test]
+    fn set_k_max_stays_solvable() {
+        let mut g = cpu_generator(50, 100_000);
+        g.set_k_max(1);
+        let mut rng = Rng::new(3);
+        for s in g.sample_pool(50, &mut rng).unwrap() {
+            assert!(s.is_solvable());
+        }
+    }
+
+    #[test]
+    fn wd_reward_matches_oracle_and_grows_with_depth() {
+        // WD-gated. incremental `wd_child` must equal the from-scratch oracle, and
+        // mean WD must increase with the walk-length k.
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        use crate::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
+        let g = wd_generator(40);
+        let mut rng = Rng::new(5);
+        for _ in 0..50 {
+            let (board, steps) = g.rollout(&mut rng).unwrap();
+            assert_eq!(
+                steps.last().unwrap().wd_child,
+                WalkingDistanceHeuristic.h(&board),
+                "incremental WD != oracle on {:?}",
+                board.0
+            );
+        }
+        let mean_wd = |k: u32, seed: u64| {
+            let g = wd_generator(k);
+            let mut rng = Rng::new(seed);
+            let n = 40u32;
+            let sum: u32 =
+                (0..n).map(|_| g.rollout(&mut rng).unwrap().1.last().unwrap().wd_child as u32).sum();
+            sum as f32 / n as f32
+        };
+        let (m4, m40, m120) = (mean_wd(4, 1), mean_wd(40, 2), mean_wd(120, 3));
+        assert!(m4 < m40 && m40 < m120, "WD not increasing with k: {} {} {}", m4, m40, m120);
+    }
+
+    #[test]
+    fn wd_train_round_finite_and_above_floor() {
+        // WD-gated. WdDepth reward with a constant (V=0) solver ⇒ reward = 2·wd.
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        let mut g = wd_generator(30);
+        let mut rng = Rng::new(7);
+        for _ in 0..10 {
+            let r = g.train_round(constant_value, &mut rng).unwrap();
+            assert!(r.is_finite() && r >= 0.0, "WdDepth reward bad: {}", r);
+        }
+        assert!(g.reward_baseline().is_finite());
     }
 }

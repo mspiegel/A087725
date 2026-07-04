@@ -45,19 +45,21 @@ impl Module for PolicyNet {
     }
 }
 
-/// Sample one legal move from the policy at state `s` (blank at `blank`).
+/// Sample one legal move from the policy at state `s` (blank at `blank`), also
+/// returning the full masked `[4]` log-prob distribution (graph tensor) so the
+/// caller can compute policy entropy for REINFORCE.
 ///
 /// Illegal moves — and the optional `banned` move (forbidding an immediate undo)
-/// — are masked to ~0 probability before sampling. Returns the chosen move and
-/// its log-probability **as a graph tensor** (for REINFORCE).
-pub fn sample_move(
+/// — are masked to ~0 probability before sampling. Returns `(chosen move, its
+/// log-prob scalar, the full [4] log-probs)`, all graph-connected.
+pub fn sample_move_full(
     net: &PolicyNet,
     s: &State,
     blank: u8,
     banned: Option<Move>,
     device: &Device,
     rng: &mut Rng,
-) -> Result<(Move, Tensor)> {
+) -> Result<(Move, Tensor, Tensor)> {
     let x = encode_batch(std::slice::from_ref(s), device)?; // [1, 625]
     let logits = net.forward(&x)?.reshape((4,))?; // [4]
 
@@ -90,7 +92,22 @@ pub fn sample_move(
 
     let chosen = Move::ALL[idx];
     let log_prob = log_probs.get(idx)?; // scalar tensor, graph-connected
-    Ok((chosen, log_prob))
+    Ok((chosen, log_prob, log_probs))
+}
+
+/// Sample one legal move, returning the chosen move and its log-probability
+/// scalar (graph tensor). Thin wrapper over [`sample_move_full`] that discards
+/// the full distribution.
+pub fn sample_move(
+    net: &PolicyNet,
+    s: &State,
+    blank: u8,
+    banned: Option<Move>,
+    device: &Device,
+    rng: &mut Rng,
+) -> Result<(Move, Tensor)> {
+    let (m, lp, _full) = sample_move_full(net, s, blank, banned, device, rng)?;
+    Ok((m, lp))
 }
 
 #[cfg(test)]

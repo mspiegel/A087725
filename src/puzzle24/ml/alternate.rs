@@ -26,6 +26,26 @@ pub enum EvalSpec {
     Deep(DeepEvalConfig),
 }
 
+/// Linear walk-length ramp — the depth curriculum. `k` grows from `k_start`
+/// (round 0) to `k_end` (final round), pacing both generator board depth and
+/// uniform-scramble depth to the solver's learned frontier. Deep boards that
+/// outrun the frontier give DAVI no usable bootstrap gradient, so the ramp keeps
+/// depth just ahead of what the solver has learned.
+pub struct Curriculum {
+    pub k_start: u32,
+    pub k_end: u32,
+}
+
+/// The ramped walk length `k` for `round` of `rounds` (linear, endpoints
+/// inclusive; `round=0`→`k_start`, `round=rounds-1`→`k_end`), clamped ≥ 1.
+fn ramped_k(c: &Curriculum, round: u32, rounds: u32) -> u32 {
+    if rounds <= 1 {
+        return c.k_end.max(1);
+    }
+    let f = round as f64 / (rounds - 1) as f64;
+    (c.k_start as f64 + (c.k_end as f64 - c.k_start as f64) * f).round().max(1.0) as u32
+}
+
 pub struct AlternationConfig {
     pub rounds: u32,
     pub solver_steps_per_round: u32,
@@ -39,6 +59,9 @@ pub struct AlternationConfig {
     /// Evaluate + checkpoint every this many rounds (0 = only at the end).
     pub eval_every: u32,
     pub eval: EvalSpec,
+    /// Optional depth curriculum (walk-length ramp). `None` = fixed `k`
+    /// (`generator.k_max` / `davi.k_max` unchanged across rounds).
+    pub curriculum: Option<Curriculum>,
     pub checkpoint_dir: PathBuf,
     pub seed: u64,
     pub verbose: bool,
@@ -82,6 +105,18 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
     let n_uni = cfg.solver_batch - n_gen;
 
     for round in 0..cfg.rounds {
+        // ---- Depth curriculum: ramp the generator + uniform walk length ----
+        // Set BEFORE the pool build so the frozen-for-this-round generator emits
+        // boards at the ramped depth; uniform scrambles use the same `uni_k`.
+        let uni_k = match &cfg.curriculum {
+            Some(c) => {
+                let k = ramped_k(c, round, cfg.rounds);
+                generator.set_k_max(k);
+                k
+            }
+            None => cfg.davi.k_max,
+        };
+
         // ---- Solver phase (generator frozen; boards mix uniform + generator) ----
         // The generator is frozen for the whole solver phase, so roll its boards
         // ONCE into a pool (batched lockstep) and sample the per-step batch from
@@ -114,7 +149,7 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 batch.push(gen_pool[idx]);
             }
             for _ in 0..n_uni {
-                batch.push(scramble(&mut rng, cfg.davi.k_max).0);
+                batch.push(scramble(&mut rng, uni_k).0);
             }
             loss_sum += davi.train_step(&batch)?;
             if cfg.verbose && (i + 1) % win_every == 0 {
@@ -213,7 +248,7 @@ mod tests {
     use super::super::beam::BeamConfig;
     use super::super::bwas::BwasConfig;
     use super::super::eval::LabelHeuristic;
-    use super::super::generator::BaselineHeuristic;
+    use super::super::generator::{BaselineHeuristic, GeneratorReward};
     use super::*;
 
     #[test]
@@ -238,6 +273,10 @@ mod tests {
                 beam: BeamConfig { width: 100, max_depth: 60, node_budget: 200_000 },
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
+                // Regret keeps this test table-free (no WD warm-up); entropy on.
+                reward: GeneratorReward::Regret,
+                entropy_beta: 0.01,
+                adv_lambda: 1.0,
             },
             eval_every: 1,
             eval: EvalSpec::MidDepth(EvalConfig {
@@ -249,6 +288,8 @@ mod tests {
                 optimal_max_bound: 16,
                 label_heuristic: LabelHeuristic::Lc,
             }),
+            // Exercise the ramp (Regret + curriculum is table-free).
+            curriculum: Some(Curriculum { k_start: 4, k_end: 8 }),
             checkpoint_dir: dir.clone(),
             seed: 1,
             verbose: false,
@@ -304,6 +345,9 @@ mod tests {
                 beam: small_beam,
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
+                reward: GeneratorReward::Regret,
+                entropy_beta: 0.01,
+                adv_lambda: 1.0,
             },
             eval_every: 1,
             eval: EvalSpec::Deep(DeepEvalConfig {
@@ -316,6 +360,7 @@ mod tests {
                 seed: 3,
                 include_r: false,
             }),
+            curriculum: None,
             checkpoint_dir: dir.clone(),
             seed: 2,
             verbose: false,
@@ -329,5 +374,22 @@ mod tests {
         assert!(checkpoint::value_latest_path(&dir).exists(), "no checkpoint written");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ramped_k_endpoints_monotonic_and_clamped() {
+        let c = Curriculum { k_start: 50, k_end: 160 };
+        assert_eq!(ramped_k(&c, 0, 10), 50, "round 0 should be k_start");
+        assert_eq!(ramped_k(&c, 9, 10), 160, "last round should be k_end");
+        let mut prev = 0;
+        for round in 0..10 {
+            let k = ramped_k(&c, round, 10);
+            assert!(k >= prev, "not monotonic at round {round}");
+            prev = k;
+        }
+        // rounds <= 1 → k_end; clamp ≥ 1.
+        assert_eq!(ramped_k(&c, 0, 1), 160);
+        assert_eq!(ramped_k(&c, 0, 0), 160);
+        assert_eq!(ramped_k(&Curriculum { k_start: 0, k_end: 0 }, 0, 5), 1);
     }
 }
