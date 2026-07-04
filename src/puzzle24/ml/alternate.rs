@@ -69,6 +69,11 @@ pub struct AlternationConfig {
     /// present) into the networks before training, continuing from those
     /// weights. Round numbering and the generator's EMA baseline still reset.
     pub resume: bool,
+    /// On resume, keep the trained solver but reset the generator to a fresh
+    /// (random-init) policy instead of loading `policy_latest`. Use when
+    /// switching the generator reward (a collapsed policy from the old reward is
+    /// a poor, low-entropy start). Ignored unless `resume`.
+    pub reset_generator: bool,
 }
 
 const MID_METRICS_HEADER: &str =
@@ -86,15 +91,24 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
     if cfg.resume {
         let vpath = checkpoint::value_latest_path(&cfg.checkpoint_dir);
         let ppath = checkpoint::policy_latest_path(&cfg.checkpoint_dir);
-        if vpath.exists() && ppath.exists() {
+        if vpath.exists() {
             davi.load_online(&vpath)?;
-            generator.load(&ppath)?;
+            let loaded_gen = if !cfg.reset_generator && ppath.exists() {
+                generator.load(&ppath)?;
+                true
+            } else {
+                false
+            };
             if cfg.verbose {
-                eprintln!("resumed weights from {}", cfg.checkpoint_dir.display());
+                eprintln!(
+                    "resumed solver from {}{}",
+                    cfg.checkpoint_dir.display(),
+                    if loaded_gen { " + generator" } else { " (generator fresh)" }
+                );
             }
         } else if cfg.verbose {
             eprintln!(
-                "resume requested but no latest checkpoint in {}; starting fresh",
+                "resume requested but no value checkpoint in {}; starting fresh",
                 cfg.checkpoint_dir.display()
             );
         }
@@ -294,6 +308,7 @@ mod tests {
             seed: 1,
             verbose: false,
             resume: false,
+            reset_generator: false,
         };
 
         run(&cfg, Device::Cpu).unwrap();
@@ -365,6 +380,7 @@ mod tests {
             seed: 2,
             verbose: false,
             resume: false,
+            reset_generator: false,
         };
 
         run(&cfg, Device::Cpu).unwrap();

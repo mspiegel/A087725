@@ -181,12 +181,26 @@ impl Generator {
         self.k_max = k.max(1);
     }
 
+    /// Draw a walk length. `WdDepth` uses a **fixed** length (`= k_max`): with the
+    /// terminal WD reward, a random `[1, k_max]` length correlates with the reward
+    /// but is outside the policy's control, so its variance swamps the
+    /// policy-gradient signal about *which moves* raise WD (and the entropy bonus
+    /// then collapses the policy to a folding random walk). A fixed length makes
+    /// reward variance come only from move quality. `Regret` keeps the legacy
+    /// uniform range.
+    fn draw_k(&self, rng: &mut Rng) -> u32 {
+        match self.reward {
+            GeneratorReward::WdDepth => self.k_max,
+            GeneratorReward::Regret => rng.gen_range(1, self.k_max),
+        }
+    }
+
     /// Roll out a board from GOAL, returning the board and per-step [`Step`]
     /// records (chosen log-prob, full distribution for entropy, and the board's
     /// WD after each move). Incremental WD is only threaded in `WdDepth` mode, so
     /// `Regret` rollouts never touch the WD table (`wd_child` stays 0 there).
     fn rollout(&self, rng: &mut Rng) -> Result<(State, Vec<Step>)> {
-        let k = rng.gen_range(1, self.k_max);
+        let k = self.draw_k(rng);
         let mut s = GOAL;
         let mut blank = s.blank_pos();
         let mut last: Option<Move> = None;
@@ -283,7 +297,7 @@ impl Generator {
         if n == 0 {
             return Ok(Vec::new());
         }
-        let lens: Vec<u32> = (0..n).map(|_| rng.gen_range(1, self.k_max)).collect();
+        let lens: Vec<u32> = (0..n).map(|_| self.draw_k(rng)).collect();
         let max_k = *lens.iter().max().unwrap();
 
         let mut states = vec![GOAL; n];
@@ -345,7 +359,7 @@ impl Generator {
     /// Inference-only rollout: sample a board from the current policy (log-probs
     /// discarded). Used to feed generator boards into the solver's DAVI training.
     pub fn sample_board(&self, rng: &mut Rng) -> State {
-        let k = rng.gen_range(1, self.k_max);
+        let k = self.draw_k(rng);
         let mut s = GOAL;
         let mut blank = s.blank_pos();
         let mut last: Option<Move> = None;

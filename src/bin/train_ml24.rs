@@ -15,7 +15,7 @@
 //!       [--eval-mode middepth|deep] [--eval-depth-min 60] [--eval-depth-max 120] [--eval-with-r] \
 //!       [--gen-reward wd|regret] [--adv-lambda 1.0] [--entropy-beta 0.01] \
 //!       [--curriculum --k-start 50 --k-end 160] \
-//!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--quiet]
+//!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--fresh-generator] [--quiet]
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -98,6 +98,9 @@ fn main() -> ExitCode {
     };
     let verbose = !argv.iter().any(|a| a == "--quiet");
     let resume = argv.iter().any(|a| a == "--resume");
+    // Resume the solver but start the generator fresh (e.g. after changing the
+    // generator reward — a collapsed old-reward policy is a poor start).
+    let reset_generator = argv.iter().any(|a| a == "--fresh-generator");
     if argv.iter().any(|a| a == "--profile") {
         profile::set_enabled(true);
     }
@@ -188,6 +191,7 @@ fn main() -> ExitCode {
         seed,
         verbose,
         resume,
+        reset_generator,
     };
 
     match run(&cfg, device) {
