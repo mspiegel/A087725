@@ -15,6 +15,8 @@
 //!       [--eval-mode middepth|deep] [--eval-depth-min 60] [--eval-depth-max 120] [--eval-with-r] \
 //!       [--gen-reward wd|regret] [--adv-lambda 1.0] [--entropy-beta 0.01] \
 //!       [--curriculum --k-start 50 --k-end 160] \
+//!       [--gen-source policy|wdsearch] [--search-width 8192] [--search-budget 0] \
+//!       [--search-random-slots 0 --search-temp 5.0] [--dry-run] \
 //!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--fresh-generator] [--quiet]
 
 use std::path::PathBuf;
@@ -26,9 +28,14 @@ use puzzle8::puzzle24::ml::bwas::BwasConfig;
 use puzzle8::puzzle24::ml::davi::DaviConfig;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::eval::{DeepEvalConfig, EvalConfig, LabelHeuristic};
-use puzzle8::puzzle24::ml::generator::{BaselineHeuristic, GeneratorConfig, GeneratorReward};
+use puzzle8::puzzle24::ml::generator::{
+    BaselineHeuristic, Generator, GeneratorConfig, GeneratorReward, GeneratorSource,
+};
 use puzzle8::puzzle24::ml::profile;
-use puzzle8::puzzle24::search::WalkingDistanceHeuristic;
+use puzzle8::puzzle24::ml::scramble::Rng;
+use puzzle8::puzzle24::ml::wdsearch::{Diversity, WdSearchConfig};
+use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
+use puzzle8::puzzle24::state::State;
 
 fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
     argv.iter()
@@ -95,6 +102,29 @@ fn main() -> ExitCode {
         Some(Curriculum { k_start: arg(&argv, "--k-start", 50), k_end: arg(&argv, "--k-end", 160) })
     } else {
         None
+    };
+    // Generation source: the learned policy (default) or the WD-search deep-board
+    // constructor. WdSearch reads its target depth from the curriculum k_max, so
+    // use it with --curriculum (--k-start/--k-end).
+    let gen_source = arg(&argv, "--gen-source", "policy".to_string());
+    let search_width: usize = arg(&argv, "--search-width", 8192);
+    let search_budget: u64 = arg(&argv, "--search-budget", 0);
+    let search_random_slots: usize = arg(&argv, "--search-random-slots", 0);
+    let search_temp: f32 = arg(&argv, "--search-temp", 5.0);
+    let source = if gen_source == "wdsearch" {
+        let diversity = if search_random_slots > 0 {
+            Diversity::Stochastic { random_slots: search_random_slots, temperature: search_temp }
+        } else {
+            Diversity::TopK
+        };
+        GeneratorSource::WdSearch(WdSearchConfig {
+            width: search_width,
+            target_depth: gen_k as usize, // overridden per-round by k_max (curriculum)
+            node_budget: search_budget,
+            diversity,
+        })
+    } else {
+        GeneratorSource::PolicyRollout
     };
     let verbose = !argv.iter().any(|a| a == "--quiet");
     let resume = argv.iter().any(|a| a == "--resume");
@@ -183,6 +213,7 @@ fn main() -> ExitCode {
             reward: gen_reward,
             entropy_beta,
             adv_lambda,
+            source,
         },
         eval_every,
         eval: eval_spec,
@@ -193,6 +224,41 @@ fn main() -> ExitCode {
         resume,
         reset_generator,
     };
+
+    // --dry-run: build one generator pool and print its WD stats, then exit — a
+    // CLI-level smoke of the (WdSearch) board source without any training.
+    if argv.iter().any(|a| a == "--dry-run") {
+        let mut g = match Generator::new(&cfg.generator, device.clone()) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("dry-run: generator init failed: {}", e);
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Some(c) = &cfg.curriculum {
+            g.set_k_max(c.k_end); // deepest curriculum level
+        }
+        let t = std::time::Instant::now();
+        let pool = g
+            .sample_pool(2000, |s: &[State]| vec![0.0f32; s.len()], &mut Rng::new(1))
+            .expect("dry-run sample_pool");
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        let wds: Vec<u8> = pool.iter().map(|s| WalkingDistanceHeuristic.h(s)).collect();
+        let max_wd = wds.iter().copied().max().unwrap_or(0);
+        let mean_wd = if wds.is_empty() {
+            0.0
+        } else {
+            wds.iter().map(|&w| w as f64).sum::<f64>() / wds.len() as f64
+        };
+        println!(
+            "dry-run: {} boards, max WD {}, mean WD {:.1}, in {:.0} ms",
+            pool.len(),
+            max_wd,
+            mean_wd,
+            ms
+        );
+        return ExitCode::SUCCESS;
+    }
 
     match run(&cfg, device) {
         Ok(()) => {

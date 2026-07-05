@@ -25,6 +25,7 @@ use super::bwas::{search, BwasConfig, BwasOutcome};
 use super::encoding::encode_batch;
 use super::policy_net::{sample_move, sample_move_full, PolicyNet, DEFAULT_HIDDEN};
 use super::scramble::Rng;
+use super::wdsearch::{construct_deep_boards, WdSearchConfig};
 use crate::puzzle24::search::{
     Heuristic, IncHeuristic, ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
     WalkingDistanceInc,
@@ -52,6 +53,19 @@ pub enum GeneratorReward {
     /// boards the learned solver *provably* underestimates. Needs only a value
     /// forward, no BWAS/beam solve.
     WdDepth,
+}
+
+/// How the generator *produces* boards (orthogonal to the reward, which only
+/// applies to the learned `PolicyRollout` source).
+#[derive(Clone, Copy, Debug)]
+pub enum GeneratorSource {
+    /// The learned REINFORCE walk policy (trained via `train_round`). Plateaus at
+    /// WD~70-90 (greedy WD-ascent). Kept as the A/B baseline.
+    PolicyRollout,
+    /// A WD-maximizing beam search from GOAL (`super::wdsearch`) that constructs
+    /// genuinely deep boards (WD~120+). No policy net / no gradient; deep-board
+    /// selection is adversarial via `V`-ranking (see `sample_pool`).
+    WdSearch(WdSearchConfig),
 }
 
 /// The `WdDepth` reward: WD floor + adversarial term. `wd` = Walking-Distance
@@ -100,8 +114,10 @@ pub struct GeneratorConfig {
     pub reward: GeneratorReward,
     /// Entropy-bonus weight in the REINFORCE loss (0 = off).
     pub entropy_beta: f32,
-    /// Adversarial-term weight λ in the `WdDepth` composite (0 = pure WD).
+    /// Adversarial-term weight λ in the `WdDepth` composite / WdSearch V-ranking.
     pub adv_lambda: f32,
+    /// How boards are produced (learned policy vs WD-search constructor).
+    pub source: GeneratorSource,
 }
 
 impl Default for GeneratorConfig {
@@ -118,6 +134,7 @@ impl Default for GeneratorConfig {
             reward: GeneratorReward::WdDepth,
             entropy_beta: 0.01,
             adv_lambda: 1.0,
+            source: GeneratorSource::PolicyRollout,
         }
     }
 }
@@ -136,7 +153,11 @@ pub struct Generator {
     reward: GeneratorReward,
     entropy_beta: f32,
     adv_lambda: f32,
+    source: GeneratorSource,
     reward_baseline: f32,
+    /// Mean WD of the last WdSearch pool, so the vestigial `train_round` can
+    /// report it in the `gen_reward` metric (WdSearch has no gradient to train).
+    last_pool_mean_wd: std::cell::Cell<f32>,
 }
 
 impl Generator {
@@ -149,9 +170,11 @@ impl Generator {
             }
             BaselineHeuristic::Manhattan => Box::new(ManhattanHeuristic),
         };
-        // The WdDepth reward evaluates incremental WD during every rollout, so its
-        // table must be up even when the beam baseline is Manhattan.
-        if cfg.reward == GeneratorReward::WdDepth {
+        // The WdDepth reward and the WdSearch constructor both evaluate WD, so its
+        // table must be up (even when the beam baseline is Manhattan).
+        if cfg.reward == GeneratorReward::WdDepth
+            || matches!(cfg.source, GeneratorSource::WdSearch(_))
+        {
             WalkingDistanceHeuristic::warm_up();
         }
 
@@ -172,7 +195,9 @@ impl Generator {
             reward: cfg.reward,
             entropy_beta: cfg.entropy_beta,
             adv_lambda: cfg.adv_lambda,
+            source: cfg.source,
             reward_baseline: 0.0,
+            last_pool_mean_wd: std::cell::Cell::new(0.0),
         })
     }
 
@@ -235,6 +260,12 @@ impl Generator {
     where
         F: Fn(&[State]) -> Vec<f32>,
     {
+        // WdSearch has no learned policy — nothing to train. Report the last pool's
+        // mean WD so the `gen_reward` metric still reflects the depth achieved.
+        if let GeneratorSource::WdSearch(_) = self.source {
+            return Ok(self.last_pool_mean_wd.get());
+        }
+
         let (board, steps) = self.rollout(rng)?;
 
         let reward = match self.reward {
@@ -288,12 +319,66 @@ impl Generator {
         Ok(reward)
     }
 
+    /// Produce `n` boards for the DAVI training batch. Dispatches on the
+    /// generation source: the learned policy rollout, or the WD-search
+    /// constructor (deep boards, V-ranked by how much the solver underestimates
+    /// each). `solver_value_of` is the frozen solver's value (used only by
+    /// WdSearch; PolicyRollout ignores it, staying A/B bit-identical).
+    pub fn sample_pool<F>(&self, n: usize, solver_value_of: F, rng: &mut Rng) -> Result<Vec<State>>
+    where
+        F: Fn(&[State]) -> Vec<f32>,
+    {
+        match self.source {
+            GeneratorSource::PolicyRollout => self.sample_pool_policy(n, rng),
+            GeneratorSource::WdSearch(cfg) => {
+                self.sample_pool_wdsearch(n, cfg, &solver_value_of, rng)
+            }
+        }
+    }
+
+    /// WdSearch board source: construct a deep-board frontier via WD-maximizing
+    /// beam search (target depth from the curriculum knob `k_max`), then keep the
+    /// top `n` ranked by `composite_reward(wd, V, λ)` — the boards the solver most
+    /// underestimates (adversarial), among certifiably-deep candidates.
+    fn sample_pool_wdsearch<F>(
+        &self,
+        n: usize,
+        cfg: WdSearchConfig,
+        solver_value_of: &F,
+        rng: &mut Rng,
+    ) -> Result<Vec<State>>
+    where
+        F: Fn(&[State]) -> Vec<f32>,
+    {
+        let mut sc = cfg;
+        sc.target_depth = (self.k_max as usize).max(1); // curriculum drives depth
+        let cand = construct_deep_boards(sc.width, &sc, rng); // over-produced (state, wd)
+        if cand.is_empty() {
+            self.last_pool_mean_wd.set(0.0);
+            return Ok(Vec::new());
+        }
+        self.last_pool_mean_wd
+            .set(cand.iter().map(|&(_, w)| w as f32).sum::<f32>() / cand.len() as f32);
+
+        // V-rank the candidates by composite reward, keep top n.
+        let states: Vec<State> = cand.iter().map(|&(s, _)| s).collect();
+        let vs = solver_value_of(&states);
+        let mut scored: Vec<(f32, State)> = cand
+            .iter()
+            .zip(vs.iter())
+            .map(|(&(s, wd), &v)| (composite_reward(wd as f32, v, self.adv_lambda), s))
+            .collect();
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then((a.1).0.cmp(&(b.1).0)));
+        scored.truncate(n);
+        Ok(scored.into_iter().map(|(_, s)| s).collect())
+    }
+
     /// Inference-only batched rollout: sample `n` boards from the current policy
     /// in **lockstep** — one batched policy forward per move-step over all still-
     /// active boards — instead of `n` separate move-by-move rollouts. Turns
     /// ~`n·k` tiny batch-1 forwards into ~`k` big batched forwards (≈100× faster
     /// pool build; this fix is why the 24-puzzle training loop is feasible).
-    pub fn sample_pool(&self, n: usize, rng: &mut Rng) -> Result<Vec<State>> {
+    fn sample_pool_policy(&self, n: usize, rng: &mut Rng) -> Result<Vec<State>> {
         if n == 0 {
             return Ok(Vec::new());
         }
@@ -414,6 +499,7 @@ mod tests {
                 reward: GeneratorReward::Regret,
                 entropy_beta: 0.01,
                 adv_lambda: 1.0,
+                source: GeneratorSource::PolicyRollout,
             },
             Device::Cpu,
         )
@@ -436,6 +522,7 @@ mod tests {
                 reward: GeneratorReward::WdDepth,
                 entropy_beta: 0.01,
                 adv_lambda: 1.0,
+                source: GeneratorSource::PolicyRollout,
             },
             Device::Cpu,
         )
@@ -486,12 +573,12 @@ mod tests {
     fn sample_pool_is_solvable_and_correct_count() {
         let g = cpu_generator(20, 100_000);
         let mut rng = Rng::new(9);
-        let pool = g.sample_pool(200, &mut rng).unwrap();
+        let pool = g.sample_pool(200, constant_value, &mut rng).unwrap();
         assert_eq!(pool.len(), 200);
         for s in &pool {
             assert!(s.is_solvable());
         }
-        assert!(g.sample_pool(0, &mut rng).unwrap().is_empty());
+        assert!(g.sample_pool(0, constant_value, &mut rng).unwrap().is_empty());
     }
 
     #[test]
@@ -516,6 +603,7 @@ mod tests {
                 reward: GeneratorReward::Regret,
                 entropy_beta: 0.01,
                 adv_lambda: 1.0,
+                source: GeneratorSource::PolicyRollout,
             },
             Device::Cpu,
         )
@@ -568,7 +656,7 @@ mod tests {
         let mut g = cpu_generator(50, 100_000);
         g.set_k_max(1);
         let mut rng = Rng::new(3);
-        for s in g.sample_pool(50, &mut rng).unwrap() {
+        for s in g.sample_pool(50, constant_value, &mut rng).unwrap() {
             assert!(s.is_solvable());
         }
     }
@@ -617,5 +705,36 @@ mod tests {
             assert!(r.is_finite() && r >= 0.0, "WdDepth reward bad: {}", r);
         }
         assert!(g.reward_baseline().is_finite());
+    }
+
+    #[test]
+    fn sample_pool_wdsearch_reaches_deep() {
+        // WD-gated. A WdSearch generator's pool has mean WD ≫ the policy path
+        // (deep boards), all solvable; train_round is a no-op returning the mean.
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        use super::super::wdsearch::{Diversity, WdSearchConfig};
+        use crate::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
+        let mut cfg = GeneratorConfig { hidden: 32, ..Default::default() };
+        cfg.source = GeneratorSource::WdSearch(WdSearchConfig {
+            width: 1000,
+            target_depth: 120,
+            node_budget: 0,
+            diversity: Diversity::TopK,
+        });
+        let mut g = Generator::new(&cfg, Device::Cpu).unwrap();
+        g.set_k_max(120); // curriculum drives search depth
+        let mut rng = Rng::new(3);
+        let pool = g.sample_pool(200, constant_value, &mut rng).unwrap();
+        assert_eq!(pool.len(), 200);
+        let mean_wd =
+            pool.iter().map(|s| WalkingDistanceHeuristic.h(s) as f64).sum::<f64>() / 200.0;
+        assert!(mean_wd > 100.0, "WdSearch pool mean WD only {:.1}", mean_wd);
+        for s in &pool {
+            assert!(s.is_solvable());
+        }
+        let r = g.train_round(constant_value, &mut rng).unwrap();
+        assert!(r.is_finite() && r > 100.0, "train_round no-op mean WD {}", r);
     }
 }

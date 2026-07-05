@@ -139,7 +139,11 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         let gen_pool: Vec<State> = if n_gen > 0 {
             let pool_size = (cfg.solver_batch * 8).max(1024);
             let t = std::time::Instant::now();
-            let pool = generator.sample_pool(pool_size, &mut rng)?;
+            let pool = generator.sample_pool(
+                pool_size,
+                |s| davi.value_of(s).expect("solver value_of failed"),
+                &mut rng,
+            )?;
             if cfg.verbose {
                 eprintln!(
                     "    [pool] {} gen boards in {:.0} ms",
@@ -262,7 +266,7 @@ mod tests {
     use super::super::beam::BeamConfig;
     use super::super::bwas::BwasConfig;
     use super::super::eval::LabelHeuristic;
-    use super::super::generator::{BaselineHeuristic, GeneratorReward};
+    use super::super::generator::{BaselineHeuristic, GeneratorReward, GeneratorSource};
     use super::*;
 
     #[test]
@@ -291,6 +295,7 @@ mod tests {
                 reward: GeneratorReward::Regret,
                 entropy_beta: 0.01,
                 adv_lambda: 1.0,
+                source: GeneratorSource::PolicyRollout,
             },
             eval_every: 1,
             eval: EvalSpec::MidDepth(EvalConfig {
@@ -363,6 +368,7 @@ mod tests {
                 reward: GeneratorReward::Regret,
                 entropy_beta: 0.01,
                 adv_lambda: 1.0,
+                source: GeneratorSource::PolicyRollout,
             },
             eval_every: 1,
             eval: EvalSpec::Deep(DeepEvalConfig {
