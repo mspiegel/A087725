@@ -14,7 +14,7 @@ use candle_core::{Device, Result};
 use super::checkpoint;
 use super::davi::{Davi, DaviConfig};
 use super::eval::{self, DeepEvalConfig, EvalConfig};
-use super::generator::{Generator, GeneratorConfig};
+use super::generator::{Generator, GeneratorConfig, GeneratorSource};
 use super::scramble::{scramble, Rng};
 use crate::puzzle24::state::State;
 
@@ -74,6 +74,12 @@ pub struct AlternationConfig {
     /// switching the generator reward (a collapsed policy from the old reward is
     /// a poor, low-entropy start). Ignored unless `resume`.
     pub reset_generator: bool,
+    /// If true (and the source is `WdSearch`), label each search board in the
+    /// DAVI batch with its walk length (= the search depth) as a **supervised**
+    /// value target, instead of the GOAL-outward Bellman bootstrap. The walk
+    /// reversed is an achievable solution, so `optimal ≤ walk-length`; this
+    /// injects deep-region value the bootstrap can't reach in time.
+    pub supervise_search_depth: bool,
 }
 
 const MID_METRICS_HEADER: &str =
@@ -169,7 +175,18 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             for _ in 0..n_uni {
                 batch.push(scramble(&mut rng, uni_k).0);
             }
-            loss_sum += davi.train_step(&batch)?;
+            // The first n_gen batch boards are the WdSearch pool (walk depth =
+            // uni_k); supervise them with that walk-length when enabled.
+            let supervise = cfg.supervise_search_depth
+                && n_gen > 0
+                && matches!(cfg.generator.source, GeneratorSource::WdSearch(_));
+            loss_sum += if supervise {
+                let mut targets: Vec<Option<f32>> = vec![Some(uni_k as f32); n_gen];
+                targets.resize(cfg.solver_batch, None);
+                davi.train_step_targets(&batch, &targets)?
+            } else {
+                davi.train_step(&batch)?
+            };
             if cfg.verbose && (i + 1) % win_every == 0 {
                 let ms = win.elapsed().as_secs_f64() * 1000.0 / win_every as f64;
                 eprintln!("    [solver {}/{}] {:.0} ms/step", i + 1, cfg.solver_steps_per_round, ms);
@@ -314,6 +331,7 @@ mod tests {
             verbose: false,
             resume: false,
             reset_generator: false,
+            supervise_search_depth: false,
         };
 
         run(&cfg, Device::Cpu).unwrap();
@@ -387,6 +405,7 @@ mod tests {
             verbose: false,
             resume: false,
             reset_generator: false,
+            supervise_search_depth: false,
         };
 
         run(&cfg, Device::Cpu).unwrap();

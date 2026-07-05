@@ -87,9 +87,23 @@ impl Davi {
         Ok(davi)
     }
 
-    /// One gradient step over a batch of (already-scrambled, non-goal) states.
+    /// One gradient step over a batch of states, using Bellman bootstrap targets.
     /// Returns the scalar MSE loss for logging.
     pub fn train_step(&mut self, states: &[State]) -> Result<f32> {
+        let none = vec![None; states.len()];
+        self.train_step_targets(states, &none)
+    }
+
+    /// Like [`train_step`] but `supervised[i] = Some(t)` **overrides** state `i`'s
+    /// Bellman target with a direct regression target `t` — e.g. an achievable
+    /// solution length from the WD-search walk (`optimal ≤ walk-length`). This
+    /// injects deep-region value the GOAL-outward bootstrap can't reach in time.
+    /// `None` (or a missing index) uses the usual bootstrap.
+    pub fn train_step_targets(
+        &mut self,
+        states: &[State],
+        supervised: &[Option<f32>],
+    ) -> Result<f32> {
         debug_assert!(!states.is_empty());
 
         // Flatten every state's legal neighbors into one list, tracking ranges.
@@ -116,6 +130,11 @@ impl Davi {
         let t = Instant::now();
         let mut targets = Vec::with_capacity(states.len());
         for (i, s) in states.iter().enumerate() {
+            // Supervised anchor overrides the bootstrap (walk-length label).
+            if let Some(t) = supervised.get(i).copied().flatten() {
+                targets.push(t);
+                continue;
+            }
             if *s == GOAL {
                 targets.push(0.0f32);
                 continue;
@@ -216,6 +235,30 @@ mod tests {
         let loss = davi.train_step(&states).unwrap();
         assert!(loss.is_finite(), "loss was not finite: {}", loss);
         assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn supervised_target_is_regressed_toward() {
+        // A supervised anchor pulls V(state) toward the given (deep) target,
+        // overriding the bootstrap — the walk-length lever.
+        let mut davi = Davi::new(
+            &DaviConfig { k_max: 5, hidden: 64, blocks: 2, lr: 5e-3, target_sync_every: 10_000 },
+            Device::Cpu,
+        )
+        .unwrap();
+        let mut rng = Rng::new(4);
+        let probe = scramble(&mut rng, 5).0;
+        let target = 137.0f32;
+        let before = davi.value_of(&[probe]).unwrap()[0];
+        for _ in 0..200 {
+            davi.train_step_targets(&[probe], &[Some(target)]).unwrap();
+        }
+        let after = davi.value_of(&[probe]).unwrap()[0];
+        assert!(
+            (after - target).abs() < (before - target).abs(),
+            "V did not move toward target: before {before}, after {after}, target {target}"
+        );
+        assert!(after > 50.0, "V should climb toward {target}, got {after}");
     }
 
     #[test]

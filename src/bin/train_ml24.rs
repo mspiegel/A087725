@@ -16,7 +16,7 @@
 //!       [--gen-reward wd|regret] [--adv-lambda 1.0] [--entropy-beta 0.01] \
 //!       [--curriculum --k-start 50 --k-end 160] \
 //!       [--gen-source policy|wdsearch] [--search-width 8192] [--search-budget 0] \
-//!       [--search-random-slots 0 --search-temp 5.0] [--dry-run] \
+//!       [--search-random-slots 0 --search-temp 5.0] [--supervise-walk] [--dry-run] \
 //!       [--out data/ml24] [--seed 1] [--metal|--cpu] [--resume] [--fresh-generator] [--quiet]
 
 use std::path::PathBuf;
@@ -131,6 +131,9 @@ fn main() -> ExitCode {
     // Resume the solver but start the generator fresh (e.g. after changing the
     // generator reward — a collapsed old-reward policy is a poor start).
     let reset_generator = argv.iter().any(|a| a == "--fresh-generator");
+    // Supervise WdSearch boards with their walk-length (the search's GOAL→board
+    // walk reversed is an achievable solution) instead of the Bellman bootstrap.
+    let supervise_search_depth = argv.iter().any(|a| a == "--supervise-walk");
     if argv.iter().any(|a| a == "--profile") {
         profile::set_enabled(true);
     }
@@ -223,6 +226,7 @@ fn main() -> ExitCode {
         verbose,
         resume,
         reset_generator,
+        supervise_search_depth,
     };
 
     // --dry-run: build one generator pool and print its WD stats, then exit — a
