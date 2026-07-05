@@ -27,7 +27,7 @@ use puzzle8::puzzle24::ml::beam::BeamConfig;
 use puzzle8::puzzle24::ml::bwas::BwasConfig;
 use puzzle8::puzzle24::ml::davi::DaviConfig;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
-use puzzle8::puzzle24::ml::eval::{DeepEvalConfig, EvalConfig, LabelHeuristic};
+use puzzle8::puzzle24::ml::eval::{DeepEvalConfig, DeepHoldout, EvalConfig, LabelHeuristic};
 use puzzle8::puzzle24::ml::generator::{
     BaselineHeuristic, Generator, GeneratorConfig, GeneratorReward, GeneratorSource,
 };
@@ -83,6 +83,16 @@ fn main() -> ExitCode {
     let eval_depth_min: u32 = arg(&argv, "--eval-depth-min", 60);
     let eval_depth_max: u32 = arg(&argv, "--eval-depth-max", 120);
     let eval_with_r = argv.iter().any(|a| a == "--eval-with-r");
+    // The in-loop deep holdout source. `walk` (default) folds to optimal~60 and is
+    // BLIND to the deep regime; `wdsearch` builds genuinely-deep WD-boards so the
+    // metric can actually see the depth the training targets.
+    let eval_holdout = match arg(&argv, "--eval-holdout", "walk".to_string()).as_str() {
+        "wdsearch" => DeepHoldout::WdSearch {
+            width: arg(&argv, "--eval-search-width", 4000),
+            depth: arg(&argv, "--eval-search-depth", 120),
+        },
+        _ => DeepHoldout::Walk,
+    };
     let out: String = arg(&argv, "--out", "data/ml24".to_string());
     let seed: u64 = arg(&argv, "--seed", 1);
     let baseline = match arg(&argv, "--baseline", "wd".to_string()).as_str() {
@@ -185,6 +195,7 @@ fn main() -> ExitCode {
             depth_max: eval_depth_max,
             seed: 0x24_5EED,
             include_r: eval_with_r,
+            holdout: eval_holdout,
         })
     } else {
         EvalSpec::MidDepth(EvalConfig {

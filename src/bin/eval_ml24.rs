@@ -23,7 +23,9 @@ use candle_nn::{VarBuilder, VarMap};
 use puzzle8::puzzle24::ml::beam::BeamConfig;
 use puzzle8::puzzle24::ml::bwas::BwasConfig;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
-use puzzle8::puzzle24::ml::eval::{run, run_deep, DeepEvalConfig, EvalConfig, LabelHeuristic};
+use puzzle8::puzzle24::ml::eval::{
+    run, run_deep, DeepEvalConfig, DeepHoldout, EvalConfig, LabelHeuristic,
+};
 use puzzle8::puzzle24::ml::generator::BaselineHeuristic;
 use puzzle8::puzzle24::ml::profile;
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
@@ -53,6 +55,15 @@ fn main() -> ExitCode {
     let holdout_n: usize = arg(&argv, "--holdout", 100);
     let depth_min: u32 = arg(&argv, "--depth-min", 20);
     let depth_max: u32 = arg(&argv, "--depth-max", 50);
+    // Deep-mode holdout source: `walk` (folding walks, blind past ~optimal-60) or
+    // `wdsearch` (genuinely-deep WD-boards — the real deep-regime test).
+    let holdout = match arg(&argv, "--holdout-source", "walk".to_string()).as_str() {
+        "wdsearch" => DeepHoldout::WdSearch {
+            width: arg(&argv, "--search-width", 4000),
+            depth: arg(&argv, "--search-depth", 120),
+        },
+        _ => DeepHoldout::Walk,
+    };
     let seed: u64 = arg(&argv, "--seed", 0x24_5EED);
     let label = match arg(&argv, "--label", "lcwd".to_string()).as_str() {
         "lc" => LabelHeuristic::Lc,
@@ -127,6 +138,7 @@ fn main() -> ExitCode {
             depth_max,
             seed,
             include_r: with_r,
+            holdout,
         };
         run_deep(value_of, &cfg).print();
     } else {

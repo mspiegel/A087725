@@ -282,7 +282,7 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
 mod tests {
     use super::super::beam::BeamConfig;
     use super::super::bwas::BwasConfig;
-    use super::super::eval::LabelHeuristic;
+    use super::super::eval::{DeepHoldout, LabelHeuristic};
     use super::super::generator::{BaselineHeuristic, GeneratorReward, GeneratorSource};
     use super::*;
 
@@ -398,6 +398,7 @@ mod tests {
                 depth_max: 20,
                 seed: 3,
                 include_r: false,
+                holdout: DeepHoldout::Walk,
             }),
             curriculum: None,
             checkpoint_dir: dir.clone(),

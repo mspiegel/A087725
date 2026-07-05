@@ -14,6 +14,7 @@ use super::beam::{beam_search, BeamConfig};
 use super::bwas::{search, BwasConfig, BwasOutcome};
 use super::generator::BaselineHeuristic;
 use super::scramble::{scramble_exact, Rng};
+use super::wdsearch::{construct_deep_boards, Diversity, WdSearchConfig};
 use crate::puzzle24::search::{
     idastar_inc_mut_bounded_with_stats, BoundedOutcome, Heuristic, IncHeuristicMut,
     LinearConflictInc, ManhattanHeuristic, MaxInc, WalkingDistanceHeuristic, WalkingDistanceInc,
@@ -192,6 +193,19 @@ pub fn r_board() -> State {
     State(c)
 }
 
+/// Source of the deep holdout boards.
+#[derive(Clone, Copy, Debug)]
+pub enum DeepHoldout {
+    /// Folding random walks over `[depth_min, depth_max]`. WARNING: a folding walk
+    /// reaches optimal ≈ 0.5·length, so even a walk-150 holdout tops out around
+    /// **optimal-60** — it does NOT test the genuinely-deep (WD-120) regime.
+    Walk,
+    /// WD-search constructed boards (`super::wdsearch`) — genuinely deep
+    /// (WD ≈ `depth`, optimal ≥ WD). The holdout that actually probes the deep
+    /// regime the deep-board training targets.
+    WdSearch { width: usize, depth: usize },
+}
+
 pub struct DeepEvalConfig {
     /// BWAS config for the learned solver.
     pub bwas: BwasConfig,
@@ -199,14 +213,16 @@ pub struct DeepEvalConfig {
     pub beam: BeamConfig,
     /// Admissible heuristic for the beam baseline (Wd in production).
     pub baseline: BaselineHeuristic,
-    /// Number of deep random-walk holdout boards.
+    /// Number of holdout boards.
     pub holdout_n: usize,
-    /// Inclusive walk-length range (deep, e.g. 60..120).
+    /// Inclusive walk-length range (used only by `DeepHoldout::Walk`).
     pub depth_min: u32,
     pub depth_max: u32,
     pub seed: u64,
     /// Also evaluate the canonical `R` board and report it explicitly.
     pub include_r: bool,
+    /// Where the holdout boards come from (walk vs WD-search).
+    pub holdout: DeepHoldout,
 }
 
 /// The `R`-board line of a deep eval (reported separately for context).
@@ -280,15 +296,35 @@ where
         BaselineHeuristic::Manhattan => Box::new(ManhattanHeuristic),
     };
 
-    // Deep random-walk holdout (+ optional R board).
+    // Deep holdout (+ optional R board).
     let mut rng = Rng::new(cfg.seed);
-    let dmax = cfg.depth_max.max(cfg.depth_min);
-    let mut boards: Vec<(bool, State)> = (0..cfg.holdout_n)
-        .map(|_| {
-            let k = rng.gen_range(cfg.depth_min.max(1), dmax);
-            (false, scramble_exact(&mut rng, k))
-        })
-        .collect();
+    let mut boards: Vec<(bool, State)> = match cfg.holdout {
+        DeepHoldout::Walk => {
+            let dmax = cfg.depth_max.max(cfg.depth_min);
+            (0..cfg.holdout_n)
+                .map(|_| {
+                    let k = rng.gen_range(cfg.depth_min.max(1), dmax);
+                    (false, scramble_exact(&mut rng, k))
+                })
+                .collect()
+        }
+        DeepHoldout::WdSearch { width, depth } => {
+            WalkingDistanceHeuristic::warm_up();
+            let sc = WdSearchConfig {
+                width,
+                target_depth: depth,
+                node_budget: 0,
+                diversity: Diversity::Stochastic {
+                    random_slots: (width / 4).max(1),
+                    temperature: 8.0,
+                },
+            };
+            construct_deep_boards(cfg.holdout_n, &sc, &mut rng)
+                .into_iter()
+                .map(|(s, _wd)| (false, s))
+                .collect()
+        }
+    };
     if cfg.include_r {
         boards.push((true, r_board()));
     }
@@ -395,6 +431,7 @@ mod tests {
             depth_max: 24,
             seed: 55,
             include_r: false,
+            holdout: DeepHoldout::Walk,
         };
         let rep = run_deep(manhattan_batch, &cfg);
         assert_eq!(rep.n, 8);
