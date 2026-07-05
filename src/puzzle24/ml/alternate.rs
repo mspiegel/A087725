@@ -162,28 +162,33 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             Vec::new()
         };
 
+        // Per-board walk-depth labels for the ladder pool (aligned with gen_pool).
+        let gen_depths = generator.last_pool_depths();
+        // Supervise the search boards with their own walk depth (an achievable
+        // solution length) — the walk-ladder lever teaches V the whole path.
+        let supervise = cfg.supervise_search_depth
+            && n_gen > 0
+            && matches!(cfg.generator.source, GeneratorSource::WdSearch(_))
+            && gen_depths.len() == gen_pool.len();
+
         let mut loss_sum = 0.0f32;
         let mut win = std::time::Instant::now();
         // ~10 timing windows per round regardless of round length.
         let win_every = (cfg.solver_steps_per_round / 10).max(1);
         for i in 0..cfg.solver_steps_per_round {
             let mut batch: Vec<State> = Vec::with_capacity(cfg.solver_batch);
+            let mut supervised: Vec<Option<f32>> = Vec::with_capacity(cfg.solver_batch);
             for _ in 0..n_gen {
                 let idx = rng.gen_range(0, (gen_pool.len() - 1) as u32) as usize;
                 batch.push(gen_pool[idx]);
+                supervised.push(if supervise { Some(gen_depths[idx] as f32) } else { None });
             }
             for _ in 0..n_uni {
                 batch.push(scramble(&mut rng, uni_k).0);
+                supervised.push(None);
             }
-            // The first n_gen batch boards are the WdSearch pool (walk depth =
-            // uni_k); supervise them with that walk-length when enabled.
-            let supervise = cfg.supervise_search_depth
-                && n_gen > 0
-                && matches!(cfg.generator.source, GeneratorSource::WdSearch(_));
             loss_sum += if supervise {
-                let mut targets: Vec<Option<f32>> = vec![Some(uni_k as f32); n_gen];
-                targets.resize(cfg.solver_batch, None);
-                davi.train_step_targets(&batch, &targets)?
+                davi.train_step_targets(&batch, &supervised)?
             } else {
                 davi.train_step(&batch)?
             };

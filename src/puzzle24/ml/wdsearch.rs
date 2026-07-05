@@ -53,7 +53,15 @@ struct Node {
 /// `(state, wd)` pairs from the final frontier, sorted WD-descending. Pass
 /// `n >= width` to get the whole frontier (callers V-rank it down). `warm_up()`
 /// must have been called.
-pub fn construct_deep_boards(n: usize, cfg: &WdSearchConfig, rng: &mut Rng) -> Vec<(State, u8)> {
+/// Run the beam and return the final frontier layer. If `per_layer > 0`, also
+/// record up to `per_layer` survivors from *each* layer into `ladder` as
+/// `(state, walk_depth)` — the whole GOAL→deep-board path.
+fn run_beam(
+    cfg: &WdSearchConfig,
+    rng: &mut Rng,
+    ladder: &mut Vec<(State, u8)>,
+    per_layer: usize,
+) -> Vec<Node> {
     let width = cfg.width.max(1);
     let wd_inc = WalkingDistanceInc;
     let mut stats = SearchStats::default();
@@ -65,7 +73,7 @@ pub fn construct_deep_boards(n: usize, cfg: &WdSearchConfig, rng: &mut Rng) -> V
     visited.insert(GOAL);
     let mut expanded: u64 = 0;
 
-    for _depth in 0..cfg.target_depth {
+    for depth0 in 0..cfg.target_depth {
         expanded += layer.len() as u64;
         if cfg.node_budget != 0 && expanded > cfg.node_budget {
             break; // return best frontier so far (not None)
@@ -97,14 +105,45 @@ pub fn construct_deep_boards(n: usize, cfg: &WdSearchConfig, rng: &mut Rng) -> V
         if next.is_empty() {
             break;
         }
+        // These survivors were reached in depth0+1 moves (their walk length).
+        if per_layer > 0 {
+            let d = (depth0 + 1).min(u8::MAX as usize) as u8;
+            for nd in next.iter().take(per_layer) {
+                ladder.push((nd.state, d));
+            }
+        }
         layer = next;
     }
+    layer
+}
 
-    // The final layer is the deepest frontier. Return WD-desc, truncated to n.
+/// WD-maximizing beam from GOAL; returns up to `n` deepest `(state, wd)` from the
+/// final frontier (WD-descending).
+pub fn construct_deep_boards(n: usize, cfg: &WdSearchConfig, rng: &mut Rng) -> Vec<(State, u8)> {
+    let mut ladder = Vec::new();
+    let layer = run_beam(cfg, rng, &mut ladder, 0);
     let mut out: Vec<(State, u8)> = layer.iter().map(|nd| (nd.state, nd.wd)).collect();
     out.sort_by(|a, b| b.1.cmp(&a.1).then((a.0).0.cmp(&(b.0).0)));
     out.truncate(n.max(1));
     out
+}
+
+/// A **ladder** of `(state, walk_depth)` pairs sampled across the beam's layers —
+/// the whole GOAL→deep-board path, for supervised value labels. `walk_depth` is
+/// an achievable solution length (the reversed walk), so it upper-bounds optimal
+/// (tight where the beam ascends WD efficiently). Returns up to `n` pairs spread
+/// over depths `1..=target_depth`.
+pub fn construct_deep_ladder(n: usize, cfg: &WdSearchConfig, rng: &mut Rng) -> Vec<(State, u8)> {
+    let per_layer = (n / cfg.target_depth.max(1)).max(1);
+    let mut ladder: Vec<(State, u8)> = Vec::with_capacity(per_layer * cfg.target_depth + 8);
+    let _final = run_beam(cfg, rng, &mut ladder, per_layer);
+    // Trim to n while preserving the spread across depths (evenly strided).
+    if ladder.len() > n && n > 0 {
+        let stride = ladder.len().div_ceil(n);
+        ladder = ladder.into_iter().step_by(stride.max(1)).collect();
+        ladder.truncate(n);
+    }
+    ladder
 }
 
 /// Pick up to `width` survivors from the WD-desc-sorted `children`, inserting into
@@ -292,6 +331,31 @@ mod tests {
             &mut rng,
         );
         assert!(b.len() <= 1000);
+    }
+
+    #[test]
+    fn ladder_covers_depths_with_upper_bound_labels() {
+        if !have_table() {
+            return;
+        }
+        WalkingDistanceHeuristic::warm_up();
+        let mut rng = Rng::new(2);
+        let cfg = WdSearchConfig {
+            width: 500,
+            target_depth: 120,
+            node_budget: 0,
+            diversity: Diversity::TopK,
+        };
+        let ladder = construct_deep_ladder(1000, &cfg, &mut rng);
+        assert!(!ladder.is_empty());
+        let min_d = ladder.iter().map(|&(_, d)| d).min().unwrap();
+        let max_d = ladder.iter().map(|&(_, d)| d).max().unwrap();
+        assert!(min_d < 40 && max_d > 100, "ladder depth span {}..{}", min_d, max_d);
+        // Each label upper-bounds optimal: WD(board) ≤ walk_depth, board solvable.
+        for &(s, d) in &ladder {
+            assert!(s.is_solvable(), "unsolvable ladder board {:?}", s.0);
+            assert!(WalkingDistanceHeuristic.h(&s) <= d, "WD > walk-depth label on {:?}", s.0);
+        }
     }
 
     #[test]
