@@ -34,3 +34,4 @@ pub mod policy_net;
 pub mod profile;
 pub mod scramble;
 pub mod value_net;
+pub mod wdsearch;
