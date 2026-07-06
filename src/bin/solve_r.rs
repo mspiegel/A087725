@@ -116,13 +116,32 @@ fn main() -> ExitCode {
             max_layers: arg(&argv, "--max-layers", 300),
             node_budget: budget,
             n_anchors: arg(&argv, "--ff-anchors", 16),
-            weight: arg(&argv, "--ff-weight", 2.0),
+            w_base: arg(&argv, "--ff-base-weight", 2.0),
+            w_ff: arg(&argv, "--ff-weight", 1.0),
+        };
+        // Backward base = WD-to-R (skip building it if w_base == 0, pure FF).
+        let wd_to_r = if cfg.w_base != 0.0 {
+            print!("building WD-to-R backward table... ");
+            let tb = Instant::now();
+            let wd = WalkingDistanceTo::new(&r);
+            println!("ready in {:.1}s", tb.elapsed().as_secs_f64());
+            Some(wd)
+        } else {
+            None
         };
         println!(
-            "FF-MITM: width {}, max_layers {}, budget {}, anchors {}, weight {}",
-            cfg.width, cfg.max_layers, cfg.node_budget, cfg.n_anchors, cfg.weight
+            "FF-MITM: width {}, max_layers {}, budget {}, anchors {}, w_base {}, w_ff {}",
+            cfg.width, cfg.max_layers, cfg.node_budget, cfg.n_anchors, cfg.w_base, cfg.w_ff
         );
-        let result = bidir_search_ff(&r, &cfg);
+        let result = bidir_search_ff(
+            &r,
+            |ss: &[State]| net.values(ss, &device).expect("value net forward"), // fwd base = V
+            |ss: &[State]| match &wd_to_r {
+                Some(wd) => ss.iter().map(|s| wd.h(s) as f32).collect(),
+                None => vec![0.0; ss.len()],
+            },
+            &cfg,
+        );
         let secs = t.elapsed().as_secs_f64();
         match result {
             Some(res) => {

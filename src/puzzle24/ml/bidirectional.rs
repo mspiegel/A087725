@@ -225,10 +225,14 @@ pub struct FfConfig {
     pub max_layers: usize,
     pub node_budget: u64,
     /// How many opposite-frontier anchor states each side aims at (front-to-front
-    /// heuristic = min over anchors of `Manhattan(child, anchor) + g(anchor)`).
+    /// proximity = min over anchors of `Manhattan(child, anchor) + g(anchor)`).
     pub n_anchors: usize,
-    /// Beam greediness on the front-to-front estimate.
-    pub weight: f32,
+    /// Weight on the base heuristic (strong: V toward GOAL forward, WD-to-R
+    /// backward) — keeps paths short. `0` ⇒ pure front-to-front.
+    pub w_base: f32,
+    /// Weight on the front-to-front proximity term — pulls the frontiers together
+    /// so they meet in the middle. `0` ⇒ plain (front-to-end) beam.
+    pub w_ff: f32,
 }
 
 /// One layer node: `(state, g, last_move)`.
@@ -264,18 +268,24 @@ fn ff_h(child: &State, anchors: &[(State, u32)]) -> f32 {
 /// Expand one side's layer with a front-to-front heuristic aimed at `opp_anchors`;
 /// dedup/relax against this side's `survivors` (memory-bounded: only survivors are
 /// stored), record survivors that already sit in `opp_survivors` as meetings.
-fn expand_ff(
+fn expand_ff<H>(
     layer: &[FfNode],
     survivors: &mut Visited,
     opp_survivors: &Visited,
     opp_anchors: &[(State, u32)],
     width: usize,
-    weight: f32,
+    base_batch: &H,
+    w_base: f32,
+    w_ff: f32,
     meetings: &mut Vec<(State, u32, u32)>, // (state, g_this, g_opp)
     expanded: &mut u64,
-) -> Vec<FfNode> {
+) -> Vec<FfNode>
+where
+    H: Fn(&[State]) -> Vec<f32>,
+{
     // Generate undo-pruned children, relaxed against current survivors.
-    let mut cand: Vec<(f32, State, u32, State, Move)> = Vec::new(); // (f, child, g, parent, move)
+    let mut cs: Vec<State> = Vec::new();
+    let mut meta: Vec<(u32, State, Move)> = Vec::new(); // (g_child, parent, move)
     for &(st, g, last) in layer {
         let blank = st.blank_pos();
         let banned = last.map(|m| m.inverse());
@@ -290,19 +300,29 @@ fn expand_ff(
                     continue;
                 }
             }
-            let f = gc as f32 + weight * ff_h(&ns, opp_anchors);
-            cand.push((f, ns, gc, st, m));
+            cs.push(ns);
+            meta.push((gc, st, m));
         }
     }
-    *expanded += cand.len() as u64;
-    if cand.is_empty() {
+    *expanded += cs.len() as u64;
+    if cs.is_empty() {
         return Vec::new();
     }
-    cand.sort_by(|a, b| a.0.total_cmp(&b.0).then((a.1).0.cmp(&(b.1).0)));
-    cand.truncate(width.max(1));
+    // Base heuristic (V / WD-to-R) batched; front-to-front proximity per child.
+    let base = if w_base != 0.0 { base_batch(&cs) } else { vec![0.0; cs.len()] };
+    let mut scored: Vec<(f32, usize)> = (0..cs.len())
+        .map(|i| {
+            let f = meta[i].0 as f32 + w_base * base[i] + w_ff * ff_h(&cs[i], opp_anchors);
+            (f, i)
+        })
+        .collect();
+    scored.sort_by(|a, b| a.0.total_cmp(&b.0).then(cs[a.1].0.cmp(&cs[b.1].0)));
+    scored.truncate(width.max(1));
 
-    let mut next = Vec::with_capacity(cand.len());
-    for (_f, ns, gc, parent, mv) in cand {
+    let mut next = Vec::with_capacity(scored.len());
+    for (_f, i) in scored {
+        let ns = cs[i];
+        let (gc, parent, mv) = meta[i];
         match survivors.get(&ns) {
             Some(&(g0, _, _)) if g0 <= gc => continue,
             _ => {}
@@ -316,12 +336,23 @@ fn expand_ff(
     next
 }
 
-/// **Front-to-front** meet-in-the-middle: each beam is guided toward the OTHER
-/// frontier's current states (not the opposite goal), so the two frontiers
-/// converge on a common middle region instead of crossing near one end. Learned-
-/// heuristic-free (pure Manhattan front-to-front) and memory-bounded (only
-/// survivors are stored). Returns the shortest stitched solution found.
-pub fn bidir_search_ff(start: &State, cfg: &FfConfig) -> Option<MitmResult> {
+/// **Front-to-front** meet-in-the-middle: each beam is scored by
+/// `g + w_base·base(s) + w_ff·min_anchor[Manhattan(s, a) + g(a)]` — the base term
+/// (`fwd_base` = V toward GOAL, `bwd_base` = WD-to-R) keeps paths short, the
+/// front-to-front term pulls the frontiers together so they meet in the middle.
+/// With `w_ff=0` it's a plain (front-to-end) beam; with `w_base=0`, pure
+/// front-to-front. Memory-bounded (only survivors stored). Returns the shortest
+/// stitched solution found.
+pub fn bidir_search_ff<FB, BB>(
+    start: &State,
+    fwd_base: FB,
+    bwd_base: BB,
+    cfg: &FfConfig,
+) -> Option<MitmResult>
+where
+    FB: Fn(&[State]) -> Vec<f32>,
+    BB: Fn(&[State]) -> Vec<f32>,
+{
     if *start == GOAL {
         return Some(MitmResult { len: 0, g_fwd: 0, g_bwd: 0, moves: Vec::new() });
     }
@@ -340,8 +371,8 @@ pub fn bidir_search_ff(start: &State, cfg: &FfConfig) -> Option<MitmResult> {
         let bwd_anchors = ff_anchors(&bwd_layer, cfg.n_anchors);
         meetings.clear();
         fwd_layer = expand_ff(
-            &fwd_layer, &mut fwd_s, &bwd_s, &bwd_anchors, cfg.width, cfg.weight, &mut meetings,
-            &mut expanded,
+            &fwd_layer, &mut fwd_s, &bwd_s, &bwd_anchors, cfg.width, &fwd_base, cfg.w_base,
+            cfg.w_ff, &mut meetings, &mut expanded,
         );
         for &(s, gf, gb) in &meetings {
             if best.map_or(true, |(b, ..)| gf + gb < b) {
@@ -352,8 +383,8 @@ pub fn bidir_search_ff(start: &State, cfg: &FfConfig) -> Option<MitmResult> {
         let fwd_anchors = ff_anchors(&fwd_layer, cfg.n_anchors);
         meetings.clear();
         bwd_layer = expand_ff(
-            &bwd_layer, &mut bwd_s, &fwd_s, &fwd_anchors, cfg.width, cfg.weight, &mut meetings,
-            &mut expanded,
+            &bwd_layer, &mut bwd_s, &fwd_s, &fwd_anchors, cfg.width, &bwd_base, cfg.w_base,
+            cfg.w_ff, &mut meetings, &mut expanded,
         );
         for &(s, gb, gf) in &meetings {
             if best.map_or(true, |(b, ..)| gf + gb < b) {
@@ -440,9 +471,17 @@ mod tests {
                 max_layers: 60,
                 node_budget: 0,
                 n_anchors: 16,
-                weight: 2.0,
+                w_base: 0.0, // pure front-to-front (table-free)
+                w_ff: 2.0,
             };
-            let res = bidir_search_ff(&start, &cfg).expect("FF-MITM found no solution");
+            let goal = GOAL;
+            let res = bidir_search_ff(
+                &start,
+                |ss: &[State]| ss.iter().map(|s| manhattan_to(s, &goal) as f32).collect(),
+                |ss: &[State]| ss.iter().map(|s| manhattan_to(s, &start) as f32).collect(),
+                &cfg,
+            )
+            .expect("FF-MITM found no solution");
             assert_eq!(res.len as usize, res.moves.len());
             assert_eq!(res.g_fwd + res.g_bwd, res.len, "FF meet split must sum to length");
             let mut s = start;
