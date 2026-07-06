@@ -34,8 +34,9 @@ O(1) differential step; LC/WD via localized per-move updates).
 
 **Why deep boards need maximum heuristic strength.** IDA\* cost grows ~exponentially in
 (true depth − root *h*). The canonical hard board — the **180° rotation** `R` (Rokicki LB
-**152**; a 156-move solution known; true optimum **unknown**, an open problem) — has plain
-Manhattan only **112**, a ≥40 gap. Random instances are shallow (Korf & Taylor 1996: avg
+**152**; a published 156-move solution; true optimum **unknown**, an open problem — see the
+*R board reference* appendix for verified provenance) — has plain Manhattan only **112**, a
+≥40 gap. Random instances are shallow (Korf & Taylor 1996: avg
 102.6, max 114); the "171/177" speedsolving figures are **suboptimal** outputs, not real
 depths. Deep boards must be **structured**, not random.
 
@@ -477,3 +478,53 @@ code, gates the generator); **biggest throughput lever remains 2P** (done).
   **k=8 is ruled out** on this machine (disk ~30.5/36 GiB, ~30 GiB runtime RAM, 81 GiB build
   transient) — revisit only with more disk/RAM and a ≤2-bit builder.
 - **u8 cost ceiling** is safe (diameter ≤205<255); keep `g+h` in `u8` with `saturating_add`.
+
+---
+
+## Appendix — R board reference: verified bounds & provenance (2026-07-06)
+
+**The board.** `R` = the goal rotated 180°: blank at cell 0, tile `25-i` at cell `i` for
+`i ∈ 1..25` (row-major encoding `0 24 23 … 2 1`). Solvable (276 inversions). `dist(R)` is
+**even** (the blank's home-to-home Manhattan displacement is even, so every solution has even
+length — all bound-pushing goes in +2 steps). In code: `r_board()` in `src/puzzle24/ml/eval.rs`.
+The literature calls this the *"turned 180-degree"* configuration; it is the position behind
+both published 24-puzzle diameter numbers below.
+
+**Published bounds — `optimal(R) ∈ [152, 156]`, likely exactly 156.** Primary source: the
+Domain of the Cube Forum thread *"Twenty-Four puzzle, some observations"* (Bulat Hannanov +
+Tomas Rokicki), <http://forum.cubeman.org/?q=node/view/238>, linked from OEIS A087725.
+(The forum 403s WebFetch-style clients; fetch with `curl -A <browser UA>`. OEIS text form:
+`https://oeis.org/search?q=id:A087725&fmt=text`.)
+
+- **Lower bound 152** — proven on `R` itself: *"My 5x5 optimal solver, after almost ten days,
+  has finally finished a ply-150 search on the 5x5 turned 180 degrees without a solution.
+  Thus, the new lower bound on the 24-puzzle is 152."* (Rokicki; no ≤150 solution + even
+  parity ⇒ ≥152.) This is also the current **diameter** lower bound (OEIS: `152 ≤ a(5) ≤ 205`).
+- **Upper bound 156** — constructive: *"the same 'turned 180-degree' puzzle configuration
+  requires at most 156 STM."* The 90°-rotated goal solves optimally in **78** STM; two
+  consecutive quarter-turn solves give 78+78 = **156** for the 180° position. Rokicki found
+  **12,225** distinct right-turn-only length-156 solutions, none shorter, tested prefix
+  relaxations without improvement, and wrote *"might be more likely that this position is
+  actually at distance 156."*
+
+**Our own results on `R` (this project, 32 GiB M-series single machine).**
+
+| direction | result | how |
+|---|---|---|
+| proven LB | **≥ 146** | `solve24 --prove-at-least` bounded exhaust (WD h=140, parallel); ~29×/+2 scaling makes ≥152 ≈ 75 days (infeasible here) — see Phase 2A |
+| best solve (UB) | **164** | learned-V + WD-to-R hybrid front-to-front MITM (`solve_r --bidir-ff`, w_base 2.0 / w_ff 0.5); ladder: WD-beam 204 → learned anytime-WA\* 174 → MITM 168 → hybrid-FF 164; all replay-verified |
+
+So our machine-found 164 does **not** beat the published constructive 156 — the 156 exploits
+R's exact rotational structure (two quarter-turn solves), which generic search does not see.
+The generic-method gap is 164 (ours) vs 156 (published) vs 152 (proven floor). A search seeded
+through the 90°-rotated intermediate state would reproduce 156 by construction, not discovery.
+
+**Heuristic facts on `R`** (measured, see Phase 1C / memory): WD(R) = **140** (the global WD
+maximum — only R and symmetries attain it); best k=6 zpdb = 126; Manhattan = 112; max(LC,WD)
+root = 140. WD owns R; no feasible PDB on this machine beats it.
+
+**Sources:** [OEIS A087725](https://oeis.org/A087725) ·
+[Rokicki/Hannanov thread (LB 152, UB 156)](http://forum.cubeman.org/?q=node/view/238) ·
+[Whitmore, "5x5 sliding puzzle can be solved in 205 moves"](http://forum.cubeman.org/?q=node/view/559)
+(diameter UB 205; later in-thread dissection claims push toward ~182, unverified) ·
+[Wikipedia, 15 puzzle](https://en.wikipedia.org/wiki/15_puzzle) (survey of the 2011/2016 bounds).
