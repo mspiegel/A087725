@@ -62,7 +62,7 @@ fn main() -> ExitCode {
     };
 
     let mut varmap = VarMap::new();
-    let net =
+    let mut net =
         match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
             Ok(n) => n,
             Err(e) => {
@@ -82,6 +82,10 @@ fn main() -> ExitCode {
             eprintln!("--checkpoint required");
             return ExitCode::FAILURE;
         }
+    }
+    if argv.iter().any(|a| a == "--residual") {
+        net.set_residual(true); // V = WD + raw (must match how the net was trained)
+        println!("residual mode: V = WD + raw");
     }
     println!(
         "device: {}, weights: {:?}, budget/weight: {}",

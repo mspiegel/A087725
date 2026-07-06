@@ -144,6 +144,8 @@ fn main() -> ExitCode {
     // Supervise WdSearch boards with their walk-length (the search's GOAL→board
     // walk reversed is an achievable solution) instead of the Bellman bootstrap.
     let supervise_search_depth = argv.iter().any(|a| a == "--supervise-walk");
+    // Strategy #1: WD-residual parameterization (net learns optimal-WD; V=WD+raw).
+    let residual = argv.iter().any(|a| a == "--residual");
     if argv.iter().any(|a| a == "--profile") {
         profile::set_enabled(true);
     }
@@ -214,7 +216,14 @@ fn main() -> ExitCode {
         generator_steps_per_round: gen_steps,
         solver_batch: batch,
         generator_frac: gen_frac,
-        davi: DaviConfig { k_max: solver_k, hidden, blocks, lr: 1e-3, target_sync_every: 1000 },
+        davi: DaviConfig {
+            k_max: solver_k,
+            hidden,
+            blocks,
+            lr: 1e-3,
+            target_sync_every: 1000,
+            residual,
+        },
         generator: GeneratorConfig {
             k_max: gen_k,
             hidden,

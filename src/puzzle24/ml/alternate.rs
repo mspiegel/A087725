@@ -303,7 +303,7 @@ mod tests {
             generator_steps_per_round: 5,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
+            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10, residual: false },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
@@ -378,7 +378,7 @@ mod tests {
             generator_steps_per_round: 3,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
+            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10, residual: false },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,

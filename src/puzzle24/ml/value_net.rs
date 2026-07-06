@@ -15,6 +15,7 @@ use candle_core::{Device, Module, Result, Tensor, D};
 use candle_nn::{linear, Init, Linear, VarBuilder};
 
 use super::encoding::{encode_batch, ENCODED_DIM};
+use crate::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
 use crate::puzzle24::state::State;
 
 /// RmsNorm built from primitive ops (Metal-compatible): a learnable per-feature
@@ -79,6 +80,19 @@ pub struct ValueNet {
     in_norm: RmsNorm,
     blocks: Vec<ResBlock>,
     out: Linear,
+    /// WD-residual parameterization (strategy #1): when set, `values()` returns
+    /// `WD(s) + raw(s)` so the net learns only the small, depth-stable residual
+    /// `optimal - WD`, which extrapolates to R (where `WD=140` is known exactly).
+    /// Requires `WalkingDistanceHeuristic::warm_up()`. Not stored in the
+    /// checkpoint — the caller re-enables it after `load`.
+    residual: bool,
+}
+
+/// `WD(s)` per state as an `[n,1]` f32 tensor — the residual parameterization's
+/// admissible base, added to the raw forward when computing the training loss.
+pub fn wd_base(states: &[State], device: &Device) -> Result<Tensor> {
+    let wd: Vec<f32> = states.iter().map(|s| WalkingDistanceHeuristic.h(s) as f32).collect();
+    Tensor::from_vec(wd, (states.len(), 1), device)
 }
 
 impl ValueNet {
@@ -94,18 +108,34 @@ impl ValueNet {
             body.push(ResBlock::new(hidden, vb.pp(format!("block{i}")))?);
         }
         let out = linear(hidden, 1, vb.pp("out"))?;
-        Ok(Self { in_proj, in_norm, blocks: body, out })
+        Ok(Self { in_proj, in_norm, blocks: body, out, residual: false })
+    }
+
+    /// Enable/disable the WD-residual parameterization (see the `residual` field).
+    pub fn set_residual(&mut self, on: bool) {
+        self.residual = on;
+    }
+
+    pub fn is_residual(&self) -> bool {
+        self.residual
     }
 
     /// Convenience: encode `states`, run a forward pass, return one scalar
     /// cost-to-go per state. Used by the search driver and evaluation harness.
+    /// In residual mode the returned value is `WD(s) + raw(s)`.
     pub fn values(&self, states: &[State], device: &Device) -> Result<Vec<f32>> {
         if states.is_empty() {
             return Ok(Vec::new());
         }
         let x = encode_batch(states, device)?;
-        let y = self.forward(&x)?; // [n, 1]
-        y.flatten_all()?.to_vec1::<f32>()
+        let y = self.forward(&x)?; // [n, 1] raw residual (or raw cost-to-go)
+        let mut out = y.flatten_all()?.to_vec1::<f32>()?;
+        if self.residual {
+            for (o, s) in out.iter_mut().zip(states) {
+                *o += WalkingDistanceHeuristic.h(s) as f32;
+            }
+        }
+        Ok(out)
     }
 }
 

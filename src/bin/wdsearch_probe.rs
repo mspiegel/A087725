@@ -19,8 +19,8 @@ fn main() {
     println!("ready in {:.1}s\n", t.elapsed().as_secs_f64());
 
     println!("{:>7}  {:>6}  {:>7}  {:>8}  {:>9}", "width", "depth", "max_wd", "mean_wd", "ms");
-    for &width in &[200usize, 500, 1000, 2000, 4000] {
-        for &depth in &[40usize, 80, 120, 160] {
+    for &width in &[2000usize, 8000, 20000] {
+        for &depth in &[160usize, 200, 260, 320] {
             let cfg = WdSearchConfig {
                 width,
                 target_depth: depth,

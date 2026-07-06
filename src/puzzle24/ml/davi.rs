@@ -27,6 +27,9 @@ pub struct DaviConfig {
     pub lr: f64,
     /// Steps between hard syncs of `target <- online`.
     pub target_sync_every: usize,
+    /// WD-residual parameterization (strategy #1): the net learns `optimal - WD`
+    /// and `V = WD + raw` is used everywhere. Requires WD warm-up.
+    pub residual: bool,
 }
 
 impl Default for DaviConfig {
@@ -37,6 +40,7 @@ impl Default for DaviConfig {
             blocks: DEFAULT_BLOCKS,
             lr: 1e-3,
             target_sync_every: 1000,
+            residual: false,
         }
     }
 }
@@ -50,22 +54,25 @@ pub struct Davi {
     device: Device,
     steps: usize,
     sync_every: usize,
+    residual: bool,
 }
 
 impl Davi {
     pub fn new(cfg: &DaviConfig, device: Device) -> Result<Self> {
         let online_varmap = VarMap::new();
-        let online = ValueNet::new(
+        let mut online = ValueNet::new(
             VarBuilder::from_varmap(&online_varmap, DType::F32, &device),
             cfg.hidden,
             cfg.blocks,
         )?;
+        online.set_residual(cfg.residual);
         let target_varmap = VarMap::new();
-        let target = ValueNet::new(
+        let mut target = ValueNet::new(
             VarBuilder::from_varmap(&target_varmap, DType::F32, &device),
             cfg.hidden,
             cfg.blocks,
         )?;
+        target.set_residual(cfg.residual);
 
         let opt = AdamW::new(
             online_varmap.all_vars(),
@@ -81,6 +88,7 @@ impl Davi {
             device,
             steps: 0,
             sync_every: cfg.target_sync_every.max(1),
+            residual: cfg.residual,
         };
         // Start with target == online so the first bootstrap targets are sane.
         davi.sync_target()?;
@@ -154,7 +162,11 @@ impl Davi {
         let t = Instant::now();
         let target_t = Tensor::from_vec(targets, (states.len(), 1), &self.device)?;
         let x = encode_batch(states, &self.device)?;
-        let preds = self.online.forward(&x)?; // [n, 1]
+        let mut preds = self.online.forward(&x)?; // [n, 1] raw
+        if self.residual {
+            // V = WD + raw; WD is a constant so grads flow only through raw.
+            preds = (preds + super::value_net::wd_base(states, &self.device)?)?;
+        }
         let loss = loss::mse(&preds, &target_t)?;
         profile::sync(&self.device); // force the forward to execute for accurate attribution
         profile::record_if("davi/online_fwd", t);
@@ -221,7 +233,7 @@ mod tests {
 
     fn cpu_davi(k_max: u32) -> Davi {
         Davi::new(
-            &DaviConfig { k_max, hidden: 64, blocks: 2, lr: 1e-3, target_sync_every: 50 },
+            &DaviConfig { k_max, hidden: 64, blocks: 2, lr: 1e-3, target_sync_every: 50, residual: false },
             Device::Cpu,
         )
         .unwrap()
@@ -242,7 +254,7 @@ mod tests {
         // A supervised anchor pulls V(state) toward the given (deep) target,
         // overriding the bootstrap — the walk-length lever.
         let mut davi = Davi::new(
-            &DaviConfig { k_max: 5, hidden: 64, blocks: 2, lr: 5e-3, target_sync_every: 10_000 },
+            &DaviConfig { k_max: 5, hidden: 64, blocks: 2, lr: 5e-3, target_sync_every: 10_000, residual: false },
             Device::Cpu,
         )
         .unwrap();
@@ -259,6 +271,41 @@ mod tests {
             "V did not move toward target: before {before}, after {after}, target {target}"
         );
         assert!(after > 50.0, "V should climb toward {target}, got {after}");
+    }
+
+    #[test]
+    fn residual_mode_regresses_total_toward_target() {
+        // WD-gated. In residual mode value_of returns WD(s)+raw(s); a supervised
+        // anchor pulls that TOTAL toward the target (the loss adds WD to preds).
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        crate::puzzle24::search::WalkingDistanceHeuristic::warm_up();
+        let mut davi = Davi::new(
+            &DaviConfig {
+                k_max: 20,
+                hidden: 64,
+                blocks: 2,
+                lr: 5e-3,
+                target_sync_every: 10_000,
+                residual: true,
+            },
+            Device::Cpu,
+        )
+        .unwrap();
+        let mut rng = Rng::new(11);
+        let probe = scramble(&mut rng, 20).0;
+        let target = 60.0f32;
+        let before = davi.value_of(&[probe]).unwrap()[0];
+        for _ in 0..300 {
+            davi.train_step_targets(&[probe], &[Some(target)]).unwrap();
+        }
+        let after = davi.value_of(&[probe]).unwrap()[0];
+        assert!(
+            (after - target).abs() < (before - target).abs(),
+            "residual V_total did not move toward target: {before} -> {after} (target {target})"
+        );
+        assert!((after - target).abs() < 10.0, "residual V_total {after} not near target {target}");
     }
 
     #[test]
@@ -292,7 +339,7 @@ mod tests {
         // fast; the best loss in the second half should drop well below the first
         // window (DAVI loss is sawtooth at each target sync, so compare the best).
         let mut davi = Davi::new(
-            &DaviConfig { k_max: 5, hidden: 96, blocks: 2, lr: 5e-4, target_sync_every: 100 },
+            &DaviConfig { k_max: 5, hidden: 96, blocks: 2, lr: 5e-4, target_sync_every: 100, residual: false },
             Device::Cpu,
         )
         .unwrap();

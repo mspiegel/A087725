@@ -84,7 +84,8 @@ fn main() -> ExitCode {
     }
 
     let need_wd = (mode != "deep" && label == LabelHeuristic::LcWd)
-        || (mode == "deep" && (baseline == BaselineHeuristic::Wd || with_r));
+        || (mode == "deep" && (baseline == BaselineHeuristic::Wd || with_r))
+        || argv.iter().any(|a| a == "--residual"); // residual V = WD + raw
     if need_wd {
         print!("warming up Walking Distance table... ");
         let t = std::time::Instant::now();
@@ -107,7 +108,7 @@ fn main() -> ExitCode {
     println!("device: {}, hidden: {}, blocks: {}", device_kind(&device), hidden, blocks);
 
     let mut varmap = VarMap::new();
-    let net =
+    let mut net =
         match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
             Ok(n) => n,
             Err(e) => {
@@ -124,6 +125,10 @@ fn main() -> ExitCode {
             }
         },
         None => println!("no --checkpoint given: using random-init net (I/O path check only)"),
+    }
+    if argv.iter().any(|a| a == "--residual") {
+        net.set_residual(true); // V = WD + raw (must match how the net was trained)
+        println!("residual mode: V = WD + raw");
     }
 
     let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
