@@ -13,7 +13,9 @@ use std::time::Instant;
 use candle_core::DType;
 use candle_nn::{VarBuilder, VarMap};
 
-use puzzle8::puzzle24::ml::bidirectional::{bidir_search, manhattan_to, BidirConfig};
+use puzzle8::puzzle24::ml::bidirectional::{
+    bidir_search, bidir_search_ff, manhattan_to, BidirConfig, FfConfig,
+};
 use puzzle8::puzzle24::ml::bwas::{anytime_search, BwasOutcome};
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::eval::r_board;
@@ -105,6 +107,39 @@ fn main() -> ExitCode {
         net.is_residual()
     );
     let t = Instant::now();
+
+    // Front-to-front MITM: each beam aims at the OTHER frontier (pure Manhattan
+    // front-to-front, no net), so the two converge in the middle. Memory-bounded.
+    if argv.iter().any(|a| a == "--bidir-ff") {
+        let cfg = FfConfig {
+            width: arg(&argv, "--width", 20_000),
+            max_layers: arg(&argv, "--max-layers", 300),
+            node_budget: budget,
+            n_anchors: arg(&argv, "--ff-anchors", 16),
+            weight: arg(&argv, "--ff-weight", 2.0),
+        };
+        println!(
+            "FF-MITM: width {}, max_layers {}, budget {}, anchors {}, weight {}",
+            cfg.width, cfg.max_layers, cfg.node_budget, cfg.n_anchors, cfg.weight
+        );
+        let result = bidir_search_ff(&r, &cfg);
+        let secs = t.elapsed().as_secs_f64();
+        match result {
+            Some(res) => {
+                let mut s = r;
+                for &m in &res.moves {
+                    s = s.apply(m);
+                }
+                let ok = s == GOAL && (res.len as usize == res.moves.len());
+                println!(
+                    "R solved (FF-MITM): {} moves = {} fwd + {} bwd (WD LB 140, LB 152), {:.0}s, replay_ok={}",
+                    res.len, res.g_fwd, res.g_bwd, secs, ok
+                );
+            }
+            None => println!("R unsolved (FF-MITM: beams never met) in {:.0}s", secs),
+        }
+        return ExitCode::SUCCESS;
+    }
 
     // Bidirectional / meet-in-the-middle: forward beam from R guided to GOAL by the
     // learned V; backward beam from GOAL guided to R by Manhattan-to-R; stitch on
