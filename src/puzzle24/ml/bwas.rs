@@ -87,6 +87,25 @@ pub fn search<F>(start: &State, cfg: &BwasConfig, heuristic_batch: F) -> BwasOut
 where
     F: Fn(&[State]) -> Vec<f32>,
 {
+    // Plain weighted A*: no incumbent, no admissible pruning.
+    search_pruned(start, cfg, u32::MAX, heuristic_batch, |_: &State| 0)
+}
+
+/// Like [`search`] but prunes any generated node whose `g + admissible_h(node) >=
+/// incumbent` (admissible ⇒ the prune is safe — no better solution passes through
+/// it). The learned `heuristic_batch` still *orders* the search; `admissible_h`
+/// (e.g. Walking Distance) only bounds it. Used by [`anytime_search`].
+fn search_pruned<F, A>(
+    start: &State,
+    cfg: &BwasConfig,
+    incumbent: u32,
+    heuristic_batch: F,
+    admissible_h: A,
+) -> BwasOutcome
+where
+    F: Fn(&[State]) -> Vec<f32>,
+    A: Fn(&State) -> u8,
+{
     let batch_size = cfg.batch_size.max(1);
 
     if *start == GOAL {
@@ -153,6 +172,9 @@ where
                 if g_score.get(&ns).copied().unwrap_or(u32::MAX) <= g_child {
                     continue; // already reached at least as cheaply
                 }
+                if g_child + admissible_h(&ns) as u32 >= incumbent {
+                    continue; // can't beat the incumbent (admissible lower bound)
+                }
                 child_states.push(ns);
                 child_meta.push((node.state, m, g_child));
             }
@@ -181,6 +203,45 @@ where
             open.push(Reverse(Node { f: OrdF32(f), g: g_child, state: ns }));
         }
         profile::record_if("bwas/push", t);
+    }
+}
+
+/// Anytime weighted-A*: run [`search_pruned`] over a **descending** `weights`
+/// ladder, carrying the best solution so far as an incumbent so each lower (more
+/// optimal) weight prunes against it via `admissible_h`. Returns the SHORTEST
+/// solution found — a greedy first solve refined toward optimal, no retraining.
+/// A low weight alone often blows the budget; seeding it with a greedy incumbent
+/// makes the refinement feasible.
+pub fn anytime_search<F, A>(
+    start: &State,
+    weights: &[f32],
+    batch_size: usize,
+    budget_per_weight: u64,
+    heuristic_batch: F,
+    admissible_h: A,
+) -> BwasOutcome
+where
+    F: Fn(&[State]) -> Vec<f32>,
+    A: Fn(&State) -> u8,
+{
+    let mut best: Option<Vec<Move>> = None;
+    let mut total: u64 = 0;
+    for &weight in weights {
+        let incumbent = best.as_ref().map(|m| m.len() as u32).unwrap_or(u32::MAX);
+        let cfg = BwasConfig { weight, batch_size: batch_size.max(1), node_budget: budget_per_weight };
+        match search_pruned(start, &cfg, incumbent, &heuristic_batch, &admissible_h) {
+            BwasOutcome::Solved { moves, nodes_expanded } => {
+                total += nodes_expanded;
+                if best.as_ref().map_or(true, |b| moves.len() < b.len()) {
+                    best = Some(moves);
+                }
+            }
+            BwasOutcome::BudgetExceeded { nodes_expanded } => total += nodes_expanded,
+        }
+    }
+    match best {
+        Some(moves) => BwasOutcome::Solved { moves, nodes_expanded: total },
+        None => BwasOutcome::BudgetExceeded { nodes_expanded: total },
     }
 }
 
@@ -273,5 +334,34 @@ mod tests {
             BwasOutcome::BudgetExceeded { nodes_expanded } => assert!(nodes_expanded >= 2),
             BwasOutcome::Solved { .. } => { /* also acceptable if solved within 2 expansions */ }
         }
+    }
+
+    #[test]
+    fn anytime_refines_to_optimal_on_shallow() {
+        // Weight ladder [2.5, 1.0] with Manhattan as guide AND admissible bound:
+        // the greedy 2.5 pass finds a (maybe suboptimal) solution; the 1.0 pass
+        // (A*, incumbent-pruned) refines it to the true optimal.
+        let truth = bfs_distances(8);
+        let mut checked = 0;
+        for (i, (raw, &dist)) in truth.iter().enumerate() {
+            if checked >= 40 {
+                break;
+            }
+            if i % 3 != 0 {
+                continue;
+            }
+            let start = State(*raw);
+            match anytime_search(&start, &[2.5, 1.0], 1, 0, manhattan_batch, |s: &State| {
+                ManhattanHeuristic.h(s)
+            }) {
+                BwasOutcome::Solved { moves, .. } => {
+                    assert_eq!(moves.len() as u8, dist, "anytime not optimal on {:?}", raw);
+                    assert_valid_solution(&start, &moves);
+                    checked += 1;
+                }
+                BwasOutcome::BudgetExceeded { .. } => panic!("anytime failed (unlimited budget)"),
+            }
+        }
+        assert!(checked > 20, "too few checked: {}", checked);
     }
 }

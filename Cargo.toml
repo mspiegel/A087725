@@ -115,6 +115,10 @@ name = "wdsearch_probe"
 required-features = ["ml"]
 
 [[bin]]
+name = "solve_r"
+required-features = ["ml"]
+
+[[bin]]
 name = "ml_bench"
 required-features = ["ml"]
 
