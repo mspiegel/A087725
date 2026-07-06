@@ -23,6 +23,7 @@
 
 pub mod alternate;
 pub mod beam;
+pub mod bidirectional;
 pub mod bwas;
 pub mod checkpoint;
 pub mod davi;

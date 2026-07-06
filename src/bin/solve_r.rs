@@ -13,12 +13,13 @@ use std::time::Instant;
 use candle_core::DType;
 use candle_nn::{VarBuilder, VarMap};
 
+use puzzle8::puzzle24::ml::bidirectional::{bidir_search, manhattan_to, BidirConfig};
 use puzzle8::puzzle24::ml::bwas::{anytime_search, BwasOutcome};
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::eval::r_board;
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
 use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
-use puzzle8::puzzle24::state::State;
+use puzzle8::puzzle24::state::{State, GOAL};
 
 fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
     argv.iter()
@@ -96,7 +97,53 @@ fn main() -> ExitCode {
 
     let r = r_board();
     let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
+    // Direct extrapolation check: V(R) vs WD(R)=140 (residual mode) / vs optimal
+    // 152. A tight residual net should read ~152; a loose one reads much higher.
+    println!(
+        "V(R) = {:.1}  (WD(R)=140, opt>=152; residual={})",
+        value_of(&[r])[0],
+        net.is_residual()
+    );
     let t = Instant::now();
+
+    // Bidirectional / meet-in-the-middle: forward beam from R guided to GOAL by the
+    // learned V; backward beam from GOAL guided to R by Manhattan-to-R; stitch on
+    // the first shared state. Halves the effective search depth (~76 vs 152).
+    if argv.iter().any(|a| a == "--bidir") {
+        let cfg = BidirConfig {
+            width: arg(&argv, "--width", 20_000),
+            max_layers: arg(&argv, "--max-layers", 300),
+            node_budget: budget, // reuse --budget as total children generated
+            fwd_weight: arg(&argv, "--fwd-weight", 2.0),
+            bwd_weight: arg(&argv, "--bwd-weight", 2.0),
+        };
+        println!(
+            "MITM: width {}, max_layers {}, budget {}, fwd_w {}, bwd_w {}",
+            cfg.width, cfg.max_layers, cfg.node_budget, cfg.fwd_weight, cfg.bwd_weight
+        );
+        let result = bidir_search(
+            &r,
+            |ss: &[State]| net.values(ss, &device).expect("value net forward"),
+            |ss: &[State]| ss.iter().map(|s| manhattan_to(s, &r) as f32).collect(),
+            &cfg,
+        );
+        let secs = t.elapsed().as_secs_f64();
+        match result {
+            Some((len, moves)) => {
+                let mut s = r;
+                for &m in &moves {
+                    s = s.apply(m);
+                }
+                let ok = s == GOAL && (len as usize == moves.len());
+                println!(
+                    "R solved (MITM): {} moves (WD LB 140, LB 152), {:.0}s, replay_ok={}",
+                    len, secs, ok
+                );
+            }
+            None => println!("R unsolved (MITM: beams never met) in {:.0}s", secs),
+        }
+        return ExitCode::SUCCESS;
+    }
     let outcome = anytime_search(&r, &weights, batch, budget, value_of, |s: &State| {
         WalkingDistanceHeuristic.h(s)
     });
