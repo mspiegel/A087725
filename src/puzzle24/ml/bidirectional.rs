@@ -128,18 +128,29 @@ fn reconstruct(visited: &Visited, from: State, stop: State) -> Vec<Move> {
 /// distance-to-GOAL (forward guidance, e.g. the learned V); `bwd_h(states)` scores
 /// distance-to-`start` (backward guidance, e.g. `manhattan_to(_, start)`). Returns
 /// the shortest stitched solution found, or `None` if the beams never meet.
+/// Result of a meet-in-the-middle solve: total length, the forward/backward split
+/// at the meet (`g_fwd + g_bwd == len`), and the stitched move sequence. A balanced
+/// split (both ≈ len/2) means the beams genuinely met in the middle; a lopsided one
+/// means one side dominated.
+pub struct MitmResult {
+    pub len: u32,
+    pub g_fwd: u32,
+    pub g_bwd: u32,
+    pub moves: Vec<Move>,
+}
+
 pub fn bidir_search<FH, BH>(
     start: &State,
     fwd_h: FH,
     bwd_h: BH,
     cfg: &BidirConfig,
-) -> Option<(u32, Vec<Move>)>
+) -> Option<MitmResult>
 where
     FH: Fn(&[State]) -> Vec<f32>,
     BH: Fn(&[State]) -> Vec<f32>,
 {
     if *start == GOAL {
-        return Some((0, Vec::new()));
+        return Some(MitmResult { len: 0, g_fwd: 0, g_bwd: 0, moves: Vec::new() });
     }
     let mut fwd_visited: Visited = HashMap::new();
     let mut bwd_visited: Visited = HashMap::new();
@@ -148,7 +159,7 @@ where
     let mut fwd_layer = vec![BNode { state: *start, g: 0, h: 0.0, last: None }];
     let mut bwd_layer = vec![BNode { state: GOAL, g: 0, h: 0.0, last: None }];
 
-    let mut best: Option<(u32, State)> = None;
+    let mut best: Option<(u32, u32, u32, State)> = None; // (total, g_fwd, g_bwd, meet)
     let mut expanded: u64 = 0;
     let mut meetings: Vec<(State, u32, u32)> = Vec::new();
 
@@ -165,8 +176,8 @@ where
             &mut expanded,
         );
         for &(s, gf, gb) in &meetings {
-            if best.map_or(true, |(b, _)| gf + gb < b) {
-                best = Some((gf + gb, s));
+            if best.map_or(true, |(b, ..)| gf + gb < b) {
+                best = Some((gf + gb, gf, gb, s));
             }
         }
 
@@ -182,8 +193,8 @@ where
             &mut expanded,
         );
         for &(s, gb, gf) in &meetings {
-            if best.map_or(true, |(b, _)| gf + gb < b) {
-                best = Some((gf + gb, s));
+            if best.map_or(true, |(b, ..)| gf + gb < b) {
+                best = Some((gf + gb, gf, gb, s));
             }
         }
 
@@ -195,7 +206,7 @@ where
         }
     }
 
-    let (_total, meet) = best?;
+    let (_total, g_fwd, g_bwd, meet) = best?;
     // R -> meet (forward moves, in order).
     let mut fwd = reconstruct(&fwd_visited, meet, *start);
     fwd.reverse();
@@ -203,7 +214,7 @@ where
     let back = reconstruct(&bwd_visited, meet, GOAL);
     let mut moves = fwd;
     moves.extend(back.iter().map(|m| m.inverse()));
-    Some((moves.len() as u32, moves))
+    Some(MitmResult { len: moves.len() as u32, g_fwd, g_bwd, moves })
 }
 
 #[cfg(test)]
@@ -236,8 +247,10 @@ mod tests {
                 |ss: &[State]| ss.iter().map(|s| manhattan_to(s, &start) as f32).collect(),
                 &cfg,
             );
-            let (len, moves) = out.expect("MITM found no solution on a depth-24 board");
+            let res = out.expect("MITM found no solution on a depth-24 board");
+            let (len, moves) = (res.len, res.moves);
             assert_eq!(len as usize, moves.len());
+            assert_eq!(res.g_fwd + res.g_bwd, len, "meet split must sum to length");
             // Replays to GOAL.
             let mut s = start;
             for &m in &moves {

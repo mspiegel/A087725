@@ -152,15 +152,15 @@ fn main() -> ExitCode {
         );
         let secs = t.elapsed().as_secs_f64();
         match result {
-            Some((len, moves)) => {
+            Some(res) => {
                 let mut s = r;
-                for &m in &moves {
+                for &m in &res.moves {
                     s = s.apply(m);
                 }
-                let ok = s == GOAL && (len as usize == moves.len());
+                let ok = s == GOAL && (res.len as usize == res.moves.len());
                 println!(
-                    "R solved (MITM): {} moves (WD LB 140, LB 152), {:.0}s, replay_ok={}",
-                    len, secs, ok
+                    "R solved (MITM): {} moves = {} fwd + {} bwd (WD LB 140, LB 152), {:.0}s, replay_ok={}",
+                    res.len, res.g_fwd, res.g_bwd, secs, ok
                 );
             }
             None => println!("R unsolved (MITM: beams never met) in {:.0}s", secs),
