@@ -22,7 +22,7 @@
 //!   bits → fits a `u64`**, halving both the key width and the table footprint.
 
 use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
-use crate::puzzle24::state::{Move, State, W};
+use crate::puzzle24::state::{Move, State, N_CELLS, W};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::io::{self, BufWriter, Read, Write};
@@ -91,30 +91,51 @@ fn pack(m: &WdMatrix, blank_idx: u8) -> u64 {
 /// goal by symmetry). Tiles 1–5 have goal row 0; 6–10 row 1; 11–15 row 2; 16–20
 /// row 3; 21–24 row 4 (the blank, also row 4, is excluded → only 4 there).
 fn goal_matrix() -> WdMatrix {
+    goal_matrix_for(GOAL_BLANK_IDX)
+}
+
+/// Goal contingency for an ARBITRARY target whose blank sits on axis-index
+/// `blank_idx` (its row for the row-WD table, its column for the col-WD table).
+/// The solved contingency is always the identity — every non-blank tile sits in
+/// its own target row/col — so the diagonal carries each axis's margin: 5 tiles
+/// per axis, except the target's blank axis which carries 4 (the blank occupies
+/// one of its cells). Generalizes [`goal_matrix`] (the GOAL case `blank_idx = 4`)
+/// for the retargetable [`WalkingDistanceTo`] heuristic. The BFS transition graph
+/// is *target-agnostic*; only this seed matrix depends on the target.
+fn goal_matrix_for(blank_idx: u8) -> WdMatrix {
     let mut m = [[0u8; W]; W];
-    m[0][0] = 5;
-    m[1][1] = 5;
-    m[2][2] = 5;
-    m[3][3] = 5;
-    m[4][4] = 4;
+    for d in 0..W {
+        m[d][d] = 5;
+    }
+    m[blank_idx as usize][blank_idx as usize] = 4;
     m
 }
 
 const GOAL_BLANK_IDX: u8 = 4;
 
-/// BFS from the goal WD-state, collecting every reachable matrix-and-blank
-/// combination with its distance to goal.
-fn build_table() -> HashMap<u64, u8, WdBuild> {
-    let goal_m = goal_matrix();
-    let goal_key = pack(&goal_m, GOAL_BLANK_IDX);
+/// BFS from the GOAL WD-state (`blank_idx = 4`), collecting every reachable
+/// matrix-and-blank combination with its distance to goal.
+fn build_table() -> WdTable {
+    build_table_from(&goal_matrix(), GOAL_BLANK_IDX)
+}
+
+/// BFS from an arbitrary seed WD-state `(goal_m, blank_idx)`, collecting every
+/// reachable matrix-and-blank combination with its distance back to that seed.
+/// The transition rule (a tile crossing the axis the blank steps across) is
+/// *target-agnostic*, so this same routine builds the GOAL table and every
+/// retargeted [`WalkingDistanceTo`] table — only the seed differs. The reachable
+/// set has the same 65,650,495 states for any `blank_idx` (axis-reflection
+/// symmetry), so the capacity reservation is shared.
+fn build_table_from(goal_m: &WdMatrix, blank_idx: u8) -> WdTable {
+    let goal_key = pack(goal_m, blank_idx);
 
     // Reserve for the full reachable set (65,650,495) up front so the BFS never
     // pays for an incremental rehash.
-    let mut table: HashMap<u64, u8, WdBuild> =
+    let mut table: WdTable =
         HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
     table.insert(goal_key, 0);
 
-    let mut frontier: Vec<(WdMatrix, u8)> = vec![(goal_m, GOAL_BLANK_IDX)];
+    let mut frontier: Vec<(WdMatrix, u8)> = vec![(*goal_m, blank_idx)];
     let mut depth: u8 = 0;
 
     while !frontier.is_empty() {
@@ -490,6 +511,127 @@ impl Heuristic for WalkingDistanceHeuristic {
             .get(&pack(&m_col, bc))
             .expect("col-WD state must be reachable from goal");
         h_row + h_col
+    }
+}
+
+/// Retargetable Walking Distance: an admissible lower bound on the number of
+/// moves from a board `s` to an **arbitrary** target board `T` (not just GOAL).
+/// This is the backward heuristic for a bidirectional/meet-in-the-middle solver.
+///
+/// The construction mirrors [`WalkingDistanceHeuristic`] but with two things
+/// retargeted to `T`:
+///
+/// - *The projection.* Each tile's target row/col is read from `T`'s layout
+///   (`target_row`/`target_col`) rather than GOAL's.
+/// - *The seed.* The BFS distance table is built from `T`'s solved contingency:
+///   the identity with the `4`-margin on `T`'s blank axis (see [`goal_matrix_for`]).
+///   Because the transition graph is target-agnostic, only that seed changes.
+///
+/// Row-WD needs a table seeded at `blank_idx = t_blank_row`; col-WD needs one at
+/// `blank_idx = t_blank_col`. When those coincide (e.g. a corner blank like the R
+/// board's cell 0 → row 0, col 0) a single table serves both axes, so `col_table`
+/// is left `None` and the lookups fall back to `row_table`.
+///
+/// Unlike [`WalkingDistanceHeuristic`], each `WalkingDistanceTo::new` builds its
+/// own in-memory table(s) via the same BFS — it does **not** touch the shared
+/// GOAL table or the `data/wd24.bin` artifact.
+pub struct WalkingDistanceTo {
+    /// Row-WD distance table, seeded at `t_blank_row`.
+    row_table: WdTable,
+    /// Column-WD distance table, seeded at `t_blank_col`. `None` when
+    /// `t_blank_col == t_blank_row`, in which case `row_table` serves both axes.
+    col_table: Option<WdTable>,
+    /// Per-tile target row in `T`, indexed by tile value `1..=24`. Index `0`
+    /// (the blank) is unused.
+    target_row: [u8; N_CELLS],
+    /// Per-tile target column in `T`, indexed by tile value `1..=24`. Index `0`
+    /// (the blank) is unused.
+    target_col: [u8; N_CELLS],
+    /// `T`'s blank row (the row-WD seed's blank axis-index).
+    t_blank_row: u8,
+    /// `T`'s blank column (the col-WD seed's blank axis-index).
+    t_blank_col: u8,
+}
+
+impl WalkingDistanceTo {
+    /// Build the retargetable WD heuristic for `target`. Computes each non-blank
+    /// tile's target row/col and the target's blank row/col, then BFS-builds the
+    /// row table (seeded at `t_blank_row`) and — only if the blank's column
+    /// differs from its row — the col table (seeded at `t_blank_col`). Each build
+    /// is the same ~15–25 s BFS as the GOAL table.
+    pub fn new(target: &State) -> Self {
+        let mut target_row = [0u8; N_CELLS];
+        let mut target_col = [0u8; N_CELLS];
+        let mut t_blank_row = 0u8;
+        let mut t_blank_col = 0u8;
+        for pos in 0..(W * W) {
+            let tile = target.0[pos];
+            let r = (pos / W) as u8;
+            let c = (pos % W) as u8;
+            if tile == 0 {
+                t_blank_row = r;
+                t_blank_col = c;
+                continue;
+            }
+            target_row[tile as usize] = r;
+            target_col[tile as usize] = c;
+        }
+
+        let row_table = build_table_from(&goal_matrix_for(t_blank_row), t_blank_row);
+        let col_table = if t_blank_col == t_blank_row {
+            None
+        } else {
+            Some(build_table_from(&goal_matrix_for(t_blank_col), t_blank_col))
+        };
+
+        WalkingDistanceTo {
+            row_table,
+            col_table,
+            target_row,
+            target_col,
+            t_blank_row,
+            t_blank_col,
+        }
+    }
+
+    /// `WD_row(s→T) + WD_col(s→T)`. Admissible lower bound on moves from `s` to
+    /// `T`. Projects `s` with `T`'s per-tile target rows/cols, packs each axis
+    /// with `s`'s *current* blank row/col, and sums the two table lookups.
+    pub fn h(&self, s: &State) -> u8 {
+        let mut m_row = [[0u8; W]; W];
+        let mut m_col = [[0u8; W]; W];
+        let mut br: u8 = 0;
+        let mut bc: u8 = 0;
+        for pos in 0..(W * W) {
+            let tile = s.0[pos];
+            let r = (pos / W) as u8;
+            let c = (pos % W) as u8;
+            if tile == 0 {
+                br = r;
+                bc = c;
+                continue;
+            }
+            let gr = self.target_row[tile as usize] as usize;
+            let gc = self.target_col[tile as usize] as usize;
+            m_row[r as usize][gr] += 1;
+            m_col[c as usize][gc] += 1;
+        }
+        // The col table falls back to the row table when the target's blank
+        // shares an axis-index across rows and columns.
+        let col_t = self.col_table.as_ref().unwrap_or(&self.row_table);
+        let h_row = *self
+            .row_table
+            .get(&pack(&m_row, br))
+            .expect("row-WD state must be reachable from target");
+        let h_col = *col_t
+            .get(&pack(&m_col, bc))
+            .expect("col-WD state must be reachable from target");
+        h_row + h_col
+    }
+
+    /// The target's blank row and column, for diagnostics / test assertions.
+    pub fn target_blank(&self) -> (u8, u8) {
+        (self.t_blank_row, self.t_blank_col)
     }
 }
 
@@ -1005,5 +1147,76 @@ mod tests {
         let loaded = load_dist_table(&path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)).unwrap();
         assert_eq!(loaded, table, "full-table round-trip changed the table");
         let _ = std::fs::remove_file(&path);
+    }
+
+    // --- retargetable WD (WalkingDistanceTo) ---
+
+    /// The "R" board (double antipode): blank at cell 0, tile `25 - i` at cell
+    /// `i` for `i ∈ 1..25`. Its blank sits at row 0, column 0.
+    fn r_board() -> State {
+        let mut cells = [0u8; N_CELLS];
+        for i in 1..N_CELLS {
+            cells[i] = (25 - i) as u8;
+        }
+        State(cells)
+    }
+
+    /// **Regression (critical):** `WalkingDistanceTo::new(&GOAL)` must reproduce
+    /// the GOAL-only [`WalkingDistanceHeuristic`] exactly. If the projection or
+    /// the seed/table were wrong this would diverge. Needs the shared GOAL table
+    /// for the reference, so WD-gate on `data/wd24.bin`. Uses the `ml` scramble
+    /// generator, so it is gated to the `ml` feature (keeps non-`ml` builds clean).
+    #[cfg(feature = "ml")]
+    #[test]
+    fn wd_to_goal_matches_goal_heuristic_on_random_boards() {
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        WalkingDistanceHeuristic::warm_up();
+        let wd_to_goal = WalkingDistanceTo::new(&GOAL);
+        let mut rng = crate::puzzle24::ml::scramble::Rng::new(0xD1CE_F00D_1234_5678);
+        for i in 0..500 {
+            let (s, _k) = crate::puzzle24::ml::scramble::scramble(&mut rng, 200);
+            let reference = WalkingDistanceHeuristic.h(&s);
+            let got = wd_to_goal.h(&s);
+            assert_eq!(got, reference, "WD-to-GOAL != GOAL WD on board {} {:?}", i, s.0);
+        }
+    }
+
+    /// A target is at distance 0 from itself: `WD-to-T(T) == 0` for T = GOAL and
+    /// T = R. Builds its own tables, so no `data/wd24.bin` needed.
+    #[test]
+    fn wd_to_target_of_target_is_zero() {
+        assert_eq!(WalkingDistanceTo::new(&GOAL).h(&GOAL), 0, "WD-to-GOAL(GOAL)");
+        let r = r_board();
+        let wd_to_r = WalkingDistanceTo::new(&r);
+        assert_eq!(wd_to_r.target_blank(), (0, 0), "R blank should be row 0, col 0");
+        assert_eq!(wd_to_r.h(&r), 0, "WD-to-R(R)");
+    }
+
+    /// Every one-move neighbour of R is at WD-to-R exactly 1 (one tile crosses
+    /// one axis boundary; the other axis is unchanged).
+    #[test]
+    fn wd_to_r_of_r_neighbors_is_one() {
+        let r = r_board();
+        let wd_to_r = WalkingDistanceTo::new(&r);
+        for m in r.legal_moves().iter() {
+            let n = r.apply(m);
+            assert_eq!(wd_to_r.h(&n), 1, "WD-to-R(R.apply({:?})) should be 1", m);
+        }
+    }
+
+    /// Build-time sanity: `WalkingDistanceTo::new(&R)` completes well under a
+    /// minute (same BFS as the GOAL table). Single table, since R's blank shares
+    /// row/col index 0.
+    #[test]
+    fn wd_to_r_builds_quickly() {
+        let t = std::time::Instant::now();
+        let wd_to_r = WalkingDistanceTo::new(&r_board());
+        let elapsed = t.elapsed();
+        // The col table must be shared (blank at row 0 == col 0).
+        assert!(wd_to_r.col_table.is_none(), "R should reuse one table for both axes");
+        println!("WalkingDistanceTo::new(&R) built in {:?}", elapsed);
+        assert!(elapsed.as_secs() < 60, "R WD build took too long: {:?}", elapsed);
     }
 }

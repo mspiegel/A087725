@@ -9,7 +9,8 @@ pub use heuristic::{Heuristic, IncManhattan, ManhattanMutCtx, ManhattanHeuristic
 pub use linear_conflict::{LcCtx, LcMutCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use walking_distance::{
     build_full_table, load_dist_table, save_dist_table, WalkingDistanceHeuristic,
-    WalkingDistanceInc, WdBuild, WdCtx, WdLoadError, WdMutCtx, WdTable, WdTableSource,
+    WalkingDistanceInc, WalkingDistanceTo, WdBuild, WdCtx, WdLoadError, WdMutCtx, WdTable,
+    WdTableSource,
     FULL_WD_ENTRIES, WD_KIND_FULL, WD_TABLE_MAGIC, WD_TABLE_VERSION,
 };
 pub use idastar::{

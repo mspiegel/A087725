@@ -18,7 +18,7 @@ use puzzle8::puzzle24::ml::bwas::{anytime_search, BwasOutcome};
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::eval::r_board;
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
-use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
+use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic, WalkingDistanceTo};
 use puzzle8::puzzle24::state::{State, GOAL};
 
 fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
@@ -117,14 +117,37 @@ fn main() -> ExitCode {
             fwd_weight: arg(&argv, "--fwd-weight", 2.0),
             bwd_weight: arg(&argv, "--bwd-weight", 2.0),
         };
+        // Backward heuristic: strong WD-to-R by default (retargetable Walking
+        // Distance, ~16s one-time build), or Manhattan-to-R with --bwd-manhattan.
+        let wd_to_r = if argv.iter().any(|a| a == "--bwd-manhattan") {
+            None
+        } else {
+            print!("building WD-to-R backward table... ");
+            let tb = Instant::now();
+            let wd = WalkingDistanceTo::new(&r);
+            println!("ready in {:.1}s", tb.elapsed().as_secs_f64());
+            Some(wd)
+        };
         println!(
-            "MITM: width {}, max_layers {}, budget {}, fwd_w {}, bwd_w {}",
-            cfg.width, cfg.max_layers, cfg.node_budget, cfg.fwd_weight, cfg.bwd_weight
+            "MITM: width {}, max_layers {}, budget {}, fwd_w {}, bwd_w {}, bwd_heur {}",
+            cfg.width,
+            cfg.max_layers,
+            cfg.node_budget,
+            cfg.fwd_weight,
+            cfg.bwd_weight,
+            if wd_to_r.is_some() { "WD-to-R" } else { "manhattan" }
         );
         let result = bidir_search(
             &r,
             |ss: &[State]| net.values(ss, &device).expect("value net forward"),
-            |ss: &[State]| ss.iter().map(|s| manhattan_to(s, &r) as f32).collect(),
+            |ss: &[State]| {
+                ss.iter()
+                    .map(|s| match &wd_to_r {
+                        Some(wd) => wd.h(s) as f32,
+                        None => manhattan_to(s, &r) as f32,
+                    })
+                    .collect()
+            },
             &cfg,
         );
         let secs = t.elapsed().as_secs_f64();
