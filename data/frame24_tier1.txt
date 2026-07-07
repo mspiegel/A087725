@@ -1,0 +1,17 @@
+warming up Walking Distance table... ready
+
+== frame-rule Tier-1: proven-LB (WD) distributions, n=2000 each ==
+   frame: n=2000  mean WD 108.0  p10 102  p50 108  p90 114  p99 118  max 122
+    WD  90-99     49  ##
+    WD 100-109  1115  ##################################
+    WD 110-119   824  #########################
+    WD 120-129    12  #
+ control: n=2000  mean WD 78.3  p10 68  p50 78  p90 88  p99 97  max 104
+    WD  50-59     18  #
+    WD  60-69    270  #########
+    WD  70-79    822  #########################
+    WD  80-89    736  #######################
+    WD  90-99    145  #####
+    WD 100-109     9  #
+
+(reference: WD(R) = 140 is the global max; random-board true depth ~100.8 mean; constructor retries: 0)
