@@ -98,7 +98,23 @@ fn main() -> ExitCode {
     );
 
     let r = r_board();
-    let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
+    // --wd-floor: clamp V to the admissible WD floor at inference —
+    // V' = max(V, WD(s)). Corrects label-ceiling saturation (a net trained on
+    // labels <= ~126 predicts below the provable floor on deeper states, which
+    // flattens deep ranking); where V saturates, ranking falls back to WD.
+    let wd_floor = argv.iter().any(|a| a == "--wd-floor");
+    if wd_floor {
+        println!("wd-floor: V = max(V, WD)");
+    }
+    let value_of = |states: &[State]| {
+        let mut vs = net.values(states, &device).expect("value net forward");
+        if wd_floor {
+            for (v, s) in vs.iter_mut().zip(states) {
+                *v = v.max(WalkingDistanceHeuristic.h(s) as f32);
+            }
+        }
+        vs
+    };
     // Direct extrapolation check: V(R) vs WD(R)=140 (residual mode) / vs optimal
     // 152. A tight residual net should read ~152; a loose one reads much higher.
     println!(
@@ -135,7 +151,7 @@ fn main() -> ExitCode {
         );
         let result = bidir_search_ff(
             &r,
-            |ss: &[State]| net.values(ss, &device).expect("value net forward"), // fwd base = V
+            |ss: &[State]| value_of(ss), // fwd base = V (wd-floor-clamped if set)
             |ss: &[State]| match &wd_to_r {
                 Some(wd) => ss.iter().map(|s| wd.h(s) as f32).collect(),
                 None => vec![0.0; ss.len()],
@@ -206,7 +222,7 @@ fn main() -> ExitCode {
         );
         let result = bidir_search(
             &r,
-            |ss: &[State]| net.values(ss, &device).expect("value net forward"),
+            |ss: &[State]| value_of(ss),
             |ss: &[State]| {
                 ss.iter()
                     .map(|s| match &wd_to_r {
