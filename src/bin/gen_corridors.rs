@@ -133,6 +133,139 @@ fn main() -> ExitCode {
     let out = PathBuf::from(arg(&argv, "--out", format!("data/corridors_{}.txt", mode)));
     let min_rem: usize = arg(&argv, "--min-rem", 30);
 
+    // ---------------- wdbound mode: certificate audit, no solving needed.
+    // For every state, `label − WD(state)` PROVABLY bounds its slack
+    // (WD ≤ optimal ≤ label). Slack can hide only where this bound is large —
+    // in particular it closes the corridor-HEAD question the exact-solve audit
+    // can't reach (suffix-optimality never certifies the head; per the
+    // 15-puzzle lesson, excess concentrates in the first moves off deep boards).
+    if mode == "wdbound" {
+        let input = PathBuf::from(arg(&argv, "--in", "data/corridors_deep.txt".to_string()));
+        let rows = match puzzle8::puzzle24::ml::corridor::load_file(&input) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return ExitCode::FAILURE;
+            }
+        };
+        puzzle8::puzzle24::search::WalkingDistanceHeuristic::warm_up();
+        use puzzle8::puzzle24::search::Heuristic as _;
+        let wd = puzzle8::puzzle24::search::WalkingDistanceHeuristic;
+        // Histogram of the slack bound, split by label band (shallow/mid/head).
+        let mut bands: [(u32, Vec<usize>); 3] = [(0, Vec::new()), (0, Vec::new()), (0, Vec::new())];
+        for &(s, label) in &rows {
+            let bound = (label as i32 - wd.h(&s) as i32).max(0) as usize;
+            let b = match label as u32 {
+                0..=79 => 0,
+                80..=99 => 1,
+                _ => 2,
+            };
+            bands[b].0 += 1;
+            if bands[b].1.len() <= bound {
+                bands[b].1.resize(bound + 1, 0);
+            }
+            bands[b].1[bound] += 1;
+        }
+        for (name, (n, hist)) in ["label<80", "label 80-99", "label>=100"].iter().zip(&bands) {
+            let sum: usize = hist.iter().enumerate().map(|(b, c)| b * c).sum();
+            println!(
+                "{}: {} states, mean slack-bound {:.2}, bound histogram:",
+                name,
+                n,
+                sum as f64 / (*n).max(1) as f64
+            );
+            for (bound, c) in hist.iter().enumerate() {
+                if *c > 0 {
+                    println!("  bound {:>2}: {:>5}", bound, c);
+                }
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // ---------------- audit mode: measure learned-tier label looseness.
+    // Sample states with labels inside the exactly-solvable band, solve each
+    // optimally, and report (label − optimal): the slack suffix-shortening
+    // would remove. Zero slack ⇒ shortening is pointless; material slack ⇒ do it.
+    if mode == "audit" {
+        let input = PathBuf::from(arg(&argv, "--in", "data/corridors_deep.txt".to_string()));
+        let pdb_dir = PathBuf::from(arg(&argv, "--pdb-dir", "data".to_string()));
+        let band_min: usize = arg(&argv, "--band-min", 40);
+        let band_max: usize = arg(&argv, "--band-max", 80);
+        let sample_n: usize = arg(&argv, "--sample", 60);
+        let budget = Duration::from_secs(arg(&argv, "--budget-secs", 120));
+
+        let rows = match puzzle8::puzzle24::ml::corridor::load_file(&input) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return ExitCode::FAILURE;
+            }
+        };
+        let mut band: Vec<(State, usize)> = rows
+            .iter()
+            .filter(|(_, l)| (*l as usize) >= band_min && (*l as usize) <= band_max)
+            .map(|&(s, l)| (s, l as usize))
+            .collect();
+        // Deterministic spread over the band (strided sample).
+        let stride = (band.len() / sample_n.max(1)).max(1);
+        band = band.into_iter().step_by(stride).take(sample_n).collect();
+        eprintln!(
+            "audit: {} sampled states with label in [{}, {}] from {}",
+            band.len(),
+            band_min,
+            band_max,
+            input.display()
+        );
+
+        let mut dbs = Vec::with_capacity(4);
+        for name in &ZPDB_FILES_K6 {
+            match ZPatternDb::load_mmap(&pdb_dir.join(name)) {
+                Ok(d) => dbs.push(d),
+                Err(e) => {
+                    eprintln!("error loading {}: {}", name, e);
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        let t0 = Instant::now();
+        let results: Vec<(usize, usize)> = band
+            .par_iter()
+            .filter_map(|&(s, label)| {
+                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                let deadline = Instant::now() + budget;
+                match idastar_inc_ladder(&s, &inc, u8::MAX, Some(deadline)).0 {
+                    LadderOutcome::Solved(moves) => Some((label, moves.len())),
+                    _ => None,
+                }
+            })
+            .collect();
+        let mut slack_hist: Vec<usize> = Vec::new();
+        let mut slack_sum = 0usize;
+        for &(label, opt) in &results {
+            let slack = label.saturating_sub(opt);
+            if slack_hist.len() <= slack {
+                slack_hist.resize(slack + 1, 0);
+            }
+            slack_hist[slack] += 1;
+            slack_sum += slack;
+            debug_assert!(opt <= label, "label {} below optimal {}?!", label, opt);
+        }
+        println!(
+            "audit: {}/{} solved in {:.0}s; mean slack (label - optimal) = {:.2}",
+            results.len(),
+            band.len(),
+            t0.elapsed().as_secs_f64(),
+            slack_sum as f64 / results.len().max(1) as f64
+        );
+        for (slack, n) in slack_hist.iter().enumerate() {
+            if *n > 0 {
+                println!("  slack {:>2}: {:>4} states", slack, n);
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
+
     let rows: Vec<(usize, bool, State)> = if mode == "exact" {
         // ---------------- exact mode: optimal solves of random-walk boards.
         let pdb_dir = PathBuf::from(arg(&argv, "--pdb-dir", "data".to_string()));
