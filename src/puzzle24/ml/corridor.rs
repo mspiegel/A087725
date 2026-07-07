@@ -8,7 +8,71 @@
 //! OOD probe during training (never train on it).
 
 use crate::puzzle24::ml::eval::r_board;
+use crate::puzzle24::ml::scramble::Rng;
 use crate::puzzle24::state::{Move, State, GOAL, N_CELLS};
+
+// ---------------------------------------------------------- frame construction
+
+/// Corner pieces and their antipodal corner cells (blank→0, 1→24, 5→20, 21→4).
+const CORNER_ANTI: [(u8, u8); 4] = [(0, 0), (1, 24), (5, 20), (21, 4)];
+/// The 8 corner-neighbor tiles and each one's assigned anti-corner.
+const NBR_ANTI: [(u8, u8); 8] =
+    [(2, 24), (6, 24), (4, 20), (10, 20), (16, 4), (22, 4), (20, 0), (24, 0)];
+
+fn cheb1(c: u8) -> Vec<u8> {
+    let (r0, c0) = ((c / 5) as i32, (c % 5) as i32);
+    let mut out = Vec::new();
+    for dr in -1..=1i32 {
+        for dc in -1..=1i32 {
+            let (r, cc) = (r0 + dr, c0 + dc);
+            if (0..5).contains(&r) && (0..5).contains(&cc) {
+                out.push((r * 5 + cc) as u8);
+            }
+        }
+    }
+    out
+}
+
+/// Construct one frame-conformant board (corner pieces at anti-corners, the 8
+/// corner-neighbor tiles within Chebyshev ≤ 1 of theirs, interior uniform,
+/// parity fixed by an interior swap). `None` on rare placement contention.
+/// Mirrors `examples/frame24.rs`; the 15-puzzle antipodes all satisfy this rule.
+pub fn construct_frame(rng: &mut Rng) -> Option<State> {
+    let mut cells = [u8::MAX; N_CELLS];
+    let mut placed = [false; 25];
+    for &(t, cell) in &CORNER_ANTI {
+        cells[cell as usize] = t;
+        placed[t as usize] = true;
+    }
+    let mut order: Vec<usize> = (0..NBR_ANTI.len()).collect();
+    for i in (1..order.len()).rev() {
+        order.swap(i, rng.gen_range(0, i as u32) as usize);
+    }
+    for &i in &order {
+        let (t, anti) = NBR_ANTI[i];
+        let free: Vec<u8> =
+            cheb1(anti).into_iter().filter(|&c| cells[c as usize] == u8::MAX).collect();
+        if free.is_empty() {
+            return None;
+        }
+        cells[free[rng.gen_range(0, free.len() as u32 - 1) as usize] as usize] = t;
+        placed[t as usize] = true;
+    }
+    let mut rest: Vec<u8> = (1..25u8).filter(|&t| !placed[t as usize]).collect();
+    for i in (1..rest.len()).rev() {
+        rest.swap(i, rng.gen_range(0, i as u32) as usize);
+    }
+    let free_cells: Vec<usize> = (0..N_CELLS).filter(|&c| cells[c] == u8::MAX).collect();
+    for (c, t) in free_cells.iter().zip(rest.iter()) {
+        cells[*c] = *t;
+    }
+    let mut s = State(cells);
+    if !s.is_solvable() {
+        s.0.swap(free_cells[0], free_cells[1]);
+    }
+    debug_assert!(s.is_solvable());
+    Some(s)
+}
 
 /// Optimal 78-STM solution of `W = ρ(GOAL)` (90° clockwise-rotated goal), found
 /// by `solve24 --heuristic select --parallel` (12,189 nodes, 2.2 s, verified).

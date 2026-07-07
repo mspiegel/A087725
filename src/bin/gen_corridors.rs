@@ -331,7 +331,83 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let rows: Vec<(usize, bool, State)> = if mode == "exact" {
+    let rows: Vec<(usize, bool, State)> = if mode == "frame" {
+        // ---------------- frame mode: BWAS-solve frame-conformant boards, whose
+        // depths reach ~150 (Tier-2: proven >=132), removing the ~126 label
+        // ceiling of the WD-search learned tier. Labels are near-tight UBs.
+        let checkpoint = match argv.iter().position(|a| a == "--checkpoint").and_then(|i| argv.get(i + 1)) {
+            Some(p) => PathBuf::from(p),
+            None => {
+                eprintln!("--checkpoint required for --mode frame");
+                return ExitCode::FAILURE;
+            }
+        };
+        let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
+        let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
+        let n_boards: usize = arg(&argv, "--boards", 400);
+        let bwas_budget: u64 = arg(&argv, "--bwas-budget", 2_000_000);
+        let weight: f32 = arg(&argv, "--weight", 2.5);
+        let seed: u64 = arg(&argv, "--seed", 11);
+
+        let device = if argv.iter().any(|a| a == "--cpu") {
+            candle_core::Device::Cpu
+        } else {
+            pick_device().unwrap_or(candle_core::Device::Cpu)
+        };
+        let mut vm = VarMap::new();
+        let net = match ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("error building net: {}", e);
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Err(e) = vm.load(&checkpoint) {
+            eprintln!("error loading {}: {}", checkpoint.display(), e);
+            return ExitCode::FAILURE;
+        }
+        eprintln!(
+            "frame mode: {} frame boards, bwas {} @ w{}, device {}",
+            n_boards,
+            bwas_budget,
+            weight,
+            device_kind(&device)
+        );
+
+        let mut rng = Rng::new(seed);
+        let mut rows: Vec<(usize, bool, State)> = Vec::new();
+        let t0 = Instant::now();
+        let (mut solved, mut done) = (0usize, 0usize);
+        let mut len_hist: Vec<usize> = Vec::new();
+        while done < n_boards {
+            let b = match puzzle8::puzzle24::ml::corridor::construct_frame(&mut rng) {
+                Some(b) => b,
+                None => continue,
+            };
+            done += 1;
+            let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
+            let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
+            if let BwasOutcome::Solved { moves, .. } = bwas_search(&b, &bcfg, value_of) {
+                solved += 1;
+                if len_hist.len() <= moves.len() {
+                    len_hist.resize(moves.len() + 1, 0);
+                }
+                len_hist[moves.len()] += 1;
+                for (rem, s) in corridor(&b, &moves, min_rem) {
+                    rows.push((rem, false, s));
+                }
+            }
+            if done % 50 == 0 {
+                eprintln!("  {}/{} attempted, {} solved, {} states, {:.0}s", done, n_boards, solved, rows.len(), t0.elapsed().as_secs_f64());
+            }
+        }
+        let (lo, hi) = (
+            len_hist.iter().position(|&c| c > 0).unwrap_or(0),
+            len_hist.len().saturating_sub(1),
+        );
+        eprintln!("frame: {}/{} solved; solution-length range {}..{}", solved, done, lo, hi);
+        rows
+    } else if mode == "exact" {
         // ---------------- exact mode: optimal solves of random-walk boards.
         let pdb_dir = PathBuf::from(arg(&argv, "--pdb-dir", "data".to_string()));
         let walk_lengths = arg_list(&argv, "--walk-lengths", &[120, 160, 200, 240]);
