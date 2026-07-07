@@ -1,0 +1,75 @@
+===== Tier-2 phase 1: learned-solver UPPER bounds (GPU) =====
+ubfile: 30 boards, bwas 1000000 @ w2.5, device metal
+  i   WD    UB   gap
+  0  122   150    28
+  1  122   158    36
+  2  122   162    40
+  3  120   158    38
+  4  120   154    34
+  5  120   148    28
+  6  120   152    32
+  7  120   154    34
+  8  120   152    32
+  9  120   162    42
+ 10  120   156    36
+ 11  120   154    34
+ 12  120   154    34
+ 13  120   156    36
+ 14  120   150    30
+ 15  120   160    40
+ 16  120   152    32
+ 17  120   160    40
+ 18  120   162    42
+ 19  120   162    42
+ 20  108   142    34
+ 21  108   144    36
+ 22  108   142    34
+ 23  108   140    32
+ 24  108   150    42
+ 25  108   152    44
+ 26  108   146    38
+ 27  108   146    38
+ 28  108   144    36
+ 29  108   142    34
+
+===== Tier-2 phase 2: bounded LOWER bounds (CPU, 8 threads) =====
+WD table: loaded 65650495 entries from data/wd24.bin in 1.792987417s
+ladder24: 1 heuristics, 12 walk boards, 32 structured boards
+  root h(R) Manhattan = 112
+
+--- BOUNDED-LB  [select-k6]  (max-bound 132, per-board budget 240s, combine-slack 0, parallel) ---
+  board             h0            nodes iters        time       nodes/s  outcome
+  R                140                0     0    875.00ns             0  [cheap] LB>=140
+  reflect(R)       140                0     0    208.00ns             0  [cheap] LB>=140
+  from#2           122      12405231568     6     161.91s      76616899  [cheap] LB>=134
+  from#4           122        183411225     6       2.53s      72531129  [cheap] LB>=134
+  from#6           122        147434745     6       1.73s      85361104  [cheap] LB>=134
+  from#8           120      18555033784     7     240.69s      77090476  [cheap] timeout LB>=132
+  from#10          120      17284625215     7     240.89s      71754314  [cheap] timeout LB>=132
+  from#12          120      17329095629     6     240.38s      72089489  [cheap] timeout LB>=130
+  from#14          120      12478043178     7     240.25s      51936722  [cheap] timeout LB>=132
+  from#16          120      12974903017     7     240.98s      53843188  [cheap] timeout LB>=132
+  from#18          120      12820798143     6     240.97s      53205722  [cheap] timeout LB>=130
+  from#20          120       6045967068     7     135.67s      44562195  [cheap] LB>=134
+  from#22          120      12638304814     7     230.26s      54886098  [cheap] LB>=134
+  from#24          120      11175623655     6     240.31s      46505782  [cheap] timeout LB>=130
+  from#26          120      15095230544     7     240.63s      62732803  [cheap] timeout LB>=132
+  from#28          120      14925093295     7     240.68s      62011700  [cheap] timeout LB>=132
+  from#30          120       1754027061     7      24.20s      72465757  [cheap] LB>=134
+  from#32          120      17479133907     7     240.32s      72731386  [cheap] timeout LB>=132
+  from#34          120      15700770637     6     240.29s      65339817  [cheap] timeout LB>=130
+  from#36          120      16050933461     7     240.45s      66752873  [cheap] timeout LB>=132
+  from#38          120      16035621852     7     240.69s      66622529  [cheap] timeout LB>=132
+  from#40          120      18043283057     7     240.05s      75163205  [cheap] timeout LB>=132
+  from#42          108      17833771809     7     240.29s      74216588  [cheap] timeout LB>=120
+  from#44          108      17049576797     8     240.21s      70976632  [cheap] timeout LB>=122
+  from#46          108      17619094084     9     240.35s      73306170  [cheap] timeout LB>=124
+  from#48          108      16729617020     7     240.11s      69675504  [cheap] timeout LB>=120
+  from#50          108      15246002245     9     240.90s      63287138  [cheap] timeout LB>=124
+  from#52          110      12033995044     9     240.29s      50081495  [zpdb] timeout LB>=126
+  from#54          108      17541260592     9     240.47s      72946327  [cheap] timeout LB>=124
+  from#56          110      12356078496    10     240.77s      51318689  [zpdb] timeout LB>=128
+  from#58          108      18344245870     9     240.21s      76366247  [cheap] timeout LB>=124
+  from#60          108      14998453836     8     240.69s      62314501  [cheap] timeout LB>=122
+  => best proven lower bound on R: depth >= 140
+  => highest lower bound across structured boards: 140; picks: cheap=30 zpdb=2 zpdb+=0
