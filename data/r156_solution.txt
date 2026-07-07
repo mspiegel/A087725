@@ -1,0 +1,7 @@
+# 156-move solution to the R board (180-degree rotated goal), replay-verified.
+# Construction (Rokicki/Hannanov, forum.cubeman.org node 238): W = rho(GOAL)
+# (90-degree CW rotation) solves optimally in 78 STM (solve24 select, 12,189
+# nodes, 2.2s, 2026-07-06); rotating each of those moves 90 degrees gives the
+# R -> W half; concatenation solves R in 78+78 = 156. Verified by corridor_r.
+# If optimal(R) = 156 (proven in [152,156]) this path is a geodesic.
+R R R R D D D L L L L U U U R R R R D D D D L L L L U U U U R R R R D D D D L L L U U U R R D D L L U U R R R D D D L L L L U U U U R R R R D D D D L L L L U U U U R R R D D D D L L L U U U U R R R R D D D D L L L L U U U U R R R R D D D L L L U U R R D D L L U U U R R R D D D D L L L L U U U U R R R R D D D D

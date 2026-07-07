@@ -154,6 +154,19 @@ fn main() -> ExitCode {
                     "R solved (FF-MITM): {} moves = {} fwd + {} bwd (WD LB 140, LB 152), {:.0}s, replay_ok={}",
                     res.len, res.g_fwd, res.g_bwd, secs, ok
                 );
+                if argv.iter().any(|a| a == "--print-moves") {
+                    let s: Vec<&str> = res
+                        .moves
+                        .iter()
+                        .map(|m| match m {
+                            puzzle8::puzzle24::state::Move::Up => "U",
+                            puzzle8::puzzle24::state::Move::Down => "D",
+                            puzzle8::puzzle24::state::Move::Left => "L",
+                            puzzle8::puzzle24::state::Move::Right => "R",
+                        })
+                        .collect();
+                    println!("moves: {}", s.join(" "));
+                }
             }
             None => println!("R unsolved (FF-MITM: beams never met) in {:.0}s", secs),
         }

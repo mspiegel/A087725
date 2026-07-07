@@ -119,6 +119,10 @@ name = "solve_r"
 required-features = ["ml"]
 
 [[bin]]
+name = "corridor_r"
+required-features = ["ml"]
+
+[[bin]]
 name = "ml_bench"
 required-features = ["ml"]
 
