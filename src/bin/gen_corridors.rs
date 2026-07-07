@@ -133,6 +133,71 @@ fn main() -> ExitCode {
     let out = PathBuf::from(arg(&argv, "--out", format!("data/corridors_{}.txt", mode)));
     let min_rem: usize = arg(&argv, "--min-rem", 30);
 
+    // ---------------- ubfile mode: learned-solver UPPER bounds for boards from
+    // a file (25-token lines) — Tier-2 of the frame-rule test: bracket each
+    // board's true depth as [WD, bwas_len] and report the gap.
+    if mode == "ubfile" {
+        let input = PathBuf::from(arg(&argv, "--boards", "data/frame24_boards.txt".to_string()));
+        let checkpoint = match argv.iter().position(|a| a == "--checkpoint").and_then(|i| argv.get(i + 1)) {
+            Some(p) => PathBuf::from(p),
+            None => {
+                eprintln!("--checkpoint required for --mode ubfile");
+                return ExitCode::FAILURE;
+            }
+        };
+        let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
+        let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
+        let bwas_budget: u64 = arg(&argv, "--bwas-budget", 1_000_000);
+        let weight: f32 = arg(&argv, "--weight", 2.5);
+
+        let text = match std::fs::read_to_string(&input) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("read {}: {}", input.display(), e);
+                return ExitCode::FAILURE;
+            }
+        };
+        let mut boards: Vec<State> = Vec::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let toks: Vec<u8> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+            if toks.len() == 25 {
+                let mut c = [0u8; 25];
+                c.copy_from_slice(&toks);
+                boards.push(State(c));
+            }
+        }
+        puzzle8::puzzle24::search::WalkingDistanceHeuristic::warm_up();
+        use puzzle8::puzzle24::search::Heuristic as _;
+        let wdh = puzzle8::puzzle24::search::WalkingDistanceHeuristic;
+        let device = pick_device().unwrap_or(candle_core::Device::Cpu);
+        let mut vm = VarMap::new();
+        let net =
+            ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks)
+                .expect("net");
+        vm.load(&checkpoint).expect("load checkpoint");
+        println!("ubfile: {} boards, bwas {} @ w{}, device {}", boards.len(), bwas_budget, weight, device_kind(&device));
+        println!("{:>3} {:>4} {:>5} {:>5}", "i", "WD", "UB", "gap");
+        for (i, b) in boards.iter().enumerate() {
+            let w = wdh.h(b);
+            let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
+            let value_of =
+                |states: &[State]| net.values(states, &device).expect("value net forward");
+            match bwas_search(b, &bcfg, value_of) {
+                BwasOutcome::Solved { moves, .. } => {
+                    println!("{:>3} {:>4} {:>5} {:>5}", i, w, moves.len(), moves.len() - w as usize);
+                }
+                BwasOutcome::BudgetExceeded { .. } => {
+                    println!("{:>3} {:>4} {:>5} {:>5}", i, w, "x", "-");
+                }
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
+
     // ---------------- wdbound mode: certificate audit, no solving needed.
     // For every state, `label − WD(state)` PROVABLY bounds its slack
     // (WD ≤ optimal ≤ label). Slack can hide only where this bound is large —

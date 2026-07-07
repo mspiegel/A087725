@@ -523,6 +523,22 @@ through the 90°-rotated intermediate state would reproduce 156 by construction,
 maximum — only R and symmetries attain it); best k=6 zpdb = 126; Manhattan = 112; max(LC,WD)
 root = 140. WD owns R; no feasible PDB on this machine beats it.
 
+**Learned-solver findings on `R`** (2026-07-06/07, four value-net variants probed): R-solve
+quality tracks whether V stays **monotone-informative above depth ~126** (the constructible
+ceiling), *not* whether V is accurate. The direct net (loose walk labels, inflated but growing
+with depth) solves R best — **164** via hybrid front-to-front MITM; the WD-residual net
+(V(R)≈146, near-truth) and the geodesic-corridor net (best-calibrated net overall: held-out
+R-corridor error +40→−13, holdout solves 131-134 vs beam 154.5; but V saturates at its label
+ceiling, V(R)=127.6 < the provable 140 floor) both *regress* R to 174-206. A `max(V, WD)`
+inference clamp (`solve_r --wd-floor`) repairs the value but not the ranking — R unchanged.
+Corollary: beating 164 needs deep-region labels **above 126** (R-corridor tube / j-ball /
+frame-conformant boards if they certify deep), or a hybrid tight-≤126 + monotone-above scheme.
+The corridor dataset itself is exceptionally clean: the learned solver's paths are *measurably
+optimal* in-distribution (84/84 exact through rem ≤ 92; 44% of deep-tier states certified by
+the WD floor). Frame-rule Tier-1 (2B) **passed**: frame-conformant construction shifts the
+proven-LB distribution +30 over random (mean WD 108 vs 78, near-disjoint); Tier-2 (UB/LB
+bracketing of frame boards' true depth) in progress.
+
 **Sources:** [OEIS A087725](https://oeis.org/A087725) ·
 [Rokicki/Hannanov thread (LB 152, UB 156)](http://forum.cubeman.org/?q=node/view/238) ·
 [Whitmore, "5x5 sliding puzzle can be solved in 205 moves"](http://forum.cubeman.org/?q=node/view/559)
