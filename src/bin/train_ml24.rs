@@ -146,6 +146,15 @@ fn main() -> ExitCode {
     let supervise_search_depth = argv.iter().any(|a| a == "--supervise-walk");
     // Strategy #1: WD-residual parameterization (net learns optimal-WD; V=WD+raw).
     let residual = argv.iter().any(|a| a == "--residual");
+    // Geodesic-corridor supervision (the "general fix"): comma-separated
+    // gen_corridors dataset files + the batch fraction they occupy.
+    let corridor_data: Vec<PathBuf> = argv
+        .iter()
+        .position(|a| a == "--corridor-data")
+        .and_then(|i| argv.get(i + 1))
+        .map(|s| s.split(',').map(|t| PathBuf::from(t.trim())).collect())
+        .unwrap_or_default();
+    let corridor_frac: f32 = arg(&argv, "--corridor-frac", 0.25);
     if argv.iter().any(|a| a == "--profile") {
         profile::set_enabled(true);
     }
@@ -247,6 +256,8 @@ fn main() -> ExitCode {
         resume,
         reset_generator,
         supervise_search_depth,
+        corridor_data,
+        corridor_frac,
     };
 
     // --dry-run: build one generator pool and print its WD stats, then exit — a

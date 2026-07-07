@@ -123,6 +123,10 @@ name = "corridor_r"
 required-features = ["ml"]
 
 [[bin]]
+name = "gen_corridors"
+required-features = ["ml", "mmap"]
+
+[[bin]]
 name = "ml_bench"
 required-features = ["ml"]
 

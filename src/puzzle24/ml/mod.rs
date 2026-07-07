@@ -26,6 +26,7 @@ pub mod beam;
 pub mod bidirectional;
 pub mod bwas;
 pub mod checkpoint;
+pub mod corridor;
 pub mod davi;
 pub mod device;
 pub mod encoding;

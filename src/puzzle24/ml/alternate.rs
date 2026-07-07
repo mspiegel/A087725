@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use candle_core::{Device, Result};
 
 use super::checkpoint;
+use super::corridor;
 use super::davi::{Davi, DaviConfig};
 use super::eval::{self, DeepEvalConfig, EvalConfig};
 use super::generator::{Generator, GeneratorConfig, GeneratorSource};
@@ -80,6 +81,14 @@ pub struct AlternationConfig {
     /// reversed is an achievable solution, so `optimal ≤ walk-length`; this
     /// injects deep-region value the bootstrap can't reach in time.
     pub supervise_search_depth: bool,
+    /// Geodesic-corridor dataset files (`gen_corridors` output). Each solver
+    /// batch draws `corridor_frac` of its states from here with their tight
+    /// path labels as supervised targets — the "general fix" for V's deep
+    /// miscalibration (see data/corridor_r_compare.txt). Empty = off.
+    pub corridor_data: Vec<PathBuf>,
+    /// Fraction of each solver batch drawn from the corridor dataset (taken
+    /// from the uniform share; clamped so `n_gen` is untouched).
+    pub corridor_frac: f32,
 }
 
 const MID_METRICS_HEADER: &str =
@@ -122,7 +131,33 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
 
     let n_gen = ((cfg.solver_batch as f32) * cfg.generator_frac).round() as usize;
     let n_gen = n_gen.min(cfg.solver_batch);
-    let n_uni = cfg.solver_batch - n_gen;
+
+    // Geodesic-corridor supervision: load once; its share comes out of the
+    // uniform slice of each batch.
+    let corridor_pool: Vec<(State, f32)> = {
+        let mut pool = Vec::new();
+        for p in &cfg.corridor_data {
+            let mut part = corridor::load_file(p)
+                .map_err(|e| candle_core::Error::Msg(format!("corridor data: {}", e)))?;
+            pool.append(&mut part);
+        }
+        pool
+    };
+    let n_corr = if corridor_pool.is_empty() {
+        0
+    } else {
+        (((cfg.solver_batch as f32) * cfg.corridor_frac).round() as usize)
+            .min(cfg.solver_batch - n_gen)
+    };
+    let n_uni = cfg.solver_batch - n_gen - n_corr;
+    if n_corr > 0 && cfg.verbose {
+        eprintln!(
+            "corridor supervision: {} states loaded, {}/{} of each batch",
+            corridor_pool.len(),
+            n_corr,
+            cfg.solver_batch
+        );
+    }
 
     for round in 0..cfg.rounds {
         // ---- Depth curriculum: ramp the generator + uniform walk length ----
@@ -183,11 +218,17 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 batch.push(gen_pool[idx]);
                 supervised.push(if supervise { Some(gen_depths[idx] as f32) } else { None });
             }
+            for _ in 0..n_corr {
+                let idx = rng.gen_range(0, (corridor_pool.len() - 1) as u32) as usize;
+                let (s, label) = corridor_pool[idx];
+                batch.push(s);
+                supervised.push(Some(label));
+            }
             for _ in 0..n_uni {
                 batch.push(scramble(&mut rng, uni_k).0);
                 supervised.push(None);
             }
-            loss_sum += if supervise {
+            loss_sum += if supervise || n_corr > 0 {
                 davi.train_step_targets(&batch, &supervised)?
             } else {
                 davi.train_step(&batch)?
@@ -223,6 +264,18 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         let is_last = round + 1 == cfg.rounds;
         let do_eval = is_last || (cfg.eval_every > 0 && (round + 1) % cfg.eval_every == 0);
         if do_eval {
+            // Standing OOD probe: V−rem on the held-out R-156 corridor (never
+            // trained on). Watch the deep band drop from ~+40 toward 0 without
+            // holdout solve-lengths degrading (the residual-trap signature).
+            let (deep_e, mid_e, low_e) = corridor::r156_verr(&|s: &[State]| {
+                davi.value_of(s).expect("solver value_of failed")
+            });
+            if cfg.verbose {
+                eprintln!(
+                    "    [R156-OOD] V-rem: {:+.1} (rem 120-156)  {:+.1} (80-119)  {:+.1} (40-79)",
+                    deep_e, mid_e, low_e
+                );
+            }
             let prefix = format!(
                 "{}\t{:.4}\t{:.3}\t{:.3}",
                 round,
@@ -337,6 +390,8 @@ mod tests {
             resume: false,
             reset_generator: false,
             supervise_search_depth: false,
+            corridor_data: Vec::new(),
+            corridor_frac: 0.0,
         };
 
         run(&cfg, Device::Cpu).unwrap();
@@ -412,6 +467,8 @@ mod tests {
             resume: false,
             reset_generator: false,
             supervise_search_depth: false,
+            corridor_data: Vec::new(),
+            corridor_frac: 0.0,
         };
 
         run(&cfg, Device::Cpu).unwrap();
