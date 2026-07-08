@@ -421,25 +421,97 @@ bounds ≫ random → seed 2C with it; else fall back to R-orbit + perturbation 
 weakly test "deep ⇒ frame" — one known-deep board, `R`; we *can* test "frame ⇒ tends-deep," which is
 what the generator needs.)
 
-### 2C — Candidate generator (`examples/candidates24.rs`)
-Produce a diverse pool of hard candidates. Seeds = `R`, `reflect(R)`, D4 images, frame-conformant
-constructions (if 2B passed), + perturbations of `R`. **Hill-climb** each seed by tile transpositions
-that raise an admissible score (WD or `max(LC,WD,zpdb)`), keeping `is_solvable`; **dedup** via
-`symmetry::canonical`; emit 25-int rows + scores → `ladder24 --from`. The score *is* a proven LB, so
-this already yields cheap lower bounds. **Expect:** WD saturates near `R` (which nearly maximizes
-row+col reversal), so root-h candidates won't exceed ~140 by much — generation's job is *diversity*
-(boards possibly deeper than `R`); LBs above ~140 come from search budget in 2D.
+**STATUS — PASSED, both tiers (2026-07-07/08).** Tier-1 (search-free, `examples/frame24.rs`):
+frame-conformant construction shifts the proven-LB (WD) distribution **+30 over random** (mean WD
+108 vs 78, near-disjoint) — the rule is a genuine deep-board generator. Tier-2 (`gen_corridors
+--mode ubfile`, `data/frame24_tier2.txt`): 30 frame boards bracketed with a bounded-LB floor
+(≥130–134 at 240 s/board) and a replay-verified learned UB (148–162), true depth ~150 — certified
+deep, *not* anchored on `R`. **Decision: frame-conformant construction seeds 2C.**
 
-### 2D — Bounded-LB hunt (the loop)
-Feed top candidates into `ladder24 --from --mode bounded` with **escalating budgets** (cheap pass
-over many; big budget on the few best); reuse `idastar_inc_ladder`; collect proven LBs. **Flywheel:**
-the deepest confirmed boards become new seeds for 2C → generate around them → bound → repeat. This is
-how the bootstrap resolves — construction seeds it, search certifies, deep finds re-seed.
+**Phase-2 implementation amendment (2026-07-08).** The learned-solver stack (FINDINGS_R.md) landed
+after this plan was written; the hunt tooling below folds it in per four decisions:
+- **2A:** run **one `--prove-at-least 148`** exhaust (~2.2 h) as the feasible stack-validation
+  headline; skip the multi-day ≥150 (152 remains infeasible here — see 2A above).
+- **Deliverable:** a **bracket catalog** — every board gets a bounded-search proven LB *and* a
+  replay-verified learned UB. Above WD's 140 saturation the UB is the only depth signal.
+- **Scoring:** **hybrid** — admissible WD hill-climb *generates* (score = free proven LB); the
+  frame2 forward net and the pair net *rank* the WD-saturated top. Certification stays bounded search.
+- **UB budget ladder** (from the three-way baseline, `data/pairnet_forward_only_baseline.txt`):
+  bulk = BWAS/forward-only with the frame2 net (never worse than +4 vs the fancy backends);
+  finalists = `solve_ff` FF-MITM + pair-net.
+
+### 2C — Candidate generator (`examples/candidates24.rs`) — BUILT
+Produces a diverse pool of hard candidates. Seeds = `R`, `reflect(R)`, frame-conformant constructions
+(`puzzle24::frame::construct_frame_with`, kept if WD ≥ `--min-seed-wd`), + `--reseed` files (the
+catalog flywheel), each perturbed by no-undo blank walks. **Hill-climb** each seed by
+solvability-preserving mutations of the *non-blank* cells — 3-cycles and double-swaps are even
+permutations, so the even-inversion solvability invariant and the blank position are preserved;
+greedy with bounded sideways drift, several restarts per seed. Score = WD (default) or `max(LC,WD)`
+(admissible → a free proven LB). **Dedup** via `symmetry::canonical` (reflection-only group, *not*
+D4); per-seed caps + a Hamming `--min-dist` floor vs already-emitted equal-or-higher boards prevent
+collapse onto near-`R` clones. Emits the interchange format (25-token rows, blank `0`, `#` lineage
+comments) read by `ladder24 --from` / `gen_corridors --boards`. **Expect:** WD saturates near `R`,
+so root-h candidates won't exceed ~140 — generation's job is *diversity*; LBs above ~140 come from
+search budget in 2D (and are gated by the ~29×/+2 wall, so realistically a few plies over root h).
+
+### 2D — Bounded-LB hunt (the loop) — BUILT
+1. **Generate:** `candidates24 --out pool.txt` (§2C).
+2. **Rank (learned):** `gen_corridors --mode score --out-tsv` → `v_fwd`/`v_pair` over the pool
+   (orders the WD-saturated top where WD ties).
+3. **LB pass (CPU):** `ladder24 --from --mode bounded --heuristics select-k6 --parallel --out-tsv`
+   with escalating `--bound-budget-secs` (cheap over many; big on the few best); proven LBs.
+4. **UB pass (GPU):** `gen_corridors --mode ubfile --out-tsv` (BWAS/frame2, replay-verified);
+   finalists get `solve_ff` FF-MITM + pair-net.
+5. **Join + flywheel:** `catalog24 --ingest --pool --lb-tsv --ub-tsv --score-tsv` → append-only
+   `data/catalog24.tsv`, ranked brackets, `--reseed-out` (deepest → back to step 1) and
+   `--escalate-out` (wide-gap, budget-limited → bigger LB budget). This is how the bootstrap resolves:
+   construct seeds it, search certifies, deep finds re-seed.
 
 ### 2E — Catalog + bounds report
-The deliverable: ranked catalog of hardest boards + best proven LBs; updated diameter lower-bound
-claim; honest frontier statement (we push the *lower* bound; the exact deepest boards and the 205
-upper bound remain out of reach here).
+The deliverable: `data/catalog24.tsv` (append-only evidence) reduced to a ranked
+`[proven LB, replay-verified UB]` bracket per board, plus a `FINDINGS_HUNT.md` writeup — method, the
+ranked table, the frame-rule population evidence, and the honest frontier statement: we push and
+*populate* the lower-bound side (a novel catalog of certified-deep non-`R` boards), but cannot prove
+any board deeper than `R` (that needs an LB > 152-class exhaust, ~75 days/board here) and the
+published 152 diameter LB stands.
+
+### Pilot cycle (generation 1) — commands
+The ≥148 `2A` exhaust runs alongside (separate, CPU-saturating). Pilot stages run **sequentially**
+(each process materializes its own ~1.2 GiB WD table). `runs/` is gitignored; commit the pool +
+`data/catalog24.tsv` + finalist solutions.
+```bash
+# 2A (background, ~2.2 h): prove R >= 148
+RAYON_NUM_THREADS=8 caffeinate -dimsu cargo run --release --features "mmap parallel" --bin solve24 -- \
+  --pdb-dir data --heuristic wd --parallel \
+  --position "0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1" --prove-at-least 148
+
+# (a) pool  (b) learned ranking  (c) LB pass  (d) UB pass  (e) join+flywheel
+cargo run --release --example candidates24 -- --out data/pool_g1.txt --frame-seeds 40 \
+  --iters 2000 --restarts 4 --per-seed 12 --min-dist 6 --pool-cap 100 --seed 1
+cargo run --release --features ml,mmap --bin gen_corridors -- --mode score --boards data/pool_g1.txt \
+  --checkpoint data/ml24_frame2/value_latest.safetensors \
+  --pair-checkpoint data/ml24_pair/value_latest.safetensors --out-tsv runs/score_g1.tsv
+RAYON_NUM_THREADS=8 caffeinate -dimsu cargo run --release --features mmap,parallel --example ladder24 -- \
+  --pdb-dir data --heuristics select-k6 --mode bounded --from data/pool_g1.txt \
+  --bound-budget-secs 240 --max-bound 200 --parallel --quiet --out-tsv runs/lb_g1.tsv
+caffeinate -dimsu cargo run --release --features ml,mmap --bin gen_corridors -- --mode ubfile \
+  --boards data/pool_g1.txt --checkpoint data/ml24_frame2/value_latest.safetensors \
+  --bwas-budget 1000000 --weight 2.5 --out-tsv runs/ub_g1.tsv
+cargo run --release --example catalog24 -- --catalog data/catalog24.tsv --ingest \
+  --pool data/pool_g1.txt --lb-tsv runs/lb_g1.tsv --ub-tsv runs/ub_g1.tsv --score-tsv runs/score_g1.tsv \
+  --rank 30 --reseed-out data/reseed_g2.txt --reseed-top 15 \
+  --escalate-out data/escalate_g1.txt --escalate-top 6 --gap-min 12
+```
+
+**Verification (Phase 2).** Inline unit tests, run via `test = true` on the example targets (Cargo
+defaults examples to `test = false`, so these previously only compile-checked): `frame` (construct
+solvable+conformant, GOAL rejected, determinism); `candidates24` (mutation parity/blank invariance,
+perturb solvability, climb monotonicity, line round-trip); `catalog24` (max-lb/min-verified-ub
+reduction, exact pins both, reflection join merges `R`/`reflect(R)`, idempotent dedup); `ladder24`
+(board_field round-trip). `gen_corridors --mode frame` output is byte-unchanged by the frame-module
+promotion (RNG stream preserved). End-to-end smoke: a small pool through candidates24 → score →
+ladder24 → ubfile → catalog24, every UB replay-verified, catalog invariants (no `ub<lb`) hold,
+re-ingest is a no-op.
 
 ### Conditional
 - **2F — general-regime ZPDB collection (η sweep):** only if 2D throughput on *general* candidates is
@@ -458,8 +530,12 @@ upper bound remain out of reach here).
 `2P` is optional — both `2A` and `2D` run single-threaded without it, just slower. `2A` runs
 early/parallel; `2B` before `2C` (don't build the generator on an untested conjecture); `2C → 2D →
 2E` with the `2D → 2C` flywheel. **2A is calibrated (see above): ≥146 proven, budget→threshold scaling
-measured (~29×/+2), 152 shown infeasible here.** Next concrete action is now **2B** (cheapest new
-code, gates the generator); **biggest throughput lever remains 2P** (done).
+measured (~29×/+2), 152 shown infeasible here.**
+
+**STATUS (2026-07-08): 2P done; 2B PASSED both tiers; 2C/2D/2E tooling BUILT**
+(`examples/candidates24.rs`, `examples/catalog24.rs`, `gen_corridors --mode {ubfile,score}` +
+`--out-tsv`, `ladder24 --out-tsv`). Next concrete action is the **pilot cycle** (~100 boards, one
+generation) + the **≥148 `2A` exhaust** (running), then read the gap distribution before scaling.
 
 ---
 
@@ -542,7 +618,9 @@ The corridor dataset itself is exceptionally clean: the learned solver's paths a
 optimal* in-distribution (84/84 exact through rem ≤ 92; 44% of deep-tier states certified by
 the WD floor). Frame-rule Tier-1 (2B) **passed**: frame-conformant construction shifts the
 proven-LB distribution +30 over random (mean WD 108 vs 78, near-disjoint); Tier-2 (UB/LB
-bracketing of frame boards' true depth) in progress.
+bracketing of frame boards' true depth) **also passed** — 30 frame boards bracketed at proven
+LB ≥130–134 with replay-verified learned UB 148–162 (true depth ~150), certified deep and not
+`R`-derived (`data/frame24_tier2.txt`). Frame construction now seeds the Phase-2 hunt generator.
 
 **Sources:** [OEIS A087725](https://oeis.org/A087725) ·
 [Rokicki/Hannanov thread (LB 152, UB 156)](http://forum.cubeman.org/?q=node/view/238) ·
