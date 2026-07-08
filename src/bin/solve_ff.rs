@@ -19,6 +19,8 @@ use candle_core::DType;
 use candle_nn::{VarBuilder, VarMap};
 
 use puzzle8::puzzle24::ml::bidirectional::{bidir_search_ff, manhattan_to, FfConfig};
+use puzzle8::puzzle24::ml::bwas::{anytime_search, BwasOutcome};
+use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
 use puzzle8::puzzle24::ml::corridor::relabel_to_ib;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
@@ -148,6 +150,39 @@ fn main() -> ExitCode {
             net.values_cond(&rel, &vec![b_start; ss.len()], &device).expect("bwd")
         }
     };
+
+    // Forward-only baseline: anytime weighted-A* from `start` to GOAL with the
+    // SAME forward heuristic (no backward beam) + WD admissible incumbent prune.
+    if argv.iter().any(|a| a == "--forward-only") {
+        WalkingDistanceHeuristic::warm_up();
+        let weights = [2.5f32, 2.0];
+        let budget: u64 = arg(&argv, "--fo-budget", 8_000_000);
+        println!("forward-only: anytime weights {:?}, budget/weight {}", weights, budget);
+        let t = Instant::now();
+        let out = anytime_search(&start, &weights, 2000, budget, &fwd, |s: &State| {
+            WalkingDistanceHeuristic.h(s)
+        });
+        let secs = t.elapsed().as_secs_f64();
+        match out {
+            BwasOutcome::Solved { moves, nodes_expanded } => {
+                let mut s = start;
+                for &m in &moves {
+                    s = s.apply(m);
+                }
+                println!(
+                    "forward-only solved: {} moves, {} nodes, {:.0}s, replay_ok={}",
+                    moves.len(),
+                    nodes_expanded,
+                    secs,
+                    s == GOAL
+                );
+            }
+            BwasOutcome::BudgetExceeded { nodes_expanded } => {
+                println!("forward-only unsolved ({} nodes, {:.0}s)", nodes_expanded, secs)
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
 
     let t = Instant::now();
     let res = bidir_search_ff(&start, fwd, bwd, &cfg);
