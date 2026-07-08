@@ -74,6 +74,51 @@ pub fn construct_frame(rng: &mut Rng) -> Option<State> {
     Some(s)
 }
 
+// -------------------------------------------------- target-frame relabeling
+//
+// Tile-relabeling is a graph automorphism (moves depend only on the blank cell),
+// so `dist(x, t) = dist(relabel_to_ib(x, t), I_b)` where `b` = t's blank cell and
+// `I_b` is the canonical identity board with blank at `b`. This reduces
+// pair-distance `dist(·, t)` for ANY target `t` to single-target distance to a
+// canonical board — the basis of the target-conditioned value net.
+
+/// Canonical identity board with the blank at cell `b`: tiles `1..24` fill the
+/// other cells in row-major order. `identity_b(24) == GOAL`.
+pub fn identity_b(b: usize) -> State {
+    let mut c = [0u8; N_CELLS];
+    let mut t = 1u8;
+    for (cell, slot) in c.iter_mut().enumerate() {
+        if cell == b {
+            *slot = 0;
+        } else {
+            *slot = t;
+            t += 1;
+        }
+    }
+    State(c)
+}
+
+/// Re-express `x` in the frame that sends target `t` to `I_b`: relabel each tile
+/// `v` to `I_b[t⁻¹(v)]`. Returns `(relabel_t(x), b)` where `b` = t's blank cell.
+/// `relabel_to_ib(t, t) == (I_b, b)` and `dist(relabel_t(x), I_b) == dist(x, t)`.
+pub fn relabel_to_ib(x: &State, t: &State) -> (State, usize) {
+    // t⁻¹: tile value -> its cell in t.
+    let mut t_inv = [0u8; N_CELLS];
+    let mut b = 0usize;
+    for (cell, &tile) in t.0.iter().enumerate() {
+        t_inv[tile as usize] = cell as u8;
+        if tile == 0 {
+            b = cell;
+        }
+    }
+    let ib = identity_b(b);
+    let mut y = [0u8; N_CELLS];
+    for (c, &tile) in x.0.iter().enumerate() {
+        y[c] = ib.0[t_inv[tile as usize] as usize];
+    }
+    (State(y), b)
+}
+
 /// Optimal 78-STM solution of `W = ρ(GOAL)` (90° clockwise-rotated goal), found
 /// by `solve24 --heuristic select --parallel` (12,189 nodes, 2.2 s, verified).
 const W_SOLUTION: &str = "U U U U R R R D D D D L L L U U U U R R R R D D D D L L L L \
@@ -231,6 +276,49 @@ mod tests {
         assert_eq!(states[78].0, w_board(), "midpoint must be W");
         for (s, _) in &states {
             assert!(s.is_solvable());
+        }
+    }
+
+    #[test]
+    fn relabel_defining_properties() {
+        use crate::puzzle24::ml::scramble::{scramble, Rng};
+        assert_eq!(identity_b(24), GOAL, "identity_b(24) must be GOAL");
+        let mut rng = Rng::new(3);
+        for _ in 0..50 {
+            let t = scramble(&mut rng, 60).0;
+            let x = scramble(&mut rng, 60).0;
+            let (y, b) = relabel_to_ib(&x, &t);
+            // relabel_to_ib(t, t) == (I_b, b).
+            let (yt, bt) = relabel_to_ib(&t, &t);
+            assert_eq!(bt, b);
+            assert_eq!(yt, identity_b(b), "relabel(t,t) != I_b");
+            // y is a valid board (each tile 0..24 once).
+            let mut seen = [false; 25];
+            for &v in &y.0 {
+                assert!(!seen[v as usize], "duplicate tile in relabel");
+                seen[v as usize] = true;
+            }
+        }
+    }
+
+    #[test]
+    fn relabel_preserves_wd_distance() {
+        // The automorphism check: WD-to-t(x) == WD-to-Ib(relabel_t(x)). Exact
+        // (WD is defined for any target). One fixed target to reuse the table.
+        if !std::path::Path::new("data/wd24.bin").exists() {
+            return;
+        }
+        use crate::puzzle24::ml::scramble::{scramble, Rng};
+        use crate::puzzle24::search::{Heuristic, WalkingDistanceTo};
+        let mut rng = Rng::new(9);
+        let t = scramble(&mut rng, 80).0;
+        let wd_t = WalkingDistanceTo::new(&t);
+        let b = t.0.iter().position(|&v| v == 0).unwrap();
+        let wd_ib = WalkingDistanceTo::new(&identity_b(b));
+        for _ in 0..200 {
+            let x = scramble(&mut rng, 80).0;
+            let (y, _) = relabel_to_ib(&x, &t);
+            assert_eq!(wd_t.h(&x), wd_ib.h(&y), "relabel broke the WD invariant");
         }
     }
 

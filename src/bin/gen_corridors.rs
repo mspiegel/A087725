@@ -87,6 +87,45 @@ fn random_walk(seed: u64, len: u32) -> State {
     s
 }
 
+/// Full state sequence along `moves` from `start` (includes both endpoints).
+fn full_path(start: &State, moves: &[Move]) -> Vec<State> {
+    let mut v = Vec::with_capacity(moves.len() + 1);
+    let mut s = *start;
+    v.push(s);
+    for &m in moves {
+        s = s.apply(m);
+        v.push(s);
+    }
+    v
+}
+
+/// Sample `n` ordered pairs `(i<j)` from a (near-)optimal corridor `path` and
+/// emit `(target-blank-class b, exact-ish dist j−i, relabel_{s_j}(s_i))` — the
+/// target-conditioned pair-distance training triples. Infix-optimality makes
+/// `dist(s_i, s_j) = j − i` for an optimal path (near-tight for BWAS paths).
+fn emit_pairs(
+    path: &[State],
+    n: usize,
+    rng: &mut Rng,
+    out: &mut Vec<(usize, u32, State)>,
+) {
+    let l = path.len();
+    if l < 2 {
+        return;
+    }
+    for _ in 0..n {
+        let a = rng.gen_range(0, (l - 1) as u32) as usize;
+        let b = rng.gen_range(0, (l - 1) as u32) as usize;
+        let (i, j) = match a.cmp(&b) {
+            std::cmp::Ordering::Less => (a, b),
+            std::cmp::Ordering::Greater => (b, a),
+            std::cmp::Ordering::Equal => continue,
+        };
+        let (y, blank) = puzzle8::puzzle24::ml::corridor::relabel_to_ib(&path[i], &path[j]);
+        out.push((blank, (j - i) as u32, y));
+    }
+}
+
 /// Emit one corridor: every state along `moves` from `start` with remaining
 /// depth ≥ `min_rem`, as `(rem, state)` pairs (includes the start itself).
 fn corridor(start: &State, moves: &[Move], min_rem: usize) -> Vec<(usize, State)> {
@@ -381,6 +420,15 @@ fn main() -> ExitCode {
             device_kind(&device)
         );
 
+        // Optional target-conditioned pair triples.
+        let pairs_out = argv
+            .iter()
+            .position(|a| a == "--pairs-out")
+            .and_then(|i| argv.get(i + 1))
+            .map(PathBuf::from);
+        let pairs_per: usize = arg(&argv, "--pairs-per-corridor", 200);
+        let mut pair_rows: Vec<(usize, u32, State)> = Vec::new();
+
         let mut rng = Rng::new(seed);
         let mut rows: Vec<(usize, bool, State)> = Vec::new();
         let t0 = Instant::now();
@@ -409,9 +457,12 @@ fn main() -> ExitCode {
                 for (rem, s) in corridor(&b, &moves, min_rem) {
                     rows.push((rem, false, s));
                 }
+                if pairs_out.is_some() {
+                    emit_pairs(&full_path(&b, &moves), pairs_per, &mut rng, &mut pair_rows);
+                }
             }
             if done % 50 == 0 {
-                eprintln!("  {}/{} attempted, {} solved, {} states, {:.0}s", done, n_boards, solved, rows.len(), t0.elapsed().as_secs_f64());
+                eprintln!("  {}/{} attempted, {} solved, {} states, {} pairs, {:.0}s", done, n_boards, solved, rows.len(), pair_rows.len(), t0.elapsed().as_secs_f64());
             }
         }
         let (lo, hi) = (
@@ -419,6 +470,21 @@ fn main() -> ExitCode {
             len_hist.len().saturating_sub(1),
         );
         eprintln!("frame: {}/{} solved; solution-length range {}..{}", solved, done, lo, hi);
+        if let Some(pp) = &pairs_out {
+            let mut f = std::io::BufWriter::new(std::fs::File::create(pp).expect("pairs file"));
+            for (b, label, s) in &pair_rows {
+                let tiles: Vec<String> = s.0.iter().map(|t| t.to_string()).collect();
+                writeln!(f, "{} {} {}", b, label, tiles.join(" ")).expect("write pair");
+            }
+            eprintln!("wrote {} pairs -> {}", pair_rows.len(), pp.display());
+            // Blank-class coverage sanity.
+            let mut classes = [0usize; 25];
+            for (b, _, _) in &pair_rows {
+                classes[*b] += 1;
+            }
+            let covered = classes.iter().filter(|&&c| c > 0).count();
+            eprintln!("pair target-blank coverage: {}/25 cells", covered);
+        }
         rows
     } else if mode == "exact" {
         // ---------------- exact mode: optimal solves of random-walk boards.
