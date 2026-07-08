@@ -35,7 +35,7 @@ use candle_core::DType;
 use candle_nn::{VarBuilder, VarMap};
 use rayon::prelude::*;
 
-use puzzle8::puzzle24::ml::bwas::{search as bwas_search, BwasConfig, BwasOutcome};
+use puzzle8::puzzle24::ml::bwas::{anytime_search, search as bwas_search, BwasConfig, BwasOutcome};
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::scramble::Rng;
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
@@ -61,6 +61,97 @@ fn arg_list(argv: &[String], flag: &str, default: &[u32]) -> Vec<u32> {
         .and_then(|i| argv.get(i + 1))
         .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
         .unwrap_or_else(|| default.to_vec())
+}
+
+fn arg_list_f32(argv: &[String], flag: &str, default: &[f32]) -> Vec<f32> {
+    argv.iter()
+        .position(|a| a == flag)
+        .and_then(|i| argv.get(i + 1))
+        .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| default.to_vec())
+}
+
+/// Parse a board file (25 whitespace tokens/line, `#` comments, `_`/`.` blank).
+/// Skips — with a warning — any line that is not exactly 25 tokens, is not a
+/// permutation of `0..=24`, or is not solvable. Returns the accepted boards.
+fn parse_board_file(text: &str) -> Vec<State> {
+    let mut out = Vec::new();
+    for (ln, line) in text.lines().enumerate() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let toks: Vec<&str> = t.split_whitespace().collect();
+        if toks.len() != 25 {
+            eprintln!("warning: line {}: expected 25 tokens, got {} — skipped", ln + 1, toks.len());
+            continue;
+        }
+        let mut c = [0u8; 25];
+        let mut ok = true;
+        for (i, tok) in toks.iter().enumerate() {
+            let v = if *tok == "_" || *tok == "." {
+                0u8
+            } else {
+                match tok.parse::<u8>() {
+                    Ok(v) if v <= 24 => v,
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+            };
+            c[i] = v;
+        }
+        if !ok {
+            eprintln!("warning: line {}: bad token — skipped", ln + 1);
+            continue;
+        }
+        let mut seen = [false; 25];
+        for &v in &c {
+            if seen[v as usize] {
+                ok = false;
+                break;
+            }
+            seen[v as usize] = true;
+        }
+        if !ok {
+            eprintln!("warning: line {}: not a permutation of 0..24 — skipped", ln + 1);
+            continue;
+        }
+        let s = State(c);
+        if !s.is_solvable() {
+            eprintln!("warning: line {}: not solvable — skipped", ln + 1);
+            continue;
+        }
+        out.push(s);
+    }
+    out
+}
+
+/// Replay `moves` from `start`; `true` iff they reach GOAL. BWAS only emits legal
+/// moves, so this never panics on a genuine solution.
+fn replay_reaches_goal(start: &State, moves: &[Move]) -> bool {
+    let mut s = *start;
+    for &m in moves {
+        s = s.apply(m);
+    }
+    s == GOAL
+}
+
+/// Space-joined 25-token board (blank as `0`) for one TSV field.
+fn board_field(s: &State) -> String {
+    s.0.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")
+}
+
+/// Short provenance tag from a checkpoint path: its parent dir name if present
+/// (e.g. `data/ml24_frame2/value_latest.safetensors` -> `ml24_frame2`), else the
+/// file stem.
+fn ckpt_tag(p: &std::path::Path) -> String {
+    p.parent()
+        .and_then(|d| d.file_name())
+        .or_else(|| p.file_stem())
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "net".into())
 }
 
 /// No-immediate-undo random walk from GOAL (xorshift, mirrors ladder24).
@@ -188,6 +279,13 @@ fn main() -> ExitCode {
         let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
         let bwas_budget: u64 = arg(&argv, "--bwas-budget", 1_000_000);
         let weight: f32 = arg(&argv, "--weight", 2.5);
+        let anytime = argv.iter().any(|a| a == "--anytime");
+        let weights = arg_list_f32(&argv, "--weights", &[2.5, 2.0]);
+        let out_tsv: Option<PathBuf> = argv
+            .iter()
+            .position(|a| a == "--out-tsv")
+            .and_then(|i| argv.get(i + 1))
+            .map(PathBuf::from);
 
         let text = match std::fs::read_to_string(&input) {
             Ok(t) => t,
@@ -196,19 +294,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let mut boards: Vec<State> = Vec::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let toks: Vec<u8> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
-            if toks.len() == 25 {
-                let mut c = [0u8; 25];
-                c.copy_from_slice(&toks);
-                boards.push(State(c));
-            }
-        }
+        let boards = parse_board_file(&text);
         puzzle8::puzzle24::search::WalkingDistanceHeuristic::warm_up();
         use puzzle8::puzzle24::search::Heuristic as _;
         let wdh = puzzle8::puzzle24::search::WalkingDistanceHeuristic;
@@ -218,21 +304,196 @@ fn main() -> ExitCode {
             ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks)
                 .expect("net");
         vm.load(&checkpoint).expect("load checkpoint");
-        println!("ubfile: {} boards, bwas {} @ w{}, device {}", boards.len(), bwas_budget, weight, device_kind(&device));
-        println!("{:>3} {:>4} {:>5} {:>5}", "i", "WD", "UB", "gap");
+
+        let solver = if anytime {
+            format!(
+                "anytime:{}:w{}:n{}",
+                ckpt_tag(&checkpoint),
+                weights.iter().map(|w| w.to_string()).collect::<Vec<_>>().join("/"),
+                bwas_budget
+            )
+        } else {
+            format!("bwas:{}:w{}:n{}", ckpt_tag(&checkpoint), weight, bwas_budget)
+        };
+        println!(
+            "ubfile: {} boards, {} @ {}, device {}",
+            boards.len(),
+            if anytime { format!("anytime {:?}", weights) } else { format!("bwas {} w{}", bwas_budget, weight) },
+            solver,
+            device_kind(&device)
+        );
+        println!("{:>3} {:>4} {:>5} {:>5} {:>4}", "i", "WD", "UB", "gap", "rok");
+
+        // Optional machine-readable TSV (header only when the file is new/empty).
+        let mut tsv = out_tsv.as_ref().map(|p| {
+            let fresh = std::fs::metadata(p).map(|m| m.len() == 0).unwrap_or(true);
+            let mut f = std::io::BufWriter::new(
+                std::fs::OpenOptions::new().create(true).append(true).open(p).expect("open --out-tsv"),
+            );
+            if fresh {
+                writeln!(
+                    f,
+                    "# gen_corridors ubfile  boards={}  solver={}  device={}",
+                    input.display(),
+                    solver,
+                    device_kind(&device)
+                )
+                .ok();
+                writeln!(f, "idx\tboard\twd\tub\tgap\tnodes\treplay_ok\tsolver").ok();
+            }
+            f
+        });
+
+        let value_of =
+            |states: &[State]| net.values(states, &device).expect("value net forward");
         for (i, b) in boards.iter().enumerate() {
             let w = wdh.h(b);
-            let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
-            let value_of =
-                |states: &[State]| net.values(states, &device).expect("value net forward");
-            match bwas_search(b, &bcfg, value_of) {
-                BwasOutcome::Solved { moves, .. } => {
-                    println!("{:>3} {:>4} {:>5} {:>5}", i, w, moves.len(), moves.len() - w as usize);
+            let outcome = if anytime {
+                anytime_search(b, &weights, 2000, bwas_budget, &value_of, |s| wdh.h(s))
+            } else {
+                let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
+                bwas_search(b, &bcfg, &value_of)
+            };
+            match outcome {
+                BwasOutcome::Solved { moves, nodes_expanded } => {
+                    let ub = moves.len();
+                    let gap = ub as i64 - w as i64;
+                    let rok = replay_reaches_goal(b, &moves);
+                    println!("{:>3} {:>4} {:>5} {:>5} {:>4}", i, w, ub, gap, rok as u8);
+                    if let Some(f) = tsv.as_mut() {
+                        writeln!(
+                            f,
+                            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                            i, board_field(b), w, ub, gap, nodes_expanded, rok as u8, solver
+                        )
+                        .ok();
+                    }
                 }
-                BwasOutcome::BudgetExceeded { .. } => {
-                    println!("{:>3} {:>4} {:>5} {:>5}", i, w, "x", "-");
+                BwasOutcome::BudgetExceeded { nodes_expanded } => {
+                    println!("{:>3} {:>4} {:>5} {:>5} {:>4}", i, w, "x", "-", "-");
+                    if let Some(f) = tsv.as_mut() {
+                        writeln!(
+                            f,
+                            "{}\t{}\t{}\t-\t-\t{}\t-\t{}",
+                            i, board_field(b), w, nodes_expanded, solver
+                        )
+                        .ok();
+                    }
                 }
             }
+        }
+        if let Some(f) = tsv.as_mut() {
+            f.flush().ok();
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // ---------------- score mode: batch value-net scoring of boards from a file
+    // — the Phase-2 (2C) learned RANKING signal. Emits WD/LC (admissible) and the
+    // forward-net and/or pair-net dist-to-GOAL estimates per board, so the hunt
+    // can order the WD-saturated top by the learned value.
+    if mode == "score" {
+        let input = PathBuf::from(arg(&argv, "--boards", "data/frame24_boards.txt".to_string()));
+        let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
+        let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
+        let batch: usize = arg(&argv, "--batch", 4096);
+        let fwd_ckpt: Option<PathBuf> = argv
+            .iter()
+            .position(|a| a == "--checkpoint")
+            .and_then(|i| argv.get(i + 1))
+            .map(PathBuf::from);
+        let pair_ckpt: Option<PathBuf> = argv
+            .iter()
+            .position(|a| a == "--pair-checkpoint")
+            .and_then(|i| argv.get(i + 1))
+            .map(PathBuf::from);
+        let out_tsv: Option<PathBuf> = argv
+            .iter()
+            .position(|a| a == "--out-tsv")
+            .and_then(|i| argv.get(i + 1))
+            .map(PathBuf::from);
+        if fwd_ckpt.is_none() && pair_ckpt.is_none() {
+            eprintln!("--mode score: need --checkpoint and/or --pair-checkpoint");
+            return ExitCode::FAILURE;
+        }
+
+        let text = match std::fs::read_to_string(&input) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("read {}: {}", input.display(), e);
+                return ExitCode::FAILURE;
+            }
+        };
+        let boards = parse_board_file(&text);
+        puzzle8::puzzle24::search::WalkingDistanceHeuristic::warm_up();
+        use puzzle8::puzzle24::search::Heuristic as _;
+        let wdh = puzzle8::puzzle24::search::WalkingDistanceHeuristic;
+        let lch = puzzle8::puzzle24::search::LinearConflictHeuristic;
+        let device = pick_device().unwrap_or(candle_core::Device::Cpu);
+
+        // forward net (plain) and/or conditioned pair net.
+        let mut vm_f = VarMap::new();
+        let fwd = fwd_ckpt.as_ref().map(|p| {
+            let net = ValueNet::new(VarBuilder::from_varmap(&vm_f, DType::F32, &device), hidden, blocks)
+                .expect("fwd net");
+            vm_f.load(p).expect("load --checkpoint");
+            net
+        });
+        let mut vm_p = VarMap::new();
+        let pair = pair_ckpt.as_ref().map(|p| {
+            let net = ValueNet::new_conditioned(
+                VarBuilder::from_varmap(&vm_p, DType::F32, &device),
+                hidden,
+                blocks,
+            )
+            .expect("pair net");
+            vm_p.load(p).expect("load --pair-checkpoint");
+            net
+        });
+
+        let mut tsv = out_tsv.as_ref().map(|p| {
+            let fresh = std::fs::metadata(p).map(|m| m.len() == 0).unwrap_or(true);
+            let mut f = std::io::BufWriter::new(
+                std::fs::OpenOptions::new().create(true).append(true).open(p).expect("open --out-tsv"),
+            );
+            if fresh {
+                writeln!(
+                    f,
+                    "# gen_corridors score  boards={}  fwd={}  pair={}  device={}",
+                    input.display(),
+                    fwd_ckpt.as_ref().map(|p| ckpt_tag(p)).unwrap_or_else(|| "-".into()),
+                    pair_ckpt.as_ref().map(|p| ckpt_tag(p)).unwrap_or_else(|| "-".into()),
+                    device_kind(&device)
+                )
+                .ok();
+                writeln!(f, "idx\tboard\twd\tlc\tv_fwd\tv_pair").ok();
+            }
+            f
+        });
+        println!("score: {} boards, device {}", boards.len(), device_kind(&device));
+        println!("{:>3} {:>4} {:>4} {:>7} {:>7}", "i", "wd", "lc", "v_fwd", "v_pair");
+
+        let mut idx = 0usize;
+        for chunk in boards.chunks(batch.max(1)) {
+            let vf: Option<Vec<f32>> =
+                fwd.as_ref().map(|n| n.values(chunk, &device).expect("fwd forward"));
+            let bcls = vec![24usize; chunk.len()]; // dist to GOAL (blank at cell 24)
+            let vp: Option<Vec<f32>> =
+                pair.as_ref().map(|n| n.values_cond(chunk, &bcls, &device).expect("pair forward"));
+            for (k, b) in chunk.iter().enumerate() {
+                let w = wdh.h(b);
+                let lc = lch.h(b);
+                let vf_s = vf.as_ref().map(|v| format!("{:.1}", v[k])).unwrap_or_else(|| "-".into());
+                let vp_s = vp.as_ref().map(|v| format!("{:.1}", v[k])).unwrap_or_else(|| "-".into());
+                println!("{:>3} {:>4} {:>4} {:>7} {:>7}", idx, w, lc, vf_s, vp_s);
+                if let Some(f) = tsv.as_mut() {
+                    writeln!(f, "{}\t{}\t{}\t{}\t{}\t{}", idx, board_field(b), w, lc, vf_s, vp_s).ok();
+                }
+                idx += 1;
+            }
+        }
+        if let Some(f) = tsv.as_mut() {
+            f.flush().ok();
         }
         return ExitCode::SUCCESS;
     }
