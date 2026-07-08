@@ -1,0 +1,8 @@
+# 160-move solution to the R board (180-degree rotated goal), replay-verified.
+# NEW BEST for this project (ladder 204->174->168->164->160), beating the prior
+# 164. Found by the frame-corridor-trained value net (data/ml24_frame) via hybrid
+# front-to-front MITM (solve_r --bidir-ff --ff-base-weight 2.0 --ff-weight 0.5,
+# width 20000, budget 40M), 2026-07-07. Split 139 fwd + 21 bwd. General result:
+# training never saw R or its corridor. Independently replay-verified R->GOAL.
+# Bounds: optimal(R) in [152,156] (Rokicki LB / published UB); this is our UB.
+R R R D D D L L U L U U R R R R D D D D L L L U L U U U R R R R D D D L L L L U U U R R R R D D D D L L L U U U U R R R D D D D L L L L U U U R U R R R D D D D L L L L U U U R R R R D D D L L L L U U U U R R R D D D D L L L U U U U R R R R D D D L L L U U R R D R D L L L U L U U R R R R D D D L L L U U R U R R D D D D
