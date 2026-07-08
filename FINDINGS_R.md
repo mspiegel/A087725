@@ -166,6 +166,45 @@ moves are a research problem, not an engineering one.
 - **Provenance / bounds:** OEIS A087725; forum.cubeman.org node 238 (fetch with a
   browser User-Agent). See the R appendix in `PUZZLE24.md`.
 
+## 7b. Follow-on: a general target-conditioned pair-distance net
+
+The winning FF-MITM solver is lopsided (the backward beam contributes ~10%),
+because the backward heuristic (WD-to-target) is weak next to the learned forward
+V. We built the general fix: a **target-conditioned** value net `V(x | b) ≈
+dist(x, I_b)`. The basis is that tile-relabeling is a graph automorphism, so
+`dist(x, t) = dist(relabel_t(x), I_b)` for `b` = t's blank cell — backward search
+toward *any* target becomes forward search in the target's relabeled frame. One
+net conditioned on the blank-class does it; training labels are free from
+corridor infixes (`dist(sᵢ, sⱼ) = j − i` on an optimal path). Verified end to
+end (WD-invariance of the relabeling; zero-init conditioning reproduces the
+forward net; 158k pair labels, all 25 blank-cells covered).
+
+Trained (warm-started from the R=156 net, 40k steps): **held-out pair RMSE ~1-2
+across all distance bands** — an accurate any-board-pair distance predictor.
+Three findings on *using* it:
+
+- **It reproduces the strong-backward result generally.** `frame2`-forward +
+  pair-net-backward solves R in **156** (120/36 split) — matching the champion,
+  with the *learned* backward contributing 3× more than weak WD-to-R (36 vs 12),
+  and *without* any R-specific symmetry.
+- **It ties-or-beats Manhattan on unseen targets.** On held-out frame boards:
+  156=156 (tie), and 152 vs 154 (win). Equal-or-better, never worse, general —
+  but a *modest* margin, because the forward-dominated meet limits how much the
+  backward binds (the split is a thermometer of backward strength: 12 → 36 → 78
+  as WD-to-R → pair-net → forward-strength symmetry, all at length 156).
+- **It is not a better forward *solver*.** Used as the forward heuristic, its
+  accuracy *hurts* greedy solution length (R = 198) — the same
+  accurate-heuristic-hurts-greedy-search wall seen with the residual and corridor
+  nets. Calibration ≠ search-guidance.
+
+**Verdict:** the pair net's value is as **infrastructure** — an accurate any-pair
+distance / eccentricity oracle and a general (non-symmetry) backward heuristic —
+directly serving the *diameter* goal (arbitrary distance queries, eccentricity
+estimation, non-R-anchored deep-board generation), not as a lever to push R below
+156 (which Phase 0.5 had already shown a strong backward cannot do).
+Reproducibility: `train_pairnet` / `solve_ff --fwd-checkpoint`; net `data/ml24_pair`;
+pairs regenerable via `gen_corridors --mode frame --pairs-out`.
+
 ## 8. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
