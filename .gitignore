@@ -7,3 +7,4 @@
 *.safetensors
 # transient perf logs
 powermetrics.txt
+data/pairs_*.txt
