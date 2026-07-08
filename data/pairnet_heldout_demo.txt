@@ -1,0 +1,14 @@
+##### held-out generality: frame2-fwd + {pair, manhattan} bwd #####
+### held-out #1: pair-net backward ###
+device: metal, target-blank 0, fwd separate-net, bwd pair-net, w_base 2, w_ff 0.5
+solved: 156 moves = 127 fwd + 29 bwd, 762s, replay_ok=true
+### held-out #1: Manhattan backward ###
+device: metal, target-blank 0, fwd separate-net, bwd manhattan, w_base 2, w_ff 0.5
+solved: 156 moves = 129 fwd + 27 bwd, 393s, replay_ok=true
+### held-out #2: pair-net backward ###
+device: metal, target-blank 0, fwd separate-net, bwd pair-net, w_base 2, w_ff 0.5
+solved: 152 moves = 134 fwd + 18 bwd, 790s, replay_ok=true
+### held-out #2: Manhattan backward ###
+device: metal, target-blank 0, fwd separate-net, bwd manhattan, w_base 2, w_ff 0.5
+solved: 154 moves = 142 fwd + 12 bwd, 397s, replay_ok=true
+##### DONE #####
