@@ -1,0 +1,11 @@
+# 156-move solution to the R board, found by our GENERAL learned solver.
+# MATCHES the published best-known length (Rokicki/Hannanov, forum.cubeman.org
+# node 238) -- but that 156 was hand-constructed via R's 90-degree rotational
+# symmetry (78+78, see data/r156_solution.txt), whereas THIS one was DISCOVERED
+# by a value net that never saw R or its corridor, via hybrid front-to-front
+# MITM (solve_r --bidir-ff --ff-base-weight 2.0 --ff-weight 0.5, width 20000,
+# budget 40M). Split 144 fwd + 12 bwd. Net: data/ml24_frame2 (trained on
+# exact+deep+frame+frame_deep geodesic corridors; deep tail to label 170).
+# Independently replay-verified R->GOAL (from-scratch Python checker), 2026-07-08.
+# Bounds: optimal(R) in [152,156]. This UB now EQUALS the published best.
+R R R D R D D D L L L L U U U U R R R R D D D D L L L U U U R R R D D D L L L L U U U U R R R R D D D D L L L L U U U U R R R D D D L L U U R R D D D L L L U U U U R R R R D D D D L L L L U U U U R R R R D D D D L L L L U U U R R R D D L L U U R R D D L L L U U U R R R R D D D D L L L L U U U U R R R R D D D D
