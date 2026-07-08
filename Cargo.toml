@@ -131,6 +131,10 @@ name = "train_pairnet"
 required-features = ["ml"]
 
 [[bin]]
+name = "solve_ff"
+required-features = ["ml"]
+
+[[bin]]
 name = "gen_corridors"
 required-features = ["ml", "mmap"]
 
