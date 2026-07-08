@@ -1,0 +1,8 @@
+### bwd=V(rot180)  w_base=2.0 w_ff=0.5 ###
+R solved (FF-MITM): 156 moves = 78 fwd + 78 bwd (WD LB 140, LB 152), 836s, replay_ok=true
+### bwd=V(rot180)  w_base=1.5 w_ff=1.0 ###
+R solved (FF-MITM): 156 moves = 119 fwd + 37 bwd (WD LB 140, LB 152), 790s, replay_ok=true
+### bwd=V(rot180)  w_base=1.0 w_ff=1.0 ###
+R solved (FF-MITM): 160 moves = 30 fwd + 130 bwd (WD LB 140, LB 152), 744s, replay_ok=true
+### bwd=V(rot180)  w_base=1.0 w_ff=1.5 ###
+R solved (FF-MITM): 172 moves = 86 fwd + 86 bwd (WD LB 140, LB 152), 773s, replay_ok=true
