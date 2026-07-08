@@ -16,6 +16,7 @@
 
 use std::process::ExitCode;
 
+use puzzle8::puzzle24::frame::construct_frame_with;
 use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
 use puzzle8::puzzle24::state::{State, N_CELLS};
 
@@ -41,74 +42,6 @@ impl Rng {
     fn below(&mut self, n: usize) -> usize {
         (self.next() % n as u64) as usize
     }
-}
-
-/// Corner pieces and their antipodal corner cells: blank→0, 1→24, 5→20, 21→4.
-const CORNER_ANTI: [(u8, u8); 4] = [(0, 0), (1, 24), (5, 20), (21, 4)];
-/// The 8 corner-neighbor tiles and each one's assigned anti-corner
-/// (goal-neighbors of tile 1 = {2,6}→24; of 5 = {4,10}→20; of 21 = {16,22}→4;
-/// of the blank = {20,24}→0).
-const NBR_ANTI: [(u8, u8); 8] =
-    [(2, 24), (6, 24), (4, 20), (10, 20), (16, 4), (22, 4), (20, 0), (24, 0)];
-
-/// Cells within Chebyshev ≤ 1 of `c` on the 5×5 grid.
-fn cheb1(c: u8) -> Vec<u8> {
-    let (r0, c0) = ((c / 5) as i32, (c % 5) as i32);
-    let mut out = Vec::new();
-    for dr in -1..=1i32 {
-        for dc in -1..=1i32 {
-            let (r, cc) = (r0 + dr, c0 + dc);
-            if (0..5).contains(&r) && (0..5).contains(&cc) {
-                out.push((r * 5 + cc) as u8);
-            }
-        }
-    }
-    out
-}
-
-/// One frame-conformant board: frame pieces per the rule, interior uniform.
-/// Parity is fixed by swapping two interior tiles if needed.
-fn construct_frame(rng: &mut Rng) -> Option<State> {
-    let mut cells = [u8::MAX; N_CELLS]; // MAX = empty
-    let mut placed_tiles = [false; 25];
-    // (a) corner pieces at anti-corners.
-    for &(t, cell) in &CORNER_ANTI {
-        cells[cell as usize] = t;
-        placed_tiles[t as usize] = true;
-    }
-    // (b) each neighbor tile at a random free cell within Chebyshev 1 of its
-    // assigned anti-corner (shuffled order so contention resolves randomly).
-    let mut order: Vec<usize> = (0..NBR_ANTI.len()).collect();
-    for i in (1..order.len()).rev() {
-        order.swap(i, rng.below(i + 1));
-    }
-    for &i in &order {
-        let (t, anti) = NBR_ANTI[i];
-        let free: Vec<u8> =
-            cheb1(anti).into_iter().filter(|&c| cells[c as usize] == u8::MAX).collect();
-        if free.is_empty() {
-            return None; // contention (rare) — caller retries
-        }
-        cells[free[rng.below(free.len())] as usize] = t;
-        placed_tiles[t as usize] = true;
-    }
-    // Interior: remaining 13 tiles shuffled into remaining 13 cells.
-    let mut rest_tiles: Vec<u8> = (1..25u8).filter(|&t| !placed_tiles[t as usize]).collect();
-    for i in (1..rest_tiles.len()).rev() {
-        rest_tiles.swap(i, rng.below(i + 1));
-    }
-    let free_cells: Vec<usize> = (0..N_CELLS).filter(|&c| cells[c] == u8::MAX).collect();
-    debug_assert_eq!(free_cells.len(), rest_tiles.len());
-    for (c, t) in free_cells.iter().zip(rest_tiles.iter()) {
-        cells[*c] = *t;
-    }
-    let mut s = State(cells);
-    if !s.is_solvable() {
-        // Swap two interior tiles: one transposition flips permutation parity.
-        s.0.swap(free_cells[0], free_cells[1]);
-        debug_assert!(s.is_solvable());
-    }
-    Some(s)
 }
 
 /// Uniform-random solvable control: shuffle all 25 pieces, fix parity via an
@@ -180,7 +113,7 @@ fn main() -> ExitCode {
     let mut attempts = 0usize;
     while frame.len() < n {
         attempts += 1;
-        if let Some(s) = construct_frame(&mut rng) {
+        if let Some(s) = construct_frame_with(&mut |n| rng.below(n)) {
             debug_assert!(s.is_solvable());
             frame.push((wd.h(&s), s));
         }

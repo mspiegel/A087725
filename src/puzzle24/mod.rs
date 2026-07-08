@@ -12,6 +12,7 @@
 pub mod state;
 pub mod rank;
 pub mod symmetry;
+pub mod frame;
 pub mod search;
 pub mod pdb;
 

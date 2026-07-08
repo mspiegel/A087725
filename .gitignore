@@ -8,3 +8,6 @@
 # transient perf logs
 powermetrics.txt
 data/pairs_*.txt
+
+# Phase-2 hunt run logs/artifacts (regenerable; TSVs added explicitly when wanted)
+runs/
