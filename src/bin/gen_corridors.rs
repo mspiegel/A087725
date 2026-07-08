@@ -348,6 +348,13 @@ fn main() -> ExitCode {
         let bwas_budget: u64 = arg(&argv, "--bwas-budget", 2_000_000);
         let weight: f32 = arg(&argv, "--weight", 2.5);
         let seed: u64 = arg(&argv, "--seed", 11);
+        // Deep-tail filter: only solve frame boards with WD >= min_wd (cheap
+        // pre-filter; WD >= ~114 boards run true depth ~150, where labels > 150
+        // — the thin region — live). 0 = no filter.
+        let min_wd: u8 = arg(&argv, "--min-wd", 0);
+        if min_wd > 0 {
+            puzzle8::puzzle24::search::WalkingDistanceHeuristic::warm_up();
+        }
 
         let device = if argv.iter().any(|a| a == "--cpu") {
             candle_core::Device::Cpu
@@ -384,6 +391,12 @@ fn main() -> ExitCode {
                 Some(b) => b,
                 None => continue,
             };
+            if min_wd > 0 {
+                use puzzle8::puzzle24::search::Heuristic as _;
+                if puzzle8::puzzle24::search::WalkingDistanceHeuristic.h(&b) < min_wd {
+                    continue; // shallow — skip before the expensive solve
+                }
+            }
             done += 1;
             let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
             let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
