@@ -127,6 +127,10 @@ name = "pair_probe"
 required-features = ["ml"]
 
 [[bin]]
+name = "train_pairnet"
+required-features = ["ml"]
+
+[[bin]]
 name = "gen_corridors"
 required-features = ["ml", "mmap"]
 

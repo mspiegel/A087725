@@ -86,6 +86,11 @@ pub struct ValueNet {
     /// Requires `WalkingDistanceHeuristic::warm_up()`. Not stored in the
     /// checkpoint — the caller re-enables it after `load`.
     residual: bool,
+    /// Target conditioning (`[25, hidden]`, added after `in_proj`) for the
+    /// target-conditioned pair-distance net: `V(x | b) ≈ dist(x, I_b)`. Zero-init,
+    /// so a net warm-started from a forward checkpoint reproduces the forward net
+    /// until the embedding trains. `None` = plain forward net.
+    b_embed: Option<Tensor>,
 }
 
 /// `WD(s)` per state as an `[n,1]` f32 tensor — the residual parameterization's
@@ -93,6 +98,15 @@ pub struct ValueNet {
 pub fn wd_base(states: &[State], device: &Device) -> Result<Tensor> {
     let wd: Vec<f32> = states.iter().map(|s| WalkingDistanceHeuristic.h(s) as f32).collect();
     Tensor::from_vec(wd, (states.len(), 1), device)
+}
+
+/// One-hot `[n, 25]` of target blank-class indices for the conditioned net.
+pub fn onehot(idx: &[usize], device: &Device) -> Result<Tensor> {
+    let mut data = vec![0f32; idx.len() * 25];
+    for (i, &b) in idx.iter().enumerate() {
+        data[i * 25 + b] = 1.0;
+    }
+    Tensor::from_vec(data, (idx.len(), 25), device)
 }
 
 impl ValueNet {
@@ -108,7 +122,55 @@ impl ValueNet {
             body.push(ResBlock::new(hidden, vb.pp(format!("block{i}")))?);
         }
         let out = linear(hidden, 1, vb.pp("out"))?;
-        Ok(Self { in_proj, in_norm, blocks: body, out, residual: false })
+        Ok(Self { in_proj, in_norm, blocks: body, out, residual: false, b_embed: None })
+    }
+
+    /// Build a **target-conditioned** net: adds a zero-init `[25, hidden]` target
+    /// embedding (registered as `b_embed`) after the input projection. Trunk names
+    /// match [`new`], so a forward checkpoint loads into it and — with the
+    /// embedding at zero — the conditioned net reproduces the forward net exactly
+    /// until trained. `values_cond`/`forward_cond` take the target blank-class `b`.
+    pub fn new_conditioned(vb: VarBuilder, hidden: usize, blocks: usize) -> Result<Self> {
+        let b_embed = vb.get_with_hints((25, hidden), "b_embed", candle_nn::Init::Const(0.0))?;
+        let mut net = Self::new(vb, hidden, blocks)?;
+        net.b_embed = Some(b_embed);
+        Ok(net)
+    }
+
+    pub fn is_conditioned(&self) -> bool {
+        self.b_embed.is_some()
+    }
+
+    /// `[batch, hidden]` after `in_proj` + the target-conditioning embedding for
+    /// blank-classes `b_onehot` (`[batch, 25]`), then the shared trunk → `[batch,1]`.
+    fn forward_cond(&self, x: &Tensor, b_onehot: &Tensor) -> Result<Tensor> {
+        let mut h = self.in_proj.forward(x)?;
+        if let Some(be) = &self.b_embed {
+            h = (h + b_onehot.matmul(be)?)?; // [n,25]·[25,hidden] = [n,hidden]
+        }
+        let mut h = self.in_norm.forward(&h)?.relu()?;
+        for block in &self.blocks {
+            h = block.forward(&h)?;
+        }
+        self.out.forward(&h)
+    }
+
+    /// Conditioned forward for a batch: `V(states[i] | b[i]) ≈ dist(states[i], I_{b[i]})`.
+    pub fn values_cond(&self, states: &[State], b: &[usize], device: &Device) -> Result<Vec<f32>> {
+        if states.is_empty() {
+            return Ok(Vec::new());
+        }
+        debug_assert_eq!(states.len(), b.len());
+        let x = encode_batch(states, device)?;
+        let oh = onehot(b, device)?;
+        let y = self.forward_cond(&x, &oh)?;
+        y.flatten_all()?.to_vec1::<f32>()
+    }
+
+    /// The training forward for the pair net: `[batch,1]` predictions with target
+    /// conditioning (used with an MSE loss against exact pair distances).
+    pub fn forward_cond_tensor(&self, x: &Tensor, b_onehot: &Tensor) -> Result<Tensor> {
+        self.forward_cond(x, b_onehot)
     }
 
     /// Enable/disable the WD-residual parameterization (see the `residual` field).
@@ -185,6 +247,25 @@ mod tests {
             states.iter().flat_map(|s| net.values(std::slice::from_ref(s), &dev).unwrap()).collect();
         for (a, b) in batched.iter().zip(one_by_one.iter()) {
             assert!((a - b).abs() < 1e-4, "batch vs single differ: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn conditioned_reproduces_forward_at_zero_embed() {
+        // Warm-start guarantee: with the b_embed at its zero init, the
+        // conditioned net's values_cond equals the plain forward values for ANY
+        // target class — so a forward checkpoint loads and reproduces exactly.
+        let dev = Device::Cpu;
+        let vm = VarMap::new();
+        let net =
+            ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &dev), 48, 3).unwrap();
+        let states = [GOAL, GOAL.apply(crate::puzzle24::state::Move::Up)];
+        let fwd = net.values(&states, &dev).unwrap();
+        for b in [0usize, 12, 24] {
+            let cond = net.values_cond(&states, &[b, b], &dev).unwrap();
+            for (a, c) in fwd.iter().zip(cond.iter()) {
+                assert!((a - c).abs() < 1e-5, "cond(b={b}) {c} != fwd {a}");
+            }
         }
     }
 
