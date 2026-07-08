@@ -512,12 +512,17 @@ Tomas Rokicki), <http://forum.cubeman.org/?q=node/view/238>, linked from OEIS A0
 | direction | result | how |
 |---|---|---|
 | proven LB | **≥ 146** | `solve24 --prove-at-least` bounded exhaust (WD h=140, parallel); ~29×/+2 scaling makes ≥152 ≈ 75 days (infeasible here) — see Phase 2A |
-| best solve (UB) | **164** | learned-V + WD-to-R hybrid front-to-front MITM (`solve_r --bidir-ff`, w_base 2.0 / w_ff 0.5); ladder: WD-beam 204 → learned anytime-WA\* 174 → MITM 168 → hybrid-FF 164; all replay-verified |
+| best solve (UB) | **156** | frame-corridor-trained general value net (`data/ml24_frame2`) via hybrid front-to-front MITM (`solve_r --bidir-ff`, w_base 2.0 / w_ff 0.5); replay-verified `data/r156_ours_solution.txt`. Ladder: WD-beam 204 → anytime-WA\* 174 → MITM 168 → hybrid-FF 164 → frame-corridor 160 → deeper-frame-corridor **156** |
 
-So our machine-found 164 does **not** beat the published constructive 156 — the 156 exploits
-R's exact rotational structure (two quarter-turn solves), which generic search does not see.
-The generic-method gap is 164 (ours) vs 156 (published) vs 152 (proven floor). A search seeded
-through the 90°-rotated intermediate state would reproduce 156 by construction, not discovery.
+So our machine-found **156 EQUALS the published best-known** (2026-07-08) — but where the
+literature's 156 was *hand-constructed* from R's rotational symmetry (78+78 quarter-turn solves,
+`data/r156_solution.txt`), ours was **discovered by a general value net that never saw R or its
+corridor**. The path: frame-conformant construction (Tier-2, non-R, certified deep) → optimal
+geodesic-corridor labels with a deep tail to ~170 → V stays monotone-informative to depth ~156 →
+the search finds a 156-move solution. `optimal(R) ∈ [152, 156]`: our upper bound now equals the
+literature best; only 4 above the proven floor. Closing the last 4 (156→152) is at the
+open-problem frontier — it needs *finding/proving* depth-152 solutions, beyond what the learned
+UB side reaches (frame boards cap ~true depth 162).
 
 **Heuristic facts on `R`** (measured, see Phase 1C / memory): WD(R) = **140** (the global WD
 maximum — only R and symmetries attain it); best k=6 zpdb = 126; Manhattan = 112; max(LC,WD)
