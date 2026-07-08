@@ -169,6 +169,15 @@ required-features = ["mmap"]
 [[example]]
 name = "ladder24"
 required-features = ["mmap", "parallel"]
+test = true
+
+[[example]]
+name = "candidates24"
+test = true
+
+[[example]]
+name = "catalog24"
+test = true
 
 [[example]]
 name = "rceiling24"
