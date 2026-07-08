@@ -1,0 +1,16 @@
+##### FORWARD-ONLY baseline (frame2 net, anytime 2.5,2.0) #####
+### R ###
+forward-only solved: 156 moves, 8296796 nodes, 233s, replay_ok=true
+### held-out #1 ###
+forward-only solved: 158 moves, 8300796 nodes, 244s, replay_ok=true
+### held-out #2 ###
+forward-only solved: 156 moves, 8296796 nodes, 251s, replay_ok=true
+##### DONE #####
+
+# THREE-WAY (same frame2 forward):        forward-only | MITM+manhattan | MITM+pair
+#   R                (WD140):                    156    |     156        |    156
+#   held-out #1      (WD126):                    158    |     156        |    156
+#   held-out #2      (WD124):                    156    |     154        |    152
+# => backward search trims 0-4 moves (optimal-endgame substitution), never hurts;
+#    pair-net beats manhattan by ~2 only where the meet balances (board #2), ties else.
+#    Forward solver is self-sufficient & unchanged; pair-net's real value = distance oracle.
