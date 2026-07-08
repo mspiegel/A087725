@@ -1,0 +1,2 @@
+device: metal, target-blank 0, fwd separate-net, bwd pair-net, w_base 2, w_ff 0.5
+solved: 156 moves = 120 fwd + 36 bwd, 776s, replay_ok=true

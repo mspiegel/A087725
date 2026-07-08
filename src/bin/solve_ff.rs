@@ -110,17 +110,34 @@ fn main() -> ExitCode {
         eprintln!("load {}: {}", checkpoint.display(), e);
         return ExitCode::FAILURE;
     }
+    // Optional SEPARATE forward net (e.g. ml24_frame2) — avoids the confound of
+    // using the pair net's (accurate-but-poor-for-search) forward slice. Backward
+    // still uses the conditioned pair net.
+    let fwd_net = match argv.iter().position(|a| a == "--fwd-checkpoint").and_then(|i| argv.get(i + 1)) {
+        Some(fc) => {
+            let mut fvm = VarMap::new();
+            let fnet = ValueNet::new(VarBuilder::from_varmap(&fvm, DType::F32, &device), hidden, blocks)
+                .expect("build fwd net");
+            fvm.load(fc).expect("load fwd checkpoint");
+            Some(fnet)
+        }
+        None => None,
+    };
     let b_start = start.0.iter().position(|&v| v == 0).unwrap();
     println!(
-        "device: {}, target-blank {}, bwd {}, w_base {}, w_ff {}",
+        "device: {}, target-blank {}, fwd {}, bwd {}, w_base {}, w_ff {}",
         device_kind(&device),
         b_start,
+        if fwd_net.is_some() { "separate-net" } else { "pair-net(b=24)" },
         if bwd_manhattan { "manhattan" } else { "pair-net" },
         cfg.w_base,
         cfg.w_ff
     );
 
-    let fwd = |ss: &[State]| net.values_cond(ss, &vec![24usize; ss.len()], &device).expect("fwd");
+    let fwd = |ss: &[State]| match &fwd_net {
+        Some(fnet) => fnet.values(ss, &device).expect("fwd"),
+        None => net.values_cond(ss, &vec![24usize; ss.len()], &device).expect("fwd"),
+    };
     let start_for_bwd = start;
     let bwd = |ss: &[State]| -> Vec<f32> {
         if bwd_manhattan {
