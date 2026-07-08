@@ -135,8 +135,11 @@ fn main() -> ExitCode {
             w_base: arg(&argv, "--ff-base-weight", 2.0),
             w_ff: arg(&argv, "--ff-weight", 1.0),
         };
-        // Backward base = WD-to-R (skip building it if w_base == 0, pure FF).
-        let wd_to_r = if cfg.w_base != 0.0 {
+        // Backward base. Default WD-to-R. `--bwd-rot180` (Phase-0.5 GATE, R-only):
+        // use the STRONG learned heuristic V(rot180(x)) = dist(x, R) via the exact
+        // rot180(GOAL)=R automorphism — as strong as the forward net, for free.
+        let bwd_rot180 = argv.iter().any(|a| a == "--bwd-rot180");
+        let wd_to_r = if cfg.w_base != 0.0 && !bwd_rot180 {
             print!("building WD-to-R backward table... ");
             let tb = Instant::now();
             let wd = WalkingDistanceTo::new(&r);
@@ -145,16 +148,37 @@ fn main() -> ExitCode {
         } else {
             None
         };
+        let rot180 = |s: &State| {
+            let mut c = [0u8; 25];
+            for i in 0..25 {
+                c[i] = s.0[24 - i];
+            }
+            State(c)
+        };
         println!(
-            "FF-MITM: width {}, max_layers {}, budget {}, anchors {}, w_base {}, w_ff {}",
-            cfg.width, cfg.max_layers, cfg.node_budget, cfg.n_anchors, cfg.w_base, cfg.w_ff
+            "FF-MITM: width {}, max_layers {}, budget {}, anchors {}, w_base {}, w_ff {}, bwd {}",
+            cfg.width,
+            cfg.max_layers,
+            cfg.node_budget,
+            cfg.n_anchors,
+            cfg.w_base,
+            cfg.w_ff,
+            if bwd_rot180 { "V(rot180)" } else { "WD-to-R" }
         );
         let result = bidir_search_ff(
             &r,
             |ss: &[State]| value_of(ss), // fwd base = V (wd-floor-clamped if set)
-            |ss: &[State]| match &wd_to_r {
-                Some(wd) => ss.iter().map(|s| wd.h(s) as f32).collect(),
-                None => vec![0.0; ss.len()],
+            |ss: &[State]| {
+                if bwd_rot180 {
+                    // dist(x, R) = V(rot180(x)); strong learned backward guidance.
+                    let rot: Vec<State> = ss.iter().map(rot180).collect();
+                    value_of(&rot)
+                } else {
+                    match &wd_to_r {
+                        Some(wd) => ss.iter().map(|s| wd.h(s) as f32).collect(),
+                        None => vec![0.0; ss.len()],
+                    }
+                }
             },
             &cfg,
         );
