@@ -37,14 +37,21 @@ type Matrix = [[u8; W]; W];
 /// table-based heuristic costs ~2 lookups per axis instead of a constrained A\*.
 pub type CwdOverlay = HashMap<u64, [u16; W], WdBuild>;
 
+/// One merged contingency record: the WD value **and** the per-line surcharge
+/// curves, so the hot path resolves both with a single probe per axis.
+#[derive(Clone, Copy)]
+pub struct CwdCell {
+    pub wd: u8,
+    pub curves: [u16; W],
+}
+
+/// Merged WD + surcharge table (built once at load; `σ → (WD, curves)`).
+pub type CwdMerged = HashMap<u64, CwdCell, WdBuild>;
+
 /// Surcharge (in moves) for one axis: single-line-max — the strongest single-line
 /// escape bound over the demanded lines. `Δ = 2 · nibble`.
 #[inline]
-fn axis_surcharge(overlay: &CwdOverlay, key: u64, dem: &[u8; W]) -> u8 {
-    let curves = match overlay.get(&key) {
-        Some(c) => c,
-        None => return 0,
-    };
+fn surcharge_from_curves(curves: &[u16; W], dem: &[u8; W]) -> u8 {
     let mut best = 0u8;
     for g in 0..W {
         let d = dem[g];
@@ -320,63 +327,71 @@ fn cwd_axis(
 /// node costs ~2 lookups per axis (the fast path); otherwise it runs the
 /// per-node constrained A\* (the reference path).
 pub struct Cwd {
+    /// WD table for the reference A\* path. Emptied once `merged` is built (the
+    /// fast path never touches it), to avoid holding WD twice.
     table: WdTable,
     goal: u64,
-    overlay: Option<CwdOverlay>,
+    merged: Option<CwdMerged>,
 }
 
 impl Cwd {
-    /// Load the WD table from `data/wd24.bin` (build if absent) and the surcharge
-    /// overlay from `data/cwd_single.bin` if present (fast path).
+    /// Load the WD table from `data/wd24.bin` (build if absent). If the surcharge
+    /// overlay `data/cwd_single.bin` is present, merge WD+surcharge into one table
+    /// for the single-probe-per-axis fast path and drop the standalone WD table.
     pub fn new() -> Self {
         let mut c = Self::with_table_path(Path::new("data/wd24.bin"));
         let ov = Path::new("data/cwd_single.bin");
         if ov.exists() {
-            c.overlay = load_cwd_overlay(ov).ok();
+            if let Ok(overlay) = load_cwd_overlay(ov) {
+                let mut merged: CwdMerged =
+                    HashMap::with_capacity_and_hasher(c.table.len(), WdBuild::default());
+                for (&k, &wd) in c.table.iter() {
+                    let curves = overlay.get(&k).copied().unwrap_or([0u16; W]);
+                    merged.insert(k, CwdCell { wd, curves });
+                }
+                c.merged = Some(merged);
+                c.table = HashMap::with_capacity_and_hasher(0, WdBuild::default()); // free WD copy
+            }
         }
         c
     }
 
-    /// Load the WD table from `path`, falling back to a fresh BFS build. No overlay.
+    /// Load the WD table from `path`, falling back to a fresh BFS build. No merge.
     pub fn with_table_path(path: &Path) -> Self {
         let table = if path.exists() {
             load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)).unwrap_or_else(|_| build_full_table())
         } else {
             build_full_table()
         };
-        Cwd { table, goal: goal_key(), overlay: None }
+        Cwd { table, goal: goal_key(), merged: None }
     }
 
-    /// Build from an already-loaded WD table (shares the codec). No overlay.
+    /// Build from an already-loaded WD table (shares the codec). No merge.
     pub fn from_table(table: WdTable) -> Self {
-        Cwd { table, goal: goal_key(), overlay: None }
+        Cwd { table, goal: goal_key(), merged: None }
     }
 
-    /// Attach a surcharge overlay for the fast (table-based) path.
-    pub fn with_overlay(mut self, overlay: CwdOverlay) -> Self {
-        self.overlay = Some(overlay);
-        self
-    }
-
-    /// Whether the fast table path is active.
+    /// Whether the fast (merged-table) path is active.
     pub fn has_overlay(&self) -> bool {
-        self.overlay.is_some()
+        self.merged.is_some()
     }
 
-    /// `cWD(s) = cWD_row + cWD_col`, each ≥ its WD half. With the overlay loaded
-    /// this is the single-line-max table lookup (fast); otherwise the constrained
-    /// A\* (falling back to WD on any axis whose A\* exhausts its pop budget —
-    /// still admissible).
+    /// `cWD(s) = cWD_row + cWD_col`, each ≥ its WD half. With the merged table
+    /// this is the single-line-max lookup — **one probe per axis**; otherwise the
+    /// constrained A\* (falling back to WD on any axis whose A\* exhausts its pop
+    /// budget — still admissible).
     pub fn eval(&self, s: &State, scratch: &mut CwdScratch) -> u8 {
         let (m_row, br, dem_row, m_col, bc, dem_col) = project(s);
         let kr = pack(&m_row, br);
         let kc = pack(&m_col, bc);
+        if let Some(mg) = &self.merged {
+            let r = mg.get(&kr).expect("row reachable");
+            let c = mg.get(&kc).expect("col reachable");
+            return r.wd + surcharge_from_curves(&r.curves, &dem_row)
+                + c.wd + surcharge_from_curves(&c.curves, &dem_col);
+        }
         let wd_row = *self.table.get(&kr).expect("row reachable");
         let wd_col = *self.table.get(&kc).expect("col reachable");
-        if let Some(ov) = &self.overlay {
-            // fast path: single-line-max surcharge (retains ~98% of full cWD's gain)
-            return wd_row + axis_surcharge(ov, kr, &dem_row) + wd_col + axis_surcharge(ov, kc, &dem_col);
-        }
         let c_row = cwd_axis(&self.table, &m_row, br, self.goal, &dem_row, scratch).unwrap_or(wd_row);
         let c_col = cwd_axis(&self.table, &m_col, bc, self.goal, &dem_col, scratch).unwrap_or(wd_col);
         c_row.max(wd_row) + c_col.max(wd_col)
