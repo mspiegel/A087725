@@ -1,0 +1,13 @@
+# catalog24 escalate: top 6 by (budget-limited, UB) with gap >= 12 (added g6)
+# escalate#0 lb=138 ub=164 gap=26 timeout=1 lineage=cand#48 seed=reseed:data/reseed_g5.txt#22 restart=2 perturb=8 ops=3cyc:22,dswap:5 accepts=27 wd=130 cheap=130 frame=0
+19 23 24 22 21 20 14 18 17 16 15 8 12 7 6 10 9 13 0 11 5 4 3 2 1
+# escalate#1 lb=142 ub=162 gap=20 timeout=1 lineage=cand#1 seed=reseed:data/reseed_g4.txt#20 restart=3 perturb=8 ops=3cyc:1,dswap:1 accepts=2 wd=136 cheap=136 frame=0
+0 24 23 22 21 15 20 18 17 11 14 19 13 12 16 10 9 8 7 6 5 4 3 2 1
+# escalate#2 lb=140 ub=162 gap=22 timeout=1 lineage=cand#57 seed=reseed:data/reseed_g6.txt#32 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=130 cheap=130 frame=0
+24 20 19 22 21 15 23 18 17 16 14 8 13 12 11 10 0 9 7 6 5 3 4 2 1
+# escalate#3 lb=140 ub=162 gap=22 timeout=1 lineage=cand#24 seed=reseed:data/reseed_g2.txt#2 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 19 23 22 21 20 18 13 17 16 15 14 8 12 0 10 9 7 6 11 5 4 3 2 1
+# escalate#4 lb=140 ub=162 gap=22 timeout=1 lineage=cand#12 seed=reseed:data/reseed_g6.txt#6 restart=1 perturb=8 ops=3cyc:10,dswap:2 accepts=12 wd=134 cheap=134 frame=0
+15 24 23 22 21 20 18 13 17 11 0 14 19 12 16 10 8 9 7 6 5 3 4 2 1
+# escalate#5 lb=138 ub=162 gap=24 timeout=1 lineage=cand#31 seed=reseed:data/reseed_g6.txt#18 restart=1 perturb=8 ops=3cyc:7,dswap:0 accepts=7 wd=132 cheap=132 frame=0
+24 23 13 22 0 15 19 18 17 16 20 14 12 21 11 10 9 8 7 6 5 4 3 2 1

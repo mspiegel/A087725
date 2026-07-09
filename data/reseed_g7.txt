@@ -1,0 +1,41 @@
+# catalog24 reseed: top 20 by proven LB (added g6)
+# reseed#0 rank=0 lb=148 ub=156 lineage=cand#0 seed=R restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=140 cheap=140 frame=1
+0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#1 rank=1 lb=142 ub=162 lineage=cand#1 seed=reseed:data/reseed_g4.txt#20 restart=3 perturb=8 ops=3cyc:1,dswap:1 accepts=2 wd=136 cheap=136 frame=0
+0 24 23 22 21 15 20 18 17 11 14 19 13 12 16 10 9 8 7 6 5 4 3 2 1
+# reseed#2 rank=2 lb=142 ub=160 lineage=cand#10 seed=reseed:data/reseed_g4.txt#6 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+24 19 23 22 21 15 20 18 17 16 14 9 13 12 11 10 0 8 7 6 5 4 3 2 1
+# reseed#3 rank=3 lb=142 ub=158 lineage=cand#4 seed=reseed:data/reseed_g6.txt#32 restart=0 perturb=0 ops=3cyc:1,dswap:0 accepts=1 wd=136 cheap=136 frame=0
+20 24 23 22 21 15 19 18 17 16 0 14 13 12 11 10 8 9 7 6 5 3 4 2 1
+# reseed#4 rank=4 lb=142 ub=158 lineage=cand#3 seed=reseed:data/reseed_g3.txt#14 restart=2 perturb=8 ops=3cyc:2,dswap:1 accepts=3 wd=136 cheap=136 frame=0
+20 24 23 22 21 19 0 18 17 16 15 13 14 12 11 10 9 8 7 6 5 3 4 2 1
+# reseed#5 rank=5 lb=142 ub=158 lineage=cand#5 seed=reseed:data/reseed_g2.txt#6 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+24 19 23 22 21 15 20 18 17 16 10 14 13 12 11 9 0 8 7 6 5 4 3 2 1
+# reseed#6 rank=6 lb=142 ub=158 lineage=cand#4 seed=reflect(R) restart=1 perturb=8 ops=3cyc:7,dswap:3 accepts=10 wd=134 cheap=134 frame=0
+19 24 23 22 21 20 18 13 17 16 14 15 0 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#7 rank=7 lb=142 ub=158 lineage=cand#12 seed=reseed:data/reseed_g4.txt#38 restart=3 perturb=8 ops=3cyc:9,dswap:0 accepts=9 wd=134 cheap=134 frame=0
+20 23 24 22 21 19 0 18 17 16 15 14 13 12 11 9 10 8 7 6 5 4 3 2 1
+# reseed#8 rank=8 lb=142 ub=158 lineage=cand#2 seed=reseed:data/reseed_g6.txt#6 restart=2 perturb=8 ops=3cyc:2,dswap:1 accepts=3 wd=136 cheap=136 frame=0
+24 23 18 22 21 20 0 19 17 16 15 13 14 12 11 10 9 8 7 6 5 3 4 2 1
+# reseed#9 rank=9 lb=142 ub=158 lineage=cand#37 seed=reflect(R) restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 19 23 22 0 20 14 17 16 21 15 13 18 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#10 rank=10 lb=142 ub=156 lineage=cand#1 seed=R restart=1 perturb=8 ops=3cyc:3,dswap:1 accepts=4 wd=136 cheap=136 frame=0
+24 23 0 22 21 15 19 13 17 16 20 14 18 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#11 rank=11 lb=142 ub=156 lineage=cand#13 seed=reflect(R) restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+24 23 0 22 21 20 15 18 17 16 14 19 13 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#12 rank=12 lb=142 ub=156 lineage=cand#1 seed=R restart=3 perturb=8 ops=3cyc:4,dswap:1 accepts=5 wd=136 cheap=136 frame=0
+24 23 0 22 21 15 14 18 17 16 20 19 13 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#13 rank=13 lb=142 ub=156 lineage=cand#1 seed=reflect(R) restart=1 perturb=8 ops=3cyc:3,dswap:2 accepts=5 wd=136 cheap=136 frame=0
+24 23 0 22 21 20 19 18 17 16 15 14 13 12 11 10 8 9 7 6 5 3 4 2 1
+# reseed#14 rank=14 lb=142 ub=156 lineage=cand#20 seed=reseed:data/reseed_g6.txt#12 restart=2 perturb=8 ops=3cyc:8,dswap:2 accepts=10 wd=134 cheap=134 frame=0
+24 19 23 21 0 20 18 17 22 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+# reseed#15 rank=15 lb=142 ub=156 lineage=cand#40 seed=reseed:data/reseed_g6.txt#32 restart=1 perturb=8 ops=3cyc:3,dswap:2 accepts=5 wd=132 cheap=132 frame=0
+24 23 22 21 0 20 19 18 17 16 15 14 13 12 11 10 9 7 8 6 5 3 4 2 1
+# reseed#16 rank=16 lb=142 ub=156 lineage=cand#19 seed=reseed:data/reseed_g2.txt#2 restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 23 18 22 21 20 19 13 17 16 15 14 8 12 11 10 4 9 7 6 0 5 3 2 1
+# reseed#17 rank=17 lb=142 ub=156 lineage=cand#8 seed=reseed:data/reseed_g3.txt#6 restart=2 perturb=8 ops=3cyc:5,dswap:1 accepts=6 wd=134 cheap=134 frame=0
+24 18 23 22 21 20 19 17 0 16 15 14 13 12 11 10 9 8 7 6 4 5 3 2 1
+# reseed#18 rank=18 lb=142 ub=152 lineage=cand#16 seed=reseed:data/reseed_g6.txt#2 restart=2 perturb=8 ops=3cyc:3,dswap:0 accepts=3 wd=134 cheap=134 frame=0
+24 19 23 22 21 20 14 18 17 16 10 15 13 12 11 5 9 8 7 6 0 4 3 2 1
+# reseed#19 rank=19 lb=140 ub=162 lineage=cand#57 seed=reseed:data/reseed_g6.txt#32 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=130 cheap=130 frame=0
+24 20 19 22 21 15 23 18 17 16 14 8 13 12 11 10 0 9 7 6 5 3 4 2 1
