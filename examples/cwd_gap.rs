@@ -254,6 +254,43 @@ fn cwd(table: &WdTable, goal: u64, s: &State, nanos: &mut u128, evals: &mut u64)
     (wdv, cwdv.max(wdv))
 }
 
+/// Single-line-max cWD for one axis: max over demanded lines g of the cWD with
+/// ONLY line g constrained (the buildable-table approximation). Also returns the
+/// number of demanded lines (≥2 ⇒ multi-line coupling, where single-line-max can
+/// undershoot full). Falls back to WD if any A\* exhausts its budget.
+fn cwd_axis_singlemax(table: &WdTable, m: &Matrix, blank: u8, goal: u64, dem: &[u8; W]) -> (u8, u8) {
+    let wd0 = *table.get(&pack(m, blank)).expect("start reachable");
+    let mut best = wd0;
+    let mut ndem = 0u8;
+    for g in 0..W {
+        if dem[g] > 0 {
+            ndem += 1;
+            let mut single = [0u8; W];
+            single[g] = dem[g];
+            best = best.max(cwd_axis(table, m, blank, goal, &single).unwrap_or(wd0));
+        }
+    }
+    (best, ndem)
+}
+
+/// (wd, full sharp cWD, single-line-max cWD, max demanded-line count over axes).
+fn cwd_ext(table: &WdTable, goal: u64, s: &State, nanos: &mut u128, evals: &mut u64) -> (u8, u8, u8, u8) {
+    let (mr, br, dr, mc, bc, dc) = project(s);
+    let wd_row = *table.get(&pack(&mr, br)).expect("row reachable");
+    let wd_col = *table.get(&pack(&mc, bc)).expect("col reachable");
+    let wdv = wd_row + wd_col;
+    let t = Instant::now();
+    let cr_full = cwd_axis(table, &mr, br, goal, &dr).unwrap_or(wd_row);
+    let cc_full = cwd_axis(table, &mc, bc, goal, &dc).unwrap_or(wd_col);
+    let (cr_s, nr) = cwd_axis_singlemax(table, &mr, br, goal, &dr);
+    let (cc_s, nc) = cwd_axis_singlemax(table, &mc, bc, goal, &dc);
+    *nanos += t.elapsed().as_nanos();
+    *evals += 1;
+    let cwd_full = (cr_full + cc_full).max(wdv);
+    let cwd_single = (cr_s + cc_s).max(wdv);
+    (wdv, cwd_full, cwd_single, nr.max(nc))
+}
+
 // ---- randomized bounded DFS with reservoir sampling -------------------------
 
 struct Rng(u64);
@@ -502,12 +539,24 @@ fn main() {
     let table = &sampler.table;
     let mut nanos = 0u128;
     let mut evals = 0u64;
-    let mut rows: Vec<(u16, u8, i16, i16)> = Vec::with_capacity(sampler.reservoir.len()); // depth, wd, δ, slack
+    struct Row {
+        depth: u16,
+        dfull: i16,   // full sharp surcharge cWD − WD
+        dsingle: i16, // single-line-max surcharge
+        slack: i16,
+        ndem: u8, // max demanded lines over the two axes
+    }
+    let mut rows: Vec<Row> = Vec::with_capacity(sampler.reservoir.len());
     for node in &sampler.reservoir {
-        let (wdv, cwdv) = cwd(table, goal, &node.state, &mut nanos, &mut evals);
-        let delta = cwdv as i16 - wdv as i16;
+        let (wdv, cfull, csingle, ndem) = cwd_ext(table, goal, &node.state, &mut nanos, &mut evals);
         let slack = threshold as i16 - (node.depth as i16 + wdv as i16);
-        rows.push((node.depth, wdv, delta, slack));
+        rows.push(Row {
+            depth: node.depth,
+            dfull: cfull as i16 - wdv as i16,
+            dsingle: csingle as i16 - wdv as i16,
+            slack,
+            ndem,
+        });
     }
     eprintln!(
         "cWD: {} evals in {:.1}s ({:.0}/s)\n",
@@ -516,63 +565,109 @@ fn main() {
         evals as f64 / (nanos as f64 / 1e9).max(1e-9)
     );
 
-    let report = |label: &str, sel: &dyn Fn(&(u16, u8, i16, i16)) -> bool| {
-        let sub: Vec<&(u16, u8, i16, i16)> = rows.iter().filter(|r| sel(r)).collect();
+    // node-weighted δ̄ for any surcharge field (weight each depth's reservoir mean
+    // by the true expanded-node count at that depth).
+    let hb = &sampler.depth_hist;
+    let node_weighted = |fld: &dyn Fn(&Row) -> i16| -> f64 {
+        let mut num = 0.0f64;
+        let mut den = 0.0f64;
+        for d in 0..hb.len() {
+            let dd = d as u16;
+            let vals: Vec<i16> = rows.iter().filter(|r| r.depth == dd).map(|r| fld(r)).collect();
+            if vals.is_empty() {
+                continue;
+            }
+            let mean = vals.iter().map(|&x| x as f64).sum::<f64>() / vals.len() as f64;
+            num += hb[d] as f64 * mean;
+            den += hb[d] as f64;
+        }
+        if den > 0.0 { num / den } else { 0.0 }
+    };
+
+    let report = |label: &str, sel: &dyn Fn(&Row) -> bool, fld: &dyn Fn(&Row) -> i16| {
+        let sub: Vec<&Row> = rows.iter().filter(|r| sel(r)).collect();
         if sub.is_empty() {
             println!("{label:<18} n=0");
             return;
         }
         let n = sub.len() as f64;
-        let mean = sub.iter().map(|r| r.2 as f64).sum::<f64>() / n;
-        let ge2 = sub.iter().filter(|r| r.2 >= 2).count() as f64 / n * 100.0;
-        let ge4 = sub.iter().filter(|r| r.2 >= 4).count() as f64 / n * 100.0;
+        let mean = sub.iter().map(|r| fld(r) as f64).sum::<f64>() / n;
+        let ge2 = sub.iter().filter(|r| fld(r) >= 2).count() as f64 / n * 100.0;
+        let ge4 = sub.iter().filter(|r| fld(r) >= 4).count() as f64 / n * 100.0;
         let mut hist = [0u32; 7];
         for r in &sub {
-            hist[r.2.clamp(0, 6) as usize] += 1;
+            hist[fld(r).clamp(0, 6) as usize] += 1;
         }
-        let red = 29f64.powf(mean / 2.0);
-        let n_i = sub.len();
         println!(
-            "{label:<18} n={n_i:<6} δ̄={mean:.2}  ≥2:{ge2:>4.0}%  ≥4:{ge4:>4.0}%  node×≈{red:>7.1}  δ-hist[0..6]={hist:?}"
+            "{label:<18} n={:<6} δ̄={mean:.2}  ≥2:{ge2:>4.0}%  ≥4:{ge4:>4.0}%  node×≈{:>7.1}  hist[0..6]={hist:?}",
+            sub.len(),
+            29f64.powf(mean / 2.0)
         );
     };
+    let full = |r: &Row| r.dfull;
+    let single = |r: &Row| r.dsingle;
 
-    println!("=== δ = cWD − WD by expanded-node depth ===");
+    println!("=== FULL sharp cWD: δ = cWD − WD by depth ===");
     for &(lo, hi) in &[(0u16, 39), (40, 79), (80, 109), (110, 129), (130, 250)] {
-        report(&format!("depth {lo}-{hi}"), &|r| r.0 >= lo && r.0 <= hi);
+        report(&format!("depth {lo}-{hi}"), &|r| r.depth >= lo && r.depth <= hi, &full);
     }
-    println!("\n=== δ by slack (T − f); low slack dominates the iteration count ===");
-    for &(lo, hi) in &[(0i16, 1), (2, 3), (4, 7), (8, 15), (16, 300)] {
-        report(&format!("slack {lo}-{hi}"), &|r| r.3 >= lo && r.3 <= hi);
-    }
-    println!("\n=== headline ===");
-    report("ALL", &|_| true);
-    report("depth≥110", &|r| r.0 >= 110);
-    report("slack≤3", &|r| r.3 <= 3);
+    println!("\n=== headline (full) ===");
+    report("ALL full", &|_| true, &full);
+    report("slack≤3 full", &|r| r.slack <= 3, &full);
 
-    // Node-weighted δ̄: weight each depth's reservoir-mean δ by the TRUE count of
-    // expanded nodes at that depth (depth_hist). Exact when the DFS is uncapped.
-    let hb = &sampler.depth_hist;
-    let mut num = 0.0f64;
-    let mut den = 0.0f64;
-    for d in 0..hb.len() {
-        let dd = d as u16;
-        let sub: Vec<i16> = rows.iter().filter(|r| r.0 == dd).map(|r| r.2).collect();
-        if sub.is_empty() {
-            continue;
-        }
-        let mean = sub.iter().map(|&x| x as f64).sum::<f64>() / sub.len() as f64;
-        num += hb[d] as f64 * mean;
-        den += hb[d] as f64;
+    println!("\n=== SINGLE-LINE-MAX (the buildable-table approximation) ===");
+    for &(lo, hi) in &[(0u16, 39), (40, 79), (80, 109), (110, 129), (130, 250)] {
+        report(&format!("depth {lo}-{hi}"), &|r| r.depth >= lo && r.depth <= hi, &single);
     }
-    // depths with reservoir coverage account for `den` of the total expanded
-    let total_expanded: f64 = hb.iter().map(|&v| v as f64).sum();
-    let weighted = if den > 0.0 { num / den } else { 0.0 };
+    report("ALL single", &|_| true, &single);
+
+    // ---- surcharge distribution + coupling loss ----
+    let n = rows.len().max(1) as f64;
+    let zero_full = rows.iter().filter(|r| r.dfull == 0).count() as f64 / n * 100.0;
+    let multi = rows.iter().filter(|r| r.ndem >= 2).count();
+    let multi_pct = multi as f64 / n * 100.0;
+    let mut cap_hist = [0u32; 9]; // full surcharge Δ = 0..8
+    for r in &rows {
+        cap_hist[r.dfull.clamp(0, 8) as usize] += 1;
+    }
+    // coupling loss: on multi-line nodes, full vs single-line-max
+    let ml: Vec<&Row> = rows.iter().filter(|r| r.ndem >= 2).collect();
+    let (ml_full, ml_single) = if ml.is_empty() {
+        (0.0, 0.0)
+    } else {
+        (
+            ml.iter().map(|r| r.dfull as f64).sum::<f64>() / ml.len() as f64,
+            ml.iter().map(|r| r.dsingle as f64).sum::<f64>() / ml.len() as f64,
+        )
+    };
+
+    println!("\n=== SURCHARGE STRUCTURE (Δ = cWD − WD) — the compression signal ===");
+    println!("Δ_full == 0 (compressible-away): {zero_full:.0}% of sampled nodes");
+    println!("Δ_full histogram [0..8]:         {cap_hist:?}");
+    println!("multi-line demand nodes (ndem≥2, where coupling matters): {multi_pct:.0}%");
     println!(
-        "\nNODE-WEIGHTED δ̄ = {weighted:.2}  (est. node× ≈ {:.1}; reservoir covers {:.0}% of expanded depths)",
-        29f64.powf(weighted / 2.0),
-        den / total_expanded * 100.0
+        "  on those nodes: full δ̄={ml_full:.2}  vs single-line-max δ̄={ml_single:.2}  (coupling loss {:.2})",
+        ml_full - ml_single
     );
+
+    let nw_full = node_weighted(&full);
+    let nw_single = node_weighted(&single);
+    let total_expanded: f64 = hb.iter().map(|&v| v as f64).sum();
+    let den_cov: f64 = (0..hb.len())
+        .filter(|&d| rows.iter().any(|r| r.depth == d as u16))
+        .map(|d| hb[d] as f64)
+        .sum();
+    println!("\n=== NODE-WEIGHTED HEADLINE (weighted by true expanded-node counts) ===");
+    println!(
+        "FULL sharp cWD:      δ̄ = {nw_full:.2}   (est. node× ≈ {:.1})",
+        29f64.powf(nw_full / 2.0)
+    );
+    println!(
+        "SINGLE-LINE-MAX:     δ̄ = {nw_single:.2}   (est. node× ≈ {:.1})   retains {:.0}% of full's gain",
+        29f64.powf(nw_single / 2.0),
+        if nw_full > 0.0 { nw_single / nw_full * 100.0 } else { 0.0 }
+    );
+    println!("(reservoir covers {:.0}% of expanded depths)", den_cov / total_expanded * 100.0);
     let uncapped = sampler.expansions < cap;
     println!(
         "DFS {} (expansions {} vs cap {}) — weighting is {}",

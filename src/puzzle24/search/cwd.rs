@@ -19,13 +19,69 @@
 
 use super::heuristic::Heuristic;
 use super::idastar::{IncHeuristic, IncHeuristicMut};
-use super::walking_distance::{build_full_table, load_dist_table, WdTable, FULL_WD_ENTRIES, WD_KIND_FULL};
+use super::walking_distance::{
+    build_full_table, load_dist_table, WdBuild, WdTable, FULL_WD_ENTRIES, WD_KIND_FULL,
+};
 use super::SearchStats;
 use crate::puzzle24::state::{Move, State, W};
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
 
 type Matrix = [[u8; W]; W];
+
+/// The precomputed single-line escape-constrained surcharge overlay
+/// (`data/cwd_single.bin`, built by `examples/build_cwd_table.rs`). Maps each WD
+/// contingency key to a packed surcharge curve per goal line: nibble `d-1` of
+/// `curves[g]` is `Δ(σ, g, d)/2` for demand `d = 1..=4`. Lookup is O(1), so the
+/// table-based heuristic costs ~2 lookups per axis instead of a constrained A\*.
+pub type CwdOverlay = HashMap<u64, [u16; W], WdBuild>;
+
+/// Surcharge (in moves) for one axis: single-line-max — the strongest single-line
+/// escape bound over the demanded lines. `Δ = 2 · nibble`.
+#[inline]
+fn axis_surcharge(overlay: &CwdOverlay, key: u64, dem: &[u8; W]) -> u8 {
+    let curves = match overlay.get(&key) {
+        Some(c) => c,
+        None => return 0,
+    };
+    let mut best = 0u8;
+    for g in 0..W {
+        let d = dem[g];
+        if (1..=4).contains(&d) {
+            let s = 2 * ((curves[g] >> (4 * (d as u16 - 1))) & 0xF) as u8;
+            best = best.max(s);
+        }
+    }
+    best
+}
+
+/// Load the surcharge overlay from `data/cwd_single.bin`.
+pub fn load_cwd_overlay(path: &Path) -> std::io::Result<CwdOverlay> {
+    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut magic = [0u8; 4];
+    f.read_exact(&mut magic)?;
+    if &magic != b"CWDS" {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad cwd_single magic"));
+    }
+    let mut u4 = [0u8; 4];
+    f.read_exact(&mut u4)?; // version
+    let mut u8b = [0u8; 8];
+    f.read_exact(&mut u8b)?;
+    let count = u64::from_le_bytes(u8b) as usize;
+    let mut overlay: CwdOverlay = HashMap::with_capacity_and_hasher(count, WdBuild::default());
+    let mut rec = [0u8; 18];
+    for _ in 0..count {
+        f.read_exact(&mut rec)?;
+        let key = u64::from_le_bytes(rec[0..8].try_into().unwrap());
+        let mut curves = [0u16; W];
+        for g in 0..W {
+            curves[g] = u16::from_le_bytes(rec[8 + 2 * g..10 + 2 * g].try_into().unwrap());
+        }
+        overlay.insert(key, curves);
+    }
+    Ok(overlay)
+}
 
 // ---- WD-table key codec (identical layout to walking_distance::pack) --------
 
@@ -259,39 +315,68 @@ fn cwd_axis(
 
 // ---- the heuristic ----------------------------------------------------------
 
-/// Escape-constrained Walking Distance heuristic. Owns a WD distance table.
+/// Escape-constrained Walking Distance heuristic. Owns a WD distance table, and
+/// optionally the precomputed single-line surcharge overlay — when present, each
+/// node costs ~2 lookups per axis (the fast path); otherwise it runs the
+/// per-node constrained A\* (the reference path).
 pub struct Cwd {
     table: WdTable,
     goal: u64,
+    overlay: Option<CwdOverlay>,
 }
 
 impl Cwd {
-    /// Load the WD table from `data/wd24.bin`, or build it (~15–25 s) if absent.
+    /// Load the WD table from `data/wd24.bin` (build if absent) and the surcharge
+    /// overlay from `data/cwd_single.bin` if present (fast path).
     pub fn new() -> Self {
-        Self::with_table_path(Path::new("data/wd24.bin"))
+        let mut c = Self::with_table_path(Path::new("data/wd24.bin"));
+        let ov = Path::new("data/cwd_single.bin");
+        if ov.exists() {
+            c.overlay = load_cwd_overlay(ov).ok();
+        }
+        c
     }
 
-    /// Load the WD table from `path`, falling back to a fresh BFS build.
+    /// Load the WD table from `path`, falling back to a fresh BFS build. No overlay.
     pub fn with_table_path(path: &Path) -> Self {
         let table = if path.exists() {
             load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)).unwrap_or_else(|_| build_full_table())
         } else {
             build_full_table()
         };
-        Cwd { table, goal: goal_key() }
+        Cwd { table, goal: goal_key(), overlay: None }
     }
 
-    /// Build from an already-loaded WD table (shares the codec).
+    /// Build from an already-loaded WD table (shares the codec). No overlay.
     pub fn from_table(table: WdTable) -> Self {
-        Cwd { table, goal: goal_key() }
+        Cwd { table, goal: goal_key(), overlay: None }
     }
 
-    /// `cWD(s) = cWD_row + cWD_col`, each ≥ its WD half; falls back to WD on any
-    /// axis whose constrained A\* exhausts its pop budget (still admissible).
+    /// Attach a surcharge overlay for the fast (table-based) path.
+    pub fn with_overlay(mut self, overlay: CwdOverlay) -> Self {
+        self.overlay = Some(overlay);
+        self
+    }
+
+    /// Whether the fast table path is active.
+    pub fn has_overlay(&self) -> bool {
+        self.overlay.is_some()
+    }
+
+    /// `cWD(s) = cWD_row + cWD_col`, each ≥ its WD half. With the overlay loaded
+    /// this is the single-line-max table lookup (fast); otherwise the constrained
+    /// A\* (falling back to WD on any axis whose A\* exhausts its pop budget —
+    /// still admissible).
     pub fn eval(&self, s: &State, scratch: &mut CwdScratch) -> u8 {
         let (m_row, br, dem_row, m_col, bc, dem_col) = project(s);
-        let wd_row = *self.table.get(&pack(&m_row, br)).expect("row reachable");
-        let wd_col = *self.table.get(&pack(&m_col, bc)).expect("col reachable");
+        let kr = pack(&m_row, br);
+        let kc = pack(&m_col, bc);
+        let wd_row = *self.table.get(&kr).expect("row reachable");
+        let wd_col = *self.table.get(&kc).expect("col reachable");
+        if let Some(ov) = &self.overlay {
+            // fast path: single-line-max surcharge (retains ~98% of full cWD's gain)
+            return wd_row + axis_surcharge(ov, kr, &dem_row) + wd_col + axis_surcharge(ov, kc, &dem_col);
+        }
         let c_row = cwd_axis(&self.table, &m_row, br, self.goal, &dem_row, scratch).unwrap_or(wd_row);
         let c_col = cwd_axis(&self.table, &m_col, bc, self.goal, &dem_col, scratch).unwrap_or(wd_col);
         c_row.max(wd_row) + c_col.max(wd_col)

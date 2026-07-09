@@ -451,8 +451,12 @@ fn main() -> ExitCode {
             run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::Cwd => {
-            eprintln!("cWD: loading WD table (escape-constrained per-node A*)…");
+            eprintln!("cWD: loading tables…");
             let cwd = Cwd::new();
+            eprintln!(
+                "cWD ready: {} path",
+                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" }
+            );
             run_inc(&start, &cwd, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::Korf => {
