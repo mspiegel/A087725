@@ -1,0 +1,29 @@
+WD table: 65650495 entries in 1.8s. threshold=148, dfs_cap=800000000, reservoir=4000
+sanity R: WD=140 (exp 140), demand row=[0, 0, 4, 0, 0] col=[0, 0, 4, 0, 0], cWD=144 (exp 144), δ=4
+DFS: 800000000 expansions in 416.0s, 4000 sampled, deepest expanded depth 96
+expanded-node depth histogram: [0-39]=92337107 [40-79]=707633467 [80-109]=29426 [110-129]=0 [130-200]=0 
+cWD: 4000 evals in 239.0s (17/s)
+
+=== δ = cWD − WD by expanded-node depth ===
+depth 0-39         n=481    δ̄=3.11  ≥2:  90%  ≥4:  51%  node×≈  188.0  δ-hist[0..6]=[49, 0, 189, 0, 182, 0, 61]
+depth 40-79        n=3519   δ̄=3.51  ≥2:  93%  ≥4:  58%  node×≈  369.7  δ-hist[0..6]=[241, 0, 1227, 0, 1346, 0, 705]
+depth 80-109       n=0
+depth 110-129      n=0
+depth 130-250      n=0
+
+=== δ by slack (T − f); low slack dominates the iteration count ===
+slack 0-1          n=3832   δ̄=3.45  ≥2:  93%  ≥4:  57%  node×≈  331.3  δ-hist[0..6]=[286, 0, 1368, 0, 1445, 0, 733]
+slack 2-3          n=163    δ̄=3.80  ≥2:  98%  ≥4:  68%  node×≈  604.3  δ-hist[0..6]=[4, 0, 48, 0, 80, 0, 31]
+slack 4-7          n=5      δ̄=5.20  ≥2: 100%  ≥4: 100%  node×≈ 6342.1  δ-hist[0..6]=[0, 0, 0, 0, 3, 0, 2]
+slack 8-15         n=0
+slack 16-300       n=0
+
+=== headline ===
+ALL                n=4000   δ̄=3.46  ≥2:  93%  ≥4:  57%  node×≈  340.8  δ-hist[0..6]=[290, 0, 1416, 0, 1528, 0, 766]
+depth≥110          n=0
+slack≤3            n=3995   δ̄=3.46  ≥2:  93%  ≥4:  57%  node×≈  339.6  δ-hist[0..6]=[290, 0, 1416, 0, 1525, 0, 764]
+
+NODE-WEIGHTED δ̄ = 3.47  (est. node× ≈ 345.7; reservoir covers 100% of expanded depths)
+DFS CAPPED (depth dist is DFS-biased) (expansions 800000000 vs cap 800000000) — weighting is approximate
+
+total 657.5s

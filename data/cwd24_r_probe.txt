@@ -1,0 +1,38 @@
+loading WD table from data/wd24.bin …
+WD table ready: 65650495 entries in 2.2s
+WD_row(R) = 70  (expect 70; WD(R) = 140 total)
+
+== A: sharp escapes (type-2 exits from row 2), cap 4 ==
+  [A] f=70: bucket 1 entries, 0 pops, 1 states, 0.0s
+  [A] goal @ escapes=2: cost 70
+  [A] goal @ escapes=3: cost 70
+  [A] f=72: bucket 114702 entries, 39853 pops, 145604 states, 0.0s
+  [A] goal @ escapes=4: cost 72
+  D_0 = 70
+  D_1 = 70
+  D_2 = 70
+  D_3 = 70
+  D_4 = 72
+  (995017 pops, 2094855 states)
+
+== B: aggregate escapes (any type-g exit from row g), cap 4 ==
+  [B] f=70: bucket 1 entries, 0 pops, 1 states, 0.0s
+  [B] goal @ escapes=4: cost 70
+  [B] goal @ escapes=3: cost 70
+  D_0 = 70
+  D_1 = 70
+  D_2 = 70
+  D_3 = 70
+  D_4 = 70
+  (39160 pops, 145604 states)
+
+== C: sharp escapes, cap 8 (diagnostic curve; only k ≤ 4 sound on R) ==
+  [C] f=70: bucket 1 entries, 0 pops, 1 states, 0.0s
+  [C] goal @ escapes=2: cost 70
+  [C] goal @ escapes=3: cost 70
+  [C] f=72: bucket 114702 entries, 39853 pops, 145604 states, 0.0s
+  [C] goal @ escapes=4: cost 72
+  [C] f=74: bucket 1862518 entries, 995017 pops, 2094855 states, 0.6s
+  [C] goal @ escapes=5: cost 74
+  [C] goal @ escapes=6: cost 74
+  [C] f=76: bucket 8225539 entries, 6922968 pops, 9060737 states, 4.1s
