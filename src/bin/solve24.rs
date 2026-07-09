@@ -45,8 +45,8 @@ use std::time::Instant;
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel_mut, idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats,
-    BoundedOutcome, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LinearConflictInc,
-    MaxInc, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
+    BoundedOutcome, Cwd, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome,
+    LinearConflictInc, MaxInc, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -64,6 +64,8 @@ enum HeuristicChoice {
     Manhattan,
     Lc,
     Wd,
+    /// Escape-constrained Walking Distance (`≥ WD`, table-free per-node A*).
+    Cwd,
     Korf,
     Zpdb,
     ZpdbPlus,
@@ -117,7 +119,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|korf|zpdb|zpdb-plus|select] [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel] [--combine-slack S]",
         prog
     );
@@ -155,6 +157,7 @@ fn parse_args() -> Result<Args, String> {
                     "manhattan" => HeuristicChoice::Manhattan,
                     "lc" => HeuristicChoice::Lc,
                     "wd" => HeuristicChoice::Wd,
+                    "cwd" => HeuristicChoice::Cwd,
                     "korf" => HeuristicChoice::Korf,
                     "zpdb" => HeuristicChoice::Zpdb,
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
@@ -446,6 +449,11 @@ fn main() -> ExitCode {
         HeuristicChoice::Wd => {
             WalkingDistanceHeuristic::warm_up_verbose();
             run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, t0)
+        }
+        HeuristicChoice::Cwd => {
+            eprintln!("cWD: loading WD table (escape-constrained per-node A*)…");
+            let cwd = Cwd::new();
+            run_inc(&start, &cwd, args.max_bound, args.parallel, t0)
         }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {

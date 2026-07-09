@@ -1,10 +1,12 @@
 //! Optimal search algorithms over [`crate::puzzle24::state::State`].
 
+pub mod cwd;
 pub mod heuristic;
 pub mod idastar;
 pub mod linear_conflict;
 pub mod walking_distance;
 
+pub use cwd::{Cwd, CwdScratch};
 pub use heuristic::{Heuristic, IncManhattan, ManhattanMutCtx, ManhattanHeuristic, MaxInc};
 pub use linear_conflict::{LcCtx, LcMutCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use walking_distance::{
