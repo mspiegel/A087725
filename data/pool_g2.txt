@@ -1,0 +1,201 @@
+# candidates24 seed=0x2 score=wd pool=100 (of 228 raw); iters=2000 restarts=4 perturb=8 min_dist=6
+# cand#0 seed=R restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=140 cheap=140 frame=1
+0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+# cand#1 seed=R restart=1 perturb=8 ops=3cyc:3,dswap:1 accepts=4 wd=136 cheap=136 frame=0
+24 23 0 22 21 15 19 13 17 16 20 14 18 12 11 10 9 8 7 6 5 4 3 2 1
+# cand#2 seed=reseed:data/reseed_g2.txt#4 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=136 cheap=136 frame=0
+24 23 0 22 21 20 19 18 17 16 15 14 13 12 11 10 8 9 7 6 5 3 4 2 1
+# cand#3 seed=reseed:data/reseed_g2.txt#22 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+0 14 23 17 16 20 19 13 22 11 15 24 18 12 21 5 9 3 7 1 10 4 8 2 6
+# cand#4 seed=reflect(R) restart=1 perturb=8 ops=3cyc:7,dswap:3 accepts=10 wd=134 cheap=134 frame=0
+19 24 23 22 21 20 18 13 17 16 14 15 0 12 11 10 9 8 7 6 5 4 3 2 1
+# cand#5 seed=reseed:data/reseed_g2.txt#6 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+24 19 23 22 21 15 20 18 17 16 10 14 13 12 11 9 0 8 7 6 5 4 3 2 1
+# cand#6 seed=reseed:data/reseed_g2.txt#8 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=134 cheap=134 frame=0
+20 24 23 22 21 14 19 18 17 16 15 9 12 13 11 10 0 8 7 6 5 4 3 2 1
+# cand#7 seed=reflect(R) restart=2 perturb=8 ops=3cyc:1,dswap:1 accepts=2 wd=134 cheap=134 frame=0
+20 24 23 22 21 15 19 18 17 16 10 14 13 12 11 9 8 7 0 6 5 4 3 2 1
+# cand#8 seed=reseed:data/reseed_g2.txt#26 restart=0 perturb=0 ops=3cyc:26,dswap:11 accepts=37 wd=132 cheap=132 frame=0
+0 19 14 22 11 15 24 18 12 16 20 13 23 17 21 5 9 3 7 1 10 8 4 2 6
+# cand#9 seed=frame#23 restart=0 perturb=0 ops=3cyc:21,dswap:12 accepts=33 wd=132 cheap=132 frame=0
+0 24 23 21 22 19 18 13 16 11 20 15 14 17 12 9 10 8 6 7 4 3 5 1 2
+# cand#10 seed=reseed:data/reseed_g2.txt#24 restart=0 perturb=0 ops=3cyc:32,dswap:12 accepts=44 wd=132 cheap=132 frame=0
+0 23 24 21 22 20 19 13 12 17 18 15 14 11 16 8 9 10 7 6 3 4 5 2 1
+# cand#11 seed=frame#9 restart=1 perturb=8 ops=3cyc:32,dswap:21 accepts=53 wd=132 cheap=132 frame=0
+0 24 23 21 22 20 14 15 16 12 13 19 18 11 17 9 8 10 6 7 4 5 3 1 2
+# cand#12 seed=reseed:data/reseed_g2.txt#22 restart=2 perturb=8 ops=3cyc:1,dswap:0 accepts=1 wd=132 cheap=132 frame=0
+14 19 18 17 16 20 0 23 22 11 15 24 13 12 21 5 9 3 7 1 10 4 8 2 6
+# cand#13 seed=frame#25 restart=3 perturb=8 ops=3cyc:64,dswap:28 accepts=92 wd=132 cheap=132 frame=0
+23 19 24 21 22 18 15 20 16 17 0 14 13 12 11 10 9 8 7 6 3 4 5 2 1
+# cand#14 seed=reseed:data/reseed_g2.txt#28 restart=2 perturb=8 ops=3cyc:2,dswap:0 accepts=2 wd=132 cheap=132 frame=0
+15 24 23 22 21 13 0 18 12 11 20 14 19 17 16 10 8 3 7 6 5 4 9 2 1
+# cand#15 seed=reseed:data/reseed_g2.txt#10 restart=3 perturb=8 ops=3cyc:12,dswap:1 accepts=13 wd=132 cheap=132 frame=0
+23 24 17 22 21 20 19 12 18 16 15 14 7 13 11 10 9 8 0 6 5 4 3 2 1
+# cand#16 seed=reseed:data/reseed_g2.txt#14 restart=0 perturb=0 ops=3cyc:0,dswap:1 accepts=1 wd=132 cheap=132 frame=0
+20 18 0 12 21 24 19 23 17 16 15 14 13 22 11 5 4 3 2 1 10 9 8 7 6
+# cand#17 seed=reseed:data/reseed_g2.txt#24 restart=2 perturb=8 ops=3cyc:22,dswap:3 accepts=25 wd=132 cheap=132 frame=0
+20 19 24 17 21 15 0 23 12 11 18 14 13 22 16 10 9 8 7 6 5 3 4 2 1
+# cand#18 seed=reseed:data/reseed_g2.txt#4 restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+20 24 18 22 21 23 14 19 17 16 15 8 13 12 11 10 0 9 7 6 5 3 4 2 1
+# cand#19 seed=reseed:data/reseed_g2.txt#2 restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 23 18 22 21 20 19 13 17 16 15 14 8 12 11 10 4 9 7 6 0 5 3 2 1
+# cand#20 seed=reseed:data/reseed_g2.txt#10 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 23 22 21 16 20 19 18 12 17 15 14 13 11 0 10 9 8 7 6 5 4 3 2 1
+# cand#21 seed=reseed:data/reseed_g2.txt#4 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+20 24 23 22 21 15 19 18 17 16 14 8 13 12 11 10 9 4 7 6 5 3 0 2 1
+# cand#22 seed=reseed:data/reseed_g2.txt#26 restart=1 perturb=8 ops=3cyc:10,dswap:3 accepts=13 wd=132 cheap=132 frame=0
+20 24 23 22 21 18 19 17 0 16 10 14 13 12 11 15 9 8 7 6 5 4 3 2 1
+# cand#23 seed=R restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+20 24 23 22 21 19 14 18 17 16 15 13 8 12 11 10 0 3 7 6 5 9 4 2 1
+# cand#24 seed=reseed:data/reseed_g2.txt#2 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 19 23 22 21 20 18 13 17 16 15 14 8 12 0 10 9 7 6 11 5 4 3 2 1
+# cand#25 seed=frame#14 restart=0 perturb=0 ops=3cyc:89,dswap:23 accepts=112 wd=130 cheap=130 frame=0
+0 14 24 22 21 13 20 23 16 17 18 19 15 12 11 9 8 10 6 7 5 3 4 2 1
+# cand#26 seed=frame#9 restart=0 perturb=0 ops=3cyc:85,dswap:28 accepts=113 wd=130 cheap=130 frame=0
+0 19 14 22 21 20 18 24 16 12 15 13 23 17 11 10 8 9 7 6 5 3 4 2 1
+# cand#27 seed=frame#20 restart=0 perturb=0 ops=3cyc:110,dswap:35 accepts=145 wd=130 cheap=130 frame=0
+0 23 19 12 21 20 24 18 22 16 15 13 14 17 11 5 8 9 2 1 10 4 3 6 7
+# cand#28 seed=reseed:data/reseed_g2.txt#26 restart=2 perturb=8 ops=3cyc:4,dswap:0 accepts=4 wd=130 cheap=130 frame=0
+23 24 0 21 22 18 20 19 16 11 15 14 13 17 12 10 8 9 7 6 5 3 4 1 2
+# cand#29 seed=reseed:data/reseed_g2.txt#28 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=130 cheap=130 frame=0
+15 18 23 22 21 20 24 13 12 11 10 14 19 17 16 5 8 3 7 6 0 4 9 2 1
+# cand#30 seed=reseed:data/reseed_g2.txt#20 restart=3 perturb=8 ops=3cyc:0,dswap:1 accepts=1 wd=130 cheap=130 frame=0
+23 19 17 16 0 15 24 18 22 21 20 14 13 12 11 10 4 3 7 1 5 9 8 2 6
+# cand#31 seed=reseed:data/reseed_g2.txt#6 restart=1 perturb=8 ops=3cyc:12,dswap:1 accepts=13 wd=130 cheap=130 frame=0
+23 24 19 22 21 20 0 18 17 16 5 14 9 12 11 10 8 13 7 6 15 3 4 2 1
+# cand#32 seed=reseed:data/reseed_g2.txt#12 restart=2 perturb=8 ops=3cyc:20,dswap:11 accepts=31 wd=130 cheap=130 frame=0
+24 23 19 22 21 18 13 20 17 16 8 14 15 11 12 10 0 9 6 7 3 5 4 2 1
+# cand#33 seed=reseed:data/reseed_g2.txt#16 restart=0 perturb=0 ops=3cyc:9,dswap:2 accepts=11 wd=130 cheap=130 frame=0
+20 19 23 17 21 15 24 18 22 16 10 4 13 12 1 5 0 3 2 6 14 9 8 7 11
+# cand#34 seed=reseed:data/reseed_g2.txt#20 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=130 cheap=130 frame=0
+20 23 0 17 16 19 15 18 22 21 24 14 13 12 11 10 4 3 7 1 5 9 8 2 6
+# cand#35 seed=frame#33 restart=1 perturb=8 ops=3cyc:51,dswap:9 accepts=60 wd=130 cheap=130 frame=0
+24 23 16 22 21 20 19 17 0 18 14 15 13 11 12 10 9 8 6 7 5 4 2 1 3
+# cand#36 seed=reseed:data/reseed_g2.txt#8 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=130 cheap=130 frame=0
+20 24 23 22 21 14 19 18 0 16 15 12 13 17 11 5 9 8 7 6 4 10 3 2 1
+# cand#37 seed=frame#27 restart=1 perturb=8 ops=3cyc:28,dswap:5 accepts=33 wd=130 cheap=130 frame=0
+24 18 22 13 21 20 19 23 17 16 15 14 0 12 11 10 8 9 7 6 5 4 3 2 1
+# cand#38 seed=frame#1 restart=0 perturb=0 ops=3cyc:38,dswap:8 accepts=46 wd=128 cheap=128 frame=0
+0 24 23 17 11 13 20 19 21 12 18 14 15 22 16 8 10 3 7 6 4 9 5 2 1
+# cand#39 seed=reseed:data/reseed_g2.txt#30 restart=0 perturb=0 ops=3cyc:33,dswap:18 accepts=51 wd=128 cheap=128 frame=0
+0 14 23 21 17 13 24 19 16 11 18 15 20 22 12 8 3 10 6 1 5 9 4 7 2
+# cand#40 seed=frame#37 restart=1 perturb=8 ops=3cyc:69,dswap:31 accepts=100 wd=128 cheap=128 frame=0
+0 15 24 16 22 13 18 14 11 17 23 19 20 12 21 8 5 10 6 1 9 4 3 7 2
+# cand#41 seed=frame#35 restart=0 perturb=0 ops=3cyc:46,dswap:19 accepts=65 wd=128 cheap=128 frame=0
+0 18 15 22 12 13 19 14 17 21 23 24 20 11 16 10 5 4 2 7 8 3 9 1 6
+# cand#42 seed=frame#22 restart=0 perturb=0 ops=3cyc:90,dswap:37 accepts=127 wd=128 cheap=128 frame=0
+0 20 18 17 12 13 23 24 21 11 14 15 19 22 16 3 4 10 2 7 9 5 8 6 1
+# cand#43 seed=frame#17 restart=0 perturb=0 ops=3cyc:57,dswap:17 accepts=74 wd=128 cheap=128 frame=0
+0 13 18 16 22 19 23 15 12 17 14 20 24 11 21 8 4 10 1 6 3 5 9 2 7
+# cand#44 seed=frame#25 restart=0 perturb=0 ops=3cyc:89,dswap:24 accepts=113 wd=128 cheap=128 frame=0
+0 13 19 12 21 24 18 14 22 16 23 15 20 17 11 3 8 4 2 6 9 5 10 1 7
+# cand#45 seed=frame#7 restart=0 perturb=0 ops=3cyc:94,dswap:54 accepts=148 wd=128 cheap=128 frame=0
+0 13 19 16 22 14 23 18 11 21 15 20 24 17 12 4 10 5 2 6 9 8 3 7 1
+# cand#46 seed=frame#28 restart=0 perturb=0 ops=3cyc:36,dswap:13 accepts=49 wd=128 cheap=128 frame=0
+0 24 15 17 21 18 19 14 16 11 23 13 20 12 22 10 3 5 2 7 9 4 8 6 1
+# cand#47 seed=frame#39 restart=0 perturb=0 ops=3cyc:87,dswap:36 accepts=123 wd=128 cheap=128 frame=0
+0 24 20 17 12 18 13 15 21 16 19 23 14 22 11 3 4 9 2 7 8 5 10 1 6
+# cand#48 seed=frame#5 restart=0 perturb=0 ops=3cyc:42,dswap:15 accepts=57 wd=128 cheap=128 frame=0
+0 14 19 22 11 15 13 20 16 12 24 23 18 17 21 10 8 9 7 6 3 4 5 2 1
+# cand#49 seed=reseed:data/reseed_g2.txt#16 restart=1 perturb=8 ops=3cyc:18,dswap:4 accepts=22 wd=128 cheap=128 frame=0
+0 15 13 17 16 19 20 23 12 22 18 14 24 11 21 5 10 3 2 7 4 9 8 6 1
+# cand#50 seed=frame#10 restart=0 perturb=0 ops=3cyc:47,dswap:9 accepts=56 wd=128 cheap=128 frame=0
+0 19 15 17 22 23 24 20 12 16 14 13 18 11 21 8 5 3 1 7 4 10 9 6 2
+# cand#51 seed=frame#3 restart=0 perturb=0 ops=3cyc:47,dswap:20 accepts=67 wd=128 cheap=128 frame=0
+0 15 20 11 22 24 13 23 16 21 18 14 19 17 12 9 10 8 6 2 4 5 3 7 1
+# cand#52 seed=frame#37 restart=0 perturb=0 ops=3cyc:75,dswap:32 accepts=107 wd=128 cheap=128 frame=0
+0 18 14 22 21 24 19 23 12 11 15 13 20 17 16 9 8 10 7 1 3 4 5 6 2
+# cand#53 seed=frame#33 restart=0 perturb=0 ops=3cyc:70,dswap:33 accepts=103 wd=128 cheap=128 frame=0
+0 19 20 11 17 14 24 15 21 12 23 13 18 16 22 10 8 4 1 2 9 5 3 6 7
+# cand#54 seed=frame#19 restart=0 perturb=0 ops=3cyc:32,dswap:10 accepts=42 wd=128 cheap=128 frame=0
+0 20 23 16 17 14 15 13 11 21 19 24 18 12 22 8 4 10 6 7 5 3 9 2 1
+# cand#55 seed=frame#29 restart=0 perturb=0 ops=3cyc:64,dswap:24 accepts=88 wd=128 cheap=128 frame=0
+0 20 18 16 17 19 23 14 22 21 13 15 24 12 11 3 5 10 2 1 4 8 9 6 7
+# cand#56 seed=frame#12 restart=3 perturb=8 ops=3cyc:55,dswap:11 accepts=66 wd=128 cheap=128 frame=0
+0 24 14 21 11 19 20 23 17 12 18 15 13 22 16 9 8 4 1 2 3 5 10 7 6
+# cand#57 seed=frame#8 restart=0 perturb=0 ops=3cyc:36,dswap:21 accepts=57 wd=128 cheap=128 frame=0
+0 23 13 12 17 19 24 20 22 11 14 18 15 16 21 8 4 10 1 2 3 9 5 7 6
+# cand#58 seed=frame#31 restart=0 perturb=0 ops=3cyc:19,dswap:3 accepts=22 wd=128 cheap=128 frame=0
+0 19 18 12 21 15 24 23 17 16 20 14 7 22 6 5 9 8 3 11 10 4 13 2 1
+# cand#59 seed=frame#32 restart=2 perturb=8 ops=3cyc:53,dswap:25 accepts=78 wd=128 cheap=128 frame=0
+0 24 20 11 12 19 13 23 22 17 15 18 14 21 16 10 9 5 7 6 4 8 3 1 2
+# cand#60 seed=frame#31 restart=2 perturb=8 ops=3cyc:52,dswap:23 accepts=75 wd=128 cheap=128 frame=0
+0 24 23 17 16 19 15 12 22 18 20 14 13 21 11 5 9 8 2 6 10 4 3 7 1
+# cand#61 seed=frame#11 restart=0 perturb=0 ops=3cyc:28,dswap:12 accepts=40 wd=128 cheap=128 frame=0
+0 20 15 16 17 24 18 19 12 11 13 23 14 22 21 4 8 10 7 6 5 3 9 2 1
+# cand#62 seed=frame#24 restart=0 perturb=0 ops=3cyc:62,dswap:19 accepts=81 wd=128 cheap=128 frame=0
+0 20 14 11 22 24 15 19 17 16 23 13 18 12 21 10 5 8 2 7 4 9 3 6 1
+# cand#63 seed=frame#38 restart=0 perturb=0 ops=3cyc:125,dswap:20 accepts=145 wd=128 cheap=128 frame=0
+0 20 17 22 11 15 24 13 23 16 19 14 12 18 21 9 5 8 7 6 10 4 2 3 1
+# cand#64 seed=reseed:data/reseed_g2.txt#24 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+0 20 18 21 11 24 23 13 22 17 19 15 14 12 16 3 5 10 7 6 9 8 4 2 1
+# cand#65 seed=frame#36 restart=0 perturb=0 ops=3cyc:25,dswap:4 accepts=29 wd=128 cheap=128 frame=0
+0 23 19 21 12 24 14 20 11 22 15 13 18 16 17 9 8 10 1 7 5 4 3 2 6
+# cand#66 seed=reseed:data/reseed_g2.txt#16 restart=3 perturb=8 ops=3cyc:21,dswap:5 accepts=26 wd=128 cheap=128 frame=0
+0 20 24 12 16 15 14 18 22 21 23 19 13 17 11 10 9 3 2 6 5 4 8 1 7
+# cand#67 seed=frame#34 restart=0 perturb=0 ops=3cyc:49,dswap:24 accepts=73 wd=128 cheap=128 frame=0
+0 23 13 16 22 20 15 19 12 17 18 24 14 11 21 9 10 5 6 7 3 8 4 1 2
+# cand#68 seed=reseed:data/reseed_g2.txt#18 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+0 24 18 21 11 20 23 13 22 16 15 14 19 12 17 10 3 8 2 7 5 9 4 6 1
+# cand#69 seed=reseed:data/reseed_g2.txt#22 restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+14 19 23 17 16 15 20 13 22 11 24 9 18 12 21 5 4 3 7 1 10 8 0 2 6
+# cand#70 seed=frame#35 restart=2 perturb=8 ops=3cyc:47,dswap:30 accepts=77 wd=128 cheap=128 frame=0
+14 23 24 22 21 15 0 19 17 11 20 13 18 12 16 4 10 3 7 6 9 8 5 2 1
+# cand#71 seed=frame#21 restart=2 perturb=8 ops=3cyc:33,dswap:14 accepts=47 wd=128 cheap=128 frame=0
+18 23 24 22 21 20 13 14 0 16 19 15 17 11 12 8 10 9 7 6 5 3 4 1 2
+# cand#72 seed=frame#37 restart=2 perturb=8 ops=3cyc:113,dswap:30 accepts=143 wd=128 cheap=128 frame=0
+23 14 0 12 21 18 24 20 22 11 15 13 19 17 16 10 4 9 7 1 5 3 8 2 6
+# cand#73 seed=frame#34 restart=3 perturb=8 ops=3cyc:88,dswap:29 accepts=117 wd=128 cheap=128 frame=0
+23 24 21 22 12 15 19 16 13 17 14 20 18 11 0 10 9 7 6 8 4 5 2 1 3
+# cand#74 seed=reseed:data/reseed_g2.txt#18 restart=2 perturb=8 ops=3cyc:5,dswap:2 accepts=7 wd=128 cheap=128 frame=0
+15 24 18 22 21 20 23 19 12 16 3 13 14 17 11 10 0 8 2 1 5 9 4 7 6
+# cand#75 seed=reseed:data/reseed_g2.txt#16 restart=2 perturb=8 ops=3cyc:15,dswap:6 accepts=21 wd=128 cheap=128 frame=0
+19 13 18 22 21 20 23 24 17 16 10 4 8 2 6 15 0 9 12 1 5 3 14 7 11
+# cand#76 seed=reseed:data/reseed_g2.txt#14 restart=3 perturb=8 ops=3cyc:12,dswap:3 accepts=15 wd=128 cheap=128 frame=0
+19 13 23 22 21 20 18 24 17 16 5 4 8 2 11 15 14 3 7 1 10 9 0 12 6
+# cand#77 seed=frame#4 restart=2 perturb=8 ops=3cyc:42,dswap:8 accepts=50 wd=128 cheap=128 frame=0
+19 18 24 22 21 15 14 13 17 16 20 23 0 12 11 10 4 3 2 6 5 9 8 7 1
+# cand#78 seed=reseed:data/reseed_g2.txt#20 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+19 20 23 17 16 24 15 18 22 21 10 14 13 12 11 4 9 3 7 1 0 5 8 2 6
+# cand#79 seed=reseed:data/reseed_g2.txt#14 restart=2 perturb=8 ops=3cyc:24,dswap:5 accepts=29 wd=128 cheap=128 frame=0
+20 13 19 22 11 14 23 24 17 16 15 18 8 12 21 10 9 4 2 1 5 3 0 7 6
+# cand#80 seed=reseed:data/reseed_g2.txt#12 restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+24 19 23 22 21 18 14 20 16 11 10 15 13 17 12 9 0 8 7 6 5 4 3 2 1
+# cand#81 seed=frame#24 restart=3 perturb=8 ops=3cyc:41,dswap:13 accepts=54 wd=128 cheap=128 frame=0
+20 18 14 17 21 13 19 23 22 11 15 24 0 12 16 5 9 4 2 6 10 8 3 7 1
+# cand#82 seed=frame#1 restart=3 perturb=8 ops=3cyc:46,dswap:15 accepts=61 wd=128 cheap=128 frame=0
+20 24 0 18 21 19 14 22 17 16 15 23 13 12 11 5 4 10 7 6 9 3 8 2 1
+# cand#83 seed=frame#6 restart=3 perturb=8 ops=3cyc:87,dswap:43 accepts=130 wd=128 cheap=128 frame=0
+20 24 12 17 11 18 19 13 0 21 15 14 23 16 22 5 4 3 7 1 10 9 8 2 6
+# cand#84 seed=frame#34 restart=1 perturb=8 ops=3cyc:45,dswap:20 accepts=65 wd=128 cheap=128 frame=0
+20 24 16 22 21 19 18 23 0 17 10 14 13 12 11 15 9 8 7 6 4 5 3 2 1
+# cand#85 seed=reseed:data/reseed_g2.txt#20 restart=1 perturb=8 ops=3cyc:47,dswap:21 accepts=68 wd=128 cheap=128 frame=0
+24 19 23 22 21 20 13 16 18 17 15 14 11 12 2 10 9 7 6 8 4 5 1 3 0
+# cand#86 seed=reseed:data/reseed_g2.txt#8 restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+20 24 23 22 21 14 19 18 17 16 15 12 13 11 6 10 9 8 7 1 5 4 0 3 2
+# cand#87 seed=reseed:data/reseed_g2.txt#10 restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=128 cheap=128 frame=0
+24 23 22 21 16 20 19 13 18 17 15 14 0 12 7 10 9 8 6 11 5 4 3 2 1
+# cand#88 seed=frame#7 restart=3 perturb=8 ops=3cyc:50,dswap:19 accepts=69 wd=126 cheap=126 frame=0
+13 15 20 11 16 18 23 19 21 17 24 3 14 12 22 4 10 8 6 1 0 5 9 2 7
+# cand#89 seed=frame#15 restart=1 perturb=8 ops=3cyc:94,dswap:39 accepts=133 wd=126 cheap=126 frame=0
+13 15 20 17 21 14 0 18 12 16 23 24 19 22 11 8 9 10 7 6 3 5 4 1 2
+# cand#90 seed=frame#4 restart=1 perturb=8 ops=3cyc:82,dswap:33 accepts=115 wd=126 cheap=126 frame=0
+13 20 14 21 12 23 24 19 16 17 15 18 8 22 11 3 5 10 1 2 0 4 9 6 7
+# cand#91 seed=frame#36 restart=3 perturb=8 ops=3cyc:116,dswap:47 accepts=163 wd=126 cheap=126 frame=0
+13 24 14 11 0 15 20 18 17 21 19 23 12 22 16 3 4 9 6 1 5 10 8 7 2
+# cand#92 seed=frame#16 restart=2 perturb=8 ops=3cyc:120,dswap:42 accepts=162 wd=126 cheap=126 frame=0
+14 13 0 11 17 15 20 24 22 16 19 18 23 12 21 5 8 4 1 6 10 3 9 7 2
+# cand#93 seed=frame#12 restart=1 perturb=8 ops=3cyc:67,dswap:33 accepts=100 wd=126 cheap=126 frame=0
+18 24 23 21 16 13 19 20 22 17 3 10 8 1 2 5 4 14 7 12 0 9 15 6 11
+# cand#94 seed=frame#6 restart=2 perturb=8 ops=3cyc:62,dswap:22 accepts=84 wd=126 cheap=126 frame=0
+18 13 0 12 22 14 23 24 16 11 20 15 19 21 17 5 10 8 1 6 4 3 9 2 7
+# cand#95 seed=reseed:data/reseed_g2.txt#24 restart=1 perturb=8 ops=3cyc:14,dswap:5 accepts=19 wd=126 cheap=126 frame=0
+18 20 0 17 11 19 14 24 16 12 15 23 13 21 22 4 5 3 7 6 10 8 9 2 1
+# cand#96 seed=reseed:data/reseed_g2.txt#22 restart=1 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=126 cheap=126 frame=0
+14 19 23 17 16 15 20 13 22 11 5 24 0 12 21 9 3 18 7 1 10 4 8 2 6
+# cand#97 seed=frame#36 restart=1 perturb=8 ops=3cyc:47,dswap:26 accepts=73 wd=126 cheap=126 frame=0
+14 20 21 12 0 15 19 11 16 18 24 23 22 17 13 5 9 1 3 2 4 10 8 7 6
+# cand#98 seed=frame#0 restart=2 perturb=8 ops=3cyc:41,dswap:20 accepts=61 wd=126 cheap=126 frame=0
+18 24 13 21 0 15 20 16 11 17 14 19 23 12 22 10 4 7 8 6 9 5 2 3 1
+# cand#99 seed=frame#12 restart=2 perturb=8 ops=3cyc:44,dswap:9 accepts=53 wd=126 cheap=126 frame=0
+23 19 0 11 17 13 20 14 21 16 24 15 18 22 12 8 3 5 1 6 10 4 9 2 7

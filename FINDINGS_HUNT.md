@@ -1,14 +1,19 @@
 # The 24-puzzle deep-board hunt: a bracket catalog of hard instances
 
 **Result (2026-07-08).** A construct → score → bound → re-seed loop produced the
-first **population of certified-deep 24-puzzle boards** — 100 instances (pilot
-generation 1), each bracketed by a **proven lower bound** (bounded IDA\* exhaust)
-and a **replay-verified learned upper bound** (BWAS with a general value net).
-80 of the 100 carry a proven optimal-depth **LB ≥ 132**; 11 reach **LB ≥ 138**;
-the canonical hard board **R** was pushed to a proven **≥ 148** (our own, this
-session) with a matching **UB 156**. No such catalog exists in the literature —
-the published 24-puzzle record is `R ∈ [152, 156]`, random boards averaging
-~100, and the diameter interval `[152, 205]`.
+first **population of certified-deep 24-puzzle boards** — **191 instances across
+two flywheel generations**, each bracketed by a **proven lower bound** (bounded
+IDA\* exhaust) and a **replay-verified learned upper bound** (BWAS with a general
+value net). **164 of the 191 carry a proven optimal-depth LB ≥ 132; 38 reach
+≥ 138; 19 reach ≥ 140**; the canonical hard board **R** was pushed to a proven
+**≥ 148** (our own, this session) with a matching **UB 156**. No such catalog
+exists in the literature — the published 24-puzzle record is `R ∈ [152, 156]`,
+random boards averaging ~100, and the diameter interval `[152, 205]`.
+
+The re-seed loop **enriches for depth**: the fraction of boards with proven
+LB ≥ 140 rose from 5% (generation 1) to 10% (after generation 2), and the mean
+pool WD floor rose 127.1 → 129.3 — the deepest finds seed deeper candidates, not
+just more of them.
 
 This is a *lower-bound-side* result: we **populate and certify** deep boards; we
 do not (and on this hardware cannot) prove any board deeper than R, nor move the
@@ -56,44 +61,56 @@ Five stages, each a committed tool:
    line-index-relative). Emits the deepest boards as re-seeds for stage 1 and the
    wide-gap, budget-limited boards as an escalation shortlist.
 
-## 3. Pilot generation 1 — the numbers
+## 3. The catalog — two flywheel generations
 
-**Pool:** 100 boards, WD 124–140, mean pairwise Hamming 21 (diverse, not clones).
+**Pools:** generation 1 = 100 boards (WD 124–140, mean pairwise Hamming 21);
+generation 2 = 100 boards reseeded from gen-1's 15 deepest (WD 126–140, mean
+floor lifted to 129.3). Merged and deduped under the reflection symmetry: **191
+distinct boards**.
 
-**Proven lower bounds** (60 s/board pilot budget, `select-k6` = max(LC,WD)):
+**Proven lower bounds** (60 s/board budget, `select-k6` = max(LC,WD)), across the
+merged 191-board catalog:
 
-| proven LB | boards |
-|---:|---:|
-| ≥ 132 | **80** |
-| ≥ 134 | 43 |
-| ≥ 136 | 17 |
-| ≥ 138 | 11 |
-| ≥ 140 | 5 |
-| **148** (R) | 1 |
+| proven LB | boards | (gen-1 alone) |
+|---:|---:|---:|
+| ≥ 132 | **164** | 80 |
+| ≥ 134 | 107 | 43 |
+| ≥ 136 | 61 | 17 |
+| ≥ 138 | 38 | 11 |
+| ≥ 140 | **19** | 5 |
+| ≥ 142 | 5 | 1 |
+| **148** (R) | 1 | 1 |
 
-These LBs are **budget-limited, not fundamental** — 60 s/board buys only a few
-plies above each board's root h (the ~29×/+2 wall, §4). The escalation shortlist
-(`data/escalate_g1.txt`) marks the boards worth a multi-hour exhaust.
+The population roughly doubled while the deep tail grew **more** than
+proportionally (LB ≥ 140: 5 → 19; the ≥ 140 *fraction* 5% → 10%) — the flywheel
+enriches for depth. These LBs are **budget-limited, not fundamental**: 60 s/board
+buys only a few plies above each board's root h (the ~29×/+2 wall, §4); every
+board hit the 60 s cap. The escalation shortlists (`data/escalate_g{1,2}.txt`)
+mark the boards worth a multi-hour exhaust.
 
-**Upper bounds** (BWAS 1M-node, frame2 net): **100/100 solved and
-replay-verified**, zero budget failures. UBs span 138–160; several boards yield
-158/160-move solutions — *longer* solutions than R's 156, though from a
-suboptimal solver, so this bounds their depth above, not below.
+**Upper bounds** (BWAS 1M-node, frame2 net): **200/200 solved and
+replay-verified** across both generations, zero budget failures. Gen-2's UBs run
+deeper — 136–**162** (one 162-move solution; 20 boards at 156, 12 at 158) vs
+gen-1's 138–160 — longer solutions than R's 156, though from a suboptimal solver,
+so they bound depth above, not below.
 
-**Top brackets** (rank by proven LB, tie-break UB):
+**Top brackets** (rank by proven LB, tie-break UB; merged catalog):
 
-| rank | proven LB | learned UB | gap | v_fwd | seed lineage |
-|---:|---:|---:|---:|---:|---|
-| 0 | **148** | 156 | 8 | 163.4 | `R` |
-| 1 | 142 | 156 | 14 | 159.6 | `reflect(R)` + perturb |
-| 2 | 140 | 160 | 20 | 158.1 | `R` + perturb |
-| 3 | 140 | 158 | 18 | 159.9 | `R` + perturb |
-| 5 | 138 | 160 | 22 | 157.7 | **frame#11** (non-R-derived) |
-| 11 | 136 | 160 | 24 | 155.7 | **frame#36** (non-R-derived) |
+| proven LB | learned UB | gap | v_fwd | seed lineage |
+|---:|---:|---:|---:|---|
+| **148** | 156 | 8 | 163.4 | `R` |
+| 142 | 158 | 16 | 159.9 | **gen-2 reseed** (deepest gen-1 finds) |
+| 140 | **162** | 22 | 158.9 | **gen-2 reseed** |
+| 140 | 160 | 20 | 158.1 | `R` + perturb |
+| 138 | 160 | 22 | 157.7 | **frame#11** (non-R-derived, gen-1) |
+| 140 | 158 | 18 | 157.3 | **frame#34** (non-R-derived, gen-2) |
 
-The frame-seeded rows are the point: certified-deep boards (proven LB ≥ 136,
-learned UB up to 160) that are **not** derived from R at all — exactly the
-non-`R`-anchored deep population the diameter question needs.
+Two things matter here. The **reseed rows** (gen-2 boards climbed from gen-1's
+deepest) now populate the top of the catalog — the flywheel is finding new deep
+boards *around* the deep ones, not just re-finding them. And the **frame-seeded
+rows** are certified deep (proven LB ≥ 138, learned UB up to 160) while **not**
+derived from R at all — exactly the non-`R`-anchored deep population the diameter
+question needs.
 
 ## 4. R, and the calibration that governs everything
 
@@ -122,23 +139,30 @@ to a 152-class floor here** (~29 T nodes / ~2.6 days for ≥150 on R; ~months fo
 - The exact deepest boards and the **205** upper bound remain out of reach here
   (they need optimal deep solving / different techniques).
 
-## 6. The flywheel (next generations)
+## 6. The flywheel — demonstrated, and continuing
 
-`catalog24 --reseed-out` emitted the 15 deepest boards as generation-2 seeds
-(`data/reseed_g2.txt`); `--escalate-out` emitted the 6 widest-gap, budget-limited
-boards (`data/escalate_g1.txt`) for the finalist treatment (multi-hour LB exhaust
-+ `solve_ff` FF-MITM UB). Re-running stage 1 with `--reseed data/reseed_g2.txt`
-generates around the deepest finds; the loop repeats as long as the brackets keep
-tightening. Because the catalog is append-only and joins on canonical board, each
-generation's evidence accumulates and re-ingestion is idempotent.
+Generation 2 **ran** (this session): reseeding candidates24 from gen-1's 15
+deepest boards (`data/reseed_g2.txt`) produced a pool with a higher WD floor and,
+after bounding, a deeper LB tail (§3) — the re-seed loop measurably enriches for
+depth rather than merely accumulating boards. The two passes ran **concurrently**
+(LB on 8 CPU threads, UB on the GPU), ~1.75 h wall for the generation.
+
+The loop is primed to continue: `catalog24 --reseed-out` emitted the current 15
+deepest as `data/reseed_g3.txt` (generation-3 seeds), and `--escalate-out` the 6
+widest-gap, budget-limited boards as `data/escalate_g{1,2}.txt` for the finalist
+treatment (multi-hour LB exhaust + `solve_ff` FF-MITM UB). Because the catalog is
+append-only and joins on canonical board, each generation's evidence accumulates
+and re-ingestion is idempotent — gen-2 added 91 new distinct boards and merged 9
+that recurred, with no double-counting.
 
 ## 7. Reproducibility
 
 - **Tools:** `examples/{candidates24,catalog24,frame24}.rs`,
   `src/bin/{ladder24 (example),gen_corridors,solve24}.rs`, `src/puzzle24/frame.rs`.
 - **Pilot commands:** see PUZZLE24.md §"Pilot cycle (generation 1)".
-- **Artifacts:** `data/pool_g1.txt` (the pool), `data/catalog24.tsv` (append-only
-  evidence + brackets), `data/reseed_g2.txt`, `data/escalate_g1.txt`,
+- **Artifacts:** `data/pool_g{1,2}.txt` (the pools), `data/catalog24.tsv`
+  (append-only evidence + brackets, both generations), `data/reseed_g{2,3}.txt`
+  (each generation's deepest → next-gen seeds), `data/escalate_g{1,2}.txt`,
   `data/phase2a_calibration.txt` (the R ≥ 148 run). Raw per-board run TSVs
   (`runs/`) are regenerable and gitignored; their evidence is inlined in the
   catalog.
@@ -148,10 +172,12 @@ generation's evidence accumulates and re-ingestion is idempotent.
 ## 8. Summary
 
 Starting from the observation that no population of known-deep 24-puzzle boards
-exists, a construct→score→bound→re-seed loop produced 100 certified-deep
-instances in one pilot generation — 80 with proven optimal-depth ≥ 132, R pushed
-to a proven ≥ 148 (UB 156), and a set of frame-seeded boards certified deep
-*without* reference to R. The reusable result is the **bracket**: a proven LB from
+exists, a construct→score→bound→re-seed loop produced **191 certified-deep
+instances across two flywheel generations** — 164 with proven optimal-depth ≥ 132
+(19 ≥ 140), R pushed to a proven ≥ 148 (UB 156), and a set of frame-seeded boards
+certified deep *without* reference to R. The re-seed loop measurably enriched for
+depth (LB ≥ 140 fraction 5% → 10% gen-1 → gen-2). The reusable result is the
+**bracket**: a proven LB from
 consistent-heuristic exhaustion and a replay-verified UB from a general learned
 solver together pin each hard board's true optimum to a narrow window, turning
 "probably deep" into "certified in `[LB, UB]`" — a new, extensible catalog for the
