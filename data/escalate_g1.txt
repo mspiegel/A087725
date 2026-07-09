@@ -1,0 +1,13 @@
+# catalog24 escalate: top 6 by (budget-limited, UB) with gap >= 12 (added g1)
+# escalate#0 lb=140 ub=160 gap=20 timeout=1 lineage=cand#4 seed=R restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 19 23 22 21 15 20 18 17 16 10 14 13 12 11 5 0 8 7 6 4 9 3 2 1
+# escalate#1 lb=138 ub=160 gap=22 timeout=1 lineage=cand#43 seed=frame#11 restart=3 perturb=8 ops=3cyc:74,dswap:39 accepts=113 wd=128 cheap=128 frame=0
+24 19 23 22 21 18 14 20 16 11 10 15 13 17 12 9 0 8 7 6 5 4 3 2 1
+# escalate#2 lb=138 ub=160 gap=22 timeout=1 lineage=cand#8 seed=frame#2 restart=1 perturb=8 ops=3cyc:85,dswap:37 accepts=122 wd=130 cheap=130 frame=0
+20 18 0 12 21 24 19 23 17 16 15 14 13 22 11 5 10 8 2 1 4 9 3 7 6
+# escalate#3 lb=138 ub=160 gap=22 timeout=1 lineage=cand#44 seed=frame#10 restart=3 perturb=8 ops=3cyc:29,dswap:13 accepts=42 wd=128 cheap=128 frame=0
+24 14 23 22 21 20 19 18 17 16 15 10 13 12 6 5 0 3 2 1 4 9 8 7 11
+# escalate#4 lb=136 ub=160 gap=24 timeout=1 lineage=cand#33 seed=frame#36 restart=0 perturb=0 ops=3cyc:65,dswap:21 accepts=86 wd=128 cheap=128 frame=0
+0 20 23 21 11 24 15 18 22 17 19 14 13 12 16 3 5 10 7 6 9 8 4 2 1
+# escalate#5 lb=140 ub=158 gap=18 timeout=1 lineage=cand#3 seed=R restart=1 perturb=8 ops=3cyc:4,dswap:0 accepts=4 wd=134 cheap=134 frame=0
+20 24 23 22 21 14 19 18 17 16 15 9 12 13 11 10 0 8 7 6 5 4 3 2 1

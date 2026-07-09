@@ -1,0 +1,201 @@
+# candidates24 seed=0x1 score=wd pool=100 (of 168 raw); iters=2000 restarts=4 perturb=8 min_dist=6
+# cand#0 seed=R restart=0 perturb=0 ops=3cyc:0,dswap:0 accepts=0 wd=140 cheap=140 frame=1
+0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+# cand#1 seed=reflect(R) restart=1 perturb=8 ops=3cyc:3,dswap:2 accepts=5 wd=136 cheap=136 frame=0
+24 23 0 22 21 20 19 18 17 16 15 14 13 12 11 10 8 9 7 6 5 3 4 2 1
+# cand#2 seed=frame#0 restart=0 perturb=0 ops=3cyc:78,dswap:23 accepts=101 wd=134 cheap=134 frame=0
+0 14 23 17 16 20 19 13 22 11 15 24 18 12 21 5 9 3 7 1 10 4 8 2 6
+# cand#3 seed=R restart=1 perturb=8 ops=3cyc:4,dswap:0 accepts=4 wd=134 cheap=134 frame=0
+20 24 23 22 21 14 19 18 17 16 15 9 12 13 11 10 0 8 7 6 5 4 3 2 1
+# cand#4 seed=R restart=2 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 19 23 22 21 15 20 18 17 16 10 14 13 12 11 5 0 8 7 6 4 9 3 2 1
+# cand#5 seed=R restart=3 perturb=8 ops=3cyc:0,dswap:0 accepts=0 wd=132 cheap=132 frame=0
+24 23 22 21 16 20 19 18 12 17 15 14 13 11 0 10 9 8 7 6 5 4 3 2 1
+# cand#6 seed=frame#16 restart=1 perturb=8 ops=3cyc:68,dswap:29 accepts=97 wd=130 cheap=130 frame=0
+14 24 13 12 16 20 18 23 17 11 15 19 0 22 21 5 9 3 7 6 10 4 8 2 1
+# cand#7 seed=frame#27 restart=3 perturb=8 ops=3cyc:50,dswap:19 accepts=69 wd=130 cheap=130 frame=0
+15 18 23 22 21 20 24 13 12 11 10 14 19 17 16 5 8 3 7 6 0 4 9 2 1
+# cand#8 seed=frame#2 restart=1 perturb=8 ops=3cyc:85,dswap:37 accepts=122 wd=130 cheap=130 frame=0
+20 18 0 12 21 24 19 23 17 16 15 14 13 22 11 5 10 8 2 1 4 9 3 7 6
+# cand#9 seed=frame#23 restart=1 perturb=8 ops=3cyc:90,dswap:23 accepts=113 wd=130 cheap=130 frame=0
+20 23 0 17 16 19 15 18 22 21 24 14 13 12 11 10 4 3 7 1 5 9 8 2 6
+# cand#10 seed=frame#16 restart=0 perturb=0 ops=3cyc:98,dswap:28 accepts=126 wd=128 cheap=128 frame=0
+0 13 14 12 21 19 15 20 22 17 18 24 23 11 16 5 10 9 2 6 8 4 3 7 1
+# cand#11 seed=frame#1 restart=0 perturb=0 ops=3cyc:56,dswap:24 accepts=80 wd=128 cheap=128 frame=0
+0 18 15 21 11 13 20 14 16 17 23 24 19 12 22 8 9 10 6 1 4 3 5 7 2
+# cand#12 seed=frame#2 restart=3 perturb=8 ops=3cyc:61,dswap:10 accepts=71 wd=128 cheap=128 frame=0
+0 13 15 22 21 23 19 24 17 11 14 20 18 16 12 9 4 8 7 2 3 5 10 6 1
+# cand#13 seed=frame#10 restart=0 perturb=0 ops=3cyc:62,dswap:19 accepts=81 wd=128 cheap=128 frame=0
+0 13 24 17 21 20 15 14 22 16 19 23 18 11 12 5 4 3 7 6 8 10 9 2 1
+# cand#14 seed=frame#17 restart=0 perturb=0 ops=3cyc:63,dswap:26 accepts=89 wd=128 cheap=128 frame=0
+0 20 24 11 22 18 14 15 21 12 13 23 19 16 17 5 10 9 6 7 8 3 4 2 1
+# cand#15 seed=frame#38 restart=0 perturb=0 ops=3cyc:79,dswap:33 accepts=112 wd=128 cheap=128 frame=0
+0 14 19 16 21 23 18 13 22 17 15 24 20 12 11 3 4 10 1 7 5 8 9 6 2
+# cand#16 seed=frame#4 restart=0 perturb=0 ops=3cyc:71,dswap:25 accepts=96 wd=128 cheap=128 frame=0
+0 20 19 21 22 23 24 13 11 12 18 14 15 17 16 10 8 9 7 6 5 3 4 1 2
+# cand#17 seed=frame#39 restart=0 perturb=0 ops=3cyc:82,dswap:34 accepts=116 wd=128 cheap=128 frame=0
+0 15 18 11 22 19 24 14 16 17 13 23 20 21 12 8 4 10 7 1 3 9 5 2 6
+# cand#18 seed=frame#2 restart=0 perturb=0 ops=3cyc:68,dswap:18 accepts=86 wd=128 cheap=128 frame=0
+0 19 15 22 12 23 13 20 17 21 14 18 24 11 16 9 8 4 7 1 3 10 5 2 6
+# cand#19 seed=frame#24 restart=0 perturb=0 ops=3cyc:101,dswap:54 accepts=155 wd=128 cheap=128 frame=0
+0 15 18 21 12 14 19 23 16 11 24 20 13 17 22 9 4 10 2 7 3 8 5 6 1
+# cand#20 seed=frame#21 restart=1 perturb=8 ops=3cyc:27,dswap:9 accepts=36 wd=128 cheap=128 frame=0
+0 15 24 11 17 23 13 20 21 12 14 19 18 22 16 5 9 4 2 6 10 3 8 1 7
+# cand#21 seed=frame#33 restart=0 perturb=0 ops=3cyc:49,dswap:18 accepts=67 wd=128 cheap=128 frame=0
+0 15 22 12 16 19 14 18 13 11 20 24 17 23 21 9 4 2 8 1 10 5 7 3 6
+# cand#22 seed=frame#35 restart=0 perturb=0 ops=3cyc:91,dswap:31 accepts=122 wd=128 cheap=128 frame=0
+0 24 23 21 16 14 18 20 22 12 13 19 15 11 17 3 10 9 1 7 8 5 4 2 6
+# cand#23 seed=frame#22 restart=0 perturb=0 ops=3cyc:44,dswap:9 accepts=53 wd=128 cheap=128 frame=0
+0 19 15 11 12 14 23 18 16 17 13 20 24 22 21 8 9 4 6 1 10 3 5 7 2
+# cand#24 seed=frame#9 restart=1 perturb=8 ops=3cyc:68,dswap:21 accepts=89 wd=128 cheap=128 frame=0
+0 18 20 22 12 19 15 13 16 11 14 24 23 17 21 10 5 9 1 2 8 4 3 7 6
+# cand#25 seed=frame#21 restart=0 perturb=0 ops=3cyc:46,dswap:21 accepts=67 wd=128 cheap=128 frame=0
+0 24 19 11 12 14 20 18 17 16 15 23 13 21 22 3 5 9 2 7 4 10 8 6 1
+# cand#26 seed=frame#8 restart=0 perturb=0 ops=3cyc:75,dswap:31 accepts=106 wd=128 cheap=128 frame=0
+0 24 19 21 22 14 18 20 17 16 15 23 13 11 12 8 5 4 1 6 10 9 3 7 2
+# cand#27 seed=frame#12 restart=0 perturb=0 ops=3cyc:59,dswap:19 accepts=78 wd=128 cheap=128 frame=0
+0 18 23 17 22 24 19 20 21 16 10 9 8 11 12 13 15 14 7 6 4 5 3 1 2
+# cand#28 seed=frame#5 restart=3 perturb=8 ops=3cyc:105,dswap:31 accepts=136 wd=128 cheap=128 frame=0
+0 19 18 21 12 14 13 15 16 17 20 23 24 22 11 9 10 4 1 2 5 3 8 6 7
+# cand#29 seed=frame#28 restart=0 perturb=0 ops=3cyc:96,dswap:32 accepts=128 wd=128 cheap=128 frame=0
+0 19 13 11 16 15 14 23 12 21 20 24 18 22 17 8 3 9 2 1 10 5 4 7 6
+# cand#30 seed=frame#36 restart=2 perturb=8 ops=3cyc:81,dswap:38 accepts=119 wd=128 cheap=128 frame=0
+0 19 14 17 12 24 18 13 16 21 23 15 20 11 22 3 10 8 1 7 9 5 4 6 2
+# cand#31 seed=frame#30 restart=0 perturb=0 ops=3cyc:59,dswap:18 accepts=77 wd=128 cheap=128 frame=0
+0 23 18 21 22 24 19 15 17 12 13 14 20 11 16 3 8 10 6 1 9 5 4 7 2
+# cand#32 seed=frame#29 restart=0 perturb=0 ops=3cyc:75,dswap:21 accepts=96 wd=128 cheap=128 frame=0
+0 20 14 21 11 15 13 19 12 17 23 24 18 22 16 3 10 9 2 1 5 4 8 7 6
+# cand#33 seed=frame#36 restart=0 perturb=0 ops=3cyc:65,dswap:21 accepts=86 wd=128 cheap=128 frame=0
+0 20 23 21 11 24 15 18 22 17 19 14 13 12 16 3 5 10 7 6 9 8 4 2 1
+# cand#34 seed=frame#13 restart=0 perturb=0 ops=3cyc:71,dswap:27 accepts=98 wd=128 cheap=128 frame=0
+0 23 14 16 21 24 20 18 17 12 15 13 19 22 11 5 9 4 7 1 3 8 10 6 2
+# cand#35 seed=frame#9 restart=0 perturb=0 ops=3cyc:65,dswap:24 accepts=89 wd=128 cheap=128 frame=0
+0 20 23 21 22 15 19 18 12 17 13 24 14 11 16 4 3 5 1 6 9 8 10 2 7
+# cand#36 seed=frame#3 restart=0 perturb=0 ops=3cyc:72,dswap:23 accepts=95 wd=128 cheap=128 frame=0
+0 24 18 16 17 20 14 19 12 11 13 15 23 21 22 3 5 10 7 2 9 4 8 1 6
+# cand#37 seed=frame#11 restart=0 perturb=0 ops=3cyc:20,dswap:5 accepts=25 wd=128 cheap=128 frame=0
+0 24 18 21 11 20 23 13 22 16 15 14 19 12 17 10 3 8 2 7 5 9 4 6 1
+# cand#38 seed=frame#33 restart=3 perturb=8 ops=3cyc:45,dswap:11 accepts=56 wd=128 cheap=128 frame=0
+14 19 12 17 11 20 18 13 0 16 15 24 23 22 21 5 9 3 2 6 10 4 7 8 1
+# cand#39 seed=frame#30 restart=1 perturb=8 ops=3cyc:85,dswap:43 accepts=128 wd=128 cheap=128 frame=0
+23 24 15 22 12 19 0 14 11 21 18 13 20 17 16 8 10 9 7 6 4 3 5 1 2
+# cand#40 seed=frame#2 restart=2 perturb=8 ops=3cyc:18,dswap:8 accepts=26 wd=128 cheap=128 frame=0
+15 19 23 12 21 20 18 24 17 16 3 13 14 22 11 5 0 4 7 1 10 8 9 2 6
+# cand#41 seed=frame#38 restart=1 perturb=8 ops=3cyc:68,dswap:31 accepts=99 wd=128 cheap=128 frame=0
+19 24 23 22 21 18 20 15 16 17 8 14 0 11 12 9 13 10 6 7 4 3 5 1 2
+# cand#42 seed=frame#29 restart=1 perturb=8 ops=3cyc:75,dswap:21 accepts=96 wd=128 cheap=128 frame=0
+20 14 13 17 21 15 19 18 12 11 5 24 23 22 16 4 9 2 0 1 10 8 3 7 6
+# cand#43 seed=frame#11 restart=3 perturb=8 ops=3cyc:74,dswap:39 accepts=113 wd=128 cheap=128 frame=0
+24 19 23 22 21 18 14 20 16 11 10 15 13 17 12 9 0 8 7 6 5 4 3 2 1
+# cand#44 seed=frame#10 restart=3 perturb=8 ops=3cyc:29,dswap:13 accepts=42 wd=128 cheap=128 frame=0
+24 14 23 22 21 20 19 18 17 16 15 10 13 12 6 5 0 3 2 1 4 9 8 7 11
+# cand#45 seed=frame#37 restart=0 perturb=0 ops=3cyc:129,dswap:39 accepts=168 wd=126 cheap=126 frame=0
+0 24 18 17 16 23 19 20 22 21 13 4 14 11 12 3 15 5 7 1 9 10 8 2 6
+# cand#46 seed=frame#26 restart=0 perturb=0 ops=3cyc:108,dswap:52 accepts=160 wd=126 cheap=126 frame=0
+0 24 21 22 23 14 20 18 16 17 19 15 11 13 12 10 3 9 7 6 4 5 2 1 8
+# cand#47 seed=frame#11 restart=2 perturb=8 ops=3cyc:117,dswap:41 accepts=158 wd=126 cheap=126 frame=0
+0 24 23 17 16 20 19 18 21 22 10 3 9 12 11 5 13 14 7 6 15 4 8 2 1
+# cand#48 seed=frame#5 restart=2 perturb=8 ops=3cyc:23,dswap:6 accepts=29 wd=126 cheap=126 frame=0
+13 14 15 22 16 18 0 19 17 12 20 24 23 11 21 4 5 3 7 2 8 10 9 1 6
+# cand#49 seed=frame#38 restart=2 perturb=8 ops=3cyc:74,dswap:36 accepts=110 wd=126 cheap=126 frame=0
+13 19 0 16 21 15 23 14 11 12 20 24 18 22 17 3 9 4 2 7 8 5 10 1 6
+# cand#50 seed=frame#10 restart=1 perturb=8 ops=3cyc:67,dswap:20 accepts=87 wd=126 cheap=126 frame=0
+13 19 14 21 12 24 0 23 16 17 20 15 18 22 11 5 3 4 1 2 8 9 10 6 7
+# cand#51 seed=frame#25 restart=3 perturb=8 ops=3cyc:77,dswap:18 accepts=95 wd=126 cheap=126 frame=0
+13 24 12 18 0 19 15 22 17 21 14 20 23 11 16 10 9 7 1 8 4 5 2 6 3
+# cand#52 seed=frame#15 restart=2 perturb=8 ops=3cyc:30,dswap:14 accepts=44 wd=126 cheap=126 frame=0
+13 24 23 22 11 20 0 18 17 21 10 9 19 2 16 5 8 4 7 1 15 3 14 12 6
+# cand#53 seed=frame#24 restart=2 perturb=8 ops=3cyc:38,dswap:9 accepts=47 wd=126 cheap=126 frame=0
+18 14 23 22 16 13 24 15 11 17 19 9 20 21 12 5 8 4 1 6 0 3 10 7 2
+# cand#54 seed=frame#36 restart=3 perturb=8 ops=3cyc:50,dswap:14 accepts=64 wd=126 cheap=126 frame=0
+14 15 13 21 16 20 23 19 11 22 4 18 24 17 12 3 9 5 7 6 0 10 8 2 1
+# cand#55 seed=frame#27 restart=1 perturb=8 ops=3cyc:118,dswap:57 accepts=175 wd=126 cheap=126 frame=0
+18 24 0 16 12 14 19 13 22 21 23 15 20 11 17 8 4 3 1 6 5 10 9 2 7
+# cand#56 seed=frame#1 restart=1 perturb=8 ops=3cyc:94,dswap:44 accepts=138 wd=126 cheap=126 frame=0
+18 23 19 21 22 15 20 24 16 17 9 13 8 11 12 14 0 10 2 6 3 4 5 1 7
+# cand#57 seed=frame#6 restart=2 perturb=8 ops=3cyc:53,dswap:17 accepts=70 wd=126 cheap=126 frame=0
+18 13 23 16 0 15 14 20 12 11 19 24 17 21 22 3 8 4 6 1 5 9 10 7 2
+# cand#58 seed=frame#26 restart=3 perturb=8 ops=3cyc:115,dswap:50 accepts=165 wd=126 cheap=126 frame=0
+23 24 18 17 22 13 0 20 12 11 15 14 19 16 21 4 3 5 6 1 8 9 10 2 7
+# cand#59 seed=frame#16 restart=2 perturb=8 ops=3cyc:88,dswap:33 accepts=121 wd=126 cheap=126 frame=0
+15 14 11 12 0 20 19 23 17 13 24 18 16 21 22 10 5 1 3 8 9 4 7 2 6
+# cand#60 seed=frame#12 restart=3 perturb=8 ops=3cyc:66,dswap:20 accepts=86 wd=126 cheap=126 frame=0
+23 21 24 11 22 18 0 15 19 12 14 20 13 17 16 8 9 10 6 7 3 4 5 1 2
+# cand#61 seed=frame#14 restart=2 perturb=8 ops=3cyc:49,dswap:18 accepts=67 wd=126 cheap=126 frame=0
+23 24 14 21 22 18 20 19 12 17 10 15 8 16 7 9 0 13 11 6 4 3 5 2 1
+# cand#62 seed=frame#7 restart=3 perturb=8 ops=3cyc:120,dswap:48 accepts=168 wd=126 cheap=126 frame=0
+15 18 19 12 0 14 24 20 16 17 13 23 11 21 22 5 9 3 6 1 4 8 10 2 7
+# cand#63 seed=frame#24 restart=3 perturb=8 ops=3cyc:79,dswap:31 accepts=110 wd=126 cheap=126 frame=0
+23 15 18 11 12 14 0 13 21 16 24 19 20 22 17 4 10 5 7 6 9 8 3 1 2
+# cand#64 seed=frame#8 restart=2 perturb=8 ops=3cyc:108,dswap:27 accepts=135 wd=126 cheap=126 frame=0
+23 14 0 11 22 19 24 13 12 21 20 15 18 16 17 4 10 8 1 6 9 5 3 7 2
+# cand#65 seed=frame#33 restart=2 perturb=8 ops=3cyc:80,dswap:28 accepts=108 wd=126 cheap=126 frame=0
+15 19 24 17 16 20 0 13 22 21 8 23 18 7 6 5 4 14 12 11 10 3 9 2 1
+# cand#66 seed=frame#22 restart=1 perturb=8 ops=3cyc:54,dswap:18 accepts=72 wd=126 cheap=126 frame=0
+23 18 14 12 22 24 0 19 17 16 13 20 15 21 11 8 5 3 7 1 10 4 9 2 6
+# cand#67 seed=frame#33 restart=1 perturb=8 ops=3cyc:81,dswap:32 accepts=113 wd=126 cheap=126 frame=0
+15 23 0 22 21 19 20 24 16 17 18 14 13 11 12 5 3 4 6 2 10 8 9 7 1
+# cand#68 seed=frame#0 restart=1 perturb=8 ops=3cyc:71,dswap:25 accepts=96 wd=126 cheap=126 frame=0
+15 24 22 17 11 19 13 23 12 16 20 18 14 7 21 5 3 9 4 1 10 8 0 2 6
+# cand#69 seed=frame#21 restart=3 perturb=8 ops=3cyc:21,dswap:8 accepts=29 wd=126 cheap=126 frame=0
+19 20 18 11 22 13 0 24 12 16 23 15 14 17 21 4 8 9 7 6 5 10 3 2 1
+# cand#70 seed=frame#8 restart=1 perturb=8 ops=3cyc:45,dswap:18 accepts=63 wd=126 cheap=126 frame=0
+19 13 23 17 22 15 0 20 12 21 18 14 24 11 16 4 3 10 6 1 9 8 5 7 2
+# cand#71 seed=frame#3 restart=3 perturb=8 ops=3cyc:60,dswap:28 accepts=88 wd=126 cheap=126 frame=0
+19 20 23 16 22 14 24 18 17 21 8 5 3 11 2 9 10 4 6 1 0 13 15 12 7
+# cand#72 seed=frame#38 restart=3 perturb=8 ops=3cyc:64,dswap:28 accepts=92 wd=126 cheap=126 frame=0
+19 24 23 22 21 15 14 13 0 12 20 18 17 11 16 9 10 2 6 8 4 5 3 1 7
+# cand#73 seed=frame#9 restart=2 perturb=8 ops=3cyc:23,dswap:9 accepts=32 wd=126 cheap=126 frame=0
+24 20 23 22 16 13 0 15 11 21 18 14 19 12 17 10 3 9 6 2 4 8 5 1 7
+# cand#74 seed=frame#39 restart=1 perturb=8 ops=3cyc:74,dswap:22 accepts=96 wd=126 cheap=126 frame=0
+24 19 20 21 16 18 23 15 17 22 9 5 13 1 11 4 8 3 12 6 0 10 14 2 7
+# cand#75 seed=frame#31 restart=2 perturb=8 ops=3cyc:42,dswap:16 accepts=58 wd=126 cheap=126 frame=0
+24 13 23 11 16 18 0 19 12 17 15 14 20 22 21 8 9 4 6 1 5 3 10 7 2
+# cand#76 seed=frame#17 restart=1 perturb=8 ops=3cyc:131,dswap:45 accepts=176 wd=126 cheap=126 frame=0
+24 18 14 16 21 23 19 13 12 11 0 15 20 17 22 9 4 10 1 7 8 5 3 2 6
+# cand#77 seed=frame#20 restart=1 perturb=8 ops=3cyc:53,dswap:24 accepts=77 wd=126 cheap=126 frame=0
+20 15 18 11 12 23 0 19 21 17 24 14 13 22 16 5 10 8 6 1 3 9 4 2 7
+# cand#78 seed=frame#6 restart=1 perturb=8 ops=3cyc:67,dswap:21 accepts=88 wd=126 cheap=126 frame=0
+24 14 18 12 22 23 19 13 21 11 10 15 20 17 16 9 8 5 1 7 0 3 4 6 2
+# cand#79 seed=frame#34 restart=2 perturb=8 ops=3cyc:25,dswap:13 accepts=38 wd=126 cheap=126 frame=0
+24 18 23 11 17 14 15 13 22 16 20 19 3 21 12 8 9 4 7 1 0 10 5 6 2
+# cand#80 seed=frame#25 restart=2 perturb=8 ops=3cyc:39,dswap:11 accepts=50 wd=126 cheap=126 frame=0
+20 19 22 18 11 15 24 12 0 16 14 23 17 13 21 10 5 2 3 1 4 9 8 6 7
+# cand#81 seed=frame#31 restart=1 perturb=8 ops=3cyc:110,dswap:40 accepts=150 wd=126 cheap=126 frame=0
+20 23 0 16 12 18 19 15 21 17 13 24 14 11 22 5 4 3 7 1 9 8 10 2 6
+# cand#82 seed=frame#32 restart=1 perturb=8 ops=3cyc:49,dswap:18 accepts=67 wd=126 cheap=126 frame=0
+24 14 22 23 21 15 20 17 0 18 13 19 12 16 11 10 4 8 7 6 9 5 1 2 3
+# cand#83 seed=frame#22 restart=2 perturb=8 ops=3cyc:133,dswap:60 accepts=193 wd=126 cheap=126 frame=0
+20 24 23 21 22 19 14 15 12 17 0 13 18 7 11 10 8 4 16 6 3 9 5 1 2
+# cand#84 seed=frame#12 restart=1 perturb=8 ops=3cyc:40,dswap:11 accepts=51 wd=124 cheap=124 frame=0
+0 19 24 21 16 13 9 18 11 22 23 14 20 7 17 10 8 15 6 12 3 5 4 1 2
+# cand#85 seed=frame#6 restart=0 perturb=0 ops=3cyc:21,dswap:6 accepts=27 wd=124 cheap=124 frame=0
+0 19 24 23 22 13 15 18 11 17 14 12 20 21 16 10 3 4 1 6 5 8 9 7 2
+# cand#86 seed=frame#19 restart=0 perturb=0 ops=3cyc:37,dswap:10 accepts=47 wd=124 cheap=124 frame=0
+0 13 24 11 21 23 18 20 16 22 4 19 3 17 1 5 9 14 2 7 8 10 15 12 6
+# cand#87 seed=frame#27 restart=0 perturb=0 ops=3cyc:6,dswap:2 accepts=8 wd=124 cheap=124 frame=0
+0 14 19 17 21 15 24 18 11 22 23 13 9 16 12 8 20 5 6 7 10 4 3 2 1
+# cand#88 seed=frame#23 restart=0 perturb=0 ops=3cyc:45,dswap:17 accepts=62 wd=124 cheap=124 frame=0
+0 20 14 12 16 23 15 21 17 22 19 13 24 18 11 9 4 7 8 6 5 10 1 3 2
+# cand#89 seed=frame#20 restart=0 perturb=0 ops=3cyc:34,dswap:10 accepts=44 wd=124 cheap=124 frame=0
+0 19 15 6 22 23 24 13 12 17 20 18 14 21 16 4 9 10 11 1 3 5 8 7 2
+# cand#90 seed=frame#25 restart=0 perturb=0 ops=3cyc:62,dswap:18 accepts=80 wd=124 cheap=124 frame=0
+0 18 14 16 22 24 20 23 21 17 19 3 10 1 11 5 15 9 6 7 13 4 8 2 12
+# cand#91 seed=frame#31 restart=0 perturb=0 ops=3cyc:100,dswap:39 accepts=139 wd=124 cheap=124 frame=0
+0 19 16 23 22 14 15 12 13 21 20 18 24 17 11 9 4 2 8 6 10 5 7 1 3
+# cand#92 seed=frame#5 restart=0 perturb=0 ops=3cyc:16,dswap:5 accepts=21 wd=124 cheap=124 frame=0
+0 23 20 16 17 19 24 18 7 22 15 14 13 11 21 9 8 3 6 12 5 4 10 2 1
+# cand#93 seed=frame#32 restart=0 perturb=0 ops=3cyc:11,dswap:6 accepts=17 wd=124 cheap=124 frame=0
+0 23 24 13 17 19 14 18 12 11 15 22 20 16 21 10 9 5 2 6 3 8 4 1 7
+# cand#94 seed=frame#3 restart=1 perturb=8 ops=3cyc:49,dswap:23 accepts=72 wd=124 cheap=124 frame=0
+0 19 23 22 17 20 18 24 16 12 14 5 15 21 1 10 13 3 11 7 9 8 4 2 6
+# cand#95 seed=frame#14 restart=0 perturb=0 ops=3cyc:58,dswap:21 accepts=79 wd=124 cheap=124 frame=0
+0 20 18 16 22 24 14 23 17 12 19 9 13 11 21 4 5 3 6 7 10 15 8 2 1
+# cand#96 seed=frame#7 restart=0 perturb=0 ops=3cyc:30,dswap:9 accepts=39 wd=124 cheap=124 frame=0
+0 23 18 11 21 24 14 13 22 17 19 10 20 16 7 9 15 3 1 2 4 8 5 6 12
+# cand#97 seed=frame#18 restart=0 perturb=0 ops=3cyc:107,dswap:42 accepts=149 wd=124 cheap=124 frame=0
+0 20 22 17 21 15 19 12 13 11 24 14 16 23 18 9 5 10 8 1 4 3 7 2 6
+# cand#98 seed=frame#34 restart=0 perturb=0 ops=3cyc:33,dswap:7 accepts=40 wd=124 cheap=124 frame=0
+0 24 13 22 21 20 23 19 16 11 8 18 10 17 6 9 3 4 7 1 14 5 15 2 12
+# cand#99 seed=frame#15 restart=0 perturb=0 ops=3cyc:28,dswap:8 accepts=36 wd=124 cheap=124 frame=0
+0 24 14 21 16 20 15 19 17 11 18 13 12 23 22 9 10 7 8 3 5 4 2 6 1

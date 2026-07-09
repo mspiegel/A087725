@@ -26,3 +26,14 @@ wd         146      144           36,890,557,179   289.5       127.43         de
 #   zpdb is worse (126). The ~5.4/ply branching comes from WD's gap (140) to true (>=152);
 #   closing it needs a Rokicki-class heuristic (huge PDBs), out of scope for one 32 GiB box.
 #   Feasible validation targets: >= 148 (~2h) or >= 150 (~2-3 days). Current best: >= 146.
+
+# ---- Phase-2A EXECUTED 2026-07-08: proved R >= 148 (exhaust threshold 146) ----
+# solve24 --heuristic wd --parallel --prove-at-least 148, RAYON_NUM_THREADS=8.
+heuristic  prove>=  exhausts_thr        nodes     wall_s   throughput_Mn/s   result
+wd         148      146          998,032,462,960   6828.4       146.16        depth >= 148
+#
+# VALIDATION of the ~29x/+2 model: predicted total@146 ~= 1.1T nodes / ~2.2h.
+#   Actual: 0.998T nodes / 1.90h at 146 Mn/s -> within ~10% on nodes, faster on wall
+#   (throughput 146 vs the 138 Mn/s the extrapolation assumed). The node-growth model
+#   holds; ~29x/+2 confirmed. New best proven lower bound on R: depth >= 148.
+#   (>=150 would be ~29x more = ~29T nodes / ~2.6 days; still deferred. 152 infeasible.)
