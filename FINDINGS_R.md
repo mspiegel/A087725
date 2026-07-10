@@ -30,7 +30,8 @@ A087725; Rokicki / Hannanov):
 
 So `optimal(R)` is unknown in `[152, 156]`. The exact value is an open problem;
 optimally solving a WD-140 board is at/beyond the edge of feasibility (proving
-≥ 152 on a single 32 GiB machine was calibrated at ~75 days; ≥ 156 at ~10⁸ years).
+≥ 152 on a single 32 GiB machine was calibrated at ~75 days — since cut to ~2–3
+weeks by the cWD heuristic, §8; ≥ 156 at ~10⁸ years).
 
 We attack the **upper bound**: find the shortest solution a *general* learned
 solver can produce, and see how close a method with no hand-tuned knowledge of R
@@ -142,8 +143,9 @@ the gap means either:
 - **Finding a shorter solution** — but the learned upper-bound side is near its
   ceiling: frame boards cap at true depth ~162, and a bigger-capacity net or
   optimal bidirectional search would be a large investment with uncertain payoff;
-- **Proving the lower bound higher** — infeasible on this hardware (≥154 ≈ years),
-  and it wouldn't lower our solution anyway.
+- **Proving the lower bound higher** — the cWD heuristic (§8) has since made this
+  far cheaper (reaching the published 152 is now a ~2–3-week run rather than ~75
+  days), but a higher proven floor still would not lower *our* solution.
 
 We have matched the published frontier with a general method; the remaining four
 moves are a research problem, not an engineering one.
@@ -205,7 +207,68 @@ estimation, non-R-anchored deep-board generation), not as a lever to push R belo
 Reproducibility: `train_pairnet` / `solve_ff --fwd-checkpoint`; net `data/ml24_pair`;
 pairs regenerable via `gen_corridors --mode frame --pairs-out`.
 
-## 8. Summary
+## 8. The other half: accelerating the *lower*-bound proof with cWD
+
+Everything above pushes R's solution *down* toward the floor. The complementary
+question is how high we can prove the floor *is* — an exhaustive IDA\* that certifies
+no solution shorter than `N` exists. On this machine the proven bound had reached
+**R ≥ 148** (2026-07-08; WD, 998 B nodes, 1.90 h), and reaching the published 152
+was calibrated at **~75 days** — infeasible. The lever is a stronger *admissible*
+heuristic: every extra unit of `h` prunes the exhaustive tree geometrically.
+
+**cWD — escape-constrained Walking Distance.** WD is exact on the row/column
+sorting relaxation but blind to one thing: tiles that belong in a row yet sit there
+in reversed order cannot sort *in place* — some must physically leave the row and
+re-enter. cWD adds exactly that as a *side constraint* on WD's own move budget
+(never an addend, so admissibility is preserved): for each goal line `g`, any plan
+must make at least `x_g = residents − LIS(their goal-cross order)` escape moves.
+On R this gives `cWD(R) = 144` (WD 140 + 4). The forced-escape bound that makes it
+sound is **machine-checked in Lean 4 / mathlib** (`proofs/puzzle15-wd`, no `sorry`;
+Manhattan and WD admissibility too) — correctness insurance, since a mis-derived
+heuristic would certify a *false* lower bound.
+
+**From +4 at the root to a fast solver.** A root gain is worthless if it doesn't
+propagate. Sampling R's actual search tree measured the per-node surcharge
+`δ = cWD − WD`: **node-weighted `δ̄ ≈ 4.26`** over a fully-exhausted iteration — the
++4 is tree-wide, not an R-special case. That justified building a table:
+- the full sharp multi-line table is memory-infeasible, but a **single-line-max**
+  approximation retains **98%** of the node-weighted gain (measured) and *is*
+  buildable — a per-contingency surcharge curve over all 65.65 M WD states
+  (`data/cwd_single.bin`, SHA-pinned; validated three ways, including matching a
+  reference constrained-A\* on thousands of entries and reproducing WD exactly on
+  every contingency);
+- an **incremental evaluator** (a move changes at most one line's demand) brings
+  per-node cost to **within ~6% of WD**, verified against full recompute over
+  30 000 make/unmake steps.
+
+**Measured on R** (parallel, 8 threads; each row is the same exhaustive proof):
+
+| proof | exhausts thr | WD | cWD | node reduction | wall speedup |
+|---|---|---|---|---|---|
+| R ≥ 146 | 144 | 36.9 B / 4.8 min | 1.78 B / 14.9 s | **20.7×** | **19.4×** |
+| R ≥ 148 | 146 | 998 B / 1.90 h | 85.1 B / 10.8 min | **11.7×** | **10.5×** |
+
+cWD re-proved the current record (R ≥ 148) in **11 minutes** instead of 2 hours.
+
+**The honest caveat — the reduction decays with depth.** 20.7× at exhaust-144
+fell to 11.7× at exhaust-146 (~1.8× per +2 threshold): deeper searches admit more
+near-solved, low-surcharge nodes, diluting the gain. Extrapolating the *shallow*
+number overstates the deep proofs. Tempered (2-point decay, may plateau):
+
+- **R ≥ 150** (exhaust 148): ~6× wall → **~10 hours**
+- **R ≥ 152** (exhaust 150): ~3–4× wall → **~2–3 weeks**
+
+So cWD does not *lower* R's solution (§6's upper-bound problem), but it turns the
+lower-bound proof toward the published 152 from *infeasible* (~75 days) into a
+**feasible multi-week run** — the first time reaching the published floor is on the
+table for this hardware.
+
+*Reproducibility:* `solve24 --heuristic cwd --prove-at-least N --parallel`; table
+build `examples/build_cwd_table.rs` → `data/cwd_single.bin`; heuristic
+`src/puzzle24/search/cwd.rs`; soundness `proofs/puzzle15-wd`; calibration
+`data/phase2a_calibration.txt`.
+
+## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
 experiments — generator-as-search, the residual counterexample, front-to-front
