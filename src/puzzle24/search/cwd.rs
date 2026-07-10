@@ -436,22 +436,262 @@ impl IncHeuristic for Cwd {
     }
 }
 
-/// The hot path: the scratch buffer lives in the context and is reused across the
-/// whole search, so per-node evaluation allocates nothing.
+// ---- incremental evaluator (fast path) --------------------------------------
+
+/// Forced-escape demand of physical row `g`: residents (goal-row-`g` tiles in
+/// row `g`) minus the LIS of their goal columns (read in physical-column order).
+#[inline]
+fn demand_row_line(s: &State, g: usize) -> u8 {
+    let mut seq = [0u8; W];
+    let mut n = 0usize;
+    for c in 0..W {
+        let tile = s.0[g * W + c];
+        if tile == 0 {
+            continue;
+        }
+        let gp = (tile - 1) as usize;
+        if gp / W == g {
+            seq[n] = (gp % W) as u8;
+            n += 1;
+        }
+    }
+    (n - lis_strict(&seq[..n])) as u8
+}
+
+/// Forced-escape demand of physical column `g` (symmetric: goal-row order).
+#[inline]
+fn demand_col_line(s: &State, g: usize) -> u8 {
+    let mut seq = [0u8; W];
+    let mut n = 0usize;
+    for r in 0..W {
+        let tile = s.0[r * W + g];
+        if tile == 0 {
+            continue;
+        }
+        let gp = (tile - 1) as usize;
+        if gp % W == g {
+            seq[n] = (gp / W) as u8;
+            n += 1;
+        }
+    }
+    (n - lis_strict(&seq[..n])) as u8
+}
+
+/// Incrementally-maintained per-node state for the fast (merged-table) path.
+#[derive(Clone, Copy)]
+pub struct CwdState {
+    m_row: Matrix,
+    m_col: Matrix,
+    br: u8,
+    bc: u8,
+    dem_row: [u8; W],
+    dem_col: [u8; W],
+    wd_row: u8,
+    wd_col: u8,
+    curves_row: [u16; W],
+    curves_col: [u16; W],
+    surch_row: u8,
+    surch_col: u8,
+}
+
+impl CwdState {
+    #[inline]
+    fn h(&self) -> u8 {
+        self.wd_row + self.surch_row + self.wd_col + self.surch_col
+    }
+}
+
+/// One undo frame: the changed axis's matrix cell-pair, the pre-move blank, the
+/// (at most one) changed demand, and the pre-move cached WD/surcharge/curves for
+/// that axis. Reversing is O(1). `demline == 255` ⇒ no demand changed.
+struct CwdUndo {
+    vertical: bool,
+    i: u8,
+    j: u8,
+    g: u8,
+    br: u8,
+    bc: u8,
+    demline: u8,
+    demold: u8,
+    wd: u8,
+    surch: u8,
+    curves: [u16; W],
+}
+
+/// The hot-path context: the incremental state, an undo stack, and a scratch for
+/// the A\* fallback (only used when no merged table is loaded).
+pub struct CwdMutCtx {
+    state: CwdState,
+    undo: Vec<CwdUndo>,
+    scratch: CwdScratch,
+}
+
+impl Cwd {
+    /// Build the full incremental state for the root (used by the fast path).
+    fn root_state(&self, s: &State) -> CwdState {
+        let (m_row, br, dem_row, m_col, bc, dem_col) = project(s);
+        let mg = self.merged.as_ref().expect("root_state needs merged table");
+        let r = mg.get(&pack(&m_row, br)).expect("row reachable");
+        let c = mg.get(&pack(&m_col, bc)).expect("col reachable");
+        CwdState {
+            m_row,
+            m_col,
+            br,
+            bc,
+            dem_row,
+            dem_col,
+            wd_row: r.wd,
+            wd_col: c.wd,
+            curves_row: r.curves,
+            curves_col: c.curves,
+            surch_row: surcharge_from_curves(&r.curves, &dem_row),
+            surch_col: surcharge_from_curves(&c.curves, &dem_col),
+        }
+    }
+}
+
 impl IncHeuristicMut for Cwd {
-    type Ctx = CwdScratch;
+    type Ctx = CwdMutCtx;
 
-    fn root(&self, s: &State) -> (u8, CwdScratch) {
+    fn root(&self, s: &State) -> (u8, CwdMutCtx) {
         let mut scratch = CwdScratch::new();
-        let h = self.eval(s, &mut scratch);
-        (h, scratch)
+        if self.merged.is_some() {
+            let state = self.root_state(s);
+            (state.h(), CwdMutCtx { state, undo: Vec::with_capacity(220), scratch })
+        } else {
+            let h = self.eval(s, &mut scratch);
+            // dummy state (unused on the A* path)
+            let state = CwdState {
+                m_row: [[0; W]; W],
+                m_col: [[0; W]; W],
+                br: 0,
+                bc: 0,
+                dem_row: [0; W],
+                dem_col: [0; W],
+                wd_row: 0,
+                wd_col: 0,
+                curves_row: [0; W],
+                curves_col: [0; W],
+                surch_row: 0,
+                surch_col: 0,
+            };
+            (h, CwdMutCtx { state, undo: Vec::new(), scratch })
+        }
     }
 
-    fn make(&self, ctx: &mut CwdScratch, child: &State, _m: Move) -> u8 {
-        self.eval(child, ctx)
+    fn make(&self, ctx: &mut CwdMutCtx, child: &State, m: Move) -> u8 {
+        let mg = match &self.merged {
+            Some(mg) => mg,
+            None => return self.eval(child, &mut ctx.scratch), // A* fallback
+        };
+        let st = &mut ctx.state;
+        let parent_blank = st.br as usize * W + st.bc as usize;
+        let delta: i32 = match m {
+            Move::Up => -(W as i32),
+            Move::Down => W as i32,
+            Move::Left => -1,
+            Move::Right => 1,
+        };
+        let from_cell = (parent_blank as i32 + delta) as usize;
+        let to_cell = parent_blank;
+        let tile = child.0[to_cell];
+        let gp = (tile - 1) as usize;
+        let gr = gp / W;
+        let gc = gp % W;
+        let rf = from_cell / W;
+        let rt = to_cell / W;
+        let cf = from_cell % W;
+        let ct = to_cell % W;
+        let mut undo = CwdUndo {
+            vertical: rf != rt,
+            i: 0,
+            j: 0,
+            g: 0,
+            br: st.br,
+            bc: st.bc,
+            demline: 255,
+            demold: 0,
+            wd: 0,
+            surch: 0,
+            curves: [0; W],
+        };
+        if rf != rt {
+            // vertical slide: only the row axis (contingency, blank-row) changes
+            undo.wd = st.wd_row;
+            undo.surch = st.surch_row;
+            undo.curves = st.curves_row;
+            st.m_row[rf][gr] -= 1;
+            st.m_row[rt][gr] += 1;
+            undo.i = rf as u8;
+            undo.j = rt as u8;
+            undo.g = gr as u8;
+            // the moved tile's own goal-line is the only demand that can change,
+            // and only when it enters or leaves its own physical line
+            if gr == rf || gr == rt {
+                undo.demline = gr as u8;
+                undo.demold = st.dem_row[gr];
+                st.dem_row[gr] = demand_row_line(child, gr);
+            }
+            st.br = rf as u8;
+            st.bc = cf as u8;
+            let cell = mg.get(&pack(&st.m_row, st.br)).expect("row reachable");
+            st.wd_row = cell.wd;
+            st.curves_row = cell.curves;
+            st.surch_row = surcharge_from_curves(&st.curves_row, &st.dem_row);
+        } else {
+            // horizontal slide: only the column axis changes
+            undo.wd = st.wd_col;
+            undo.surch = st.surch_col;
+            undo.curves = st.curves_col;
+            st.m_col[cf][gc] -= 1;
+            st.m_col[ct][gc] += 1;
+            undo.i = cf as u8;
+            undo.j = ct as u8;
+            undo.g = gc as u8;
+            if gc == cf || gc == ct {
+                undo.demline = gc as u8;
+                undo.demold = st.dem_col[gc];
+                st.dem_col[gc] = demand_col_line(child, gc);
+            }
+            st.br = rf as u8;
+            st.bc = cf as u8;
+            let cell = mg.get(&pack(&st.m_col, st.bc)).expect("col reachable");
+            st.wd_col = cell.wd;
+            st.curves_col = cell.curves;
+            st.surch_col = surcharge_from_curves(&st.curves_col, &st.dem_col);
+        }
+        ctx.undo.push(undo);
+        st.h()
     }
 
-    fn unmake(&self, _ctx: &mut CwdScratch, _m: Move) {}
+    fn unmake(&self, ctx: &mut CwdMutCtx, _m: Move) {
+        if self.merged.is_none() {
+            return;
+        }
+        let u = ctx.undo.pop().expect("unmake without matching make");
+        let st = &mut ctx.state;
+        if u.vertical {
+            st.m_row[u.i as usize][u.g as usize] += 1;
+            st.m_row[u.j as usize][u.g as usize] -= 1;
+            st.wd_row = u.wd;
+            st.surch_row = u.surch;
+            st.curves_row = u.curves;
+            if u.demline != 255 {
+                st.dem_row[u.demline as usize] = u.demold;
+            }
+        } else {
+            st.m_col[u.i as usize][u.g as usize] += 1;
+            st.m_col[u.j as usize][u.g as usize] -= 1;
+            st.wd_col = u.wd;
+            st.surch_col = u.surch;
+            st.curves_col = u.curves;
+            if u.demline != 255 {
+                st.dem_col[u.demline as usize] = u.demold;
+            }
+        }
+        st.br = u.br;
+        st.bc = u.bc;
+    }
 }
 
 #[cfg(test)]
@@ -482,6 +722,57 @@ mod tests {
     fn cwd_of_r_is_144() {
         let Some(cwd) = table_or_skip() else { return };
         assert_eq!(cwd.h(&r_board()), 144);
+    }
+
+    /// Needs both tables (WD + merged surcharge overlay) for the fast path.
+    fn cwd_merged_or_skip() -> Option<Cwd> {
+        if Path::new("data/wd24.bin").exists() && Path::new("data/cwd_single.bin").exists() {
+            let c = Cwd::new();
+            if c.has_overlay() {
+                return Some(c);
+            }
+        }
+        eprintln!("data tables absent — skipping incremental cWD test");
+        None
+    }
+
+    /// The incremental evaluator must return exactly the same `h` as a fresh full
+    /// evaluation, at every node of a random walk with backtracking (so both
+    /// `make` and `unmake` are exercised).
+    #[test]
+    fn incremental_matches_full_on_random_walk() {
+        use crate::puzzle24::search::idastar::IncHeuristicMut;
+        let Some(cwd) = cwd_merged_or_skip() else { return };
+        let mut scratch = CwdScratch::new();
+        let start = r_board();
+        let (h0, mut ctx) = IncHeuristicMut::root(&cwd, &start);
+        assert_eq!(h0, cwd.eval(&start, &mut scratch), "root h mismatch");
+        let mut rng: u64 = 0x1234_5678_9abc_def0;
+        let mut nextr = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let mut s = start;
+        let mut path: Vec<Move> = Vec::new();
+        for _ in 0..30000 {
+            let descend = path.is_empty() || (path.len() < 60 && nextr() & 1 == 0);
+            if descend {
+                let moves: Vec<Move> = s.legal_moves().iter().collect();
+                let m = moves[(nextr() as usize) % moves.len()];
+                let child = s.apply(m);
+                let h_inc = IncHeuristicMut::make(&cwd, &mut ctx, &child, m);
+                let h_full = cwd.eval(&child, &mut scratch);
+                assert_eq!(h_inc, h_full, "incremental {h_inc} != full {h_full} on move {m:?}");
+                s = child;
+                path.push(m);
+            } else {
+                let m = path.pop().unwrap();
+                IncHeuristicMut::unmake(&cwd, &mut ctx, m);
+                s = s.apply(m.inverse());
+            }
+        }
     }
 
     #[test]
