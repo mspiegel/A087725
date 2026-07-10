@@ -37,3 +37,14 @@ wd         148      146          998,032,462,960   6828.4       146.16        de
 #   (throughput 146 vs the 138 Mn/s the extrapolation assumed). The node-growth model
 #   holds; ~29x/+2 confirmed. New best proven lower bound on R: depth >= 148.
 #   (>=150 would be ~29x more = ~29T nodes / ~2.6 days; still deferred. 152 infeasible.)
+
+# ---- cWD (incremental, single-line surcharge table) 2026-07-09: R >= 148 ----
+# solve24 --heuristic cwd --parallel --prove-at-least 148, RAYON_NUM_THREADS=8.
+heuristic  prove>=  exhausts_thr        nodes     wall_s   throughput_Mn/s   result
+cwd        148      146           85,109,429,786    649.5       131.03        depth >= 148
+#
+# vs WD (998.0B / 6828.4s): 11.73x fewer nodes, 10.51x faster wall (cWD per-node
+# 0.90x of WD). NODE REDUCTION DECAYS WITH THRESHOLD: 20.7x at exhaust-144 (prove
+# >=146) -> 11.7x at exhaust-146 (prove >=148), ~1.8x/+2thr. Tempered extrap:
+# >=150 (exhaust 148) ~6x wall ~10h; >=152 (exhaust 150) ~3-4x wall ~2-3 weeks
+# (feasible vs WD's 75d, but weeks not days). Reduction may plateau — measure >=150.
