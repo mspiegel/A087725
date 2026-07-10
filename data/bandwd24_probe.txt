@@ -1,0 +1,28 @@
+loading row-WD table from data/wd24.bin …
+row-WD 65650495 entries; bucket-WD 1785 entries; 1.9s
+sanity OK (h(goal)=0, band-WD(goal)=0, pack round-trips)
+admissibility spot-check OK (40 shallow boards: band-WD ≤ dist, ≥ WD_row+WD_bkt)
+
+== R (double antipode) ==
+  WD_full(R)      = WD_row 70 + WD_col 70 = 140
+  WD_row+WD_bkt   = 70 + 42 = 112  (band-WD floor)
+  running band-WD A* on R (cap 120M states)…
+  band-WD(R)     ≥ 114   (capped; 114 vs WD_full 140: -26)   [120000002 closed, 36712952 pops, 71.5s]
+
+== random deep boards (walk length 120) ==
+  #00: band-WD 53  WD_full 60 (-7)   [18824940 closed]
+  #01: band-WD 37  WD_full 40 (-3)   [2265284 closed]
+  #02: band-WD 35  WD_full 44 (-9)   [46280 closed]
+  #03: band-WD 39  WD_full 44 (-5)   [588024 closed]
+  #04: band-WD 43  WD_full 48 (-5)   [171124 closed]
+  #05: band-WD 47  WD_full 50 (-3)   [5841959 closed]
+  #06: band-WD 57  WD_full 66 (-9)   [710607 closed]
+  #07: band-WD 45  WD_full 56 (-11)   [729458 closed]
+  #08: band-WD ≥ 46 (capped)  WD_full 46   [25000004 closed]
+  #17: band-WD ≥ 55 (capped)  WD_full 60   [25000003 closed]
+  #30: band-WD ≥ 50 (capped)  WD_full 52   [25000003 closed]
+  #49: band-WD ≥ 51 (capped)  WD_full 52   [25000001 closed]
+
+summary: 46/50 solved under cap; band-WD > WD_full in 0 (0%), tie 0, best margin -1
+  mean band-WD 42.3 vs mean WD_full 48.7 (Δ -6.35) over solved boards
+total 189.1s
