@@ -4,6 +4,7 @@ pub mod cwd;
 pub mod heuristic;
 pub mod idastar;
 pub mod linear_conflict;
+pub mod move_dfa;
 pub mod walking_distance;
 
 pub use cwd::{load_cwd_overlay, Cwd, CwdOverlay, CwdScratch};
@@ -22,7 +23,11 @@ pub use idastar::{
     IncHeuristic, IncHeuristicMut, LadderOutcome, SearchStats,
 };
 #[cfg(feature = "parallel")]
-pub use idastar::{idastar_inc_bounded_parallel, idastar_inc_bounded_parallel_mut};
+pub use idastar::{
+    idastar_inc_bounded_parallel, idastar_inc_bounded_parallel_mut,
+    idastar_inc_bounded_parallel_mut_pruned,
+};
+pub use move_dfa::{MoveDfa, MovePruner, NullPruner};
 
 /// Test-only helpers shared across the search tests.
 #[cfg(test)]

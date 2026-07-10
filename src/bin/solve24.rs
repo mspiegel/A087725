@@ -44,9 +44,10 @@ use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
-    idastar_inc_bounded_parallel_mut, idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats,
-    BoundedOutcome, Cwd, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome,
-    LinearConflictInc, MaxInc, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
+    idastar_inc_bounded_parallel_mut, idastar_inc_bounded_parallel_mut_pruned,
+    idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats, BoundedOutcome, Cwd,
+    IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LinearConflictInc, MaxInc, MoveDfa,
+    SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -91,6 +92,9 @@ struct Args {
     max_bound: Option<u8>,
     /// Use the shared-memory parallel IDA* driver (2P).
     parallel: bool,
+    /// Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on the
+    /// heuristic. Applies to the parallel driver; sound for lower-bound proofs.
+    move_dfa: bool,
     /// For `--heuristic select`: pick zpdb-plus (over pure zpdb) when the classical
     /// terms are within this many of the PDB root. `0` = never combine (default).
     combine_slack: u8,
@@ -120,7 +124,7 @@ fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] [--pdb-set k6|k7]\n         \
-         [--max-bound T | --prove-at-least T] [--parallel] [--combine-slack S]",
+         [--max-bound T | --prove-at-least T] [--parallel] [--move-dfa] [--combine-slack S]",
         prog
     );
 }
@@ -133,6 +137,7 @@ fn parse_args() -> Result<Args, String> {
     let mut pdb_set = PdbSet::K6;
     let mut max_bound = None;
     let mut parallel = false;
+    let mut move_dfa = false;
     let mut combine_slack = 0u8;
 
     let argv: Vec<String> = std::env::args().collect();
@@ -196,6 +201,7 @@ fn parse_args() -> Result<Args, String> {
                 max_bound = Some(t - 1);
             }
             "--parallel" => parallel = true,
+            "--move-dfa" => move_dfa = true,
             "--combine-slack" => {
                 i += 1;
                 combine_slack = argv
@@ -209,7 +215,7 @@ fn parse_args() -> Result<Args, String> {
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel, combine_slack })
+    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel, move_dfa, combine_slack })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -313,6 +319,7 @@ fn run_inc<E: IncHeuristic + IncHeuristicMut + Sync>(
     e: &E,
     max_bound: Option<u8>,
     parallel: bool,
+    move_dfa: bool,
     t0: Instant,
 ) -> ExitCode
 where
@@ -320,8 +327,20 @@ where
 {
     if parallel {
         // Shared-memory parallel IDA* (2P). max_bound = None -> unbounded solve.
-        let (outcome, st) =
-            idastar_inc_bounded_parallel_mut(start, e, max_bound.unwrap_or(u8::MAX), None);
+        let mb = max_bound.unwrap_or(u8::MAX);
+        let (outcome, st) = if move_dfa {
+            // Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on top
+            // of the heuristic. Sound for lower-bound proofs; build() self-verifies.
+            let dfa = MoveDfa::build_default();
+            eprintln!(
+                "move-pruning DFA: {} states, {} KiB (L2-resident)",
+                dfa.states(),
+                dfa.table_bytes() / 1024
+            );
+            idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None)
+        } else {
+            idastar_inc_bounded_parallel_mut(start, e, mb, None)
+        };
         let elapsed = t0.elapsed();
         return match outcome {
             LadderOutcome::Solved(s) => {
@@ -444,11 +463,11 @@ fn main() -> ExitCode {
 
     let t0 = Instant::now();
     match args.heuristic {
-        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, t0),
-        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, t0),
+        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, args.move_dfa, t0),
+        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, args.move_dfa, t0),
         HeuristicChoice::Wd => {
             WalkingDistanceHeuristic::warm_up_verbose();
-            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, t0)
+            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, args.move_dfa, t0)
         }
         HeuristicChoice::Cwd => {
             eprintln!("cWD: loading tables…");
@@ -457,7 +476,7 @@ fn main() -> ExitCode {
                 "cWD ready: {} path",
                 if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" }
             );
-            run_inc(&start, &cwd, args.max_bound, args.parallel, t0)
+            run_inc(&start, &cwd, args.max_bound, args.parallel, args.move_dfa, t0)
         }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {
@@ -472,7 +491,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
         }
         HeuristicChoice::Zpdb => {
             let dir = match require_dir(&args, "zpdb") {
@@ -487,7 +506,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
         }
         HeuristicChoice::ZpdbPlus => {
             let dir = match require_dir(&args, "zpdb-plus") {
@@ -504,7 +523,7 @@ fn main() -> ExitCode {
             // Walking Distance needs its (heavy) table built before the search.
             WalkingDistanceHeuristic::warm_up_verbose();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
         }
         HeuristicChoice::Select => {
             let dir = match require_dir(&args, "select") {
@@ -530,16 +549,16 @@ fn main() -> ExitCode {
             match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
                 Pick::Cheap => {
                     println!("Selected       : max(LC,WD)  (cheap_h {} >= zpdb_h {})", cheap_root, zpdb_root);
-                    run_inc(&start, &cheap, args.max_bound, args.parallel, t0)
+                    run_inc(&start, &cheap, args.max_bound, args.parallel, args.move_dfa, t0)
                 }
                 Pick::Zpdb => {
                     println!("Selected       : zpdb  (zpdb_h {} > cheap_h {})", zpdb_root, cheap_root);
-                    run_inc(&start, &zpdb, args.max_bound, args.parallel, t0)
+                    run_inc(&start, &zpdb, args.max_bound, args.parallel, args.move_dfa, t0)
                 }
                 Pick::ZpdbPlus => {
                     println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {})", zpdb_root);
                     let zplus = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-                    run_inc(&start, &zplus, args.max_bound, args.parallel, t0)
+                    run_inc(&start, &zplus, args.max_bound, args.parallel, args.move_dfa, t0)
                 }
             }
         }

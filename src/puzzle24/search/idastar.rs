@@ -24,6 +24,7 @@
 use crate::puzzle24::state::{Move, State, GOAL};
 
 use super::heuristic::Heuristic;
+use super::move_dfa::{MovePruner, NullPruner};
 
 /// Search-effort statistics for a single IDA\* solve.
 ///
@@ -656,18 +657,59 @@ where
     E: IncHeuristic + IncHeuristicMut + Sync,
     <E as IncHeuristic>::Ctx: Send + Sync,
 {
+    parallel_mut_core(start, e, &NullPruner, max_bound, deadline)
+}
+
+/// [`idastar_inc_bounded_parallel_mut`] with a [`MovePruner`] that skips provably
+/// redundant move continuations (duplicate subtrees). Sound as a lower-bound proof:
+/// a pruned board is reachable by a shorter/equal path, so no board — and no `f`
+/// threshold — is lost. With [`NullPruner`] it is byte-identical to the un-pruned
+/// driver (node counts unchanged); with a [`MoveDfa`](super::move_dfa::MoveDfa) it
+/// removes the Taylor–Korf duplicates. The pruner is shared read-only across
+/// workers; each carries its own `P::St` down its subtree.
+#[cfg(feature = "parallel")]
+pub fn idastar_inc_bounded_parallel_mut_pruned<E, P>(
+    start: &State,
+    e: &E,
+    pruner: &P,
+    max_bound: u8,
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats)
+where
+    E: IncHeuristic + IncHeuristicMut + Sync,
+    <E as IncHeuristic>::Ctx: Send + Sync,
+    P: MovePruner,
+{
+    parallel_mut_core(start, e, pruner, max_bound, deadline)
+}
+
+#[cfg(feature = "parallel")]
+fn parallel_mut_core<E, P>(
+    start: &State,
+    e: &E,
+    pruner: &P,
+    max_bound: u8,
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats)
+where
+    E: IncHeuristic + IncHeuristicMut + Sync,
+    <E as IncHeuristic>::Ctx: Send + Sync,
+    P: MovePruner,
+{
     use rayon::prelude::*;
     use std::collections::VecDeque;
 
     /// Subtree-root unit for the mut driver. Unlike the copy driver it does NOT
     /// carry a per-node context: each worker re-roots a fresh mutable context
-    /// from `state`. It keeps the split's `Copy` context only transiently.
-    struct PUnit {
+    /// from `state`. It keeps the split's `Copy` context only transiently. `pst`
+    /// is the pruner state at this subtree root, seeded during the split.
+    struct PUnit<S> {
         state: State,
         blank: u8,
         g: u8,
         last: Option<Move>,
         prefix: Vec<Move>,
+        pst: S,
     }
 
     const SPLIT_TARGET: usize = 4096;
@@ -678,6 +720,7 @@ where
     }
     let (h0, ctx0) = IncHeuristic::root(e, start, &mut stats);
     let blank0 = start.blank_pos();
+    let pst0 = pruner.root_state(blank0);
     let mut bound = h0;
 
     loop {
@@ -692,17 +735,18 @@ where
         stats.iterations += 1;
 
         // ---- split: sequential BFS (Copy heuristic), same as the copy driver ----
-        struct SplitUnit<C> {
+        struct SplitUnit<C, S> {
             state: State,
             blank: u8,
             g: u8,
             ctx: C,
             last: Option<Move>,
             prefix: Vec<Move>,
+            pst: S,
         }
-        let mut frontier: VecDeque<SplitUnit<<E as IncHeuristic>::Ctx>> = VecDeque::new();
+        let mut frontier: VecDeque<SplitUnit<<E as IncHeuristic>::Ctx, P::St>> = VecDeque::new();
         frontier.push_back(SplitUnit {
-            state: *start, blank: blank0, g: 0, ctx: ctx0, last: None, prefix: Vec::new(),
+            state: *start, blank: blank0, g: 0, ctx: ctx0, last: None, prefix: Vec::new(), pst: pst0,
         });
         let mut min_f_split = u8::MAX;
         let mut found_in_split: Option<Vec<Move>> = None;
@@ -722,6 +766,12 @@ where
                         continue;
                     }
                 }
+                // Duplicate-subtree pruning, seeded consistently with the workers so
+                // each surviving unit carries the right pruner state. No-op under
+                // `NullPruner`, keeping the un-pruned frontier/counts identical.
+                if pruner.is_pruned(u.pst, m) {
+                    continue;
+                }
                 let (s_next, nb) = u.state.apply_at(m, u.blank);
                 let (ch, cctx) = e.advance(&u.ctx, &s_next, m, &mut stats);
                 let cf = (u.g + 1).saturating_add(ch);
@@ -736,6 +786,7 @@ where
                 prefix.push(m);
                 frontier.push_back(SplitUnit {
                     state: s_next, blank: nb, g: u.g + 1, ctx: cctx, last: Some(m), prefix,
+                    pst: pruner.advance(u.pst, m),
                 });
             }
         }
@@ -757,9 +808,9 @@ where
             Bound(u8),
         }
         // Drop the split's Copy contexts; workers re-root their own mutable ones.
-        let units: Vec<PUnit> = frontier
+        let units: Vec<PUnit<P::St>> = frontier
             .into_iter()
-            .map(|u| PUnit { state: u.state, blank: u.blank, g: u.g, last: u.last, prefix: u.prefix })
+            .map(|u| PUnit { state: u.state, blank: u.blank, g: u.g, last: u.last, prefix: u.prefix, pst: u.pst })
             .collect();
         let found_flag = std::sync::atomic::AtomicBool::new(false);
         let results: Vec<(Wr, SearchStats)> = units
@@ -770,7 +821,7 @@ where
                 let (h_u, mut ctx) = IncHeuristicMut::root(e, &u.state);
                 let step = search_inc_mut(
                     &u.state, u.blank, &mut ctx, h_u, u.g, bound, deadline, &found_flag,
-                    &mut path, u.last, e, &mut st,
+                    &mut path, u.last, e, pruner, u.pst, &mut st,
                 );
                 let wr = match step {
                     Step::Found => {
@@ -859,7 +910,7 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored to the root projection after each iteration because
         // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -902,7 +953,7 @@ pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored after each iteration — `search_inc_mut` unmakes every
         // move it makes on a `Bound` return.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), &mut stats) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -916,7 +967,8 @@ pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn search_inc_mut<E: IncHeuristicMut>(
+#[allow(clippy::too_many_arguments)]
+fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
     s: &State,
     blank: u8,
     ctx: &mut E::Ctx,
@@ -928,6 +980,8 @@ fn search_inc_mut<E: IncHeuristicMut>(
     path: &mut Vec<Move>,
     last: Option<Move>,
     e: &E,
+    p: &P,
+    pst: P::St,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
@@ -961,10 +1015,16 @@ fn search_inc_mut<E: IncHeuristicMut>(
                 continue;
             }
         }
+        // Skip provably-redundant continuations (duplicate subtrees). Sound: the
+        // pruned board is reachable by a shorter/equal path, so no new board — and
+        // no threshold — is lost. `NullPruner` makes this a no-op.
+        if p.is_pruned(pst, m) {
+            continue;
+        }
         let (s_next, next_blank) = s.apply_at(m, blank);
         let child_h = e.make(ctx, &s_next, m);
         path.push(m);
-        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, stats) {
+        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, p, p.advance(pst, m), stats) {
             // On Found/Aborted the whole search terminates so `ctx` is discarded
             // (no need to unmake); keep the accumulated path.
             Step::Found => return Step::Found,
@@ -991,6 +1051,85 @@ mod tests {
     #[test]
     fn solves_goal_with_empty_path() {
         assert!(idastar(&GOAL, &ManhattanHeuristic).unwrap().is_empty());
+    }
+
+    /// Deterministic pseudo-random scramble from GOAL (no immediate-undo moves).
+    #[cfg(feature = "parallel")]
+    fn scramble(seed: u64, steps: u32) -> State {
+        let mut s = GOAL;
+        let mut blank = GOAL.blank_pos();
+        let mut last: Option<Move> = None;
+        let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+        for _ in 0..steps {
+            let mut legal: Vec<Move> = Vec::new();
+            for m in State::legal_moves_at(blank).iter() {
+                if last.map_or(true, |p| m != p.inverse()) {
+                    legal.push(m);
+                }
+            }
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            let m = legal[(x as usize) % legal.len()];
+            let (ns, nb) = s.apply_at(m, blank);
+            s = ns;
+            blank = nb;
+            last = Some(m);
+        }
+        s
+    }
+
+    /// The move-pruning DFA must be a *sound optimization*: skipping duplicate
+    /// subtrees may reduce work but must never change the optimal solution length
+    /// (admissibility/completeness preserved). We also assert it actually fires
+    /// (strictly fewer nodes on deeper bounded exhausts), so the guard is not vacuous.
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn move_dfa_parallel_preserves_optimality() {
+        use crate::puzzle24::search::move_dfa::MoveDfa;
+        use crate::puzzle24::search::IncManhattan;
+
+        let dfa = MoveDfa::build_default();
+
+        // (1) Soundness: on shallow boards, pruned and un-pruned optimal solves must
+        // agree on optimal length, and the pruned solution must reach GOAL.
+        for (seed, steps) in [(1u64, 10u32), (7, 12), (23, 14)] {
+            let s = scramble(seed, steps);
+            let (p_out, _) =
+                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, u8::MAX, None);
+            let (n_out, _) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, u8::MAX, None);
+            match (&p_out, &n_out) {
+                (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
+                    assert_eq!(a.len(), b.len(), "DFA pruning changed optimal length (seed {seed})");
+                    let mut t = s;
+                    for &mv in a {
+                        t = t.apply(mv);
+                    }
+                    assert_eq!(t, GOAL, "pruned solution invalid (seed {seed})");
+                }
+                _ => panic!("expected both drivers to solve (seed {seed})"),
+            }
+        }
+
+        // (2) Anti-vacuous: on deeper boards, a bounded exhaust (which explores the
+        // low-`f` loops where duplicates live) must expand strictly fewer nodes with
+        // the DFA. `bound = h0 + 6` stays below optimal, so it exhausts a fat shell.
+        let mut p_total = 0u64;
+        let mut n_total = 0u64;
+        for (seed, steps) in [(5u64, 30u32), (77, 40)] {
+            let s = scramble(seed, steps);
+            let h0 = IncHeuristicMut::root(&IncManhattan, &s).0;
+            let bound = h0 + 6;
+            let (_, p_stats) =
+                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, bound, None);
+            let (_, n_stats) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, bound, None);
+            p_total += p_stats.nodes;
+            n_total += n_stats.nodes;
+        }
+        assert!(
+            p_total < n_total,
+            "DFA pruning never fired ({p_total} vs {n_total}) — guard is vacuous"
+        );
     }
 
     #[test]
