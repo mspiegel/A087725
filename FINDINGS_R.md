@@ -30,8 +30,12 @@ A087725; Rokicki / Hannanov):
 
 So `optimal(R)` is unknown in `[152, 156]`. The exact value is an open problem;
 optimally solving a WD-140 board is at/beyond the edge of feasibility (proving
-≥ 152 on a single 32 GiB machine was calibrated at ~75 days — since cut to ~2–3
-weeks by the cWD heuristic, §8; ≥ 156 at ~10⁸ years).
+≥ 152 on a single 32 GiB machine was calibrated at ~75 days — since cut to **~2
+days** by cWD plus duplicate-pruning and root-symmetry levers, §8–8b, with **R ≥ 150
+now proven**; proving ≥ 156 — exact optimality by exhaustive search — stays out of
+reach: extending the measured ~×33-per-+2 node growth three thresholds past R ≥ 150
+lands at **years-to-decades** even with these levers, and the ratio is expected to
+climb at depth).
 
 We attack the **upper bound**: find the shortest solution a *general* learned
 solver can produce, and see how close a method with no hand-tuned knowledge of R
@@ -143,9 +147,10 @@ the gap means either:
 - **Finding a shorter solution** — but the learned upper-bound side is near its
   ceiling: frame boards cap at true depth ~162, and a bigger-capacity net or
   optimal bidirectional search would be a large investment with uncertain payoff;
-- **Proving the lower bound higher** — the cWD heuristic (§8) has since made this
-  far cheaper (reaching the published 152 is now a ~2–3-week run rather than ~75
-  days), but a higher proven floor still would not lower *our* solution.
+- **Proving the lower bound higher** — the cWD heuristic plus duplicate-pruning and
+  root-symmetry levers (§8–8b) have since made this far cheaper (R ≥ 150 is now
+  *proven*, and reaching the published 152 is a ~2-day run rather than ~75 days), but
+  a higher proven floor still would not lower *our* solution.
 
 We have matched the published frontier with a general method; the remaining four
 moves are a research problem, not an engineering one.
@@ -258,6 +263,9 @@ number overstates the deep proofs. Tempered (2-point decay, may plateau):
 - **R ≥ 150** (exhaust 148): ~6× wall → **~10 hours**
 - **R ≥ 152** (exhaust 150): ~3–4× wall → **~2–3 weeks**
 
+*(Both since measured with three further levers — see §8b. R ≥ 150 was proven in
+**1.56 h of search**, not ~10 h; R ≥ 152 is revised down to **~2 days**.)*
+
 So cWD does not *lower* R's solution (§6's upper-bound problem), but it turns the
 lower-bound proof toward the published 152 from *infeasible* (~75 days) into a
 **feasible multi-week run** — the first time reaching the published floor is on the
@@ -267,6 +275,83 @@ table for this hardware.
 build `examples/build_cwd_table.rs` → `data/cwd_single.bin`; heuristic
 `src/puzzle24/search/cwd.rs`; soundness `proofs/puzzle15-wd`; calibration
 `data/phase2a_calibration.txt`.
+
+## 8b. Three more levers — and R ≥ 150 *proven* (2026-07-11)
+
+Since the §8 cWD baseline, three further node-cutters were stacked on the proof —
+each **sound for a lower-bound proof** (optimality-preserving, so an exhausted
+threshold stays a valid floor) and all on by default in `solve24`:
+
+- **Move-pruning DFA** (Taylor–Korf duplicate-subtree elimination; 41,396 states /
+  687 KiB, L2-resident, history window 11). Skips a move whose subtree is provably
+  reached by an equal-or-shorter sequence. ~13–19% fewer nodes, **growing with
+  depth**; the `build()` self-verifies it caught every duplicate (panics otherwise,
+  never running an unsound pruner).
+- **cWD neighbor-prune.** A child is bounded from its parent's cached neighbor-WD
+  and pruned *before* its position is even computed/probed — ~1.9× fewer nodes.
+- **Root-orbit-split** (OPTIMIZATION.md lever #1). R is a fixpoint of the
+  goal-preserving diagonal reflection σ (`reflect(R) == R`), so the root's children
+  fall into σ-orbits; R's corner blank gives a single orbit `{Down, Right}`, so the
+  proof searches **one** representative → a clean, near-2× cut (measured 1.99×) that
+  does not decay with depth. `solve24` auto-detects the symmetry and applies it only
+  at the true root (deeper canonical pruning would be unsound). Soundness rides on σ
+  being a length-preserving automorphism *plus* the DFA's own optimality-preservation
+  — it needs no heuristic symmetry.
+
+`solve24` also now brackets the search with `search: start`/`search: end` timestamp
+logs and reports **search time separately from table-load setup** (~24 s to load
+`data/wd24.bin` + `data/cwd_single.bin`). The numbers below are search-only.
+
+**Measured on R** (parallel, 8 threads; full stack cWD + DFA + neighbor-prune +
+root-orbit-split; search time excludes setup):
+
+| proof | exhausts thr | nodes | **search time** | throughput |
+|---|---|---:|---:|---:|
+| R ≥ 146 | 144 | 422 M | 3.31 s | 128 M/s |
+| R ≥ 148 | 146 | 18.19 B | 2.63 min | 115 M/s |
+| **R ≥ 150** | 148 | **595.86 B** | **1.56 h** (5,633 s) | 106 M/s |
+
+**R ≥ 150 is now proven** — a new record for this machine — in **1.56 h of search**,
+where §8 had projected ~10 h. Against the §8 cWD-only baseline the node count fell
+**4.7×** at R ≥ 148 (85.1 B → 18.19 B); root-orbit-split alone contributes ~1.9× of
+that, essentially undiminished at depth (unlike the surcharge gain, which §8 showed
+decaying). The three levers are multiplicative on nodes and near-free per node, so
+throughput stays compute-bound at ~106–128 M nodes/s.
+
+**Revised path to the published floor.** Node growth per +2 threshold is
+*decelerating* — ×43 (144→146) then ×32.7 (146→148). Extrapolating ~×33 from the
+measured 595.86 B: **R ≥ 152** (exhaust 150) ≈ **~20 T nodes ≈ ~2 days** of search
+on this machine — down from §8's ~2–3 weeks and the original ~75-day calibration.
+Reaching the published lower bound of 152 is now a weekend run, not a research
+gamble. Two thresholds beyond that — **R ≥ 156** (exhaust 154), i.e. proving R
+*optimal* by exhaustion — is a further ~×33² ≈ 1,000×, so **years-to-decades** even
+on this stack (and the per-+2 ratio is expected to climb back toward the raw
+branching factor at depth, making that a floor). Exact optimality via exhaustive
+search stays out of reach: the [152, 156] gap remains a research problem (§6), not a
+compute one.
+
+**Extrapolated ladder** (from the measured exhaust-148, applying ~×33 per +2; throughput
+held at ~90–100 M nodes/s — an order-of-magnitude projection, uncertainty compounding
+per step):
+
+| exhaust thr | proves | est. nodes | est. search |
+|---|---|---:|---:|
+| 150 | R ≥ 152 | ~19.7 T | ~2 days |
+| 152 | R ≥ 154 | ~650 T | ~11 weeks |
+| 154 | R ≥ 156 | ~2.1×10¹⁶ | **~7 years** (floor; ~decades if the ratio climbs) |
+
+The exhaust-154 figure is optimistic — it assumes the ×33 ratio *stays* flat, whereas
+the shallow-friendly gains (surcharge, duplicates) saturate at depth and push the
+ratio back toward ~×45–50. And it is moot for *pinning* optimal(R): exhaust-154 only
+proves R ≥ 156, which closes the problem **iff** 156 is truly optimal; if optimal(R) <
+156, that search instead *finds* the shorter solution below threshold 154 and stops early.
+
+*Reproducibility:* identical command as §8 with the defaults on (DFA, neighbor-prune,
+and root-orbit-split auto-enable); e.g. `solve24 --position "0 24 23 … 2 1"
+--parallel --heuristic cwd --max-bound {146,148}`. Levers:
+`src/puzzle24/search/{move_dfa,cwd,symmetry}.rs`; the split-loop orbit filter and
+search-timing logs in `src/puzzle24/search/idastar.rs` / `src/bin/solve24.rs`;
+ranking rationale in `OPTIMIZATION.md`.
 
 ## 9. Summary
 
