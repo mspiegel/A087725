@@ -335,10 +335,42 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     }
 }
 
-fn print_stats(st: &SearchStats, elapsed: std::time::Duration) {
+/// Wall-clock timestamp `HH:MM:SS.mmm UTC` for log lines. Dependency-free
+/// (formats `SystemTime` since the epoch; no calendar, so UTC time-of-day only).
+fn now_hms() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = d.as_secs();
+    format!(
+        "{:02}:{:02}:{:02}.{:03} UTC",
+        (secs / 3600) % 24,
+        (secs / 60) % 60,
+        secs % 60,
+        d.subsec_millis()
+    )
+}
+
+/// Run the search `f`, bracketing it with `search: start`/`search: end`
+/// timestamp logs on stderr, and return its result alongside the search-only
+/// duration (excludes table load / DFA build — those are `setup`). This makes
+/// the time actually spent in search explicit instead of buried in wall-clock.
+fn timed_search<R>(setup: std::time::Duration, f: impl FnOnce() -> R) -> (R, std::time::Duration) {
+    eprintln!("[{}] search: start  (setup {:.2?})", now_hms(), setup);
+    let t = Instant::now();
+    let r = f();
+    let dt = t.elapsed();
+    eprintln!("[{}] search: end    ({:.2?} in search)", now_hms(), dt);
+    (r, dt)
+}
+
+/// `search` is the search-only duration (from [`timed_search`]); throughput is
+/// reported against it, not total wall-clock, so table load never dilutes it.
+fn print_stats(st: &SearchStats, search: std::time::Duration) {
     println!("Nodes          : {}", st.nodes);
     println!("Iterations     : {}", st.iterations);
-    let secs = elapsed.as_secs_f64();
+    println!("Search time    : {:.2?}", search);
+    let secs = search.as_secs_f64();
     if secs > 0.0 {
         println!("Throughput     : {:.2} Mnodes/s", st.nodes as f64 / secs / 1e6);
     }
@@ -364,7 +396,7 @@ where
     if parallel {
         // Shared-memory parallel IDA* (2P). max_bound = None -> unbounded solve.
         let mb = max_bound.unwrap_or(u8::MAX);
-        let (outcome, st) = if move_dfa {
+        let ((outcome, st), search_dt) = if move_dfa {
             // Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on top
             // of the heuristic. Sound for lower-bound proofs; build() self-verifies.
             let dfa = MoveDfa::build_default();
@@ -373,9 +405,13 @@ where
                 dfa.states(),
                 dfa.table_bytes() / 1024
             );
-            idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None, orbit_split)
+            timed_search(t0.elapsed(), || {
+                idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None, orbit_split)
+            })
         } else {
-            idastar_inc_bounded_parallel_mut(start, e, mb, None, orbit_split)
+            timed_search(t0.elapsed(), || {
+                idastar_inc_bounded_parallel_mut(start, e, mb, None, orbit_split)
+            })
         };
         let elapsed = t0.elapsed();
         return match outcome {
@@ -384,19 +420,19 @@ where
                     println!("Found within bound {} (optimal):", mb);
                 }
                 print_solution(start, &s, elapsed);
-                print_stats(&st, elapsed);
+                print_stats(&st, search_dt);
                 ExitCode::SUCCESS
             }
             LadderOutcome::ProvedAtLeast(k) => {
                 println!("Lower bound: depth >= {}", k);
                 println!("Wall-clock     : {:.2?}", elapsed);
-                print_stats(&st, elapsed);
+                print_stats(&st, search_dt);
                 ExitCode::SUCCESS
             }
             LadderOutcome::TimedOut(k) => {
                 // No deadline is passed here, so this is not expected.
                 println!("Lower bound: depth >= {} (timed out)", k);
-                print_stats(&st, elapsed);
+                print_stats(&st, search_dt);
                 ExitCode::SUCCESS
             }
             LadderOutcome::Unsolvable => {
@@ -407,12 +443,13 @@ where
     }
     match max_bound {
         None => {
-            let (sol, st) = idastar_inc_mut_with_stats(start, e);
+            let ((sol, st), search_dt) =
+                timed_search(t0.elapsed(), || idastar_inc_mut_with_stats(start, e));
             let elapsed = t0.elapsed();
             match sol {
                 Some(s) => {
                     print_solution(start, &s, elapsed);
-                    print_stats(&st, elapsed);
+                    print_stats(&st, search_dt);
                     ExitCode::SUCCESS
                 }
                 None => {
@@ -422,19 +459,20 @@ where
             }
         }
         Some(mb) => {
-            let (outcome, st) = idastar_inc_mut_bounded_with_stats(start, e, mb);
+            let ((outcome, st), search_dt) =
+                timed_search(t0.elapsed(), || idastar_inc_mut_bounded_with_stats(start, e, mb));
             let elapsed = t0.elapsed();
             match outcome {
                 BoundedOutcome::Solved(s) => {
                     println!("Found within bound {} (optimal):", mb);
                     print_solution(start, &s, elapsed);
-                    print_stats(&st, elapsed);
+                    print_stats(&st, search_dt);
                     ExitCode::SUCCESS
                 }
                 BoundedOutcome::ProvedAtLeast(k) => {
                     println!("Lower bound: depth >= {}", k);
                     println!("Wall-clock     : {:.2?}", elapsed);
-                    print_stats(&st, elapsed);
+                    print_stats(&st, search_dt);
                     ExitCode::SUCCESS
                 }
                 BoundedOutcome::Unsolvable => {
