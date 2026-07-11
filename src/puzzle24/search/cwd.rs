@@ -37,12 +37,18 @@ type Matrix = [[u8; W]; W];
 /// table-based heuristic costs ~2 lookups per axis instead of a constrained A\*.
 pub type CwdOverlay = HashMap<u64, [u16; W], WdBuild>;
 
-/// One merged contingency record: the WD value **and** the per-line surcharge
-/// curves, so the hot path resolves both with a single probe per axis.
+/// One merged contingency record: the WD value, the per-line surcharge curves,
+/// **and** the WD of every axis-neighbor, so the hot path resolves both with a
+/// single probe per axis *and* can bound a child before probing (see `nbr_wd`).
 #[derive(Clone, Copy)]
 pub struct CwdCell {
     pub wd: u8,
     pub curves: [u16; W],
+    /// WD of the ≤`2·W` axis-neighbors. Slot `dir·W + g` (`dir` 0 = blank-index
+    /// −1, 1 = +1) is the WD of the state reached when a goal-type-`g` tile
+    /// crosses the axis the blank steps over; `255` where that step is off-board
+    /// or no such tile is present. Enables "prune the child before probing it".
+    pub nbr_wd: [u8; 2 * W],
 }
 
 /// Merged WD + surcharge table (built once at load; `σ → (WD, curves)`).
@@ -118,6 +124,32 @@ fn unpack(key: u64) -> (Matrix, u8) {
         row[W - 1] = margin - partial;
     }
     (m, blank)
+}
+
+/// The ≤`2·W` axis-neighbor keys of a contingency `key` (shared codec for both
+/// axes). Slot `dir·W + g` (`dir` 0 = blank-index −1, 1 = +1) holds the key of
+/// the state reached when a goal-type-`g` tile crosses the axis the blank steps
+/// over — i.e. the exact transition `make` applies. `None` where that step is
+/// off-board or no such tile is present. Mirrors the update in `make`
+/// (`m[nb][g] -= 1; m[b][g] += 1;` new blank `nb`).
+fn neighbor_keys(key: u64) -> [Option<u64>; 2 * W] {
+    let (m, blank) = unpack(key);
+    let b = blank as usize;
+    let mut out = [None; 2 * W];
+    for (dir, nb) in [b.wrapping_sub(1), b + 1].into_iter().enumerate() {
+        if nb >= W {
+            continue; // off-board (b == 0 ⇒ wrapping_sub(1) overflows past W)
+        }
+        for g in 0..W {
+            if m[nb][g] > 0 {
+                let mut m2 = m;
+                m2[nb][g] -= 1;
+                m2[b][g] += 1;
+                out[dir * W + g] = Some(pack(&m2, nb as u8));
+            }
+        }
+    }
+    out
 }
 
 /// The solved contingency (identity with the 4-margin in the blank's axis).
@@ -332,6 +364,10 @@ pub struct Cwd {
     table: WdTable,
     goal: u64,
     merged: Option<CwdMerged>,
+    /// When set (and the merged table is present), the search may bound a child
+    /// from its parent's cached `nbr_wd` and prune it before probing. Off by
+    /// default; toggled per-run for A/B. See [`Cwd::child_h_lb`].
+    neighbor_prune: bool,
 }
 
 impl Cwd {
@@ -347,7 +383,9 @@ impl Cwd {
                     HashMap::with_capacity_and_hasher(c.table.len(), WdBuild::default());
                 for (&k, &wd) in c.table.iter() {
                     let curves = overlay.get(&k).copied().unwrap_or([0u16; W]);
-                    merged.insert(k, CwdCell { wd, curves });
+                    // `nbr_wd` is filled lazily by `with_neighbor_prune(true)` — an
+                    // opt-in, so a plain cWD run pays neither the pass nor the RAM.
+                    merged.insert(k, CwdCell { wd, curves, nbr_wd: [255; 2 * W] });
                 }
                 c.merged = Some(merged);
                 c.table = HashMap::with_capacity_and_hasher(0, WdBuild::default()); // free WD copy
@@ -363,12 +401,43 @@ impl Cwd {
         } else {
             build_full_table()
         };
-        Cwd { table, goal: goal_key(), merged: None }
+        Cwd { table, goal: goal_key(), merged: None, neighbor_prune: false }
     }
 
     /// Build from an already-loaded WD table (shares the codec). No merge.
     pub fn from_table(table: WdTable) -> Self {
-        Cwd { table, goal: goal_key(), merged: None }
+        Cwd { table, goal: goal_key(), merged: None, neighbor_prune: false }
+    }
+
+    /// Enable/disable the prune-child-before-probe optimization (needs the merged
+    /// table; a no-op on the A\* reference path). When enabling, fill each merged
+    /// cell's neighbor-WD from the table itself (one pass, ~seconds, ~+1 GB).
+    /// Returns `self` for chaining.
+    pub fn with_neighbor_prune(mut self, on: bool) -> Self {
+        self.neighbor_prune = on;
+        if on {
+            self.fill_neighbor_wd();
+        }
+        self
+    }
+
+    /// Populate every merged cell's `nbr_wd` with the WD of its axis-neighbors,
+    /// derived purely from the (now complete) merged table — no on-disk artifact.
+    /// Idempotent; a no-op when the merged table is absent.
+    fn fill_neighbor_wd(&mut self) {
+        let Some(merged) = self.merged.as_mut() else { return };
+        let keys: Vec<u64> = merged.keys().copied().collect();
+        for k in keys {
+            let mut nbr = [255u8; 2 * W];
+            for (slot, opt) in neighbor_keys(k).iter().enumerate() {
+                if let Some(nkey) = opt {
+                    if let Some(cell) = merged.get(nkey) {
+                        nbr[slot] = cell.wd;
+                    }
+                }
+            }
+            merged.get_mut(&k).unwrap().nbr_wd = nbr;
+        }
     }
 
     /// Whether the fast (merged-table) path is active.
@@ -492,6 +561,8 @@ pub struct CwdState {
     curves_col: [u16; W],
     surch_row: u8,
     surch_col: u8,
+    nbr_wd_row: [u8; 2 * W],
+    nbr_wd_col: [u8; 2 * W],
 }
 
 impl CwdState {
@@ -516,6 +587,7 @@ struct CwdUndo {
     wd: u8,
     surch: u8,
     curves: [u16; W],
+    nbr_wd: [u8; 2 * W],
 }
 
 /// The hot-path context: the incremental state, an undo stack, and a scratch for
@@ -546,6 +618,8 @@ impl Cwd {
             curves_col: c.curves,
             surch_row: surcharge_from_curves(&r.curves, &dem_row),
             surch_col: surcharge_from_curves(&c.curves, &dem_col),
+            nbr_wd_row: r.nbr_wd,
+            nbr_wd_col: c.nbr_wd,
         }
     }
 }
@@ -574,6 +648,8 @@ impl IncHeuristicMut for Cwd {
                 curves_col: [0; W],
                 surch_row: 0,
                 surch_col: 0,
+                nbr_wd_row: [255; 2 * W],
+                nbr_wd_col: [255; 2 * W],
             };
             (h, CwdMutCtx { state, undo: Vec::new(), scratch })
         }
@@ -614,12 +690,14 @@ impl IncHeuristicMut for Cwd {
             wd: 0,
             surch: 0,
             curves: [0; W],
+            nbr_wd: [255; 2 * W],
         };
         if rf != rt {
             // vertical slide: only the row axis (contingency, blank-row) changes
             undo.wd = st.wd_row;
             undo.surch = st.surch_row;
             undo.curves = st.curves_row;
+            undo.nbr_wd = st.nbr_wd_row;
             st.m_row[rf][gr] -= 1;
             st.m_row[rt][gr] += 1;
             undo.i = rf as u8;
@@ -637,12 +715,14 @@ impl IncHeuristicMut for Cwd {
             let cell = mg.get(&pack(&st.m_row, st.br)).expect("row reachable");
             st.wd_row = cell.wd;
             st.curves_row = cell.curves;
+            st.nbr_wd_row = cell.nbr_wd;
             st.surch_row = surcharge_from_curves(&st.curves_row, &st.dem_row);
         } else {
             // horizontal slide: only the column axis changes
             undo.wd = st.wd_col;
             undo.surch = st.surch_col;
             undo.curves = st.curves_col;
+            undo.nbr_wd = st.nbr_wd_col;
             st.m_col[cf][gc] -= 1;
             st.m_col[ct][gc] += 1;
             undo.i = cf as u8;
@@ -658,6 +738,7 @@ impl IncHeuristicMut for Cwd {
             let cell = mg.get(&pack(&st.m_col, st.bc)).expect("col reachable");
             st.wd_col = cell.wd;
             st.curves_col = cell.curves;
+            st.nbr_wd_col = cell.nbr_wd;
             st.surch_col = surcharge_from_curves(&st.curves_col, &st.dem_col);
         }
         ctx.undo.push(undo);
@@ -676,6 +757,7 @@ impl IncHeuristicMut for Cwd {
             st.wd_row = u.wd;
             st.surch_row = u.surch;
             st.curves_row = u.curves;
+            st.nbr_wd_row = u.nbr_wd;
             if u.demline != 255 {
                 st.dem_row[u.demline as usize] = u.demold;
             }
@@ -685,12 +767,46 @@ impl IncHeuristicMut for Cwd {
             st.wd_col = u.wd;
             st.surch_col = u.surch;
             st.curves_col = u.curves;
+            st.nbr_wd_col = u.nbr_wd;
             if u.demline != 255 {
                 st.dem_col[u.demline as usize] = u.demold;
             }
         }
         st.br = u.br;
         st.bc = u.bc;
+    }
+
+    /// Lower-bound the child's `h` from the parent's cached `nbr_wd` — no probe.
+    /// A vertical move changes only the row axis, so the child's WD is the cached
+    /// row-neighbor WD; the column axis (WD + surcharge) carries over unchanged.
+    /// The changed axis's surcharge (≥ 0) is dropped, keeping the bound admissible.
+    #[inline]
+    fn child_h_lb(&self, ctx: &CwdMutCtx, s: &State, blank: u8, m: Move) -> Option<u8> {
+        if !self.neighbor_prune || self.merged.is_none() {
+            return None;
+        }
+        let st = &ctx.state;
+        let b = blank as usize;
+        // (neighbor-WD array, slot direction, goal-line index, carried other-axis WD+surch)
+        let (nbr, dir, g, other_wd, other_surch) = match m {
+            Move::Up | Move::Down => {
+                let from = if matches!(m, Move::Up) { b - W } else { b + W };
+                let gr = (s.0[from] as usize - 1) / W; // moved tile's goal row
+                let dir = if matches!(m, Move::Up) { 0 } else { 1 };
+                (&st.nbr_wd_row, dir, gr, st.wd_col, st.surch_col)
+            }
+            Move::Left | Move::Right => {
+                let from = if matches!(m, Move::Left) { b - 1 } else { b + 1 };
+                let gc = (s.0[from] as usize - 1) % W; // moved tile's goal column
+                let dir = if matches!(m, Move::Left) { 0 } else { 1 };
+                (&st.nbr_wd_col, dir, gc, st.wd_row, st.surch_row)
+            }
+        };
+        let w = nbr[dir * W + g];
+        if w == 255 {
+            return None; // no cached neighbor (unreachable for a legal move)
+        }
+        Some(w.saturating_add(other_wd).saturating_add(other_surch))
     }
 }
 
@@ -773,6 +889,59 @@ mod tests {
                 s = s.apply(m.inverse());
             }
         }
+    }
+
+    /// `child_h_lb` must (a) be available for every legal move on the merged
+    /// path, (b) never exceed the child's true `h` (admissible), and (c) equal
+    /// exactly `h_child − changed-axis surcharge` — i.e. its neighbor-WD term is
+    /// the very value `make`'s probe produces. Exercised over a random walk.
+    #[test]
+    fn child_h_lb_matches_probe_on_random_walk() {
+        use crate::puzzle24::search::idastar::IncHeuristicMut;
+        let Some(cwd) = cwd_merged_or_skip() else { return };
+        let cwd = cwd.with_neighbor_prune(true);
+        let start = r_board();
+        let (_h0, mut ctx) = IncHeuristicMut::root(&cwd, &start);
+        let mut rng: u64 = 0x0bad_c0de_dead_beef;
+        let mut nextr = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let mut s = start;
+        let mut path: Vec<Move> = Vec::new();
+        let mut checked = 0u64;
+        for _ in 0..30000 {
+            let descend = path.is_empty() || (path.len() < 60 && nextr() & 1 == 0);
+            if descend {
+                let moves: Vec<Move> = s.legal_moves().iter().collect();
+                let m = moves[(nextr() as usize) % moves.len()];
+                let blank = s.0.iter().position(|&x| x == 0).unwrap() as u8;
+                // ctx tracks the parent `s` at this point.
+                let lb = cwd
+                    .child_h_lb(&ctx, &s, blank, m)
+                    .expect("neighbor-WD lb available for a legal move on the merged path");
+                let child = s.apply(m);
+                let h_child = IncHeuristicMut::make(&cwd, &mut ctx, &child, m);
+                // After `make`, the changed axis's surcharge is the only term the lb drops.
+                let changed_surch = if matches!(m, Move::Up | Move::Down) {
+                    ctx.state.surch_row
+                } else {
+                    ctx.state.surch_col
+                };
+                assert!(lb <= h_child, "lb {lb} > child h {h_child} (inadmissible)");
+                assert_eq!(lb, h_child - changed_surch, "lb term != probed WD on move {m:?}");
+                s = child;
+                path.push(m);
+                checked += 1;
+            } else {
+                let m = path.pop().unwrap();
+                IncHeuristicMut::unmake(&cwd, &mut ctx, m);
+                s = s.apply(m.inverse());
+            }
+        }
+        assert!(checked > 1000, "walk too shallow to be meaningful ({checked})");
     }
 
     #[test]

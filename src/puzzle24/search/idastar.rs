@@ -888,6 +888,17 @@ pub trait IncHeuristicMut {
     /// Implementations restore via an undo record or a self-inverse operation,
     /// so no state argument is needed.
     fn unmake(&self, ctx: &mut Self::Ctx, m: Move);
+
+    /// Optional cheap, admissible **lower bound** on the `h` of the child reached
+    /// by applying `m` at `blank` in `s`, computed WITHOUT mutating `ctx` and
+    /// WITHOUT the (cache-missing) table probe `make` would do. `None` (default)
+    /// ⇒ the caller must `make` to learn the child's `h`. When `Some(lb)`, the
+    /// search may skip the child entirely if `g + 1 + lb > bound` — it would be
+    /// pruned at first touch anyway, so no board/threshold is lost.
+    #[inline(always)]
+    fn child_h_lb(&self, _ctx: &Self::Ctx, _s: &State, _blank: u8, _m: Move) -> Option<u8> {
+        None
+    }
 }
 
 /// [`idastar_inc_with_stats`] using a mutable make/unmake context.
@@ -1020,6 +1031,21 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         // no threshold — is lost. `NullPruner` makes this a no-op.
         if p.is_pruned(pst, m) {
             continue;
+        }
+        // Prune the child before generating/probing it, when the heuristic can
+        // cheaply lower-bound its `h` from the parent's cached state. Sound: the
+        // child's true `f ≥ g+1+lb > bound`, so `search_inc_mut` would return
+        // `Bound` at its first line anyway; feeding `f_child` into `min_next`
+        // preserves the next IDA* threshold. No-op for heuristics that return
+        // `None` (the default), which monomorphizes the branch away.
+        if let Some(lb) = e.child_h_lb(ctx, s, blank, m) {
+            let f_child = (g + 1).saturating_add(lb);
+            if f_child > bound {
+                if f_child < min_next {
+                    min_next = f_child;
+                }
+                continue;
+            }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
         let child_h = e.make(ctx, &s_next, m);

@@ -94,7 +94,12 @@ struct Args {
     parallel: bool,
     /// Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on the
     /// heuristic. Applies to the parallel driver; sound for lower-bound proofs.
+    /// **Default on**; disable with `--no-move-dfa`.
     move_dfa: bool,
+    /// For `--heuristic cwd`: let the search bound a child from its parent's
+    /// cached neighbor-WD and prune it before probing. Sound. **Default on**;
+    /// disable with `--no-cwd-neighbor-prune`.
+    cwd_neighbor_prune: bool,
     /// For `--heuristic select`: pick zpdb-plus (over pure zpdb) when the classical
     /// terms are within this many of the PDB root. `0` = never combine (default).
     combine_slack: u8,
@@ -123,8 +128,9 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] [--pdb-set k6|k7]\n         \
-         [--max-bound T | --prove-at-least T] [--parallel] [--move-dfa] [--combine-slack S]",
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--max-bound T | --prove-at-least T] [--parallel]\n         \
+         [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]",
         prog
     );
 }
@@ -133,11 +139,12 @@ fn parse_args() -> Result<Args, String> {
     let mut pdb_dir = None;
     let mut position = None;
     let mut from = None;
-    let mut heuristic = HeuristicChoice::Zpdb;
+    let mut heuristic = HeuristicChoice::Cwd;
     let mut pdb_set = PdbSet::K6;
     let mut max_bound = None;
     let mut parallel = false;
-    let mut move_dfa = false;
+    let mut move_dfa = true;
+    let mut cwd_neighbor_prune = true;
     let mut combine_slack = 0u8;
 
     let argv: Vec<String> = std::env::args().collect();
@@ -201,7 +208,12 @@ fn parse_args() -> Result<Args, String> {
                 max_bound = Some(t - 1);
             }
             "--parallel" => parallel = true,
+            // move-DFA and cWD neighbor-prune default ON; the positive flags are
+            // kept as accepted no-ops for back-compat, with `--no-*` to disable.
             "--move-dfa" => move_dfa = true,
+            "--no-move-dfa" => move_dfa = false,
+            "--cwd-neighbor-prune" => cwd_neighbor_prune = true,
+            "--no-cwd-neighbor-prune" => cwd_neighbor_prune = false,
             "--combine-slack" => {
                 i += 1;
                 combine_slack = argv
@@ -215,7 +227,18 @@ fn parse_args() -> Result<Args, String> {
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, position, from, heuristic, pdb_set, max_bound, parallel, move_dfa, combine_slack })
+    Ok(Args {
+        pdb_dir,
+        position,
+        from,
+        heuristic,
+        pdb_set,
+        max_bound,
+        parallel,
+        move_dfa,
+        cwd_neighbor_prune,
+        combine_slack,
+    })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -471,10 +494,11 @@ fn main() -> ExitCode {
         }
         HeuristicChoice::Cwd => {
             eprintln!("cWD: loading tables…");
-            let cwd = Cwd::new();
+            let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
             eprintln!(
-                "cWD ready: {} path",
-                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" }
+                "cWD ready: {} path{}",
+                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" },
+                if args.cwd_neighbor_prune { ", neighbor-prune ON" } else { "" }
             );
             run_inc(&start, &cwd, args.max_bound, args.parallel, args.move_dfa, t0)
         }
