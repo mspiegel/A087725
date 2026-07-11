@@ -22,6 +22,8 @@
 //!   24-puzzle diameter ≥ 152.
 
 use crate::puzzle24::state::{Move, State, GOAL};
+#[cfg(feature = "parallel")]
+use crate::puzzle24::symmetry;
 
 use super::heuristic::Heuristic;
 use super::move_dfa::{MovePruner, NullPruner};
@@ -652,12 +654,13 @@ pub fn idastar_inc_bounded_parallel_mut<E>(
     e: &E,
     max_bound: u8,
     deadline: Option<std::time::Instant>,
+    orbit_split: bool,
 ) -> (LadderOutcome, SearchStats)
 where
     E: IncHeuristic + IncHeuristicMut + Sync,
     <E as IncHeuristic>::Ctx: Send + Sync,
 {
-    parallel_mut_core(start, e, &NullPruner, max_bound, deadline)
+    parallel_mut_core(start, e, &NullPruner, max_bound, deadline, orbit_split)
 }
 
 /// [`idastar_inc_bounded_parallel_mut`] with a [`MovePruner`] that skips provably
@@ -674,15 +677,22 @@ pub fn idastar_inc_bounded_parallel_mut_pruned<E, P>(
     pruner: &P,
     max_bound: u8,
     deadline: Option<std::time::Instant>,
+    orbit_split: bool,
 ) -> (LadderOutcome, SearchStats)
 where
     E: IncHeuristic + IncHeuristicMut + Sync,
     <E as IncHeuristic>::Ctx: Send + Sync,
     P: MovePruner,
 {
-    parallel_mut_core(start, e, pruner, max_bound, deadline)
+    parallel_mut_core(start, e, pruner, max_bound, deadline, orbit_split)
 }
 
+/// `orbit_split`: when `true` **and** `start` is σ-symmetric (`reflect(start) ==
+/// start`), the split searches only one representative per σ-orbit of the *root's*
+/// children (see [`symmetry::is_orbit_representative`]) — a sound ~2× reduction for
+/// lower-bound proofs. The filter is applied at the true root only (`g == 0`);
+/// applying it deeper would drop real boards. Callers are responsible for the
+/// symmetry precondition; passing `true` on a non-symmetric board is unsound.
 #[cfg(feature = "parallel")]
 fn parallel_mut_core<E, P>(
     start: &State,
@@ -690,6 +700,7 @@ fn parallel_mut_core<E, P>(
     pruner: &P,
     max_bound: u8,
     deadline: Option<std::time::Instant>,
+    orbit_split: bool,
 ) -> (LadderOutcome, SearchStats)
 where
     E: IncHeuristic + IncHeuristicMut + Sync,
@@ -761,6 +772,15 @@ where
                 break;
             }
             for m in State::legal_moves_at(u.blank).iter() {
+                // Root-orbit-split (true root only): on a σ-symmetric board the
+                // root's children fall into σ-orbits {m, transpose_move(m)}; search
+                // one representative per orbit. Applied at `g == 0` only — deeper
+                // filtering would drop real boards. A dropped child then adds to
+                // neither `stats.nodes` nor `min_f_split` (its kept mirror carries
+                // the same `f`), so the LB proof is unaffected.
+                if orbit_split && u.g == 0 && !symmetry::is_orbit_representative(m) {
+                    continue;
+                }
                 if let Some(prev) = u.last {
                     if m == prev.inverse() {
                         continue;
@@ -1122,8 +1142,8 @@ mod tests {
         for (seed, steps) in [(1u64, 10u32), (7, 12), (23, 14)] {
             let s = scramble(seed, steps);
             let (p_out, _) =
-                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, u8::MAX, None);
-            let (n_out, _) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, u8::MAX, None);
+                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, u8::MAX, None, false);
+            let (n_out, _) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, u8::MAX, None, false);
             match (&p_out, &n_out) {
                 (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                     assert_eq!(a.len(), b.len(), "DFA pruning changed optimal length (seed {seed})");
@@ -1147,8 +1167,8 @@ mod tests {
             let h0 = IncHeuristicMut::root(&IncManhattan, &s).0;
             let bound = h0 + 6;
             let (_, p_stats) =
-                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, bound, None);
-            let (_, n_stats) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, bound, None);
+                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, bound, None, false);
+            let (_, n_stats) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, bound, None, false);
             p_total += p_stats.nodes;
             n_total += n_stats.nodes;
         }
@@ -1156,6 +1176,68 @@ mod tests {
             p_total < n_total,
             "DFA pruning never fired ({p_total} vs {n_total}) — guard is vacuous"
         );
+    }
+
+    /// Root-orbit-split must be a *sound optimization*: on a σ-symmetric board it
+    /// must reach the identical lower-bound outcome as the full search, while
+    /// expanding ~half the nodes (one representative per σ-orbit of the root's
+    /// children). Uses a σ-symmetric fixture found by BFS from GOAL — depth 16 with
+    /// Manhattan 4, blank at the centre cell 12 (interior, 4 legal root moves → 2
+    /// orbits → keep 2), so there is a wide exhaust window below the solution and
+    /// the tree genuinely expands. Manhattan (σ-symmetric, weak) + `NullPruner` (the
+    /// plain `_mut` driver) so the ~2× is not muddied by the move-DFA's asymmetric
+    /// pruning.
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn root_orbit_split_parallel_sound_and_halves_nodes() {
+        use crate::puzzle24::search::IncManhattan;
+        use crate::puzzle24::symmetry::is_symmetric;
+
+        // Fixture: `1 2 3 4 5 6 7 8 9 10 11 12 _ 14 15 16 17 18 13 20 21 22 23 24 19`
+        let fix = State([
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 14, 15, 16, 17, 18, 13, 20, 21, 22, 23, 24,
+            19,
+        ]);
+        assert!(is_symmetric(&fix), "fixture must be σ-symmetric");
+        assert!(fix.is_solvable(), "fixture must be solvable");
+        assert_eq!(fix.blank_pos(), 12, "fixture blank on the centre diagonal");
+
+        // Bounded exhaust well below the solution depth (16): a path-free
+        // `ProvedAtLeast(_)` outcome that expands a real tree, so outcomes compare
+        // by exact equality (no σ-mirror path ambiguity).
+        let (o_off, s_off) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, false);
+        let (o_on, s_on) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, true);
+
+        assert_eq!(o_off, o_on, "orbit-split changed the lower-bound outcome");
+        assert!(
+            matches!(o_on, LadderOutcome::ProvedAtLeast(_)),
+            "expected a path-free ProvedAtLeast, got {:?}",
+            o_on
+        );
+        assert!(
+            s_on.nodes < s_off.nodes,
+            "orbit-split did not reduce nodes ({} vs {})",
+            s_on.nodes,
+            s_off.nodes
+        );
+        // ~2×: the root itself and its shared work are not halved, so allow slack.
+        assert!(
+            s_on.nodes * 2 >= s_off.nodes.saturating_sub(8),
+            "reduction implausibly large ({} on vs {} off)",
+            s_on.nodes,
+            s_off.nodes
+        );
+
+        // Sanity: with a bound at/above the depth, both find an optimal-length
+        // solution (path may be a σ-mirror, so compare lengths not moves).
+        let (sol_off, _) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 30, None, false);
+        let (sol_on, _) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 30, None, true);
+        match (sol_off, sol_on) {
+            (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
+                assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
+            }
+            (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
+        }
     }
 
     #[test]

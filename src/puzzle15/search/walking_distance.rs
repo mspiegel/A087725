@@ -409,4 +409,34 @@ mod tests {
             n
         );
     }
+
+    /// Fast smoke for WD-driving-a-search: incremental WD (`WalkingDistanceInc`)
+    /// must guide IDA\* to an *optimal* solution on every board within true
+    /// distance ≤ 10 of GOAL. This exercises the same invariant as the (gated,
+    /// slow) 24-puzzle `wd_mut_idastar_matches_copy_length_and_nodes` — that the
+    /// WD heuristic is admissible enough to drive a correct optimal search — but
+    /// on the 15-puzzle's tiny ~25k-state table it runs in a fraction of a second.
+    #[test]
+    fn wd_inc_idastar_solves_optimally_on_shallow_ball() {
+        use crate::puzzle15::search::idastar::idastar_inc_with_stats;
+        let table = bfs_distances(10);
+        for (raw, &truth) in &table {
+            let s = State(*raw);
+            let (sol, _stats) = idastar_inc_with_stats(&s, &WalkingDistanceInc);
+            let sol = sol.expect("WD-guided IDA* should solve");
+            assert_eq!(
+                sol.len() as u8,
+                truth,
+                "WD IDA* returned len {} but true dist is {} for {:?}",
+                sol.len(),
+                truth,
+                raw
+            );
+            let mut cur = s;
+            for m in &sol {
+                cur = cur.apply(*m);
+            }
+            assert_eq!(cur, GOAL, "WD solution doesn't reach goal from {:?}", raw);
+        }
+    }
 }

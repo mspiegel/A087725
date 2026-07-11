@@ -1167,6 +1167,9 @@ mod tests {
     /// for the reference, so WD-gate on `data/wd24.bin`. Uses the `ml` scramble
     /// generator, so it is gated to the `ml` feature (keeps non-`ml` builds clean).
     #[cfg(feature = "ml")]
+    #[ignore = "builds a fresh full 24-puzzle WD table via BFS (~15-25s, uncached) + loads the \
+                shared table; run with --ignored. The WD algorithm is smoke-tested fast on the \
+                15-puzzle (puzzle15::search::walking_distance)"]
     #[test]
     fn wd_to_goal_matches_goal_heuristic_on_random_boards() {
         if !std::path::Path::new("data/wd24.bin").exists() {
@@ -1185,6 +1188,9 @@ mod tests {
 
     /// A target is at distance 0 from itself: `WD-to-T(T) == 0` for T = GOAL and
     /// T = R. Builds its own tables, so no `data/wd24.bin` needed.
+    #[ignore = "builds fresh full 24-puzzle WD tables via BFS (~15-25s each, uncached); run with \
+                --ignored. The WD algorithm is smoke-tested fast on the 15-puzzle \
+                (puzzle15::search::walking_distance)"]
     #[test]
     fn wd_to_target_of_target_is_zero() {
         assert_eq!(WalkingDistanceTo::new(&GOAL).h(&GOAL), 0, "WD-to-GOAL(GOAL)");
@@ -1196,6 +1202,9 @@ mod tests {
 
     /// Every one-move neighbour of R is at WD-to-R exactly 1 (one tile crosses
     /// one axis boundary; the other axis is unchanged).
+    #[ignore = "builds a fresh full 24-puzzle WD table via BFS (~15-25s, uncached); run with \
+                --ignored. The WD algorithm is smoke-tested fast on the 15-puzzle \
+                (puzzle15::search::walking_distance)"]
     #[test]
     fn wd_to_r_of_r_neighbors_is_one() {
         let r = r_board();
@@ -1209,6 +1218,9 @@ mod tests {
     /// Build-time sanity: `WalkingDistanceTo::new(&R)` completes well under a
     /// minute (same BFS as the GOAL table). Single table, since R's blank shares
     /// row/col index 0.
+    #[ignore = "times a fresh full 24-puzzle WD BFS build (~15-25s) — this test IS the slow build; \
+                run with --ignored. The WD algorithm is smoke-tested fast on the 15-puzzle \
+                (puzzle15::search::walking_distance)"]
     #[test]
     fn wd_to_r_builds_quickly() {
         let t = std::time::Instant::now();

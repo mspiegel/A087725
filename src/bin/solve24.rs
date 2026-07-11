@@ -103,6 +103,13 @@ struct Args {
     /// For `--heuristic select`: pick zpdb-plus (over pure zpdb) when the classical
     /// terms are within this many of the PDB root. `0` = never combine (default).
     combine_slack: u8,
+    /// Root-orbit-split: on a σ-symmetric start board (`reflect(start) == start`,
+    /// e.g. board R), search one representative per σ-orbit of the root's children
+    /// — a sound ~2× reduction for lower-bound proofs. Applies to the `--parallel`
+    /// driver only. `None` = auto (on when the board is symmetric); `Some(true)` =
+    /// force on (warns + ignored if the board is not symmetric); `Some(false)` =
+    /// off (`--no-root-orbit-split`, for A/B measurement).
+    root_orbit_split: Option<bool>,
 }
 
 /// The `select` heuristic's 3-way choice (mirrors `examples/ladder24.rs`).
@@ -130,7 +137,8 @@ fn print_usage(prog: &str) {
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
-         [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]",
+         [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
+         [--no-root-orbit-split]  (auto-on for σ-symmetric boards under --parallel)",
         prog
     );
 }
@@ -146,6 +154,7 @@ fn parse_args() -> Result<Args, String> {
     let mut move_dfa = true;
     let mut cwd_neighbor_prune = true;
     let mut combine_slack = 0u8;
+    let mut root_orbit_split: Option<bool> = None;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -214,6 +223,8 @@ fn parse_args() -> Result<Args, String> {
             "--no-move-dfa" => move_dfa = false,
             "--cwd-neighbor-prune" => cwd_neighbor_prune = true,
             "--no-cwd-neighbor-prune" => cwd_neighbor_prune = false,
+            "--root-orbit-split" => root_orbit_split = Some(true),
+            "--no-root-orbit-split" => root_orbit_split = Some(false),
             "--combine-slack" => {
                 i += 1;
                 combine_slack = argv
@@ -238,6 +249,7 @@ fn parse_args() -> Result<Args, String> {
         move_dfa,
         cwd_neighbor_prune,
         combine_slack,
+        root_orbit_split,
     })
 }
 
@@ -343,6 +355,7 @@ fn run_inc<E: IncHeuristic + IncHeuristicMut + Sync>(
     max_bound: Option<u8>,
     parallel: bool,
     move_dfa: bool,
+    orbit_split: bool,
     t0: Instant,
 ) -> ExitCode
 where
@@ -360,9 +373,9 @@ where
                 dfa.states(),
                 dfa.table_bytes() / 1024
             );
-            idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None)
+            idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None, orbit_split)
         } else {
-            idastar_inc_bounded_parallel_mut(start, e, mb, None)
+            idastar_inc_bounded_parallel_mut(start, e, mb, None, orbit_split)
         };
         let elapsed = t0.elapsed();
         return match outcome {
@@ -484,13 +497,30 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // Root-orbit-split: auto-on when the start board is σ-symmetric and running the
+    // parallel driver. Sound only on a σ-fixed board, so we gate on the symmetry
+    // test and never apply it otherwise (a forced `--root-orbit-split` on an
+    // asymmetric board is refused with a warning). See puzzle24::symmetry.
+    let symmetric = puzzle8::puzzle24::symmetry::is_symmetric(&start);
+    let wants_orbit = args.root_orbit_split.unwrap_or(true);
+    let orbit = wants_orbit && symmetric && args.parallel;
+    if args.root_orbit_split == Some(true) && !symmetric {
+        eprintln!("warning: --root-orbit-split ignored: board is not σ-symmetric (reflect(start) != start)");
+    } else if orbit {
+        eprintln!(
+            "root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children"
+        );
+    } else if wants_orbit && symmetric && !args.parallel {
+        eprintln!("note: root-orbit-split applies only to --parallel; ignored");
+    }
+
     let t0 = Instant::now();
     match args.heuristic {
-        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, args.move_dfa, t0),
-        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, args.move_dfa, t0),
+        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, args.move_dfa, orbit, t0),
+        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, args.move_dfa, orbit, t0),
         HeuristicChoice::Wd => {
             WalkingDistanceHeuristic::warm_up_verbose();
-            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, args.move_dfa, t0)
+            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Cwd => {
             eprintln!("cWD: loading tables…");
@@ -500,7 +530,7 @@ fn main() -> ExitCode {
                 if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" },
                 if args.cwd_neighbor_prune { ", neighbor-prune ON" } else { "" }
             );
-            run_inc(&start, &cwd, args.max_bound, args.parallel, args.move_dfa, t0)
+            run_inc(&start, &cwd, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {
@@ -515,7 +545,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Zpdb => {
             let dir = match require_dir(&args, "zpdb") {
@@ -530,7 +560,7 @@ fn main() -> ExitCode {
                 }
             };
             let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::ZpdbPlus => {
             let dir = match require_dir(&args, "zpdb-plus") {
@@ -547,7 +577,7 @@ fn main() -> ExitCode {
             // Walking Distance needs its (heavy) table built before the search.
             WalkingDistanceHeuristic::warm_up_verbose();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, t0)
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Select => {
             let dir = match require_dir(&args, "select") {
@@ -573,16 +603,16 @@ fn main() -> ExitCode {
             match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
                 Pick::Cheap => {
                     println!("Selected       : max(LC,WD)  (cheap_h {} >= zpdb_h {})", cheap_root, zpdb_root);
-                    run_inc(&start, &cheap, args.max_bound, args.parallel, args.move_dfa, t0)
+                    run_inc(&start, &cheap, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }
                 Pick::Zpdb => {
                     println!("Selected       : zpdb  (zpdb_h {} > cheap_h {})", zpdb_root, cheap_root);
-                    run_inc(&start, &zpdb, args.max_bound, args.parallel, args.move_dfa, t0)
+                    run_inc(&start, &zpdb, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }
                 Pick::ZpdbPlus => {
                     println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {})", zpdb_root);
                     let zplus = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-                    run_inc(&start, &zplus, args.max_bound, args.parallel, args.move_dfa, t0)
+                    run_inc(&start, &zplus, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }
             }
         }

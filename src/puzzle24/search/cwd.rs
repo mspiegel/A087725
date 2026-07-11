@@ -834,6 +834,9 @@ mod tests {
         }
     }
 
+    #[ignore = "loads the 563 MB 24-puzzle WD table (~15-25s); run with --ignored. cWD is \
+                24-puzzle-only; the underlying WD algorithm is smoke-tested fast on the \
+                15-puzzle (puzzle15::search::walking_distance)"]
     #[test]
     fn cwd_of_r_is_144() {
         let Some(cwd) = table_or_skip() else { return };
@@ -855,6 +858,9 @@ mod tests {
     /// The incremental evaluator must return exactly the same `h` as a fresh full
     /// evaluation, at every node of a random walk with backtracking (so both
     /// `make` and `unmake` are exercised).
+    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored. \
+                Incremental-heuristic consistency (advance == fresh root) is smoke-tested fast on \
+                the 15-puzzle (puzzle15::search::walking_distance::wd_inc_advance_matches_fresh_root_random_walk)"]
     #[test]
     fn incremental_matches_full_on_random_walk() {
         use crate::puzzle24::search::idastar::IncHeuristicMut;
@@ -895,6 +901,9 @@ mod tests {
     /// path, (b) never exceed the child's true `h` (admissible), and (c) equal
     /// exactly `h_child − changed-axis surcharge` — i.e. its neighbor-WD term is
     /// the very value `make`'s probe produces. Exercised over a random walk.
+    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored. \
+                cWD neighbor-prune is 24-puzzle-only; the underlying WD algorithm is smoke-tested \
+                fast on the 15-puzzle (puzzle15::search::walking_distance)"]
     #[test]
     fn child_h_lb_matches_probe_on_random_walk() {
         use crate::puzzle24::search::idastar::IncHeuristicMut;
@@ -944,6 +953,9 @@ mod tests {
         assert!(checked > 1000, "walk too shallow to be meaningful ({checked})");
     }
 
+    #[ignore = "loads the 563 MB 24-puzzle WD table + expands a BFS ball (~30s); run with --ignored. \
+                cWD ≥ WD / admissibility is 24-puzzle-only; WD admissibility (WD ≥ Manhattan, admissible \
+                on a BFS ball) is smoke-tested fast on the 15-puzzle (puzzle15::search::walking_distance)"]
     #[test]
     fn cwd_ge_wd_and_admissible_on_bfs_ball() {
         let Some(cwd) = table_or_skip() else { return };

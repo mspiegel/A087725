@@ -75,6 +75,27 @@ pub fn transpose_move(m: Move) -> Move {
     }
 }
 
+/// True iff `s` is a fixpoint of the diagonal reflection — i.e. `reflect(s) == s`.
+///
+/// A σ-fixed state has σ as an automorphism of its search tree (`σ` preserves
+/// distance-to-goal and commutes with moves), so its root children fall into
+/// σ-orbits and a lower-bound proof may search one representative per orbit. The
+/// blank of any σ-fixed state necessarily sits on the main diagonal (the only
+/// positions fixed by `SIGMA`), where the legal-move set is closed under
+/// [`transpose_move`]. Board `R` is such a fixpoint.
+pub fn is_symmetric(s: &State) -> bool {
+    reflect(s) == *s
+}
+
+/// Whether `m` is the canonical member of its σ-orbit `{m, transpose_move(m)}`:
+/// the one with the smaller move index (`Up < Down < Left < Right`, matching
+/// `move_dfa::mcode`). `transpose_move` pairs `Up↔Left` and `Down↔Right` and has
+/// no fixpoint, so exactly one move of each pair is a representative — the reps
+/// are `{Up, Down}`. Used to keep one root child per orbit on a σ-fixed board.
+pub fn is_orbit_representative(m: Move) -> bool {
+    (m as u8) <= (transpose_move(m) as u8)
+}
+
 /// Canonical representative of `s` under the diagonal symmetry: the lex-smaller
 /// of `(s, reflect(s))`, plus a flag indicating whether the reflection was
 /// chosen.
@@ -220,5 +241,91 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Board R: blank at cell 0, tile `25-i` at cell `i` (the 180° rotation).
+    fn r_board() -> State {
+        let mut c = [0u8; N_CELLS];
+        for i in 1..N_CELLS {
+            c[i] = (25 - i) as u8;
+        }
+        State(c)
+    }
+
+    #[test]
+    fn orbit_reps_partition_moves() {
+        // transpose_move pairs Up↔Left and Down↔Right (no fixpoint); the reps are
+        // exactly {Up, Down}.
+        assert!(is_orbit_representative(Move::Up));
+        assert!(is_orbit_representative(Move::Down));
+        assert!(!is_orbit_representative(Move::Left));
+        assert!(!is_orbit_representative(Move::Right));
+        // For every move, exactly one of {m, transpose_move(m)} is a representative.
+        for m in Move::ALL {
+            let t = transpose_move(m);
+            assert_ne!(m, t, "transpose_move must have no fixpoint");
+            assert!(
+                is_orbit_representative(m) ^ is_orbit_representative(t),
+                "exactly one of {{{:?}, {:?}}} is a representative",
+                m,
+                t
+            );
+        }
+        // R's corner orbit is {Down, Right}; Down is the kept representative.
+        assert_eq!(transpose_move(Move::Down), Move::Right);
+        assert!(is_orbit_representative(Move::Down));
+        assert!(!is_orbit_representative(Move::Right));
+    }
+
+    #[test]
+    fn is_symmetric_detects_sigma_fixpoints() {
+        assert!(is_symmetric(&GOAL), "GOAL is σ-fixed");
+        assert!(is_symmetric(&r_board()), "R is σ-fixed");
+        // One move off GOAL breaks the symmetry (blank leaves the diagonal).
+        let off = GOAL.apply(Move::Up);
+        assert!(!is_symmetric(&off), "a single move off GOAL is not σ-fixed");
+    }
+
+    #[test]
+    fn orbit_split_keeps_one_rep_per_legal_orbit() {
+        // R (blank in corner 0): legal moves {Down, Right} form one orbit -> keep 1.
+        let r = r_board();
+        let r_kept: Vec<Move> = r
+            .legal_moves()
+            .iter()
+            .filter(|&m| is_orbit_representative(m))
+            .collect();
+        assert_eq!(r_kept, vec![Move::Down], "R keeps 1 of 2 root children");
+
+        // GOAL (blank in corner 24): legal moves {Up, Left} form one orbit -> keep 1.
+        let goal_kept = GOAL
+            .legal_moves()
+            .iter()
+            .filter(|&m| is_orbit_representative(m))
+            .count();
+        assert_eq!(goal_kept, 1usize, "GOAL keeps 1 of 2 root children");
+
+        // Interior σ-fixed board (blank on the main diagonal at cell 18): 4 legal
+        // moves {U,D,L,R} form 2 orbits -> keep 2. Fixture found by BFS from GOAL.
+        let interior = parse_test_board(
+            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 _ 24 21 22 23 20 19",
+        );
+        assert!(is_symmetric(&interior), "fixture must be σ-symmetric");
+        assert_eq!(interior.blank_pos(), 18, "fixture blank on the diagonal");
+        let interior_kept = interior
+            .legal_moves()
+            .iter()
+            .filter(|&m| is_orbit_representative(m))
+            .count();
+        assert_eq!(interior_kept, 2, "interior diagonal board keeps 2 of 4");
+    }
+
+    /// Parse a 25-token row-major board (`_` = blank) for test fixtures.
+    fn parse_test_board(s: &str) -> State {
+        let mut cells = [0u8; N_CELLS];
+        for (i, tok) in s.split_whitespace().enumerate() {
+            cells[i] = if tok == "_" { 0 } else { tok.parse().unwrap() };
+        }
+        State(cells)
     }
 }

@@ -862,7 +862,7 @@ mod tests {
                 LadderOutcome::Solved(p) => p.len(),
                 o => panic!("copy solve unexpected: {:?}", o),
             };
-            match idastar_inc_bounded_parallel_mut(&s, &zinc, u8::MAX, None).0 {
+            match idastar_inc_bounded_parallel_mut(&s, &zinc, u8::MAX, None, false).0 {
                 LadderOutcome::Solved(pm) => assert_eq!(pm.len(), truth, "solved length differs"),
                 o => panic!("mut solve unexpected: {:?}", o),
             }
@@ -872,7 +872,7 @@ mod tests {
             }
             let mb = (truth - 1) as u8;
             let (oc, st_copy) = idastar_inc_bounded_parallel(&s, &zinc, mb, None);
-            let (om, st_mut) = idastar_inc_bounded_parallel_mut(&s, &zinc, mb, None);
+            let (om, st_mut) = idastar_inc_bounded_parallel_mut(&s, &zinc, mb, None, false);
             match (oc, om) {
                 (LadderOutcome::ProvedAtLeast(a), LadderOutcome::ProvedAtLeast(b)) => {
                     assert_eq!(a, b, "proven LB differs (copy {} vs mut {})", a, b);
