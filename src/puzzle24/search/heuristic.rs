@@ -123,6 +123,30 @@ where
         self.a.unmake(&mut ctx.0, m);
         self.b.unmake(&mut ctx.1, m);
     }
+
+    /// Forward the cheap child lower-bound (e.g. cWD's neighbor-prune) so it is
+    /// retained through the combiner. Each side's `child_h_lb` bounds only its own
+    /// term, but `max(a, b) ≥ a ≥ a_lb` (and symmetrically for `b`), so the max of
+    /// whichever bounds exist is an admissible LB on the combined child `h`. `None`
+    /// means "no cheap bound available" (NOT 0), so we keep the other side's real
+    /// bound rather than clamping the pre-prune to a useless 0.
+    #[inline]
+    fn child_h_lb(
+        &self,
+        ctx: &Self::Ctx,
+        s: &State,
+        blank: u8,
+        m: crate::puzzle24::state::Move,
+    ) -> Option<u8> {
+        match (
+            self.a.child_h_lb(&ctx.0, s, blank, m),
+            self.b.child_h_lb(&ctx.1, s, blank, m),
+        ) {
+            (Some(x), Some(y)) => Some(x.max(y)),
+            (Some(x), None) | (None, Some(x)) => Some(x),
+            (None, None) => None,
+        }
+    }
 }
 
 /// Incremental Manhattan heuristic: maintains the running distance in O(1) per
@@ -250,6 +274,53 @@ mod tests {
         for (state, &truth) in &table {
             let est = ManhattanHeuristic.h(&State(*state));
             assert!(est <= truth, "h({:?}) = {} > true {}", state, est, truth);
+        }
+    }
+
+    /// `MaxInc::child_h_lb` forwards the sub-heuristics' cheap child bounds (this
+    /// is what retains cWD's neighbor-prune through the combiner): max of whichever
+    /// exist, `None` treated as "no info" (not 0). Since `max(a,b) ≥ a ≥ a_lb` (and
+    /// symmetrically), the forwarded value stays an admissible LB on the combined h.
+    #[test]
+    fn maxinc_child_h_lb_forwards_and_stays_admissible() {
+        use crate::puzzle24::search::idastar::IncHeuristicMut;
+        use crate::puzzle24::state::State;
+
+        // Stub with a fixed child_h_lb and a fixed make value.
+        struct Stub {
+            lb: Option<u8>,
+            h: u8,
+        }
+        impl IncHeuristicMut for Stub {
+            type Ctx = ();
+            fn root(&self, _s: &State) -> (u8, ()) {
+                (self.h, ())
+            }
+            fn make(&self, _c: &mut (), _child: &State, _m: Move) -> u8 {
+                self.h
+            }
+            fn unmake(&self, _c: &mut (), _m: Move) {}
+            fn child_h_lb(&self, _c: &(), _s: &State, _b: u8, _m: Move) -> Option<u8> {
+                self.lb
+            }
+        }
+
+        let ctx = ((), ());
+        // (a_lb, b_lb, expected forwarded lb)
+        let cases = [
+            (Some(3u8), Some(7u8), Some(7u8)), // both present -> max
+            (Some(5), None, Some(5)),          // only a
+            (None, Some(4), Some(4)),          // only b
+            (None, None, None),                // neither -> no prune
+        ];
+        for (la, lb, expect) in cases {
+            // make value 9 ≥ every lb, so the admissibility invariant (lb ≤ h) holds.
+            let mx = MaxInc::new(Stub { lb: la, h: 9 }, Stub { lb, h: 9 });
+            let got = mx.child_h_lb(&ctx, &GOAL, 24, Move::Up);
+            assert_eq!(got, expect, "forward({la:?}, {lb:?})");
+            if let Some(v) = got {
+                assert!(v <= 9, "forwarded lb {v} > combined make 9 (inadmissible)");
+            }
         }
     }
 

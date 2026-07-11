@@ -70,6 +70,11 @@ enum HeuristicChoice {
     Korf,
     Zpdb,
     ZpdbPlus,
+    /// Per-node `max(cWD, zpdb)` — the always-on combiner. cWD's escape-constrained
+    /// WD maxed against the zero-aware PDB Korf-max on every node. Retains cWD's
+    /// neighbor-prune (forwarded through `MaxInc::child_h_lb`), so it runs at full
+    /// parity with plain `cwd` plus the zPDB term.
+    CwdZpdb,
     /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
     /// picked from the root heuristics (the settled Phase 1C policy — WD on
     /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
@@ -135,7 +140,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards under --parallel)",
@@ -182,6 +187,7 @@ fn parse_args() -> Result<Args, String> {
                     "korf" => HeuristicChoice::Korf,
                     "zpdb" => HeuristicChoice::Zpdb,
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
+                    "cwd-zpdb" => HeuristicChoice::CwdZpdb,
                     "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
@@ -615,6 +621,29 @@ fn main() -> ExitCode {
             // Walking Distance needs its (heavy) table built before the search.
             WalkingDistanceHeuristic::warm_up_verbose();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+        }
+        HeuristicChoice::CwdZpdb => {
+            let dir = match require_dir(&args, "cwd-zpdb") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let dbs = match load_zpdbs(&dir, args.pdb_set) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!("cWD+zpdb: loading cWD tables…");
+            let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
+            eprintln!(
+                "cWD+zpdb ready: cWD {} path{} maxed per-node with zpdb (neighbor-prune forwarded)",
+                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" },
+                if args.cwd_neighbor_prune { ", neighbor-prune ON" } else { "" },
+            );
+            let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            let inc = MaxInc::new(cwd, zpdb);
             run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Select => {
