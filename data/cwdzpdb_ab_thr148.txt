@@ -1,0 +1,13 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD+zpdb: loading cWD tables…
+cWD+zpdb ready: cWD fast single-line-max table path, neighbor-prune ON maxed per-node with zpdb (neighbor-prune forwarded)
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[04:03:22.861 UTC] search: start  (setup 59.95s)
+[06:25:11.679 UTC] search: end    (8508.79s in search)
+Lower bound: depth >= 150
+Wall-clock     : 8568.73s
+Nodes          : 343838603424
+Iterations     : 3
+Search time    : 8508.79s
+Throughput     : 40.41 Mnodes/s
+Survivors      : 243748721281
