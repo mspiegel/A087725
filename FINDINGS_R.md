@@ -397,6 +397,56 @@ deferral window closes at 2/level and the bottom-heavy tree catches up almost
 everywhere; zPDB probes concentrate exactly where the nodes are. The skip-on-
 prune case (kept) is the entire win.
 
+## 8e. Off-R validation — the combiner is a *deep-board* heuristic, and its design space is closed (2026-07-13)
+
+Every §8c measurement was on R — the one board where cWD is pathologically
+strong (R is max-WD). Measured on three generic deep catalog boards (proven
+LB 142 via cheap root, UB ≥ 158; `data/catalog24.tsv` g2/g3/g4), exhausting
+threshold 144 with the full default stack (log `data/cwdzpdb_deepboard_ab.txt`):
+
+| board | engine | nodes | search | node red. | wall vs cWD |
+|---|---|---:|---:|---:|---:|
+| B1 (g2) | pure cWD | 269.59 B | 2,927.7 s | — | 1× |
+| B1 | cwd-zpdb-lazy | 145.27 B | 3,039.0 s | **1.86×** | 1.04× slower |
+| B2 (g3) | pure cWD | 192.57 B | 1,901.2 s | — | 1× |
+| B2 | cwd-zpdb-lazy | 108.53 B | 2,212.2 s | **1.77×** | 1.16× slower |
+| B3 (g4) | pure cWD | 73.87 B | 727.3 s | — | 1× |
+| B3 | cwd-zpdb-lazy | 47.54 B | 964.5 s | **1.55×** | 1.33× slower |
+
+Versus R@146 (1.39× reduction at 1.49× slower): on generic deep boards the
+zPDB complement removes ~45 % of the tree at near wall parity **already at
+gap-2 thresholds**, so with the depth-growth of the node reduction (§8c) the
+break-even sits at ≈ thr 144–146 here instead of R's ≈ 150. The complementary
+heuristic's home turf is exactly the general deep-board regime Phase 1C's
+structural argument predicted. Byproduct: all three boards' proven LBs rose
+142 → **≥ 146**.
+
+Three neighboring designs measured DEAD the same day (same log), closing the
+combiner's local design space:
+
+- **k7 tables (7-7-7-3) in the combiner, on R @146**: 15.48 B / 311.0 s vs
+  k6's 13.09 B / 237.0 s — the weak 3-group partition loses at the root (120
+  vs 126) *and* at depth, and its 508 MB tables probe slower. (Consistent
+  with Phase 1C's "k=7 retired from tuning".)
+- **Reflection-frame probe**: not a candidate — `ZpdbInc` already Korf-maxes
+  the normal and diagonal-reflected views on every node; it has been inside
+  every measurement all along.
+- **Two-partition compound complement** (`cwd-zpdb2-lazy` =
+  `LazyMaxInc(cWD, max(zpdb_canonical, zpdb_rowband))`, new row-band
+  6-6-6-6 set `data/pdb24_rb_*.zbin` (SHA-pinned; ~30 s each to rebuild via
+  `build_pdb24 --zero-aware --tiles …`), groups {1–6}{7–12}{13–18}{19–24};
+  the CLI wiring was measured and then reverted, not kept):
+  B3 @144 39.46 B / 1,276.2 s, B1 @144 129.51 B / 4,352.1 s. The marginal
+  node reduction over the single complement (1.20× / 1.12×) is well under its
+  marginal probe cost (~1.5–1.6× per unpruned node) on both boards — a net
+  wall loss at any practical threshold. The codec-spec §5 collection lever
+  does not survive contact with the lazy-gated cWD combiner: cWD already
+  prunes most of what a second partition would.
+
+Net: **single-partition k6 zPDB, lazily maxed under cWD, is the right-sized
+complementary heuristic for deep boards** — validated off-R, with k7 /
+reflection / compound / Lipschitz-deferral all measured and closed around it.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

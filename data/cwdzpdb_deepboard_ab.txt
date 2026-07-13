@@ -1,0 +1,121 @@
+=== cwd-zpdb-lazy --pdb-set k7 on R, thr 146 (2026-07-13) ===
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[17:44:22.269 UTC] search: start  (setup 24.65s)
+[17:49:33.302 UTC] search: end    (311.03s in search)
+Lower bound: depth >= 148
+Wall-clock     : 335.68s
+Nodes          : 15482338878
+Iterations     : 2
+Search time    : 311.03s
+Throughput     : 49.78 Mnodes/s
+
+=== deep-board A/B: pure cwd vs cwd-zpdb-lazy (k6), thr 144 ===
+=== board B1 heuristic cwd thr 144 ===
+cWD: loading tables…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[17:52:18.922 UTC] search: start  (setup 24.77s)
+[18:41:06.595 UTC] search: end    (2927.65s in search)
+Lower bound: depth >= 146
+Wall-clock     : 2952.43s
+Nodes          : 269588859289
+Iterations     : 5
+Search time    : 2927.65s
+Throughput     : 92.08 Mnodes/s
+
+=== board B1 heuristic cwd-zpdb-lazy thr 144 ===
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[18:41:31.218 UTC] search: start  (setup 24.59s)
+[19:32:10.233 UTC] search: end    (3038.95s in search)
+Lower bound: depth >= 146
+Wall-clock     : 3063.54s
+Nodes          : 145269282958
+Iterations     : 5
+Search time    : 3038.95s
+Throughput     : 47.80 Mnodes/s
+
+=== board B2 heuristic cwd thr 144 ===
+cWD: loading tables…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[19:32:34.900 UTC] search: start  (setup 24.63s)
+[20:04:16.121 UTC] search: end    (1901.21s in search)
+Lower bound: depth >= 146
+Wall-clock     : 1925.84s
+Nodes          : 192570105549
+Iterations     : 5
+Search time    : 1901.21s
+Throughput     : 101.29 Mnodes/s
+
+=== board B2 heuristic cwd-zpdb-lazy thr 144 ===
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[20:04:40.900 UTC] search: start  (setup 24.75s)
+[20:41:33.135 UTC] search: end    (2212.20s in search)
+Lower bound: depth >= 146
+Wall-clock     : 2236.94s
+Nodes          : 108532579940
+Iterations     : 5
+Search time    : 2212.20s
+Throughput     : 49.06 Mnodes/s
+
+=== board B3 heuristic cwd thr 144 ===
+cWD: loading tables…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[20:41:57.881 UTC] search: start  (setup 24.71s)
+[20:54:05.150 UTC] search: end    (727.26s in search)
+Lower bound: depth >= 146
+Wall-clock     : 751.97s
+Nodes          : 73865296283
+Iterations     : 4
+Search time    : 727.26s
+Throughput     : 101.57 Mnodes/s
+
+=== board B3 heuristic cwd-zpdb-lazy thr 144 ===
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[20:54:30.187 UTC] search: start  (setup 25.00s)
+[21:10:34.692 UTC] search: end    (964.50s in search)
+Lower bound: depth >= 146
+Wall-clock     : 989.51s
+Nodes          : 47537861420
+Iterations     : 4
+Search time    : 964.50s
+Throughput     : 49.29 Mnodes/s
+
+
+=== compound complement cwd-zpdb2-lazy (canonical+row-band), thr 144 ===
+=== board B3 heuristic cwd-zpdb2-lazy thr 144 ===
+cWD+zpdb×2 (lazy): loading cWD tables…
+cWD+zpdb×2 (lazy) ready: compound max over two partitions, advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[21:19:34.263 UTC] search: start  (setup 24.64s)
+[21:40:50.445 UTC] search: end    (1276.18s in search)
+Lower bound: depth >= 146
+Wall-clock     : 1300.82s
+Nodes          : 39463872147
+Iterations     : 4
+Search time    : 1276.18s
+Throughput     : 30.92 Mnodes/s
+
+=== board B1 heuristic cwd-zpdb2-lazy thr 144 ===
+cWD+zpdb×2 (lazy): loading cWD tables…
+cWD+zpdb×2 (lazy) ready: compound max over two partitions, advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[21:41:15.756 UTC] search: start  (setup 25.28s)
+[22:53:47.819 UTC] search: end    (4352.06s in search)
+Lower bound: depth >= 146
+Wall-clock     : 4377.34s
+Nodes          : 129505142478
+Iterations     : 5
+Search time    : 4352.06s
+Throughput     : 29.76 Mnodes/s
+AB2 DONE
