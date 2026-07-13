@@ -1,0 +1,57 @@
+=== cwd-zpdb lazy-evaluation A/B on R (2026-07-13, same machine/session) ===
+
+--- pure cwd, thr 146 ---
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: loading tables…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[11:01:37.491 UTC] search: start  (setup 24.69s)
+[11:04:16.071 UTC] search: end    (158.58s in search)
+Lower bound: depth >= 148
+Wall-clock     : 183.28s
+Nodes          : 18189473649
+Iterations     : 2
+Search time    : 158.58s
+Throughput     : 114.70 Mnodes/s
+
+--- eager cwd-zpdb, thr 146 ---
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD+zpdb: loading cWD tables…
+cWD+zpdb ready: cWD fast single-line-max table path, neighbor-prune ON maxed per-node with zpdb (neighbor-prune forwarded)
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[10:33:01.216 UTC] search: start  (setup 24.64s)
+[10:37:27.470 UTC] search: end    (266.25s in search)
+Lower bound: depth >= 148
+Wall-clock     : 290.89s
+Nodes          : 13092116023
+Iterations     : 2
+Search time    : 266.25s
+Throughput     : 49.17 Mnodes/s
+
+--- cwd-zpdb-lazy, thr 146 ---
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[10:56:29.513 UTC] search: start  (setup 24.49s)
+[11:00:26.562 UTC] search: end    (237.05s in search)
+Lower bound: depth >= 148
+Wall-clock     : 261.54s
+Nodes          : 13092116023
+Iterations     : 2
+Search time    : 237.05s
+Throughput     : 55.23 Mnodes/s
+
+--- cwd-zpdb-lazy, thr 148 (eager ref: data/cwdzpdb_ab_thr148.txt 8508.79s; cwd ref 5633s) ---
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD+zpdb (lazy): loading cWD tables…
+cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[11:12:46.765 UTC] search: start  (setup 24.83s)
+[13:05:22.543 UTC] search: end    (6755.71s in search)
+Lower bound: depth >= 150
+Wall-clock     : 6780.54s
+Nodes          : 343838603424
+Iterations     : 3
+Search time    : 6755.71s
+Throughput     : 50.90 Mnodes/s

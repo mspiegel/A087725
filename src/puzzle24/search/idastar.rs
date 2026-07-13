@@ -919,6 +919,19 @@ pub trait IncHeuristicMut {
     fn child_h_lb(&self, _ctx: &Self::Ctx, _s: &State, _blank: u8, _m: Move) -> Option<u8> {
         None
     }
+
+    /// [`make`](Self::make) with a pruning budget: `budget` is the largest `h`
+    /// that keeps the child inside the current bound (`g + 1 + h ≤ bound`). A
+    /// combiner may stop after a cheap component already exceeds `budget` and
+    /// return that component's (admissible) value without evaluating the
+    /// expensive ones — the child is pruned at first touch either way, so the
+    /// search tree is identical to the eager evaluation. The returned value must
+    /// always be admissible, and `ctx` must stay consistent for the matching
+    /// [`unmake`](Self::unmake). Default: plain `make` (budget ignored).
+    #[inline(always)]
+    fn make_bounded(&self, ctx: &mut Self::Ctx, child: &State, m: Move, _budget: u8) -> u8 {
+        self.make(ctx, child, m)
+    }
 }
 
 /// [`idastar_inc_with_stats`] using a mutable make/unmake context.
@@ -1068,7 +1081,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
             }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
-        let child_h = e.make(ctx, &s_next, m);
+        let child_h = e.make_bounded(ctx, &s_next, m, bound.saturating_sub(g + 1));
         path.push(m);
         match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, p, p.advance(pst, m), stats) {
             // On Found/Aborted the whole search terminates so `ctx` is discarded

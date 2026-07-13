@@ -353,6 +353,50 @@ and root-orbit-split auto-enable); e.g. `solve24 --position "0 24 23 … 2 1"
 search-timing logs in `src/puzzle24/search/idastar.rs` / `src/bin/solve24.rs`;
 ranking rationale in `OPTIMIZATION.md`.
 
+## 8c. Lazy combiner evaluation — the cWD+zPDB max becomes deep-board-viable (2026-07-13)
+
+The §8b-era `cwd-zpdb` combiner (`MaxInc(Cwd, ZpdbInc)`, commit bfc5215) buys a
+node reduction that *grows* with depth (1.39× @146 → 1.73× @148) but paid an
+eager ~2.4–2.6× per-node cost — break-even was extrapolated at thr 152–154.
+**Lazy evaluation moves the break-even to ≈ thr 150.**
+
+Mechanism (`--heuristic cwd-zpdb-lazy`, `LazyMaxInc` in
+`src/puzzle24/search/heuristic.rs`; `IncHeuristicMut::make_bounded` hook in
+`idastar.rs`): the search passes each child's pruning budget `bound − (g+1)` to
+the heuristic, and the combiner skips the zPDB advance whenever cWD alone
+already prunes the child — the dominant per-node cost (137 ns zPDB probe) is
+paid only on children cWD fails to prune. **Sound and search-tree-identical**:
+the returned value is always admissible (cWD's own value), and a skipped child
+was pruned at first touch either way (unit test proves node-identity end-to-end;
+all A/B node counts below match bit-for-bit).
+
+Measured on R (full default stack, same machine/session, search-only time;
+log `data/cwdzpdb_lazy_ab.txt`):
+
+| thr | engine | nodes | search | vs pure cWD |
+|---|---|---:|---:|---:|
+| 146 | pure cWD | 18.19 B | 158.6 s | 1× |
+| 146 | cwd-zpdb (eager) | 13.09 B | 266.3 s | 1.68× slower |
+| 146 | **cwd-zpdb-lazy** | 13.09 B | 237.0 s | **1.49× slower** |
+| 148 | pure cWD (§8b) | 595.86 B | 5,633 s | 1× |
+| 148 | cwd-zpdb (eager, §8b) | 343.84 B | 8,508.8 s | 1.51× slower |
+| 148 | **cwd-zpdb-lazy** | 343.84 B | **6,755.7 s** | **1.20× slower** |
+
+Wall gap vs pure cWD shrinks 1.49× → 1.20× per +2 threshold while the node
+reduction keeps growing — extrapolation puts **break-even at exhaust-150** (the
+R ≥ 152 run: coin-flip, pure cWD still fine) and a **clear combiner win at
+exhaust-152+** (the ~11-week R ≥ 154 scale, where ~20 %+ faster is ~2 weeks
+saved). The complementary heuristic is no longer a wall-clock loser at depth.
+
+Negative result, so it isn't re-proposed: a stronger **Lipschitz-deferral**
+(defer the zPDB across interior moves, catching up only when `v + k` could
+crest the budget — sound since the zPDB is exactly 1-Lipschitz per move) was
+built and measured **dead**: +7 % alone, ~0 % on top of the prune-skip. In
+IDA* the budget shrinks 1/level while the pending slack grows 1/level, so the
+deferral window closes at 2/level and the bottom-heavy tree catches up almost
+everywhere; zPDB probes concentrate exactly where the nodes are. The skip-on-
+prune case (kept) is the entire win.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

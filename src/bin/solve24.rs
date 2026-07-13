@@ -46,7 +46,7 @@ use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlu
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel_mut, idastar_inc_bounded_parallel_mut_pruned,
     idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats, BoundedOutcome, Cwd,
-    IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LinearConflictInc, MaxInc, MoveDfa,
+    IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc, MaxInc, MoveDfa,
     SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
@@ -75,6 +75,11 @@ enum HeuristicChoice {
     /// neighbor-prune (forwarded through `MaxInc::child_h_lb`), so it runs at full
     /// parity with plain `cwd` plus the zPDB term.
     CwdZpdb,
+    /// [`CwdZpdb`](Self::CwdZpdb) with lazy zPDB evaluation (`LazyMaxInc`): the
+    /// zPDB is advanced only on children cWD fails to prune, skipping the
+    /// dominant per-node probe cost on the (frontier-heavy) cWD-pruned children.
+    /// Node-identical to `cwd-zpdb`; per-node cost only.
+    CwdZpdbLazy,
     /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
     /// picked from the root heuristics (the settled Phase 1C policy — WD on
     /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
@@ -140,7 +145,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards under --parallel)",
@@ -188,6 +193,7 @@ fn parse_args() -> Result<Args, String> {
                     "zpdb" => HeuristicChoice::Zpdb,
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
                     "cwd-zpdb" => HeuristicChoice::CwdZpdb,
+                    "cwd-zpdb-lazy" => HeuristicChoice::CwdZpdbLazy,
                     "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
@@ -644,6 +650,28 @@ fn main() -> ExitCode {
             );
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let inc = MaxInc::new(cwd, zpdb);
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+        }
+        HeuristicChoice::CwdZpdbLazy => {
+            let dir = match require_dir(&args, "cwd-zpdb-lazy") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let dbs = match load_zpdbs(&dir, args.pdb_set) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!("cWD+zpdb (lazy): loading cWD tables…");
+            let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
+            eprintln!(
+                "cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune{}",
+                if args.cwd_neighbor_prune { "; neighbor-prune ON" } else { "" },
+            );
+            let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            let inc = LazyMaxInc::new(cwd, zpdb);
             run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Select => {

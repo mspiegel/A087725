@@ -149,6 +149,222 @@ where
     }
 }
 
+/// Lipschitz-deferred variant of [`MaxInc`]: `A` is the cheap component, `B`
+/// the expensive one. **`B` must be 1-Lipschitz per move** (`|h(child) −
+/// h(parent)| ≤ 1` — true for WD/cWD/zero-aware PDBs, whose projected edges
+/// cost ≤ 1; NOT for LinearConflict, which can jump by more than 1).
+///
+/// Instead of advancing `B` on every child, moves are pushed onto a pending
+/// stack. With `v` = `B`'s value at its last applied state and `k` pending
+/// moves, the child's true `h_b` lies in `[v−k−1, v+k+1]`, so:
+///
+/// - `B` can prune the child only if `v + k + 1 > budget`. Only then is `B`
+///   caught up (pending moves applied in order) and probed exactly — the same
+///   prune decision the eager [`MaxInc`] makes, so the search tree and node
+///   counts are **identical**; only `B`'s probes collapse to the minimal set
+///   (the near-frontier region where `B` is competitive with `A`).
+/// - Otherwise the move is deferred and `max(h_a, v − k − 1)` is returned —
+///   admissible by the Lipschitz bound. Deferred moves popped on backtrack
+///   before a catch-up are *never* applied to `B` at all.
+///
+/// [`make_bounded`]: crate::puzzle24::search::idastar::IncHeuristicMut::make_bounded
+pub struct LazyMaxInc<A, B> {
+    a: A,
+    b: B,
+}
+
+impl<A, B> LazyMaxInc<A, B> {
+    pub fn new(a: A, b: B) -> Self {
+        Self { a, b }
+    }
+}
+
+/// Per-level record for [`LazyMaxCtx`]: was this level's move applied to `B`
+/// (carrying `B`'s pre-move value for restore) or deferred?
+enum LazyTag {
+    Pending,
+    Applied(u8),
+}
+
+/// Context for [`LazyMaxInc`]: the two sub-contexts plus the deferral state.
+/// `pending` always corresponds to the top `pending.len()` entries of `tags`
+/// (catch-up flips them all to `Applied` before anything new is pushed).
+pub struct LazyMaxCtx<CA, CB> {
+    a: CA,
+    b: CB,
+    /// `B`'s exact value at its currently-applied state.
+    b_val: u8,
+    /// Moves made in the search but not yet applied to `B` (with the post-move
+    /// state, for `B` impls that read it).
+    pending: Vec<(crate::puzzle24::state::Move, State)>,
+    tags: Vec<LazyTag>,
+}
+
+impl<A, B> LazyMaxInc<A, B>
+where
+    A: crate::puzzle24::search::idastar::IncHeuristicMut,
+    B: crate::puzzle24::search::idastar::IncHeuristicMut,
+{
+    /// Apply all pending moves to `B` in order, flipping their tags to
+    /// `Applied` so backtracking unmakes them properly.
+    fn catch_up(&self, ctx: &mut LazyMaxCtx<A::Ctx, B::Ctx>) {
+        let k = ctx.pending.len();
+        let base = ctx.tags.len() - k;
+        for (j, (pm, ps)) in ctx.pending.drain(..).enumerate() {
+            let prev = ctx.b_val;
+            ctx.b_val = self.b.make(&mut ctx.b, &ps, pm);
+            debug_assert!(
+                (ctx.b_val as i16 - prev as i16).abs() <= 1,
+                "B is not 1-Lipschitz: {} -> {}",
+                prev,
+                ctx.b_val
+            );
+            ctx.tags[base + j] = LazyTag::Applied(prev);
+        }
+    }
+}
+
+impl<A, B> crate::puzzle24::search::idastar::IncHeuristicMut for LazyMaxInc<A, B>
+where
+    A: crate::puzzle24::search::idastar::IncHeuristicMut,
+    B: crate::puzzle24::search::idastar::IncHeuristicMut,
+{
+    type Ctx = LazyMaxCtx<A::Ctx, B::Ctx>;
+
+    #[inline]
+    fn root(&self, s: &State) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.root(s);
+        let (hb, cb) = self.b.root(s);
+        (
+            ha.max(hb),
+            LazyMaxCtx {
+                a: ca,
+                b: cb,
+                b_val: hb,
+                pending: Vec::with_capacity(220),
+                tags: Vec::with_capacity(220),
+            },
+        )
+    }
+
+    /// Exact value on demand (catch-up + probe).
+    #[inline]
+    fn make(&self, ctx: &mut Self::Ctx, child: &State, m: crate::puzzle24::state::Move) -> u8 {
+        let ha = self.a.make(&mut ctx.a, child, m);
+        self.catch_up(ctx);
+        let prev = ctx.b_val;
+        let hb = self.b.make(&mut ctx.b, child, m);
+        debug_assert!((hb as i16 - prev as i16).abs() <= 1, "B is not 1-Lipschitz");
+        ctx.b_val = hb;
+        ctx.tags.push(LazyTag::Applied(prev));
+        ha.max(hb)
+    }
+
+    #[inline]
+    fn make_bounded(
+        &self,
+        ctx: &mut Self::Ctx,
+        child: &State,
+        m: crate::puzzle24::state::Move,
+        budget: u8,
+    ) -> u8 {
+        let ha = self.a.make(&mut ctx.a, child, m);
+        // A alone prunes: B's value is irrelevant (the child is pruned at first
+        // touch and the pending move pops right back off on the unmake). No
+        // Lipschitz argument needed — `ha` is admissible.
+        if ha > budget {
+            ctx.pending.push((m, *child));
+            ctx.tags.push(LazyTag::Pending);
+            return ha;
+        }
+        let k = ctx.pending.len();
+        // Lipschitz upper bound on the child's h_b; if it can't exceed the
+        // budget, B can't prune here either.
+        if ctx.b_val as usize + k + 1 <= budget as usize {
+            ctx.pending.push((m, *child));
+            ctx.tags.push(LazyTag::Pending);
+            // Admissible: true h_b ≥ b_val − k − 1 (may saturate to 0).
+            return ha.max(ctx.b_val.saturating_sub(k as u8 + 1));
+        }
+        self.catch_up(ctx);
+        let prev = ctx.b_val;
+        let hb = self.b.make(&mut ctx.b, child, m);
+        debug_assert!((hb as i16 - prev as i16).abs() <= 1, "B is not 1-Lipschitz");
+        ctx.b_val = hb;
+        ctx.tags.push(LazyTag::Applied(prev));
+        ha.max(hb)
+    }
+
+    #[inline]
+    fn unmake(&self, ctx: &mut Self::Ctx, m: crate::puzzle24::state::Move) {
+        self.a.unmake(&mut ctx.a, m);
+        match ctx.tags.pop().expect("unmake without matching make") {
+            LazyTag::Pending => {
+                let (pm, _) = ctx.pending.pop().expect("pending/tags out of sync");
+                debug_assert!(pm == m, "pending move mismatch");
+            }
+            LazyTag::Applied(prev) => {
+                self.b.unmake(&mut ctx.b, m);
+                ctx.b_val = prev;
+            }
+        }
+    }
+
+    /// Same forwarding as [`MaxInc::child_h_lb`].
+    #[inline]
+    fn child_h_lb(
+        &self,
+        ctx: &Self::Ctx,
+        s: &State,
+        blank: u8,
+        m: crate::puzzle24::state::Move,
+    ) -> Option<u8> {
+        match (
+            self.a.child_h_lb(&ctx.a, s, blank, m),
+            self.b.child_h_lb(&ctx.b, s, blank, m),
+        ) {
+            (Some(x), Some(y)) => Some(x.max(y)),
+            (Some(x), None) | (None, Some(x)) => Some(x),
+            (None, None) => None,
+        }
+    }
+}
+
+/// Eager copy-context impl so [`LazyMaxInc`] satisfies drivers requiring both
+/// bounds (the parallel splitter's frontier expansion is cold — laziness only
+/// matters in the hot make/unmake recursion).
+impl<A, B> crate::puzzle24::search::idastar::IncHeuristic for LazyMaxInc<A, B>
+where
+    A: crate::puzzle24::search::idastar::IncHeuristic,
+    B: crate::puzzle24::search::idastar::IncHeuristic,
+{
+    type Ctx = (A::Ctx, B::Ctx);
+
+    #[inline]
+    fn root(
+        &self,
+        s: &State,
+        stats: &mut crate::puzzle24::search::SearchStats,
+    ) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.root(s, stats);
+        let (hb, cb) = self.b.root(s, stats);
+        (ha.max(hb), (ca, cb))
+    }
+
+    #[inline]
+    fn advance(
+        &self,
+        parent: &Self::Ctx,
+        child: &State,
+        m: crate::puzzle24::state::Move,
+        stats: &mut crate::puzzle24::search::SearchStats,
+    ) -> (u8, Self::Ctx) {
+        let (ha, ca) = self.a.advance(&parent.0, child, m, stats);
+        let (hb, cb) = self.b.advance(&parent.1, child, m, stats);
+        (ha.max(hb), (ca, cb))
+    }
+}
+
 /// Incremental Manhattan heuristic: maintains the running distance in O(1) per
 /// move. A single move slides exactly one tile by one cell, so the tile that
 /// moved into the parent's blank cell changes its Manhattan term by ±1 and
@@ -322,6 +538,118 @@ mod tests {
                 assert!(v <= 9, "forwarded lb {v} > combined make 9 (inadmissible)");
             }
         }
+    }
+
+    /// `LazyMaxInc` must be *node-identical* to the eager `MaxInc` (`B` is only
+    /// probed when its Lipschitz envelope admits a prune, and then it is exact),
+    /// while performing strictly fewer expensive `B` makes. Verified end-to-end
+    /// on real bounded searches with `A` = IncManhattan (cheap/weak) and `B` = a
+    /// call-counting WalkingDistance (expensive, dominant, 1-Lipschitz) — the
+    /// case where a wrong deferral would change the search tree.
+    #[test]
+    fn lazy_maxinc_node_identical_to_eager_with_fewer_b_probes() {
+        use crate::puzzle24::search::idastar::{
+            idastar_inc_mut_bounded_with_stats, BoundedOutcome, IncHeuristicMut,
+        };
+        use crate::puzzle24::search::{WalkingDistanceHeuristic, WalkingDistanceInc};
+        use crate::puzzle24::state::GOAL;
+        use std::cell::Cell;
+
+        struct Counted<'c, H> {
+            inner: H,
+            makes: &'c Cell<u64>,
+        }
+        impl<'c, H: IncHeuristicMut> IncHeuristicMut for Counted<'c, H> {
+            type Ctx = H::Ctx;
+            fn root(&self, s: &State) -> (u8, Self::Ctx) {
+                self.inner.root(s)
+            }
+            fn make(&self, ctx: &mut Self::Ctx, child: &State, m: Move) -> u8 {
+                self.makes.set(self.makes.get() + 1);
+                self.inner.make(ctx, child, m)
+            }
+            fn unmake(&self, ctx: &mut Self::Ctx, m: Move) {
+                self.inner.unmake(ctx, m)
+            }
+            fn child_h_lb(&self, ctx: &Self::Ctx, s: &State, b: u8, m: Move) -> Option<u8> {
+                self.inner.child_h_lb(ctx, s, b, m)
+            }
+        }
+
+        // Deterministic scramble (no immediate undo).
+        fn scramble(seed: u64, steps: u32) -> State {
+            let mut s = GOAL;
+            let mut last: Option<Move> = None;
+            let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+            for _ in 0..steps {
+                let legal: Vec<Move> = s
+                    .legal_moves()
+                    .iter()
+                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .collect();
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                let m = legal[(x as usize) % legal.len()];
+                s = s.apply(m);
+                last = Some(m);
+            }
+            s
+        }
+
+        WalkingDistanceHeuristic::warm_up();
+        // Config 1 — dominant A (WD), weak B (Manhattan): the real deployment
+        // shape (cWD drives the bound, the zPDB sits below it). Deferral must
+        // fire, i.e. strictly fewer B makes, with an identical tree.
+        // Config 2 — weak A, dominant B: probes fire on nearly every child; a
+        // wrong deferral or stale `b_val` would change the tree.
+        let (mut def_eager_b, mut def_lazy_b) = (0u64, 0u64);
+        for seed in 0..12u64 {
+            let start = scramble(seed, 24);
+            for b_dominant in [false, true] {
+                let eb = Cell::new(0u64);
+                let lb = Cell::new(0u64);
+                let run = |lazy_b_makes: &Cell<u64>, lazy: bool| {
+                    let counted = |c| Counted { inner: IncManhattan, makes: c };
+                    // Same (A,B) pair for eager and lazy; only the combinator differs.
+                    if b_dominant {
+                        let a = IncManhattan;
+                        let b = Counted { inner: WalkingDistanceInc, makes: lazy_b_makes };
+                        if lazy {
+                            idastar_inc_mut_bounded_with_stats(&start, &LazyMaxInc::new(a, b), 40)
+                        } else {
+                            idastar_inc_mut_bounded_with_stats(&start, &MaxInc::new(a, b), 40)
+                        }
+                    } else {
+                        let a = WalkingDistanceInc;
+                        let b = counted(lazy_b_makes);
+                        if lazy {
+                            idastar_inc_mut_bounded_with_stats(&start, &LazyMaxInc::new(a, b), 40)
+                        } else {
+                            idastar_inc_mut_bounded_with_stats(&start, &MaxInc::new(a, b), 40)
+                        }
+                    }
+                };
+                let (oe, se) = run(&eb, false);
+                let (ol, sl) = run(&lb, true);
+                let len = |o: &BoundedOutcome| match o {
+                    BoundedOutcome::Solved(p) => p.len(),
+                    _ => panic!("scramble should solve within bound 40"),
+                };
+                assert_eq!(len(&oe), len(&ol), "seed {seed} bdom {b_dominant}: length differs");
+                assert_eq!(se.nodes, sl.nodes, "seed {seed} bdom {b_dominant}: tree differs");
+                assert!(lb.get() <= eb.get(), "seed {seed} bdom {b_dominant}: lazy did MORE B makes");
+                if !b_dominant {
+                    def_eager_b += eb.get();
+                    def_lazy_b += lb.get();
+                }
+            }
+        }
+        // In the deployment-shaped config the deferral must actually fire.
+        assert!(
+            def_lazy_b < def_eager_b,
+            "lazy B makes {def_lazy_b} not fewer than eager {def_eager_b} — deferral never fired"
+        );
     }
 
     /// `MaxInc(LC, WD)` must equal `max(LC, WD)` at the root and stay in sync via

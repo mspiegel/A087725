@@ -8,7 +8,7 @@ pub mod move_dfa;
 pub mod walking_distance;
 
 pub use cwd::{load_cwd_overlay, Cwd, CwdOverlay, CwdScratch};
-pub use heuristic::{Heuristic, IncManhattan, ManhattanMutCtx, ManhattanHeuristic, MaxInc};
+pub use heuristic::{Heuristic, IncManhattan, LazyMaxInc, ManhattanMutCtx, ManhattanHeuristic, MaxInc};
 pub use linear_conflict::{LcCtx, LcMutCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use walking_distance::{
     build_full_table, load_dist_table, save_dist_table, WalkingDistanceHeuristic,
