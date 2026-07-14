@@ -1,0 +1,56 @@
+# slack anatomy probe — examples/slack_anatomy.rs (2026-07-13)
+# rpath = R 156-move best-known path; aggregates from walks legs (TSVs: data/sa_walks_*.tsv)
+
+== rpath ==
+loading cWD + raw WD table…
+R path: 156 moves from data/r156_ours_solution.txt
+board	seed	len	d	v	h	wd_r	wd_c	cwd	slack	fv	fc	rt_v	rt_c	rt_home	rt_far	rt_blank	dem_tot	rtb_v	rtb_c	ph	sec
+0	0	0	156	78	78	70	70	144	12	56	56	11	11	13	9	74	8	3,2,2,4	4,2,2,3	17,9,18	0.00
+=== slack anatomy aggregate [R 156-move path] (n=1) ===
+  slack d−cWD         12.00   (axis split vs WD: row 8.00 + col 8.00; cWD surcharge 4.00)
+  churn 2·RT          44.00   = slack_wd + wd_over (28.00); corr(slack, 2RT) = 0.000
+  RT pairs: home-adjacent 13.00   far  9.00   (blank RT 74.00; cWD demand total 8.00)
+  RT by row boundary  [3.00 2.00 2.00 4.00]   col boundary [4.00 2.00 2.00 3.00]
+  excess events by path third: 38.6% / 20.5% / 40.9%
+
+per-tile churn (round-trip pairs, tile ▸ axis:boundary×pairs):
+  tile  2: c3×1
+  tile  3: c2×1 c3×1
+  tile  4: c3×1
+  tile  6: r0×1
+  tile  8: c2×1
+  tile  9: r3×1
+  tile 10: r3×1
+  tile 11: r0×1 r1×1
+  tile 12: r1×1
+  tile 14: r2×1
+  tile 15: r2×1 r3×1
+  tile 17: r0×1 c0×1
+  tile 18: c1×1
+  tile 20: r3×1
+  tile 22: c0×1
+  tile 23: c0×1 c1×1
+  tile 24: c0×1
+
+== walks aggregates ==
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log:=== slack anatomy aggregate [walks len=110] (n=50) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log-  slack d−cWD         15.48   (axis split vs WD: row 9.20 + col 8.24; cWD surcharge 1.96)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log-  churn 2·RT          18.56   = slack_wd + wd_over (1.12); corr(slack, 2RT) = 0.868
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log-  RT pairs: home-adjacent  8.24   far  1.04   (blank RT 29.90; cWD demand total 1.42)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log-  RT by row boundary  [0.82 1.38 1.56 1.08]   col boundary [0.72 1.24 1.42 1.06]
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_110.log-  excess events by path third: 33.0% / 31.4% / 35.7%
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log:=== slack anatomy aggregate [walks len=70] (n=200) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log-  slack d−cWD         12.31   (axis split vs WD: row 7.48 + col 6.39; cWD surcharge 1.56)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log-  churn 2·RT          15.18   = slack_wd + wd_over (1.31); corr(slack, 2RT) = 0.900
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log-  RT pairs: home-adjacent  6.83   far  0.76   (blank RT 23.71; cWD demand total 1.14)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log-  RT by row boundary  [0.68 1.26 1.24 0.93]   col boundary [0.66 0.98 1.03 0.81]
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_70.log-  excess events by path third: 33.8% / 31.2% / 35.0%
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log:=== slack anatomy aggregate [walks len=90] (n=120) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log-  slack d−cWD         14.30   (axis split vs WD: row 8.38 + col 7.90; cWD surcharge 1.98)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log-  churn 2·RT          17.47   = slack_wd + wd_over (1.18); corr(slack, 2RT) = 0.888
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log-  RT pairs: home-adjacent  7.83   far  0.90   (blank RT 27.74; cWD demand total 1.41)
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log-  RT by row boundary  [0.71 1.23 1.30 1.19]   col boundary [0.72 1.19 1.38 1.02]
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/sa_walks_90.log-  excess events by path third: 33.3% / 30.5% / 36.2%
+
+== cc_walks_110 center-null confirmation ==
+n=50 mean_d=63.3 mean_slack=15.48; corr(slack,dem_ctr_w)=0.055 corr(slack,mis_mass)=-0.100 corr(slack,md)=0.091

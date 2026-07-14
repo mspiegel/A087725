@@ -493,6 +493,57 @@ cWD's remaining 12–16 band slack is not location, not pairwise line
 coupling, and not PDB-reachable — whatever closes it must couple the axes
 or see actual tile identity at range.
 
+## 8g. Slack anatomy — the missing 12–16 is transit-yield churn (2026-07-13)
+
+Rather than test another hypothesis, we instrumented where the missing moves
+physically go: `examples/slack_anatomy.rs` replays optimal paths and accounts
+for every move against the WD/cWD charges, using the exact per-axis identity
+
+    V = F_v + 2·RT_v      ⇒      slack_v = V − WD_row = 2·RT_v − (WD_row − F_v)
+
+(every vertical move crosses exactly one row boundary; F = crossings forced by
+start→goal line intervals; RT = excess round-trip pairs, i.e. churn). The
+identities are asserted per board. Populations: the §8f random-walk boards
+re-solved to optimality (`walks` mode, now multi-threaded — 8 workers gave
+~5.4×, capped by the slowest board), plus R's 156-move path (`rpath` mode).
+
+| population (n, d̄)   | slack d−cWD | churn 2·RT | corr(slack,2RT) | RT home-adj | RT far | cWD demand |
+|----------------------|------------|-----------|-----------------|-------------|--------|------------|
+| len-70  (200, ~47)   | 12.31      | 15.18     | 0.900           | 6.83        | 0.76   | 1.14       |
+| len-90  (120, ~56)   | 14.30      | 17.47     | 0.888           | 7.83        | 0.90   | 1.41       |
+| len-110 (50,  ~63)   | 15.48      | 18.56     | 0.868           | 8.24        | 1.04   | 1.42       |
+| R 156-move path      | 12         | 44        | —               | 13          | 9      | 8          |
+
+Findings:
+
+- **Slack is churn, nearly 1:1, on band boards.** WD sits almost exactly at
+  its naive flow floor there (over-flow charge ~1.2), so slack ≈ 2·RT; the
+  per-board correlation is 0.87–0.90.
+- **~90% of round trips are home-adjacent step-asides**: a tile hops across a
+  boundary adjacent to its own goal line and returns. Far detours are rare
+  (≤1 pair/board). R is atypical (60/40 home/far, WD ferry charge 28) —
+  more evidence R does not represent the band.
+- **cWD certifies almost none of it**: mean LIS escape demand is ~1.4 against
+  ~8 observed round-trip pairs. The yielders are tiles whose within-line order
+  is already LIS-consistent — they are forced aside by **through-traffic**,
+  a mechanism invisible to every charge we have.
+- Location stays flat across boundaries (third null confirmation, including
+  the fresh len-110 leg: |r| ≤ 0.10 vs every centrality feature), and excess
+  events are uniform along the path.
+
+Verdict: the band slack finally has a physical identity — a **transit-yield
+tax**, one step-aside each by many order-consistent tiles letting crossing
+traffic pass. This is the constraint target: lower-bound forced exits of
+line-g residents as a function of through-flow vs free capacity, chargeable
+in the *same* product-graph escape-counter machinery as cWD (a yield is
+exactly the abstract event cWD's counters already track — a goal-g tile
+leaving line g). Per the §8f lesson, the next step is a reference-bound gap
+measurement (how much any demand-vector rule can certify, and the ceiling of
+the whole escape-counter family via observed-path escape counts) before any
+fast implementation. Data: `data/sa_walks_{70,90,110}.tsv`,
+`data/cc_walks_110.tsv` (completes the §8f regression set),
+`data/slack_anatomy_probe.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
