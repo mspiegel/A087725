@@ -228,6 +228,357 @@ fn analyze(start: &State, path: &[Move], wd: &WdTable, cwd: &Cwd) -> Anat {
     a
 }
 
+// ---- transit-yield gap measurement -------------------------------------------------
+//
+// A "yield" is the same abstract event cWD's escape counters already track: a
+// goal-g tile exiting line g. So candidate transit-yield charges are just
+// bigger demand vectors fed to the vector-constrained A* (cwd_axis, copied
+// verbatim from cwd_gap.rs / center_congestion.rs). Rules R1–R3 compute
+// demands from the state (R1 is provable, R2/R3 are progressively aggressive
+// and get empirical soundness checks against exact d*). R4 sets demands to
+// the OBSERVED per-line exits of the board's own optimal path — sound for
+// this path by construction, and an upper envelope for the entire per-line
+// escape-demand family. d* − h(R4) is slack no such rule can ever certify.
+
+/// Min cost of an abstract plan `start → goal` making ≥ dem[g] escapes of each
+/// goal-line g. Product state = (WD key, saturating per-line counters). h =
+/// plain WD (consistent). `None` = pop budget exhausted (caller falls back).
+fn cwd_axis(table: &WdTable, m: &Matrix, blank: u8, goal: u64, dem: &[u8; W]) -> Option<u8> {
+    let lines: Vec<usize> = (0..W).filter(|&g| dem[g] > 0).collect();
+    if lines.is_empty() {
+        return Some(*table.get(&pack(m, blank)).expect("start reachable"));
+    }
+    let mut radix = [1u32; W];
+    let mut full: u32 = 1;
+    for (i, &g) in lines.iter().enumerate() {
+        radix[i] = full;
+        full *= dem[g] as u32 + 1;
+    }
+    let full_index = full - 1;
+    let counter_of = |g: usize| -> Option<usize> { lines.iter().position(|&x| x == g) };
+
+    let start_key = pack(m, blank);
+    let h0 = *table.get(&start_key).expect("start reachable") as usize;
+    let mut best: HashMap<u128, u8> = HashMap::with_capacity(1 << 14);
+    let mut buckets: Vec<Vec<(u64, u32)>> = vec![Vec::new(); 210];
+    const UNSEEN: u8 = 0xFF;
+    const CLOSED: u8 = 0x80;
+    let statekey = |wd: u64, ci: u32| -> u128 { ((wd as u128) << 16) | ci as u128 };
+    best.insert(statekey(start_key, 0), 0);
+    buckets[h0].push((start_key, 0));
+    let mut pops: u64 = 0;
+    const POP_BUDGET: u64 = 40_000_000;
+
+    for f in h0..buckets.len() {
+        let mut i = 0;
+        while i < buckets[f].len() {
+            let (key, ci) = buckets[f][i];
+            i += 1;
+            let sk = statekey(key, ci);
+            let g = match best.get(&sk) {
+                Some(&v) if v & CLOSED == 0 => v,
+                _ => continue,
+            };
+            best.insert(sk, g | CLOSED);
+            pops += 1;
+            if pops > POP_BUDGET {
+                return None;
+            }
+            if key == goal && ci == full_index {
+                return Some(g);
+            }
+            let (mm, br) = unpack(key);
+            let g2 = g + 1;
+            for from in [br.wrapping_sub(1), br + 1] {
+                let from = from as usize;
+                if from >= W {
+                    continue;
+                }
+                for t in 0..W {
+                    if mm[from][t] == 0 {
+                        continue;
+                    }
+                    let mut m2 = mm;
+                    m2[from][t] -= 1;
+                    m2[br as usize][t] += 1;
+                    let child_key = pack(&m2, from as u8);
+                    let mut ci2 = ci;
+                    if from == t {
+                        if let Some(idx) = counter_of(t) {
+                            let cur = (ci / radix[idx]) % (dem[t] as u32 + 1);
+                            if cur < dem[t] as u32 {
+                                ci2 += radix[idx];
+                            }
+                        }
+                    }
+                    let h = *table.get(&child_key).expect("child reachable") as usize;
+                    let csk = statekey(child_key, ci2);
+                    let slot = best.entry(csk).or_insert(UNSEEN);
+                    if *slot == UNSEEN || (*slot & CLOSED == 0 && g2 < *slot) {
+                        *slot = g2;
+                        buckets[g2 as usize + h].push((child_key, ci2));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn unpack(key: u64) -> (Matrix, u8) {
+    let blank = ((key >> 60) & 0x7) as u8;
+    let mut m = [[0u8; W]; W];
+    let mut k = key;
+    for r in (0..W).rev() {
+        for c in (0..(W - 1)).rev() {
+            m[r][c] = (k & 0x7) as u8;
+            k >>= 3;
+        }
+    }
+    for (r, row) in m.iter_mut().enumerate() {
+        let margin: u8 = if r as u8 == blank { 4 } else { 5 };
+        let partial: u8 = row[..W - 1].iter().sum();
+        row[W - 1] = margin - partial;
+    }
+    (m, blank)
+}
+
+fn goal_key() -> u64 {
+    let mut m = [[0u8; W]; W];
+    for d in 0..W {
+        m[d][d] = 5;
+    }
+    m[W - 1][W - 1] = 4;
+    pack(&m, (W - 1) as u8)
+}
+
+/// Per-axis static yield features: k[g] = residents home in line g,
+/// thru[g] = tiles (plus blank) whose cur→goal interval strictly spans line g.
+fn yield_features(s: &State) -> ([u8; W], [u32; W], [u8; W], [u32; W]) {
+    let mut k_r = [0u8; W];
+    let mut k_c = [0u8; W];
+    let mut t_r = [0u32; W];
+    let mut t_c = [0u32; W];
+    for pos in 0..N_CELLS {
+        let tile = s.0[pos];
+        let (r, c) = (pos / W, pos % W);
+        let (gr, gc) = if tile == 0 {
+            (W - 1, W - 1)
+        } else {
+            (((tile - 1) as usize) / W, ((tile - 1) as usize) % W)
+        };
+        if tile != 0 {
+            if gr == r {
+                k_r[r] += 1;
+            }
+            if gc == c {
+                k_c[c] += 1;
+            }
+        }
+        for g in (r.min(gr) + 1)..r.max(gr) {
+            t_r[g] += 1;
+        }
+        for g in (c.min(gc) + 1)..c.max(gc) {
+            t_c[g] += 1;
+        }
+    }
+    (k_r, t_r, k_c, t_c)
+}
+
+/// Candidate yield demands per line for rule `rule` (1..=3). Sound-by-proof
+/// only for rule 1; rules 2–3 are gap probes whose soundness is checked
+/// empirically against exact d*.
+fn yield_dem(k: &[u8; W], thru: &[u32; W], rule: u8) -> [u8; W] {
+    let mut y = [0u8; W];
+    for g in 0..W {
+        y[g] = match rule {
+            1 => u8::from(k[g] == 5 && thru[g] > 0),
+            2 => u8::from(k[g] >= 4 && thru[g] > 0),
+            3 => u8::from(k[g] >= 3 && thru[g] > 0) + u8::from(k[g] >= 4 && thru[g] >= 2),
+            _ => 0,
+        };
+    }
+    y
+}
+
+/// Observed per-line exits along a path: goal-g tile leaving line g (per axis).
+fn observed_exits(start: &State, path: &[Move]) -> ([u8; W], [u8; W]) {
+    let mut e_r = [0u32; W];
+    let mut e_c = [0u32; W];
+    let mut s = start.clone();
+    let mut blank = s.0.iter().position(|&t| t == 0).unwrap();
+    for &m in path {
+        let s2 = s.apply(m);
+        let b2 = s2.0.iter().position(|&t| t == 0).unwrap();
+        let tile = s2.0[blank] as usize; // moved tile, now at old blank cell
+        let g = tile - 1; // never blank==tile here; blank swaps the other way
+        let (r_from, c_from) = (b2 / W, b2 % W); // cell the tile left
+        let (r_to, c_to) = (blank / W, blank % W);
+        if r_from != r_to && g / W == r_from {
+            e_r[r_from] += 1;
+        }
+        if c_from != c_to && g % W == c_from {
+            e_c[c_from] += 1;
+        }
+        s = s2;
+        blank = b2;
+    }
+    const CAP: u32 = 5; // counter-product safety cap; log if ever hit
+    let clamp = |v: &[u32; W]| {
+        let mut o = [0u8; W];
+        for g in 0..W {
+            o[g] = v[g].min(CAP) as u8;
+        }
+        o
+    };
+    (clamp(&e_r), clamp(&e_c))
+}
+
+fn max_dem(a: &[u8; W], b: &[u8; W]) -> [u8; W] {
+    let mut o = [0u8; W];
+    for g in 0..W {
+        o[g] = a[g].max(b[g]);
+    }
+    o
+}
+
+#[derive(Default, Clone)]
+struct YieldRow {
+    d: u32,
+    h0: u32, // reference cWD (LIS demands, both axes summed)
+    h_rule: [u32; 3],
+    h_ceil: u32,
+    fired: [u32; 3], // lines with y>0 across both axes
+    exits_tot: u32,
+    fallback: bool, // any cwd_axis budget exhaustion (value fell back to h0 part)
+}
+
+fn yield_eval(s: &State, path: &[Move], table: &WdTable) -> YieldRow {
+    let goal = goal_key();
+    let (mr, br, dr, mc, bc, dc) = project(s);
+    let (k_r, t_r, k_c, t_c) = yield_features(s);
+    let (e_r, e_c) = observed_exits(s, path);
+    let mut row = YieldRow {
+        d: path.len() as u32,
+        exits_tot: e_r.iter().chain(e_c.iter()).map(|&x| x as u32).sum(),
+        ..Default::default()
+    };
+    let mut fb = false;
+    let mut axis = |m: &Matrix, blank: u8, dem: &[u8; W], base: &mut u32| {
+        let v = cwd_axis(table, m, blank, goal, dem);
+        if v.is_none() {
+            fb = true;
+        }
+        *base += v.unwrap_or_else(|| *table.get(&pack(m, blank)).unwrap()) as u32;
+    };
+    axis(&mr, br, &dr, &mut row.h0);
+    axis(&mc, bc, &dc, &mut row.h0);
+    for r in 1..=3u8 {
+        let y_r = yield_dem(&k_r, &t_r, r);
+        let y_c = yield_dem(&k_c, &t_c, r);
+        row.fired[(r - 1) as usize] =
+            y_r.iter().chain(y_c.iter()).filter(|&&y| y > 0).count() as u32;
+        let mut h = 0u32;
+        axis(&mr, br, &max_dem(&dr, &y_r), &mut h);
+        axis(&mc, bc, &max_dem(&dc, &y_c), &mut h);
+        row.h_rule[(r - 1) as usize] = h;
+    }
+    let mut hc = 0u32;
+    axis(&mr, br, &max_dem(&dr, &e_r), &mut hc);
+    axis(&mc, bc, &max_dem(&dc, &e_c), &mut hc);
+    row.h_ceil = hc;
+    row.fallback = fb;
+    row
+}
+
+fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
+    eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
+    let cwd = Cwd::new();
+    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
+        .expect("wd24.bin load");
+    let next: std::sync::atomic::AtomicU64 = 0.into();
+    let done: std::sync::atomic::AtomicU64 = 0.into();
+    let results: std::sync::Mutex<Vec<(u64, YieldRow)>> =
+        std::sync::Mutex::new(Vec::with_capacity(n as usize));
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= n {
+                    break;
+                }
+                let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+                let s = random_walk(seed, len);
+                let (sol, _st) = idastar_inc_mut_with_stats(&s, &cwd);
+                let path = sol.expect("solvable by construction");
+                let row = yield_eval(&s, &path, &table);
+                results.lock().unwrap().push((i, row));
+                let k = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if k % 10 == 0 {
+                    eprintln!("  {k}/{n} done");
+                }
+            });
+        }
+    });
+    let mut rows = results.into_inner().unwrap();
+    rows.sort_by_key(|r| r.0);
+    println!("board\td\th0\thR1\thR2\thR3\thCEIL\tfired1\tfired2\tfired3\texits\tfb");
+    let mut gain = [0f64; 3];
+    let mut viol = [0u32; 3];
+    let mut fired = [0f64; 3];
+    let (mut gain_c, mut resid, mut exits, mut nfb) = (0f64, 0f64, 0f64, 0u32);
+    for (i, r) in &rows {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            i, r.d, r.h0, r.h_rule[0], r.h_rule[1], r.h_rule[2], r.h_ceil,
+            r.fired[0], r.fired[1], r.fired[2], r.exits_tot, r.fallback as u8
+        );
+        for k in 0..3 {
+            gain[k] += (r.h_rule[k] - r.h0) as f64;
+            viol[k] += u32::from(r.h_rule[k] > r.d);
+            fired[k] += r.fired[k] as f64;
+        }
+        gain_c += (r.h_ceil - r.h0) as f64;
+        resid += r.d as f64 - r.h_ceil as f64;
+        exits += r.exits_tot as f64;
+        nfb += r.fallback as u32;
+        assert!(r.h_ceil <= r.d, "ceiling exceeded d* on board {i} — bug");
+    }
+    let nn = rows.len() as f64;
+    eprintln!("=== transit-yield gap [len={len}] (n={}, fallbacks={nfb}) ===", rows.len());
+    for k in 0..3 {
+        eprintln!(
+            "  R{}: mean gain {:.3}  fired-lines/board {:.2}  UNSOUND on {} boards",
+            k + 1, gain[k] / nn, fired[k] / nn, viol[k]
+        );
+    }
+    eprintln!(
+        "  CEILING (observed-exit demands): mean gain {:.2} of mean slack {:.2}; mean residual d*−hCEIL {:.2}; mean observed exits {:.2}",
+        gain_c / nn,
+        rows.iter().map(|(_, r)| r.d as f64 - r.h0 as f64).sum::<f64>() / nn,
+        resid / nn,
+        exits / nn
+    );
+}
+
+fn run_yieldr(file: &str) {
+    eprintln!("loading raw WD table…");
+    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
+        .expect("wd24.bin load");
+    let text = std::fs::read_to_string(file).expect("read move file");
+    let body: String =
+        text.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join(" ");
+    let moves = parse_moves(&body);
+    let start = r_board();
+    let row = yield_eval(&start, &moves, &table);
+    eprintln!("=== transit-yield on R (156-move path; d* unknown, LB 150 / UB 156) ===");
+    eprintln!(
+        "  h0(ref cWD) {}  R1 {}  R2 {}  R3 {}  CEIL {}  (observed exits {}, fallback {})",
+        row.h0, row.h_rule[0], row.h_rule[1], row.h_rule[2], row.h_ceil, row.exits_tot,
+        row.fallback
+    );
+}
+
 // ---- board sources ----------------------------------------------------------------
 
 fn random_walk(seed: u64, len: u32) -> State {
@@ -530,6 +881,17 @@ fn main() {
             let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
             let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1);
             run_walks(n, len, seed0, threads);
+        }
+        Some("yieldgap") => {
+            let n: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(50);
+            let len: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(70);
+            let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1);
+            run_yieldgap(n, len, seed0, threads);
+        }
+        Some("yieldr") => {
+            let file = args.get(2).map(String::as_str).unwrap_or("data/r156_ours_solution.txt");
+            run_yieldr(file);
         }
         Some("rpath") => {
             let file = args.get(2).map(String::as_str).unwrap_or("data/r156_ours_solution.txt");

@@ -1,0 +1,30 @@
+# transit-yield gap measurement — examples/slack_anatomy.rs yieldgap/yieldr modes (2026-07-13)
+# dem-vector reference bounds (cwd_axis) on the 370 re-solved walk boards; TSVs: data/yg_*.tsv
+
+== yieldr (R 156-move path) ==
+loading raw WD table…
+=== transit-yield on R (156-move path; d* unknown, LB 150 / UB 156) ===
+  h0(ref cWD) 144  R1 144  R2 144  R3 144  CEIL 144  (observed exits 13, fallback false)
+
+== aggregates ==
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_110.log:=== transit-yield gap [len=110] (n=50, fallbacks=0) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_110.log-  R1: mean gain 0.000  fired-lines/board 0.00  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_110.log-  R2: mean gain 0.000  fired-lines/board 0.08  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_110.log-  R3: mean gain 0.160  fired-lines/board 0.34  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_110.log-  CEILING (observed-exit demands): mean gain 12.96 of mean slack 15.04; mean residual d*−hCEIL 2.08; mean observed exits 8.24
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_70.log:=== transit-yield gap [len=70] (n=200, fallbacks=0) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_70.log-  R1: mean gain 0.000  fired-lines/board 0.00  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_70.log-  R2: mean gain 0.020  fired-lines/board 0.14  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_70.log-  R3: mean gain 0.940  fired-lines/board 0.94  UNSOUND on 1 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_70.log-  CEILING (observed-exit demands): mean gain 10.40 of mean slack 11.87; mean residual d*−hCEIL 1.47; mean observed exits 6.83
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_90.log:=== transit-yield gap [len=90] (n=120, fallbacks=0) ===
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_90.log-  R1: mean gain 0.000  fired-lines/board 0.02  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_90.log-  R2: mean gain 0.000  fired-lines/board 0.12  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_90.log-  R3: mean gain 0.600  fired-lines/board 0.72  UNSOUND on 0 boards
+/private/tmp/claude-501/-Users-michaelspiegel-Projects-atom-planet-embrace-A087725/d5f9ce92-c719-4a78-8820-6ad7b44aaede/scratchpad/yg_90.log-  CEILING (observed-exit demands): mean gain 12.20 of mean slack 13.97; mean residual d*−hCEIL 1.77; mean observed exits 7.83
+
+== R3 unsound witness ==
+len-70 board 26: d*=34, hR3=36 (k>=3 & thru>=1 does NOT force an exit)
+
+== hCEIL==d* counts ==
+len-70: 90/200; len-90: 46/120; len-110: 17/50

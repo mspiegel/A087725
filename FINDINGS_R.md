@@ -544,6 +544,40 @@ fast implementation. Data: `data/sa_walks_{70,90,110}.tsv`,
 `data/cc_walks_110.tsv` (completes the §8f regression set),
 `data/slack_anatomy_probe.txt`.
 
+## 8h. Transit-yield gap measurement — the family ceiling reaches the slack; soundness is the whole problem (2026-07-13)
+
+A yield is exactly the abstract event cWD's counters already track (a goal-g
+tile exiting line g), so candidate transit-yield charges are just bigger
+demand vectors fed to the same vector-constrained A\*. `yieldgap` mode
+evaluates, per board (370 re-solved walk boards, exact d\* oracle): three
+static rules and a **family ceiling** — demands set to the observed per-line
+exits of the board's own optimal path, sound for that path by construction
+and an upper envelope for every per-line escape-demand rule.
+
+| population | ceiling gain / slack | residual d\*−hCEIL | hCEIL = d\* exactly |
+|------------|----------------------|--------------------|---------------------|
+| len-70 (200)  | 10.40 / 11.87 (88%) | 1.47 | 90/200 |
+| len-90 (120)  | 12.20 / 13.97 (87%) | 1.77 | 46/120 |
+| len-110 (50)  | 12.96 / 15.04 (86%) | 2.08 | 17/50 |
+
+- **The escape-demand family can express 86–88% of the band slack** — the
+  first mechanism whose ceiling actually reaches it (every previous family
+  topped out far below). The counter machinery needs nothing new; the entire
+  open problem is a *provably sound* demand rule. Zero A\* budget fallbacks.
+- Static root rules certify almost none of it: R1 (provable occupancy rule —
+  full home line + forced through-traffic ⇒ 1 exit) fires ~never on
+  scrambles; R2 (k≥4) ~0; R3 (k≥3 ∧ thru≥1) gains <1 and is **unsound**
+  (witness: len-70 board 26, d\*=34, hR3=36). Static per-line rules stronger
+  than full-line occupancy are structurally suspect: a passer can cross in
+  any of the 5 columns, so only a physically full line forces an exit.
+- R is untouched (CEIL 144 = cWD; its slack is ferry/far-churn). This lever
+  belongs to generic deep boards, like the zPDB complement (§8e).
+- Nuance for later: demands re-fire at every search NODE, and lines fill up
+  mid-search even from scrambled roots — R1's per-node firing rate is a
+  separate (A/B-only, per the §8c/§8f lesson) question from its root rate.
+
+Data: `data/yg_{70,90,110}.tsv`, `data/yield_gap_probe.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
