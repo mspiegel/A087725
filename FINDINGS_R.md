@@ -447,6 +447,52 @@ Net: **single-partition k6 zPDB, lazily maxed under cWD, is the right-sized
 complementary heuristic for deep boards** — validated off-R, with k7 /
 reflection / compound / Lipschitz-deferral all measured and closed around it.
 
+## 8f. Congestion location is free; multi-line coupling is real but marginal (2026-07-13)
+
+Two candidate second-order cWD strengtheners tested end-to-end
+(`examples/center_congestion.rs`, log `data/center_congestion_probe.txt`).
+
+**Center-congestion hypothesis — NULL, twice.** Hypothesis: congestion near
+the board center costs more than the same congestion at the edges.
+(a) *Controlled*: identical within-line motifs (3-cycle, double swap) placed
+in every row/column of an otherwise-solved board, solved exactly. Slack
+`d* − cWD` is flat across placements (6 for every rot3 position, 14 for every
+swap2, 16 only in the blank's own line) — cWD's escape constraint already
+charges blank travel to the congested line, and location adds nothing.
+(b) *Observational*: 320 random-walk boards (len 70/90) solved exactly;
+slack correlates ≈0 (|r| ≤ 0.13, mixed sign) with every location feature —
+center-boundary WD-flow share, misplaced-tile center mass, center-line escape
+demand — including partials controlling for total congestion. **Closed.**
+
+**Multi-line joint escape demand — real gap, marginal payoff.** The motif scan's
+one deviation (motifs in rows {0,4}: slack 12 vs 8 for all other pairs) traced
+to a genuine soundness-preserving gap: the production fast path charges
+`max` over *single-line* surcharge curves, while the joint demand-vector A\*
+charges more when demands span ≥2 lines. Measured on R:
+
+- Root: fast = joint = 144 on R (and on the three §8e catalog boards) — no gap.
+- Interior (thr-146 reservoir, 6k samples): joint−fast = **+0.21/node**,
+  growing with depth (0.12 @ d24–31 → 0.27 @ d40–47); +2 on 10.3% of nodes.
+  Pair-restricted demand captures it all (pair 0.2090 vs full 0.2093) —
+  the coupling is entirely pairwise.
+- **Real A/B** (exhaust R @ thr 144, identical serial driver both arms):
+  726,797,221 nodes fast vs 708,142,073 with the pair bonus =
+  **1.026× node reduction** — the δ̄-predicted 29^(0.21/2) ≈ 1.4× collapses
+  to 2.6%. Second confirmation of the §8c lesson: sampled per-node δ̄ wildly
+  overestimates IDA\* pruning (a +2 bonus only kills nodes already within 2
+  of the threshold); only exhaustive A/B counts.
+- Engineering note that survives: the joint/pair value depends only on
+  `(contingency key, demand vector)`, and the thr-144 exhaust touched just
+  **18,155 distinct pairs** (99.98% memo hit rate) — a lazily-memoized
+  surcharge cache is essentially free, so if a future variant finds a
+  bigger per-node gap, no offline table build is needed.
+
+Verdict: pair-coupling surcharge **closed as a wall-clock lever** (≤ ~3%
+nodes on R; demands on generic deep boards are too sparse for it to fire).
+cWD's remaining 12–16 band slack is not location, not pairwise line
+coupling, and not PDB-reachable — whatever closes it must couple the axes
+or see actual tile identity at range.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
