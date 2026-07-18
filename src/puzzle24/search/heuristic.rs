@@ -149,6 +149,28 @@ where
     }
 }
 
+/// Variadic max of ≥1 incremental heuristics: the ergonomic form of hand-nesting
+/// [`MaxInc::new`]. `max_inc!(a, b, c)` expands to `MaxInc::new(a, MaxInc::new(b,
+/// c))` — a right-associated fold, so the component types may all differ (each
+/// `MaxInc` layer just maxes its two children). A real `fn` can't be variadic
+/// over heterogeneous heuristic types, hence the macro; it is pure type
+/// composition with **zero** runtime cost, and the result implements whichever of
+/// [`IncHeuristic`](crate::puzzle24::search::IncHeuristic) /
+/// [`IncHeuristicMut`](crate::puzzle24::search::IncHeuristicMut) all components
+/// do. `max_inc!(a)` is just `a`. A trailing comma is accepted.
+///
+/// ```ignore
+/// // max(cWD, k6 zPDB, three-group k8 zPDB), no manual nesting:
+/// let h = max_inc!(Cwd::new(), z_k6, z_k8);
+/// ```
+#[macro_export]
+macro_rules! max_inc {
+    ($h:expr $(,)?) => { $h };
+    ($h:expr, $($rest:expr),+ $(,)?) => {
+        $crate::puzzle24::search::MaxInc::new($h, $crate::max_inc!($($rest),+))
+    };
+}
+
 /// Lipschitz-deferred variant of [`MaxInc`]: `A` is the cheap component, `B`
 /// the expensive one. **`B` must be 1-Lipschitz per move** (`|h(child) −
 /// h(parent)| ≤ 1` — true for WD/cWD/zero-aware PDBs, whose projected edges
@@ -727,6 +749,36 @@ mod tests {
             let (m, ms) = idastar_inc_mut_with_stats(&s, &mx);
             assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "MaxInc length differs");
             assert_eq!(cs.nodes, ms.nodes, "MaxInc node count differs");
+        }
+    }
+
+    /// `max_inc!` is exactly the right-nested `MaxInc` and reports the true max of
+    /// its components. Single-arg is the identity; a trailing comma is accepted.
+    #[test]
+    fn max_inc_macro_folds_and_matches_nested() {
+        use crate::max_inc;
+        use crate::puzzle24::search::{IncHeuristic, LinearConflictHeuristic, LinearConflictInc};
+        // Three distinct component types, to exercise the heterogeneous fold.
+        let macro_h = max_inc!(IncManhattan, IncManhattan, LinearConflictInc);
+        let nested_h = MaxInc::new(IncManhattan, MaxInc::new(IncManhattan, LinearConflictInc));
+        // Single-arg identity + trailing comma both parse.
+        let solo = max_inc!(IncManhattan,);
+
+        let mut rng: u64 = 0x1357_9BDF_2468_ACE0;
+        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        for _ in 0..200 {
+            let mut s = GOAL;
+            for _ in 0..16 {
+                let opts: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(opts[(next() as usize) % opts.len()]);
+            }
+            let mut st = crate::puzzle24::search::SearchStats::default();
+            let hm = macro_h.root(&s, &mut st).0;
+            let hn = nested_h.root(&s, &mut st).0;
+            let expect = ManhattanHeuristic.h(&s).max(LinearConflictHeuristic.h(&s));
+            assert_eq!(hm, hn, "macro fold != hand-nested MaxInc");
+            assert_eq!(hm, expect, "macro fold != scratch max");
+            assert_eq!(solo.root(&s, &mut st).0, ManhattanHeuristic.h(&s), "solo != identity");
         }
     }
 }
