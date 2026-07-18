@@ -138,10 +138,10 @@ struct Args {
     combine_slack: u8,
     /// Root-orbit-split: on a σ-symmetric start board (`reflect(start) == start`,
     /// e.g. board R), search one representative per σ-orbit of the root's children
-    /// — a sound ~2× reduction for lower-bound proofs. Applies to the `--parallel`
-    /// driver only. `None` = auto (on when the board is symmetric); `Some(true)` =
-    /// force on (warns + ignored if the board is not symmetric); `Some(false)` =
-    /// off (`--no-root-orbit-split`, for A/B measurement).
+    /// — a sound ~2× reduction for lower-bound proofs. Applies to both the parallel
+    /// and sequential drivers. `None` = auto (on when the board is symmetric);
+    /// `Some(true)` = force on (warns + ignored if the board is not symmetric);
+    /// `Some(false)` = off (`--no-root-orbit-split`, for A/B measurement).
     root_orbit_split: Option<bool>,
 }
 
