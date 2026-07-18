@@ -9,6 +9,13 @@ publish = false
 name = "puzzle8"
 path = "src/lib.rs"
 
+[lints.clippy]
+# `needless_range_loop` mostly false-fires in this numeric codebase on deliberate
+# index math — diagonal writes (`m[d][d]`), bit positions (`1 << c`),
+# mixed-radix/factorial ranking arithmetic, and W×W matrix packing — where the
+# `for i in 0..n` form is clearer than clippy's iterator/`enumerate` rewrite.
+needless_range_loop = "allow"
+
 # Binaries: 8-puzzle (build_table, solve, stats) ship by default;
 # 15-puzzle (build_pdb15, solve15, verify15) require feature flags.
 
