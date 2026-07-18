@@ -53,7 +53,8 @@ use std::time::Instant;
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel_mut, idastar_inc_bounded_parallel_mut_pruned,
-    idastar_inc_mut_bounded_orbit_with_stats, idastar_inc_mut_orbit_with_stats, BoundedOutcome, Cwd,
+    idastar_inc_mut_bounded_orbit_with_stats, idastar_inc_mut_bounded_pruned_orbit_with_stats,
+    idastar_inc_mut_orbit_with_stats, idastar_inc_mut_pruned_orbit_with_stats, BoundedOutcome, Cwd,
     IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc, MaxInc, MoveDfa,
     SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
@@ -125,8 +126,8 @@ struct Args {
     /// Use the shared-memory parallel IDA* driver (2P).
     parallel: bool,
     /// Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on the
-    /// heuristic. Applies to the parallel driver; sound for lower-bound proofs.
-    /// **Default on**; disable with `--no-move-dfa`.
+    /// heuristic. Applies to both the parallel and sequential drivers; sound for
+    /// lower-bound proofs. **Default on**; disable with `--no-move-dfa`.
     move_dfa: bool,
     /// For `--heuristic cwd`: let the search bound a child from its parent's
     /// cached neighbor-WD and prune it before probing. Sound. **Default on**;
@@ -488,10 +489,22 @@ where
             }
         };
     }
+    // Sequential make/unmake path. Stack the move-pruning DFA (Taylor–Korf
+    // duplicate elimination) when requested — same sound lower-bound pruning as the
+    // parallel `_pruned` driver, node-identical. `None` ⇒ the un-pruned driver.
+    let dfa = if move_dfa { Some(MoveDfa::build_default()) } else { None };
+    if let Some(dfa) = &dfa {
+        eprintln!(
+            "move-pruning DFA: {} states, {} KiB (L2-resident)",
+            dfa.states(),
+            dfa.table_bytes() / 1024
+        );
+    }
     match max_bound {
         None => {
-            let ((sol, st), search_dt) = timed_search(t0.elapsed(), || {
-                idastar_inc_mut_orbit_with_stats(start, e, orbit_split)
+            let ((sol, st), search_dt) = timed_search(t0.elapsed(), || match &dfa {
+                Some(dfa) => idastar_inc_mut_pruned_orbit_with_stats(start, e, dfa, orbit_split),
+                None => idastar_inc_mut_orbit_with_stats(start, e, orbit_split),
             });
             let elapsed = t0.elapsed();
             match sol {
@@ -507,8 +520,11 @@ where
             }
         }
         Some(mb) => {
-            let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
-                idastar_inc_mut_bounded_orbit_with_stats(start, e, mb, orbit_split)
+            let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || match &dfa {
+                Some(dfa) => {
+                    idastar_inc_mut_bounded_pruned_orbit_with_stats(start, e, dfa, mb, orbit_split)
+                }
+                None => idastar_inc_mut_bounded_orbit_with_stats(start, e, mb, orbit_split),
             });
             let elapsed = t0.elapsed();
             match outcome {

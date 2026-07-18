@@ -955,6 +955,22 @@ pub fn idastar_inc_mut_orbit_with_stats<E: IncHeuristicMut>(
     e: &E,
     orbit_split: bool,
 ) -> (Option<Vec<Move>>, SearchStats) {
+    idastar_inc_mut_pruned_orbit_with_stats(start, e, &NullPruner, orbit_split)
+}
+
+/// [`idastar_inc_mut_orbit_with_stats`] with a [`MovePruner`] (e.g. a
+/// [`MoveDfa`](super::move_dfa::MoveDfa) for Taylor–Korf duplicate elimination) —
+/// the sequential counterpart of [`idastar_inc_bounded_parallel_mut_pruned`].
+/// With [`NullPruner`] it is byte-identical to the un-pruned driver; with a real
+/// pruner it removes the same duplicate subtrees, node-identically to the
+/// parallel pruned driver. Sound as a lower-bound proof (a pruned board is
+/// reachable by a shorter/equal path, so no threshold is lost).
+pub fn idastar_inc_mut_pruned_orbit_with_stats<E: IncHeuristicMut, P: MovePruner>(
+    start: &State,
+    e: &E,
+    pruner: &P,
+    orbit_split: bool,
+) -> (Option<Vec<Move>>, SearchStats) {
     debug_assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "orbit_split is unsound on a non-σ-symmetric board"
@@ -967,6 +983,7 @@ pub fn idastar_inc_mut_orbit_with_stats<E: IncHeuristicMut>(
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    let pst0 = pruner.root_state(blank);
     // Private, never-shared flag so `search_inc_mut` can take a non-optional
     // `&AtomicBool`; in this sequential driver nothing else reads it.
     let found = std::sync::atomic::AtomicBool::new(false);
@@ -974,7 +991,7 @@ pub fn idastar_inc_mut_orbit_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored to the root projection after each iteration because
         // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), orbit_split, &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -1015,6 +1032,20 @@ pub fn idastar_inc_mut_bounded_orbit_with_stats<E: IncHeuristicMut>(
     max_bound: u8,
     orbit_split: bool,
 ) -> (BoundedOutcome, SearchStats) {
+    idastar_inc_mut_bounded_pruned_orbit_with_stats(start, e, &NullPruner, max_bound, orbit_split)
+}
+
+/// [`idastar_inc_mut_bounded_orbit_with_stats`] with a [`MovePruner`] — the
+/// sequential counterpart of [`idastar_inc_bounded_parallel_mut_pruned`] (see
+/// [`idastar_inc_mut_pruned_orbit_with_stats`]). Node-identical to the parallel
+/// pruned driver with the same pruner and orbit flag.
+pub fn idastar_inc_mut_bounded_pruned_orbit_with_stats<E: IncHeuristicMut, P: MovePruner>(
+    start: &State,
+    e: &E,
+    pruner: &P,
+    max_bound: u8,
+    orbit_split: bool,
+) -> (BoundedOutcome, SearchStats) {
     debug_assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "orbit_split is unsound on a non-σ-symmetric board"
@@ -1027,6 +1058,7 @@ pub fn idastar_inc_mut_bounded_orbit_with_stats<E: IncHeuristicMut>(
     let mut bound = h0;
     let mut path: Vec<Move> = Vec::with_capacity(220);
     let blank = start.blank_pos();
+    let pst0 = pruner.root_state(blank);
     let found = std::sync::atomic::AtomicBool::new(false); // private, never read here
     loop {
         if bound > max_bound {
@@ -1035,7 +1067,7 @@ pub fn idastar_inc_mut_bounded_orbit_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored after each iteration — `search_inc_mut` unmakes every
         // move it makes on a `Bound` return.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), orbit_split, &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -1381,6 +1413,84 @@ mod tests {
             }
             (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
         }
+    }
+
+    /// Sequential move-DFA pruning (the `_mut` driver with a real [`MoveDfa`]) must
+    /// match the parallel pruned driver exactly and actually remove duplicate
+    /// subtrees. Cross-checks, on general scrambles (the DFA needs no symmetry):
+    /// (1) sequential-pruned nodes == parallel-pruned nodes (same outcome), and
+    /// (2) sequential-pruned nodes ≤ sequential-unpruned, strictly across the suite.
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn move_dfa_sequential_matches_parallel_and_prunes() {
+        use crate::puzzle24::search::move_dfa::MoveDfa;
+        use crate::puzzle24::search::IncManhattan;
+
+        fn scramble(seed: u64, steps: u32) -> State {
+            let mut s = GOAL;
+            let mut last: Option<Move> = None;
+            let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+            for _ in 0..steps {
+                let legal: Vec<Move> = s
+                    .legal_moves()
+                    .iter()
+                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .collect();
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                let m = legal[(x as usize) % legal.len()];
+                s = s.apply(m);
+                last = Some(m);
+            }
+            s
+        }
+
+        let dfa = MoveDfa::build_default();
+        let (mut total_pruned, mut total_plain) = (0u64, 0u64);
+        for seed in 0..16u64 {
+            let start = scramble(seed, 20);
+            // Bound at optimal − 2: strictly path-free (no early exit, so seq/par
+            // node counts are comparable) yet ≥ h0 for a real tree.
+            let opt = idastar_inc_mut(&start, &IncManhattan).expect("solvable").len() as u8;
+            let bound = opt.saturating_sub(2);
+            // orbit_split = false (general boards); pruner = the move-DFA.
+            let (seq_out, seq_st) =
+                idastar_inc_mut_bounded_pruned_orbit_with_stats(&start, &IncManhattan, &dfa, bound, false);
+            let (par_out, par_st) =
+                idastar_inc_bounded_parallel_mut_pruned(&start, &IncManhattan, &dfa, bound, None, false);
+            // Un-pruned sequential baseline (NullPruner) for the same tree.
+            let (_, plain_st) =
+                idastar_inc_mut_bounded_orbit_with_stats(&start, &IncManhattan, bound, false);
+
+            assert_eq!(
+                seq_st.nodes, par_st.nodes,
+                "seed {seed}: sequential pruned nodes {} != parallel pruned {}",
+                seq_st.nodes, par_st.nodes
+            );
+            // Both prove the same lower bound (the exhaust is path-free at bound 12).
+            let seq_k = match seq_out {
+                BoundedOutcome::ProvedAtLeast(k) => k,
+                other => panic!("seed {seed}: expected ProvedAtLeast, got {:?}", other),
+            };
+            let par_k = match par_out {
+                LadderOutcome::ProvedAtLeast(k) => k,
+                other => panic!("seed {seed}: expected ProvedAtLeast, got {:?}", other),
+            };
+            assert_eq!(seq_k, par_k, "seed {seed}: proved-bound differs seq vs parallel");
+            assert!(
+                seq_st.nodes <= plain_st.nodes,
+                "seed {seed}: pruned {} did MORE work than un-pruned {}",
+                seq_st.nodes, plain_st.nodes
+            );
+            total_pruned += seq_st.nodes;
+            total_plain += plain_st.nodes;
+        }
+        // Across the suite the DFA must actually remove work.
+        assert!(
+            total_pruned < total_plain,
+            "move-DFA never pruned: {total_pruned} vs {total_plain}"
+        );
     }
 
     #[test]

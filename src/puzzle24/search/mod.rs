@@ -19,7 +19,8 @@ pub use walking_distance::{
 pub use idastar::{
     idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,
     idastar_inc_ladder, idastar_inc_mut, idastar_inc_mut_bounded_orbit_with_stats,
-    idastar_inc_mut_bounded_with_stats, idastar_inc_mut_orbit_with_stats,
+    idastar_inc_mut_bounded_pruned_orbit_with_stats, idastar_inc_mut_bounded_with_stats,
+    idastar_inc_mut_orbit_with_stats, idastar_inc_mut_pruned_orbit_with_stats,
     idastar_inc_mut_with_stats, idastar_inc_with_stats, idastar_with_stats, BoundedOutcome,
     IncHeuristic, IncHeuristicMut, LadderOutcome, SearchStats,
 };
