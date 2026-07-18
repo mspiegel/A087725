@@ -841,7 +841,7 @@ where
                 let (h_u, mut ctx) = IncHeuristicMut::root(e, &u.state);
                 let step = search_inc_mut(
                     &u.state, u.blank, &mut ctx, h_u, u.g, bound, deadline, &found_flag,
-                    &mut path, u.last, e, pruner, u.pst, &mut st,
+                    &mut path, u.last, e, pruner, u.pst, false, &mut st,
                 );
                 let wr = match step {
                     Step::Found => {
@@ -939,6 +939,26 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
     start: &State,
     e: &E,
 ) -> (Option<Vec<Move>>, SearchStats) {
+    idastar_inc_mut_orbit_with_stats(start, e, false)
+}
+
+/// [`idastar_inc_mut_with_stats`] with sequential root-orbit-split. When
+/// `orbit_split` is `true` the search keeps one representative per σ-orbit of the
+/// **root's** children — the single-threaded counterpart of
+/// [`idastar_inc_bounded_parallel_mut`]'s split filter, giving the same ~2×
+/// lower-bound reduction and identical node counts, without work-stealing
+/// nondeterminism. **Sound only on a σ-fixed board** (`reflect(start) == start`);
+/// the returned solution stays optimal because a dropped child's mirror reaches
+/// the reflected (equal-length) optimum. Debug-asserts the precondition.
+pub fn idastar_inc_mut_orbit_with_stats<E: IncHeuristicMut>(
+    start: &State,
+    e: &E,
+    orbit_split: bool,
+) -> (Option<Vec<Move>>, SearchStats) {
+    debug_assert!(
+        !orbit_split || symmetry::is_symmetric(start),
+        "orbit_split is unsound on a non-σ-symmetric board"
+    );
     let mut stats = SearchStats::default();
     if start == &GOAL {
         return (Some(Vec::new()), stats);
@@ -954,7 +974,7 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored to the root projection after each iteration because
         // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), orbit_split, &mut stats) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -981,6 +1001,24 @@ pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
     e: &E,
     max_bound: u8,
 ) -> (BoundedOutcome, SearchStats) {
+    idastar_inc_mut_bounded_orbit_with_stats(start, e, max_bound, false)
+}
+
+/// [`idastar_inc_mut_bounded_with_stats`] with sequential root-orbit-split (see
+/// [`idastar_inc_mut_orbit_with_stats`]). `orbit_split = true` keeps one σ-orbit
+/// representative of the root's children — the single-threaded counterpart of the
+/// parallel driver's split filter, node-identical to it. **Sound only on a
+/// σ-fixed board**; debug-asserts the precondition.
+pub fn idastar_inc_mut_bounded_orbit_with_stats<E: IncHeuristicMut>(
+    start: &State,
+    e: &E,
+    max_bound: u8,
+    orbit_split: bool,
+) -> (BoundedOutcome, SearchStats) {
+    debug_assert!(
+        !orbit_split || symmetry::is_symmetric(start),
+        "orbit_split is unsound on a non-σ-symmetric board"
+    );
     let mut stats = SearchStats::default();
     if start == &GOAL {
         return (BoundedOutcome::Solved(Vec::new()), stats);
@@ -997,7 +1035,7 @@ pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored after each iteration — `search_inc_mut` unmakes every
         // move it makes on a `Bound` return.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), &mut stats) {
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, &NullPruner, (), orbit_split, &mut stats) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -1026,6 +1064,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
     e: &E,
     p: &P,
     pst: P::St,
+    orbit_split: bool,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
@@ -1054,6 +1093,17 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
 
     let mut min_next = u8::MAX;
     for m in State::legal_moves_at(blank).iter() {
+        // Root-orbit-split (true root only): on a σ-symmetric board the root's
+        // children fall into σ-orbits {m, transpose_move(m)}; search one
+        // representative per orbit. Sequential counterpart of the parallel split's
+        // `g == 0` filter — identical to it and to the parallel worker trees. Only
+        // sound on a σ-fixed board (caller's precondition; debug-asserted in the
+        // driver). Applied at `g == 0` only; deeper filtering would drop real
+        // boards. The dropped child's kept mirror carries the same `f`, so neither
+        // `stats.nodes` nor the next-threshold `min_next` is affected.
+        if orbit_split && g == 0 && !symmetry::is_orbit_representative(m) {
+            continue;
+        }
         if let Some(prev) = last {
             if m == prev.inverse() {
                 continue;
@@ -1083,7 +1133,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let child_h = e.make_bounded(ctx, &s_next, m, bound.saturating_sub(g + 1));
         path.push(m);
-        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, p, p.advance(pst, m), stats) {
+        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, p, p.advance(pst, m), orbit_split, stats) {
             // On Found/Aborted the whole search terminates so `ctx` is discarded
             // (no need to unmake); keep the accumulated path.
             Step::Found => return Step::Found,
@@ -1247,6 +1297,86 @@ mod tests {
         let (sol_on, _) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 30, None, true);
         match (sol_off, sol_on) {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
+                assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
+            }
+            (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
+        }
+    }
+
+    /// Sequential root-orbit-split (the single-threaded `_mut` driver's `g == 0`
+    /// filter) must be a faithful counterpart of the parallel split filter: on a
+    /// σ-symmetric board it produces **exactly the same node count** as the
+    /// parallel orbit driver, reduces vs the un-split sequential run (~2×), and
+    /// keeps the optimal length. Ties to the R use case by asserting R itself is
+    /// σ-symmetric (R's own exhaust is proof-scale, so the real-tree checks run on
+    /// a shallow σ-symmetric fixture — depth 16, the same one the parallel test
+    /// uses — with Manhattan + `NullPruner` so the ~2× isn't muddied by move-DFA).
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn root_orbit_split_sequential_matches_parallel_on_symmetric_board() {
+        use crate::puzzle24::search::IncManhattan;
+        use crate::puzzle24::symmetry::is_symmetric;
+
+        // The R use case: the 180° board is a σ-fixpoint, so orbit-split is sound
+        // on it — the motivation for a sequential reference. (Its tree is too deep
+        // to exhaust in a unit test, hence the shallow fixture below.)
+        let r = State([
+            0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2,
+            1,
+        ]);
+        assert!(is_symmetric(&r), "board R must be σ-symmetric");
+
+        // Shallow σ-symmetric fixture with a real exhaust window (blank on the
+        // centre diagonal → 4 root moves → 2 orbits).
+        let fix = State([
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 14, 15, 16, 17, 18, 13, 20, 21, 22, 23, 24,
+            19,
+        ]);
+        assert!(is_symmetric(&fix), "fixture must be σ-symmetric");
+
+        // Bounded exhaust below the solution depth (16): path-free ProvedAtLeast.
+        let (seq_off, s_seq_off) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 10, false);
+        let (seq_on, s_seq_on) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 10, true);
+        let (par_on, s_par_on) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, true);
+
+        // (1) The headline cross-check: sequential orbit-split is node-identical to
+        // the parallel orbit-split, and proves the same bound. (The two drivers
+        // return different outcome enums — BoundedOutcome vs LadderOutcome — so
+        // compare the proved bound explicitly.)
+        assert_eq!(
+            s_seq_on.nodes, s_par_on.nodes,
+            "sequential orbit nodes {} != parallel orbit nodes {}",
+            s_seq_on.nodes, s_par_on.nodes
+        );
+        let seq_bound = match seq_on {
+            BoundedOutcome::ProvedAtLeast(k) => k,
+            other => panic!("expected sequential path-free ProvedAtLeast, got {:?}", other),
+        };
+        let par_bound = match par_on {
+            LadderOutcome::ProvedAtLeast(k) => k,
+            other => panic!("expected parallel path-free ProvedAtLeast, got {:?}", other),
+        };
+        assert_eq!(seq_bound, par_bound, "sequential vs parallel proved-bound differs");
+        // (2) The split actually reduces work vs the un-split sequential run…
+        assert_eq!(seq_off, seq_on, "orbit-split changed the sequential lower-bound outcome");
+        assert!(
+            s_seq_on.nodes < s_seq_off.nodes,
+            "sequential orbit-split did not reduce nodes ({} vs {})",
+            s_seq_on.nodes, s_seq_off.nodes
+        );
+        // …by roughly 2× (root + shared work not halved, so allow slack).
+        assert!(
+            s_seq_on.nodes * 2 >= s_seq_off.nodes.saturating_sub(8),
+            "reduction implausibly large ({} on vs {} off)",
+            s_seq_on.nodes, s_seq_off.nodes
+        );
+
+        // (3) With a bound above the depth, orbit-split still finds an optimal-
+        // length solution (path may be a σ-mirror, so compare lengths).
+        let (sol_off, _) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 30, false);
+        let (sol_on, _) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 30, true);
+        match (sol_off, sol_on) {
+            (BoundedOutcome::Solved(a), BoundedOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
             }
             (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),

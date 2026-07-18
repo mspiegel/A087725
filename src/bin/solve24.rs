@@ -53,7 +53,7 @@ use std::time::Instant;
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel_mut, idastar_inc_bounded_parallel_mut_pruned,
-    idastar_inc_mut_bounded_with_stats, idastar_inc_mut_with_stats, BoundedOutcome, Cwd,
+    idastar_inc_mut_bounded_orbit_with_stats, idastar_inc_mut_orbit_with_stats, BoundedOutcome, Cwd,
     IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc, MaxInc, MoveDfa,
     SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
@@ -170,7 +170,7 @@ fn print_usage(prog: &str) {
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
-         [--no-root-orbit-split]  (auto-on for σ-symmetric boards under --parallel)",
+         [--no-root-orbit-split]  (auto-on for σ-symmetric boards)",
         prog
     );
 }
@@ -490,8 +490,9 @@ where
     }
     match max_bound {
         None => {
-            let ((sol, st), search_dt) =
-                timed_search(t0.elapsed(), || idastar_inc_mut_with_stats(start, e));
+            let ((sol, st), search_dt) = timed_search(t0.elapsed(), || {
+                idastar_inc_mut_orbit_with_stats(start, e, orbit_split)
+            });
             let elapsed = t0.elapsed();
             match sol {
                 Some(s) => {
@@ -506,8 +507,9 @@ where
             }
         }
         Some(mb) => {
-            let ((outcome, st), search_dt) =
-                timed_search(t0.elapsed(), || idastar_inc_mut_bounded_with_stats(start, e, mb));
+            let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
+                idastar_inc_mut_bounded_orbit_with_stats(start, e, mb, orbit_split)
+            });
             let elapsed = t0.elapsed();
             match outcome {
                 BoundedOutcome::Solved(s) => {
@@ -582,21 +584,22 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // Root-orbit-split: auto-on when the start board is σ-symmetric and running the
-    // parallel driver. Sound only on a σ-fixed board, so we gate on the symmetry
-    // test and never apply it otherwise (a forced `--root-orbit-split` on an
-    // asymmetric board is refused with a warning). See puzzle24::symmetry.
+    // Root-orbit-split: auto-on when the start board is σ-symmetric. Sound only on
+    // a σ-fixed board, so we gate on the symmetry test and never apply it otherwise
+    // (a forced `--root-orbit-split` on an asymmetric board is refused with a
+    // warning). Both the parallel driver (split filter) and the sequential mut
+    // drivers (root `g == 0` filter) honor it, node-identically. See
+    // puzzle24::symmetry.
     let symmetric = puzzle8::puzzle24::symmetry::is_symmetric(&start);
     let wants_orbit = args.root_orbit_split.unwrap_or(true);
-    let orbit = wants_orbit && symmetric && args.parallel;
+    let orbit = wants_orbit && symmetric;
     if args.root_orbit_split == Some(true) && !symmetric {
         eprintln!("warning: --root-orbit-split ignored: board is not σ-symmetric (reflect(start) != start)");
     } else if orbit {
         eprintln!(
-            "root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children"
+            "root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children ({} driver)",
+            if args.parallel { "parallel" } else { "sequential" }
         );
-    } else if wants_orbit && symmetric && !args.parallel {
-        eprintln!("note: root-orbit-split applies only to --parallel; ignored");
     }
 
     let t0 = Instant::now();
