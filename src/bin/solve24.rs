@@ -14,25 +14,23 @@
 //! Heuristics:
 //! - `manhattan` : sum of Manhattan distances (no PDB needed).
 //! - `korf`      : incremental `max(additive, additive(reflect(s)))` over the
-//!                 four canonical 6-6-6-6 additive PDBs (`pdb24_*.bin`).
+//!   four canonical 6-6-6-6 additive PDBs (`pdb24_*.bin`).
 //! - `zpdb`      : same composition on **zero-aware 1-bit PDBs** (`*.zbin`).
-//!                 Strictly dominates `korf`. Default.
+//!   Strictly dominates `korf`. Default.
 //! - `zpdb-plus` : `max(zpdb, refl-zpdb, MD+LinearConflict, WalkingDistance)` —
-//!                 the strongest admissible heuristic here, all advanced
-//!                 incrementally per node.
+//!   the strongest admissible heuristic here, all advanced incrementally per node.
 //! - `lc` / `wd` : standalone Linear-Conflict / Walking-Distance (WD is the
-//!                 strongest term on deep boards like the 180° rotation `R`).
+//!   strongest term on deep boards like the 180° rotation `R`).
 //! - `cwd-zpdb-lazy`  : `max(cWD, k6-zpdb)` with the zPDB advanced only where cWD
-//!                 fails to prune (`LazyMaxInc`). The settled deep-board combiner.
+//!   fails to prune (`LazyMaxInc`). The settled deep-board combiner.
 //! - `cwd-zpdb8-lazy` : three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` —
-//!                 `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`. cWD every node, k6 only
-//!                 where cWD fails to prune, the 30.5 GiB three-group 8-tile ZPDB
-//!                 (`pdb24_k8_{a,b,c}.zbin`) only where `max(cWD,k6)` still fails.
-//!                 Node-identical to the eager three-way max; measured −43% nodes
-//!                 @thr 142 / −52% @144 on c1 over cWD+k6 (SUGGESTIONS_R §2).
+//!   `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`. cWD every node, k6 only where cWD fails
+//!   to prune, the 30.5 GiB three-group 8-tile ZPDB (`pdb24_k8_{a,b,c}.zbin`) only
+//!   where `max(cWD,k6)` still fails. Node-identical to the eager three-way max;
+//!   measured −43% nodes @thr 142 / −52% @144 on c1 over cWD+k6 (SUGGESTIONS_R §2).
 //! - `select`    : per-board 3-way auto-pick — cheap `max(LC,WD)` / pure `zpdb` /
-//!                 `zpdb-plus` from the root heuristics (Phase 1C policy: WD on
-//!                 deep boards, zpdb on general). `--combine-slack` tunes it.
+//!   `zpdb-plus` from the root heuristics (Phase 1C policy: WD on deep boards,
+//!   zpdb on general). `--combine-slack` tunes it.
 //!
 //! PDB set (for `zpdb`/`zpdb-plus`):
 //! - `k6` : the 6-6-6-6 partition `pdb24_{a,b,c,d}.zbin` (default).
@@ -41,10 +39,10 @@
 //! Modes:
 //! - default        : optimal solve (first solution found is optimal).
 //! - `--max-bound T` : bounded / lower-bound search capped at threshold `T`.
-//!                     Prints `Lower bound: depth >= K` if it exhausts `T`, or the
-//!                     optimal solution if found at/below `T`.
+//!   Prints `Lower bound: depth >= K` if it exhausts `T`, or the optimal solution
+//!   if found at/below `T`.
 //! - `--prove-at-least T` : sugar for `--max-bound (T-1)` — succeeds in proving
-//!                     `depth >= T` iff the search exhausts every threshold < T.
+//!   `depth >= T` iff the search exhausts every threshold < T.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

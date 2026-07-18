@@ -19,7 +19,7 @@
 //! - `--limit N`         solve only the first `N` instances (smoke testing)
 //! - `--quiet`           suppress the per-instance table, print only the summary
 //! - `--scratch`         force the from-scratch `korf` heuristic instead of the
-//!                       incremental evaluator (for A/B comparison)
+//!   incremental evaluator (for A/B comparison)
 //!
 //! Correctness: every instance is solved, the solution is replayed to confirm it
 //! reaches `GOAL`, and its length is asserted equal to Korf's published optimal

@@ -467,8 +467,8 @@ mod tests {
         }
     }
 
-    /// The packed table from the 2-bit builder must decode (through `from_packed`
-    /// + the codec's cold-lookup) back to the true distances — ties the new
+    /// The packed table from the 2-bit builder must decode (through `from_packed` +
+    /// the codec's cold-lookup) back to the true distances — ties the new
     /// builder to the query path, not just the packing.
     #[cfg(feature = "parallel")]
     #[test]

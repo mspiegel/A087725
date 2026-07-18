@@ -8,8 +8,8 @@
 //! At 5×5 a line packs five tiles needing 5 bits each → a `2^25`-entry table per
 //! line, far too large. So this port **drops the LUT** and recomputes each dirty
 //! line directly: a 5-cell scan collecting home-line goal coordinates, then an
-//! `O(n²)` LIS on `n ≤ 5`. A single slide dirties at most three lines (two rows
-//! + one column for a vertical slide; two columns + one row for a horizontal
+//! `O(n²)` LIS on `n ≤ 5`. A single slide dirties at most three lines (two rows +
+//! one column for a vertical slide; two columns + one row for a horizontal
 //! slide), so per-node cost is three short scans regardless.
 
 use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};

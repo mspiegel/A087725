@@ -14,12 +14,12 @@
 //! - `manhattan` : sum of Manhattan distances (no PDB needed)
 //! - `additive`  : additive of `pdb15_p7_korf` + `pdb15_p8_korf` (Korf 7-8)
 //! - `korf`      : `max(additive, additive(reflect(s)))` — Korf's tightest
-//!                 admissible heuristic at half the storage of separate
-//!                 reflected PDB files. Default.
+//!   admissible heuristic at half the storage of separate reflected PDB files.
+//!   Default.
 //! - `korf-plus` : `max(korf, manhattan + linear_conflict, walking_distance)`.
-//!                 Free upside on top of Korf: ~25 KB of WD tables plus
-//!                 cheap arithmetic, occasionally tightens beyond the PDB
-//!                 where the PDB's subset-blindness loses signal.
+//!   Free upside on top of Korf: ~25 KB of WD tables plus cheap arithmetic,
+//!   occasionally tightens beyond the PDB where the PDB's subset-blindness loses
+//!   signal.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
