@@ -22,6 +22,14 @@
 //!                 incrementally per node.
 //! - `lc` / `wd` : standalone Linear-Conflict / Walking-Distance (WD is the
 //!                 strongest term on deep boards like the 180° rotation `R`).
+//! - `cwd-zpdb-lazy`  : `max(cWD, k6-zpdb)` with the zPDB advanced only where cWD
+//!                 fails to prune (`LazyMaxInc`). The settled deep-board combiner.
+//! - `cwd-zpdb8-lazy` : three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` —
+//!                 `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`. cWD every node, k6 only
+//!                 where cWD fails to prune, the 30.5 GiB three-group 8-tile ZPDB
+//!                 (`pdb24_k8_{a,b,c}.zbin`) only where `max(cWD,k6)` still fails.
+//!                 Node-identical to the eager three-way max; measured −43% nodes
+//!                 @thr 142 / −52% @144 on c1 over cWD+k6 (SUGGESTIONS_R §2).
 //! - `select`    : per-board 3-way auto-pick — cheap `max(LC,WD)` / pure `zpdb` /
 //!                 `zpdb-plus` from the root heuristics (Phase 1C policy: WD on
 //!                 deep boards, zpdb on general). `--combine-slack` tunes it.
@@ -59,6 +67,11 @@ const ZPDB_FILES_K7: [&str; 4] = [
     "pdb24_k7_c.zbin",
     "pdb24_k7_d.zbin",
 ];
+/// The three Candidate-1 8-tile ZPDB groups (SUGGESTIONS_R §2); the second,
+/// finest tier of the `cwd-zpdb8-lazy` cascade. Fixed partition (not a
+/// `--pdb-set` choice): A=2×4 top-left, B=corner-L (owns the blank corner),
+/// C=bottom-left. 10.17 GiB each (30.5 GiB total), mmap'd.
+const ZPDB_FILES_K8: [&str; 3] = ["pdb24_k8_a.zbin", "pdb24_k8_b.zbin", "pdb24_k8_c.zbin"];
 
 #[derive(PartialEq, Clone, Copy)]
 enum HeuristicChoice {
@@ -80,6 +93,15 @@ enum HeuristicChoice {
     /// dominant per-node probe cost on the (frontier-heavy) cWD-pruned children.
     /// Node-identical to `cwd-zpdb`; per-node cost only.
     CwdZpdbLazy,
+    /// Three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` via nested
+    /// `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`: cWD every node, the k6 zPDB probed
+    /// only on children cWD fails to prune, and the three-group 8-tile ZPDB
+    /// (`pdb24_k8_{a,b,c}.zbin`, SUGGESTIONS_R §2) probed only when `max(cWD,k6)`
+    /// still fails — minimizing the expensive 30.5 GiB k8 mmap probes. The middle
+    /// tier honors `--pdb-set` (default k6). Node-identical to the eager three-way
+    /// max; per-node/probe cost only. The measured k8 pruning win on c1 is
+    /// −43% nodes @thr 142, −52% @144 over the cWD+k6 baseline.
+    CwdZpdb8Lazy,
     /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
     /// picked from the root heuristics (the settled Phase 1C policy — WD on
     /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
@@ -145,7 +167,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards under --parallel)",
@@ -194,6 +216,7 @@ fn parse_args() -> Result<Args, String> {
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
                     "cwd-zpdb" => HeuristicChoice::CwdZpdb,
                     "cwd-zpdb-lazy" => HeuristicChoice::CwdZpdbLazy,
+                    "cwd-zpdb8-lazy" => HeuristicChoice::CwdZpdb8Lazy,
                     "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {:?}", other)),
                 };
@@ -314,6 +337,18 @@ fn load_zpdbs(dir: &Path, set: PdbSet) -> Result<Vec<ZPatternDb>, String> {
     };
     let mut dbs = Vec::with_capacity(4);
     for name in files {
+        let path = dir.join(name);
+        let db = ZPatternDb::load_mmap(&path)
+            .map_err(|e| format!("loading {}: {}", path.display(), e))?;
+        dbs.push(db);
+    }
+    Ok(dbs)
+}
+
+/// Load the three Candidate-1 8-tile ZPDB groups ([`ZPDB_FILES_K8`]).
+fn load_zpdbs_k8(dir: &Path) -> Result<Vec<ZPatternDb>, String> {
+    let mut dbs = Vec::with_capacity(3);
+    for name in ZPDB_FILES_K8 {
         let path = dir.join(name);
         let db = ZPatternDb::load_mmap(&path)
             .map_err(|e| format!("loading {}: {}", path.display(), e))?;
@@ -672,6 +707,38 @@ fn main() -> ExitCode {
             );
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let inc = LazyMaxInc::new(cwd, zpdb);
+            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+        }
+        HeuristicChoice::CwdZpdb8Lazy => {
+            let dir = match require_dir(&args, "cwd-zpdb8-lazy") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let k6 = match load_zpdbs(&dir, args.pdb_set) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            let k8 = match load_zpdbs_k8(&dir) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!("cWD+k6+k8 (lazy cascade): loading cWD tables…");
+            let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
+            eprintln!(
+                "cWD+k6+k8 (lazy cascade) ready: k6 advanced only where cWD fails to prune, \
+                 k8 (30.5 GiB) only where max(cWD,k6) fails{}",
+                if args.cwd_neighbor_prune { "; neighbor-prune ON" } else { "" },
+            );
+            let z6 = ZpdbInc::new([&k6[0], &k6[1], &k6[2], &k6[3]]);
+            let z8 = ZpdbInc::new([&k8[0], &k8[1], &k8[2]]);
+            // Nested lazy: cWD (cheap, every node) → k6 (mid) → k8 (finest).
+            let inc = LazyMaxInc::new(LazyMaxInc::new(cwd, z6), z8);
             run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
         }
         HeuristicChoice::Select => {

@@ -290,7 +290,15 @@ where
         m: crate::puzzle24::state::Move,
         budget: u8,
     ) -> u8 {
-        let ha = self.a.make(&mut ctx.a, child, m);
+        // Advance the cheap side under the SAME budget, not eagerly: when `A` is
+        // itself a `LazyMaxInc` this cascades the deferral (e.g. cWD → k6 → k8,
+        // each tier probed only when the cheaper ones fail to prune). For a leaf
+        // `A` (e.g. `Cwd`) the trait's default `make_bounded` is just `make`, so
+        // this is behaviour-identical to the two-tier combiner. `ha` may now be a
+        // deferred *lower bound* on `A`'s value — still admissible, and the prune
+        // test below stays sound because we only prune when a lower bound exceeds
+        // the budget.
+        let ha = self.a.make_bounded(&mut ctx.a, child, m, budget);
         // A alone prunes: B's value is irrelevant (the child is pruned at first
         // touch and the pending move pops right back off on the unmake). No
         // Lipschitz argument needed — `ha` is admissible.
@@ -672,6 +680,108 @@ mod tests {
             def_lazy_b < def_eager_b,
             "lazy B makes {def_lazy_b} not fewer than eager {def_eager_b} — deferral never fired"
         );
+    }
+
+    /// Three-tier cascade `LazyMaxInc(LazyMaxInc(A, B), C)` — the cWD/k6/k8 shape.
+    /// It must be node-identical to the fully-eager `MaxInc(MaxInc(A, B), C)`,
+    /// AND the deferral must cascade: the innermost `B` (k6-analogue) is probed
+    /// strictly less than eager even though it sits under another lazy layer, and
+    /// the outer `C` (k8-analogue) is probed strictly less too. `A` = WD (drives
+    /// the bound), `B`,`C` = counted Manhattan (weak, 1-Lipschitz) so both
+    /// deferrals fire. A wrong cascade (e.g. eagerly forcing `B`) would show up as
+    /// either a changed tree or `B` probes equal to eager.
+    #[test]
+    fn lazy_three_tier_cascade_node_identical_and_defers_both() {
+        use crate::puzzle24::search::idastar::{
+            idastar_inc_mut_bounded_with_stats, BoundedOutcome, IncHeuristicMut,
+        };
+        use crate::puzzle24::search::{WalkingDistanceHeuristic, WalkingDistanceInc};
+        use std::cell::Cell;
+
+        struct Counted<'c, H> {
+            inner: H,
+            makes: &'c Cell<u64>,
+        }
+        impl<'c, H: IncHeuristicMut> IncHeuristicMut for Counted<'c, H> {
+            type Ctx = H::Ctx;
+            fn root(&self, s: &State) -> (u8, Self::Ctx) {
+                self.inner.root(s)
+            }
+            fn make(&self, ctx: &mut Self::Ctx, child: &State, m: Move) -> u8 {
+                self.makes.set(self.makes.get() + 1);
+                self.inner.make(ctx, child, m)
+            }
+            fn make_bounded(&self, ctx: &mut Self::Ctx, child: &State, m: Move, budget: u8) -> u8 {
+                self.makes.set(self.makes.get() + 1);
+                self.inner.make_bounded(ctx, child, m, budget)
+            }
+            fn unmake(&self, ctx: &mut Self::Ctx, m: Move) {
+                self.inner.unmake(ctx, m)
+            }
+            fn child_h_lb(&self, ctx: &Self::Ctx, s: &State, b: u8, m: Move) -> Option<u8> {
+                self.inner.child_h_lb(ctx, s, b, m)
+            }
+        }
+
+        fn scramble(seed: u64, steps: u32) -> State {
+            let mut s = GOAL;
+            let mut last: Option<Move> = None;
+            let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
+            for _ in 0..steps {
+                let legal: Vec<Move> = s
+                    .legal_moves()
+                    .iter()
+                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .collect();
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                let m = legal[(x as usize) % legal.len()];
+                s = s.apply(m);
+                last = Some(m);
+            }
+            s
+        }
+
+        WalkingDistanceHeuristic::warm_up();
+        let (mut tot_eb, mut tot_lb, mut tot_ec, mut tot_lc) = (0u64, 0u64, 0u64, 0u64);
+        for seed in 0..12u64 {
+            let start = scramble(seed, 24);
+            let (eb, lb, ec, lc) = (Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0));
+            // Eager three-way max: MaxInc(MaxInc(WD, B), C).
+            let eager = MaxInc::new(
+                MaxInc::new(
+                    WalkingDistanceInc,
+                    Counted { inner: IncManhattan, makes: &eb },
+                ),
+                Counted { inner: IncManhattan, makes: &ec },
+            );
+            // Lazy cascade: LazyMaxInc(LazyMaxInc(WD, B), C).
+            let lazy = LazyMaxInc::new(
+                LazyMaxInc::new(
+                    WalkingDistanceInc,
+                    Counted { inner: IncManhattan, makes: &lb },
+                ),
+                Counted { inner: IncManhattan, makes: &lc },
+            );
+            let (oe, se) = idastar_inc_mut_bounded_with_stats(&start, &eager, 40);
+            let (ol, sl) = idastar_inc_mut_bounded_with_stats(&start, &lazy, 40);
+            let len = |o: &BoundedOutcome| match o {
+                BoundedOutcome::Solved(p) => p.len(),
+                _ => panic!("scramble should solve within bound 40"),
+            };
+            assert_eq!(len(&oe), len(&ol), "seed {seed}: length differs");
+            assert_eq!(se.nodes, sl.nodes, "seed {seed}: tree differs (cascade not node-identical)");
+            assert!(lb.get() <= eb.get(), "seed {seed}: lazy B probed MORE than eager");
+            assert!(lc.get() <= ec.get(), "seed {seed}: lazy C probed MORE than eager");
+            tot_eb += eb.get();
+            tot_lb += lb.get();
+            tot_ec += ec.get();
+            tot_lc += lc.get();
+        }
+        // Both tiers must actually defer across the suite.
+        assert!(tot_lb < tot_eb, "inner tier never deferred: lazy {tot_lb} vs eager {tot_eb}");
+        assert!(tot_lc < tot_ec, "outer tier never deferred: lazy {tot_lc} vs eager {tot_ec}");
     }
 
     /// `MaxInc(LC, WD)` must equal `max(LC, WD)` at the root and stay in sync via
