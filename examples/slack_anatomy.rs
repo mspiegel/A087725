@@ -27,7 +27,7 @@ use std::time::Instant;
 use puzzle8::puzzle24::search::walking_distance::{
     load_dist_table, WdTable, FULL_WD_ENTRIES, WD_KIND_FULL,
 };
-use puzzle8::puzzle24::search::{idastar_inc_mut_with_stats, Cwd, Heuristic};
+use puzzle8::puzzle24::search::{Cwd, Heuristic, Search};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS, W};
 
 type Matrix = [[u8; W]; W];
@@ -509,7 +509,7 @@ fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
                 }
                 let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
                 let s = random_walk(seed, len);
-                let (sol, _st) = idastar_inc_mut_with_stats(&s, &cwd);
+                let (sol, _st) = Search::new(&s, &cwd).solve_with_stats();
                 let path = sol.expect("solvable by construction");
                 let row = yield_eval(&s, &path, &table);
                 results.lock().unwrap().push((i, row));
@@ -782,7 +782,7 @@ fn run_walks(n: u64, len: u32, seed0: u64, threads: usize) {
                 let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
                 let s = random_walk(seed, len);
                 let t = Instant::now();
-                let (sol, _st) = idastar_inc_mut_with_stats(&s, &cwd);
+                let (sol, _st) = Search::new(&s, &cwd).solve_with_stats();
                 let path = sol.expect("solvable by construction");
                 let sec = t.elapsed().as_secs_f64();
                 let a = analyze(&s, &path, &table, &cwd);

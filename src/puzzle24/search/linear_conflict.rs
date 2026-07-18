@@ -385,7 +385,7 @@ mod tests {
     /// node count. LC's snapshot undo must restore the `LcCtx` exactly.
     #[test]
     fn lc_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let mut rng: u64 = 0x71C4_9AD5_33BE_1102;
         let mut next = || {
             rng ^= rng << 13;
@@ -400,7 +400,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &LinearConflictInc);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &LinearConflictInc);
+            let (m, ms) = Search::new(&s, &LinearConflictInc).solve_with_stats();
             assert_eq!(
                 c.expect("copy no sol").len(),
                 m.expect("mut no sol").len(),

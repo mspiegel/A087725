@@ -16,8 +16,8 @@ use super::generator::BaselineHeuristic;
 use super::scramble::{scramble_exact, Rng};
 use super::wdsearch::{construct_deep_boards, Diversity, WdSearchConfig};
 use crate::puzzle24::search::{
-    idastar_inc_mut_bounded_with_stats, BoundedOutcome, Heuristic, IncHeuristicMut,
-    LinearConflictInc, ManhattanHeuristic, MaxInc, WalkingDistanceHeuristic, WalkingDistanceInc,
+    Heuristic, IncHeuristicMut, LadderOutcome, LinearConflictInc, ManhattanHeuristic, MaxInc, Search,
+    WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use crate::puzzle24::state::{State, DIAMETER_LOWER, N_CELLS};
 
@@ -136,9 +136,9 @@ where
     for board in &holdout {
         // True optimal (admissible idastar, bounded).
         let optimal: Option<u32> =
-            match idastar_inc_mut_bounded_with_stats(board, opt_h, cfg.optimal_max_bound).0 {
-                BoundedOutcome::Solved(moves) => Some(moves.len() as u32),
-                _ => None, // ProvedAtLeast / Unsolvable → unlabeled
+            match Search::new(board, opt_h).bound(cfg.optimal_max_bound).run().0 {
+                LadderOutcome::Solved(moves) => Some(moves.len() as u32),
+                _ => None, // ProvedAtLeast / TimedOut / Unsolvable → unlabeled
             };
         if optimal.is_some() {
             labeled += 1;

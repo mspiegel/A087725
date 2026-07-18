@@ -390,9 +390,7 @@ mod tests {
     /// zpdb component gains the most from make/unmake.
     #[test]
     fn zpdb_plus_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{
-            idastar_inc_mut_with_stats, idastar_inc_with_stats, WalkingDistanceHeuristic,
-        };
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search, WalkingDistanceHeuristic};
         WalkingDistanceHeuristic::warm_up();
         let zdbs = [
             ZPatternDb::build(Pattern::new(&[1, 2, 3, 6])),
@@ -408,7 +406,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &zplus);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &zplus);
+            let (m, ms) = Search::new(&s, &zplus).solve_with_stats();
             assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "ZpdbPlus length differs");
             assert_eq!(cs.nodes, ms.nodes, "ZpdbPlus node count differs");
         }

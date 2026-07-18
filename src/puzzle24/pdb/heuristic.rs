@@ -792,7 +792,7 @@ mod tests {
     /// number of nodes as the copy driver on the same scrambles.
     #[test]
     fn zpdb_mut_idastar_matches_copy_length_and_node_count() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let zdbs = [
             ZPatternDb::build(Pattern::new(&[1, 2, 3])),
             ZPatternDb::build(Pattern::new(&[6, 7, 8])),
@@ -813,7 +813,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (sol_copy, st_copy) = idastar_inc_with_stats(&s, &zinc);
-            let (sol_mut, st_mut) = idastar_inc_mut_with_stats(&s, &zinc);
+            let (sol_mut, st_mut) = Search::new(&s, &zinc).solve_with_stats();
             let lc = sol_copy.expect("copy IDA* found no solution").len();
             let lm = sol_mut.expect("mut IDA* found no solution").len();
             assert_eq!(lc, lm, "optimal length differs (copy {} vs mut {})", lc, lm);
@@ -835,9 +835,7 @@ mod tests {
     #[cfg(feature = "parallel")]
     #[test]
     fn zpdb_parallel_mut_matches_parallel_copy() {
-        use crate::puzzle24::search::{
-            idastar_inc_bounded_parallel, idastar_inc_bounded_parallel_mut, LadderOutcome,
-        };
+        use crate::puzzle24::search::{idastar_inc_bounded_parallel, LadderOutcome, Search};
         let zdbs = [
             ZPatternDb::build(Pattern::new(&[1, 2, 3])),
             ZPatternDb::build(Pattern::new(&[6, 7, 8])),
@@ -862,7 +860,7 @@ mod tests {
                 LadderOutcome::Solved(p) => p.len(),
                 o => panic!("copy solve unexpected: {:?}", o),
             };
-            match idastar_inc_bounded_parallel_mut(&s, &zinc, u8::MAX, None, false).0 {
+            match Search::new(&s, &zinc).parallel().run().0 {
                 LadderOutcome::Solved(pm) => assert_eq!(pm.len(), truth, "solved length differs"),
                 o => panic!("mut solve unexpected: {:?}", o),
             }
@@ -872,7 +870,7 @@ mod tests {
             }
             let mb = (truth - 1) as u8;
             let (oc, st_copy) = idastar_inc_bounded_parallel(&s, &zinc, mb, None);
-            let (om, st_mut) = idastar_inc_bounded_parallel_mut(&s, &zinc, mb, None, false);
+            let (om, st_mut) = Search::new(&s, &zinc).bound(mb).parallel().run();
             match (oc, om) {
                 (LadderOutcome::ProvedAtLeast(a), LadderOutcome::ProvedAtLeast(b)) => {
                     assert_eq!(a, b, "proven LB differs (copy {} vs mut {})", a, b);
@@ -891,7 +889,7 @@ mod tests {
     /// same optimal length and node count. Uses cheap k=3 PDBs.
     #[test]
     fn korf_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let dbs = [
             PatternDb::build(Pattern::new(&[1, 2, 3])),
             PatternDb::build(Pattern::new(&[6, 7, 8])),
@@ -906,7 +904,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &inc);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &inc);
+            let (m, ms) = Search::new(&s, &inc).solve_with_stats();
             assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "Korf length differs");
             assert_eq!(cs.nodes, ms.nodes, "Korf node count differs");
         }

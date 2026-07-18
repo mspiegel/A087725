@@ -578,9 +578,7 @@ mod tests {
     /// case where a wrong deferral would change the search tree.
     #[test]
     fn lazy_maxinc_node_identical_to_eager_with_fewer_b_probes() {
-        use crate::puzzle24::search::idastar::{
-            idastar_inc_mut_bounded_with_stats, BoundedOutcome, IncHeuristicMut,
-        };
+        use crate::puzzle24::search::idastar::{IncHeuristicMut, LadderOutcome, Search};
         use crate::puzzle24::search::{WalkingDistanceHeuristic, WalkingDistanceInc};
         use crate::puzzle24::state::GOAL;
         use std::cell::Cell;
@@ -646,24 +644,24 @@ mod tests {
                         let a = IncManhattan;
                         let b = Counted { inner: WalkingDistanceInc, makes: lazy_b_makes };
                         if lazy {
-                            idastar_inc_mut_bounded_with_stats(&start, &LazyMaxInc::new(a, b), 40)
+                            Search::new(&start, &LazyMaxInc::new(a, b)).bound(40).run()
                         } else {
-                            idastar_inc_mut_bounded_with_stats(&start, &MaxInc::new(a, b), 40)
+                            Search::new(&start, &MaxInc::new(a, b)).bound(40).run()
                         }
                     } else {
                         let a = WalkingDistanceInc;
                         let b = counted(lazy_b_makes);
                         if lazy {
-                            idastar_inc_mut_bounded_with_stats(&start, &LazyMaxInc::new(a, b), 40)
+                            Search::new(&start, &LazyMaxInc::new(a, b)).bound(40).run()
                         } else {
-                            idastar_inc_mut_bounded_with_stats(&start, &MaxInc::new(a, b), 40)
+                            Search::new(&start, &MaxInc::new(a, b)).bound(40).run()
                         }
                     }
                 };
                 let (oe, se) = run(&eb, false);
                 let (ol, sl) = run(&lb, true);
-                let len = |o: &BoundedOutcome| match o {
-                    BoundedOutcome::Solved(p) => p.len(),
+                let len = |o: &LadderOutcome| match o {
+                    LadderOutcome::Solved(p) => p.len(),
                     _ => panic!("scramble should solve within bound 40"),
                 };
                 assert_eq!(len(&oe), len(&ol), "seed {seed} bdom {b_dominant}: length differs");
@@ -692,9 +690,7 @@ mod tests {
     /// either a changed tree or `B` probes equal to eager.
     #[test]
     fn lazy_three_tier_cascade_node_identical_and_defers_both() {
-        use crate::puzzle24::search::idastar::{
-            idastar_inc_mut_bounded_with_stats, BoundedOutcome, IncHeuristicMut,
-        };
+        use crate::puzzle24::search::idastar::{IncHeuristicMut, LadderOutcome, Search};
         use crate::puzzle24::search::{WalkingDistanceHeuristic, WalkingDistanceInc};
         use std::cell::Cell;
 
@@ -764,10 +760,10 @@ mod tests {
                 ),
                 Counted { inner: IncManhattan, makes: &lc },
             );
-            let (oe, se) = idastar_inc_mut_bounded_with_stats(&start, &eager, 40);
-            let (ol, sl) = idastar_inc_mut_bounded_with_stats(&start, &lazy, 40);
-            let len = |o: &BoundedOutcome| match o {
-                BoundedOutcome::Solved(p) => p.len(),
+            let (oe, se) = Search::new(&start, &eager).bound(40).run();
+            let (ol, sl) = Search::new(&start, &lazy).bound(40).run();
+            let len = |o: &LadderOutcome| match o {
+                LadderOutcome::Solved(p) => p.len(),
                 _ => panic!("scramble should solve within bound 40"),
             };
             assert_eq!(len(&oe), len(&ol), "seed {seed}: length differs");
@@ -824,7 +820,7 @@ mod tests {
     /// Its `undo` delta stack must reverse each move exactly.
     #[test]
     fn manhattan_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let mut rng: u64 = 0x2B3C_4D5E_6F70_8191;
         let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
         for _ in 0..5 {
@@ -834,7 +830,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &IncManhattan);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &IncManhattan);
+            let (m, ms) = Search::new(&s, &IncManhattan).solve_with_stats();
             assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "Manhattan length differs");
             assert_eq!(cs.nodes, ms.nodes, "Manhattan node count differs");
         }
@@ -844,7 +840,7 @@ mod tests {
     /// copy driver — verifies both members' mut paths compose correctly.
     #[test]
     fn maxinc_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         use crate::puzzle24::search::LinearConflictInc;
         let mx = MaxInc::new(IncManhattan, LinearConflictInc);
         let mut rng: u64 = 0x9F1E_2D3C_4B5A_6978;
@@ -856,7 +852,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &mx);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &mx);
+            let (m, ms) = Search::new(&s, &mx).solve_with_stats();
             assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "MaxInc length differs");
             assert_eq!(cs.nodes, ms.nodes, "MaxInc node count differs");
         }

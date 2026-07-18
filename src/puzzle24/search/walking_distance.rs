@@ -1016,7 +1016,7 @@ mod tests {
     /// flip + scalar restore) must reproduce the copy path's per-node state.
     #[test]
     fn wd_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_mut_with_stats, idastar_inc_with_stats};
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let mut rng: u64 = 0x51ED_270B_2E07_9AA1;
         let mut next = || {
             rng ^= rng << 13;
@@ -1031,7 +1031,7 @@ mod tests {
                 s = s.apply(opts[(next() as usize) % opts.len()]);
             }
             let (c, cs) = idastar_inc_with_stats(&s, &WalkingDistanceInc);
-            let (m, ms) = idastar_inc_mut_with_stats(&s, &WalkingDistanceInc);
+            let (m, ms) = Search::new(&s, &WalkingDistanceInc).solve_with_stats();
             assert_eq!(
                 c.expect("copy no sol").len(),
                 m.expect("mut no sol").len(),

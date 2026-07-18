@@ -22,7 +22,6 @@
 //!   24-puzzle diameter ≥ 152.
 
 use crate::puzzle24::state::{Move, State, GOAL};
-#[cfg(feature = "parallel")]
 use crate::puzzle24::symmetry;
 
 use super::heuristic::Heuristic;
@@ -631,62 +630,6 @@ where
     }
 }
 
-/// Make/unmake counterpart of [`idastar_inc_bounded_parallel`]: identical
-/// tree-splitting and identical results, but each worker searches its subtree
-/// with the allocation-free [`IncHeuristicMut`] make/unmake path instead of the
-/// `Copy` [`IncHeuristic`] path — cutting the per-node cost that dominates deep
-/// runs (profiled ~50% context copying).
-///
-/// The shallow split still uses the `Copy` [`IncHeuristic`] (it is cheap and
-/// keeps the frontier/node-count logic byte-identical to the copy driver); each
-/// worker then re-seeds a fresh mutable context from its subtree root via
-/// [`IncHeuristicMut::root`] and runs [`search_inc_mut`]. Node counts therefore
-/// match the copy parallel driver exactly. Requires the heuristic to implement
-/// *both* traits (as [`ZpdbInc`](crate::puzzle24::pdb::ZpdbInc) does).
-///
-/// Bounds: `E: IncHeuristic + IncHeuristicMut + Sync`; the split frontier of
-/// `Copy` contexts needs `<E as IncHeuristic>::Ctx: Send + Sync`. Each worker's
-/// mutable context is created and dropped inside its closure, never shared, so
-/// it needs no extra bound. Build with the `parallel` feature.
-#[cfg(feature = "parallel")]
-pub fn idastar_inc_bounded_parallel_mut<E>(
-    start: &State,
-    e: &E,
-    max_bound: u8,
-    deadline: Option<std::time::Instant>,
-    orbit_split: bool,
-) -> (LadderOutcome, SearchStats)
-where
-    E: IncHeuristic + IncHeuristicMut + Sync,
-    <E as IncHeuristic>::Ctx: Send + Sync,
-{
-    parallel_mut_core(start, e, &NullPruner, max_bound, deadline, orbit_split)
-}
-
-/// [`idastar_inc_bounded_parallel_mut`] with a [`MovePruner`] that skips provably
-/// redundant move continuations (duplicate subtrees). Sound as a lower-bound proof:
-/// a pruned board is reachable by a shorter/equal path, so no board — and no `f`
-/// threshold — is lost. With [`NullPruner`] it is byte-identical to the un-pruned
-/// driver (node counts unchanged); with a [`MoveDfa`](super::move_dfa::MoveDfa) it
-/// removes the Taylor–Korf duplicates. The pruner is shared read-only across
-/// workers; each carries its own `P::St` down its subtree.
-#[cfg(feature = "parallel")]
-pub fn idastar_inc_bounded_parallel_mut_pruned<E, P>(
-    start: &State,
-    e: &E,
-    pruner: &P,
-    max_bound: u8,
-    deadline: Option<std::time::Instant>,
-    orbit_split: bool,
-) -> (LadderOutcome, SearchStats)
-where
-    E: IncHeuristic + IncHeuristicMut + Sync,
-    <E as IncHeuristic>::Ctx: Send + Sync,
-    P: MovePruner,
-{
-    parallel_mut_core(start, e, pruner, max_bound, deadline, orbit_split)
-}
-
 /// `orbit_split`: when `true` **and** `start` is σ-symmetric (`reflect(start) ==
 /// start`), the split searches only one representative per σ-orbit of the *root's*
 /// children (see [`symmetry::is_orbit_representative`]) — a sound ~2× reduction for
@@ -934,125 +877,219 @@ pub trait IncHeuristicMut {
     }
 }
 
-/// [`idastar_inc_with_stats`] using a mutable make/unmake context.
-pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
-    start: &State,
-    e: &E,
-) -> (Option<Vec<Move>>, SearchStats) {
-    idastar_inc_mut_orbit_with_stats(start, e, false)
+// ===========================================================================
+// Search builder — the ergonomic front door for the make/unmake IDA\* family.
+// ===========================================================================
+//
+// Collapses the combinatorial `idastar_inc_mut[_bounded][_parallel][_pruned]
+// [_orbit]_with_stats` naming into one declarative builder over four orthogonal
+// axes (bound, engine, pruner, orbit-split, + deadline). Each axis is a method,
+// so a future axis is one method, not a doubling of the function count.
+//
+// Type-state engine: the builder starts [`Seq`]uential; [`Search::parallel`]
+// transitions it to [`Par`], whose terminal methods carry the extra parallel
+// trait bounds (`E: IncHeuristic + Sync`, `Ctx: Send + Sync`) — so a
+// sequential-only heuristic still uses the builder, and the parallel bounds are
+// demanded only when parallelism is actually chosen.
+//
+//   Search::new(&start, &h)           // sequential, unbounded, no pruner, orbit off
+//       .bound(146)                   // omit for an unbounded optimal solve
+//       .orbit_split(true)            // sound only on σ-symmetric boards
+//       .pruner(&dfa)                 // e.g. a MoveDfa; default NullPruner
+//       .parallel()                   // omit for the sequential engine
+//       .run()                        // -> (LadderOutcome, SearchStats)
+//
+// Terminals: `run()` (full outcome + stats), `solve()` (`Option<path>`),
+// `solve_with_stats()`.
+
+/// Sequential-engine marker for [`Search`] (the default).
+pub struct Seq;
+/// Parallel-engine marker for [`Search`] (via [`Search::parallel`]).
+pub struct Par;
+
+/// A `'static` [`NullPruner`] to borrow as the default pruner (it is a ZST).
+static NULL_PRUNER: NullPruner = NullPruner;
+
+/// Builder for the make/unmake IDA\* drivers. See the module section above.
+pub struct Search<'a, E, P = NullPruner, Eng = Seq> {
+    start: &'a State,
+    heuristic: &'a E,
+    pruner: &'a P,
+    /// `None` ⇒ unbounded optimal solve; `Some(b)` ⇒ exhaust thresholds ≤ `b`.
+    max_bound: Option<u8>,
+    orbit_split: bool,
+    deadline: Option<std::time::Instant>,
+    _engine: std::marker::PhantomData<Eng>,
 }
 
-/// [`idastar_inc_mut_with_stats`] with sequential root-orbit-split. When
-/// `orbit_split` is `true` the search keeps one representative per σ-orbit of the
-/// **root's** children — the single-threaded counterpart of
-/// [`idastar_inc_bounded_parallel_mut`]'s split filter, giving the same ~2×
-/// lower-bound reduction and identical node counts, without work-stealing
-/// nondeterminism. **Sound only on a σ-fixed board** (`reflect(start) == start`);
-/// the returned solution stays optimal because a dropped child's mirror reaches
-/// the reflected (equal-length) optimum. Debug-asserts the precondition.
-pub fn idastar_inc_mut_orbit_with_stats<E: IncHeuristicMut>(
-    start: &State,
-    e: &E,
-    orbit_split: bool,
-) -> (Option<Vec<Move>>, SearchStats) {
-    idastar_inc_mut_pruned_orbit_with_stats(start, e, &NullPruner, orbit_split)
-}
-
-/// [`idastar_inc_mut_orbit_with_stats`] with a [`MovePruner`] (e.g. a
-/// [`MoveDfa`](super::move_dfa::MoveDfa) for Taylor–Korf duplicate elimination) —
-/// the sequential counterpart of [`idastar_inc_bounded_parallel_mut_pruned`].
-/// With [`NullPruner`] it is byte-identical to the un-pruned driver; with a real
-/// pruner it removes the same duplicate subtrees, node-identically to the
-/// parallel pruned driver. Sound as a lower-bound proof (a pruned board is
-/// reachable by a shorter/equal path, so no threshold is lost).
-pub fn idastar_inc_mut_pruned_orbit_with_stats<E: IncHeuristicMut, P: MovePruner>(
-    start: &State,
-    e: &E,
-    pruner: &P,
-    orbit_split: bool,
-) -> (Option<Vec<Move>>, SearchStats) {
-    debug_assert!(
-        !orbit_split || symmetry::is_symmetric(start),
-        "orbit_split is unsound on a non-σ-symmetric board"
-    );
-    let mut stats = SearchStats::default();
-    if start == &GOAL {
-        return (Some(Vec::new()), stats);
-    }
-    let (h0, mut ctx) = e.root(start);
-    let mut bound = h0;
-    let mut path: Vec<Move> = Vec::with_capacity(220);
-    let blank = start.blank_pos();
-    let pst0 = pruner.root_state(blank);
-    // Private, never-shared flag so `search_inc_mut` can take a non-optional
-    // `&AtomicBool`; in this sequential driver nothing else reads it.
-    let found = std::sync::atomic::AtomicBool::new(false);
-    loop {
-        stats.iterations += 1;
-        // `ctx` is restored to the root projection after each iteration because
-        // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
-            Step::Found => return (Some(path), stats),
-            Step::Aborted => unreachable!("no deadline set"),
-            Step::Bound(next) => {
-                if next == u8::MAX {
-                    return (None, stats);
-                }
-                bound = next;
-            }
+impl<'a, E: IncHeuristicMut> Search<'a, E, NullPruner, Seq> {
+    /// Start a sequential, unbounded search with no pruner and orbit-split off.
+    pub fn new(start: &'a State, heuristic: &'a E) -> Self {
+        Search {
+            start,
+            heuristic,
+            pruner: &NULL_PRUNER,
+            max_bound: None,
+            orbit_split: false,
+            deadline: None,
+            _engine: std::marker::PhantomData,
         }
     }
 }
 
-/// Convenience wrapper discarding stats.
-pub fn idastar_inc_mut<E: IncHeuristicMut>(start: &State, e: &E) -> Option<Vec<Move>> {
-    idastar_inc_mut_with_stats(start, e).0
+impl<'a, E, P, Eng> Search<'a, E, P, Eng> {
+    /// Cap the IDA\* threshold at `max_bound` (bounded / lower-bound proof).
+    pub fn bound(mut self, max_bound: u8) -> Self {
+        self.max_bound = Some(max_bound);
+        self
+    }
+
+    /// Set the bound from an `Option` (`None` ⇒ unbounded); convenience for
+    /// callers that already carry an optional cap.
+    pub fn maybe_bound(mut self, max_bound: Option<u8>) -> Self {
+        self.max_bound = max_bound;
+        self
+    }
+
+    /// Prove `depth ≥ k` by exhausting every threshold `< k` (i.e. `bound(k-1)`).
+    pub fn prove_at_least(mut self, k: u8) -> Self {
+        self.max_bound = Some(k.saturating_sub(1));
+        self
+    }
+
+    /// Root-orbit-split: keep one σ-orbit representative of the root's children.
+    /// **Sound only on a σ-symmetric board** (`reflect(start) == start`).
+    pub fn orbit_split(mut self, on: bool) -> Self {
+        self.orbit_split = on;
+        self
+    }
+
+    /// Abort (returning [`LadderOutcome::TimedOut`]) once this instant passes.
+    pub fn deadline(mut self, deadline: std::time::Instant) -> Self {
+        self.deadline = Some(deadline);
+        self
+    }
+
+    /// Set the deadline from an `Option`.
+    pub fn maybe_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    /// Attach a [`MovePruner`] (e.g. a [`MoveDfa`](super::move_dfa::MoveDfa) for
+    /// Taylor–Korf duplicate elimination). Changes the pruner type parameter.
+    pub fn pruner<Q: MovePruner>(self, pruner: &'a Q) -> Search<'a, E, Q, Eng> {
+        Search {
+            start: self.start,
+            heuristic: self.heuristic,
+            pruner,
+            max_bound: self.max_bound,
+            orbit_split: self.orbit_split,
+            deadline: self.deadline,
+            _engine: std::marker::PhantomData,
+        }
+    }
+
+    /// Switch to the shared-memory parallel engine (tree-splitting + work
+    /// stealing). Transitions the engine type-state to [`Par`].
+    #[cfg(feature = "parallel")]
+    pub fn parallel(self) -> Search<'a, E, P, Par> {
+        Search {
+            start: self.start,
+            heuristic: self.heuristic,
+            pruner: self.pruner,
+            max_bound: self.max_bound,
+            orbit_split: self.orbit_split,
+            deadline: self.deadline,
+            _engine: std::marker::PhantomData,
+        }
+    }
 }
 
-/// Make/unmake counterpart of [`idastar_inc_bounded_with_stats`]: bounded IDA\*
-/// that either solves optimally within `max_bound` or proves `dist ≥ K`. Same
-/// semantics and identical node counts as the copy driver (deterministic — no
-/// early-exit flag in play), just cheaper per node.
-pub fn idastar_inc_mut_bounded_with_stats<E: IncHeuristicMut>(
-    start: &State,
-    e: &E,
-    max_bound: u8,
-) -> (BoundedOutcome, SearchStats) {
-    idastar_inc_mut_bounded_orbit_with_stats(start, e, max_bound, false)
+/// `Solved(path) → Some(path)`, everything else → `None`.
+fn outcome_to_opt(o: LadderOutcome) -> Option<Vec<Move>> {
+    match o {
+        LadderOutcome::Solved(p) => Some(p),
+        _ => None,
+    }
 }
 
-/// [`idastar_inc_mut_bounded_with_stats`] with sequential root-orbit-split (see
-/// [`idastar_inc_mut_orbit_with_stats`]). `orbit_split = true` keeps one σ-orbit
-/// representative of the root's children — the single-threaded counterpart of the
-/// parallel driver's split filter, node-identical to it. **Sound only on a
-/// σ-fixed board**; debug-asserts the precondition.
-pub fn idastar_inc_mut_bounded_orbit_with_stats<E: IncHeuristicMut>(
-    start: &State,
-    e: &E,
-    max_bound: u8,
-    orbit_split: bool,
-) -> (BoundedOutcome, SearchStats) {
-    idastar_inc_mut_bounded_pruned_orbit_with_stats(start, e, &NullPruner, max_bound, orbit_split)
+impl<'a, E: IncHeuristicMut, P: MovePruner> Search<'a, E, P, Seq> {
+    /// Run the sequential make/unmake search; returns the outcome and stats.
+    pub fn run(self) -> (LadderOutcome, SearchStats) {
+        run_seq_core(
+            self.start,
+            self.heuristic,
+            self.pruner,
+            self.max_bound,
+            self.orbit_split,
+            self.deadline,
+        )
+    }
+
+    /// Convenience: the optimal path if solved, else `None` (stats discarded).
+    pub fn solve(self) -> Option<Vec<Move>> {
+        outcome_to_opt(self.run().0)
+    }
+
+    /// Convenience: `(optimal path or None, stats)`.
+    pub fn solve_with_stats(self) -> (Option<Vec<Move>>, SearchStats) {
+        let (o, s) = self.run();
+        (outcome_to_opt(o), s)
+    }
 }
 
-/// [`idastar_inc_mut_bounded_orbit_with_stats`] with a [`MovePruner`] — the
-/// sequential counterpart of [`idastar_inc_bounded_parallel_mut_pruned`] (see
-/// [`idastar_inc_mut_pruned_orbit_with_stats`]). Node-identical to the parallel
-/// pruned driver with the same pruner and orbit flag.
-pub fn idastar_inc_mut_bounded_pruned_orbit_with_stats<E: IncHeuristicMut, P: MovePruner>(
+#[cfg(feature = "parallel")]
+impl<'a, E, P> Search<'a, E, P, Par>
+where
+    E: IncHeuristic + IncHeuristicMut + Sync,
+    <E as IncHeuristic>::Ctx: Send + Sync,
+    P: MovePruner,
+{
+    /// Run the parallel (tree-splitting) make/unmake search.
+    pub fn run(self) -> (LadderOutcome, SearchStats) {
+        parallel_mut_core(
+            self.start,
+            self.heuristic,
+            self.pruner,
+            self.max_bound.unwrap_or(u8::MAX),
+            self.deadline,
+            self.orbit_split,
+        )
+    }
+
+    /// Convenience: the optimal path if solved, else `None` (stats discarded).
+    pub fn solve(self) -> Option<Vec<Move>> {
+        outcome_to_opt(self.run().0)
+    }
+
+    /// Convenience: `(optimal path or None, stats)`.
+    pub fn solve_with_stats(self) -> (Option<Vec<Move>>, SearchStats) {
+        let (o, s) = self.run();
+        (outcome_to_opt(o), s)
+    }
+}
+
+/// Unified sequential make/unmake driver behind [`Search`] (`Seq` engine).
+/// `max_bound = None` ⇒ unbounded optimal solve; `Some(b)` ⇒ prove `depth > b`
+/// (or solve within it). Honors a deadline (→ [`LadderOutcome::TimedOut`]) and
+/// root-orbit-split. Node counts are identical to the parallel engine with the
+/// same pruner + orbit flag.
+fn run_seq_core<E: IncHeuristicMut, P: MovePruner>(
     start: &State,
     e: &E,
     pruner: &P,
-    max_bound: u8,
+    max_bound: Option<u8>,
     orbit_split: bool,
-) -> (BoundedOutcome, SearchStats) {
+    deadline: Option<std::time::Instant>,
+) -> (LadderOutcome, SearchStats) {
     debug_assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "orbit_split is unsound on a non-σ-symmetric board"
     );
     let mut stats = SearchStats::default();
     if start == &GOAL {
-        return (BoundedOutcome::Solved(Vec::new()), stats);
+        return (LadderOutcome::Solved(Vec::new()), stats);
     }
     let (h0, mut ctx) = e.root(start);
     let mut bound = h0;
@@ -1061,18 +1098,23 @@ pub fn idastar_inc_mut_bounded_pruned_orbit_with_stats<E: IncHeuristicMut, P: Mo
     let pst0 = pruner.root_state(blank);
     let found = std::sync::atomic::AtomicBool::new(false); // private, never read here
     loop {
-        if bound > max_bound {
-            return (BoundedOutcome::ProvedAtLeast(bound), stats);
+        if let Some(mb) = max_bound {
+            if bound > mb {
+                return (LadderOutcome::ProvedAtLeast(bound), stats);
+            }
+        }
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                return (LadderOutcome::TimedOut(bound), stats);
+            }
         }
         stats.iterations += 1;
-        // `ctx` is restored after each iteration — `search_inc_mut` unmakes every
-        // move it makes on a `Bound` return.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, None, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
-            Step::Found => return (BoundedOutcome::Solved(path), stats),
-            Step::Aborted => unreachable!("no deadline set"),
+        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, deadline, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
+            Step::Found => return (LadderOutcome::Solved(path), stats),
+            Step::Aborted => return (LadderOutcome::TimedOut(bound), stats),
             Step::Bound(next) => {
                 if next == u8::MAX {
-                    return (BoundedOutcome::Unsolvable, stats);
+                    return (LadderOutcome::Unsolvable, stats);
                 }
                 bound = next;
             }
@@ -1080,7 +1122,6 @@ pub fn idastar_inc_mut_bounded_pruned_orbit_with_stats<E: IncHeuristicMut, P: Mo
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
     s: &State,
@@ -1236,9 +1277,8 @@ mod tests {
         // agree on optimal length, and the pruned solution must reach GOAL.
         for (seed, steps) in [(1u64, 10u32), (7, 12), (23, 14)] {
             let s = scramble(seed, steps);
-            let (p_out, _) =
-                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, u8::MAX, None, false);
-            let (n_out, _) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, u8::MAX, None, false);
+            let (p_out, _) = Search::new(&s, &IncManhattan).pruner(&dfa).parallel().run();
+            let (n_out, _) = Search::new(&s, &IncManhattan).parallel().run();
             match (&p_out, &n_out) {
                 (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                     assert_eq!(a.len(), b.len(), "DFA pruning changed optimal length (seed {seed})");
@@ -1262,8 +1302,8 @@ mod tests {
             let h0 = IncHeuristicMut::root(&IncManhattan, &s).0;
             let bound = h0 + 6;
             let (_, p_stats) =
-                idastar_inc_bounded_parallel_mut_pruned(&s, &IncManhattan, &dfa, bound, None, false);
-            let (_, n_stats) = idastar_inc_bounded_parallel_mut(&s, &IncManhattan, bound, None, false);
+                Search::new(&s, &IncManhattan).bound(bound).pruner(&dfa).parallel().run();
+            let (_, n_stats) = Search::new(&s, &IncManhattan).bound(bound).parallel().run();
             p_total += p_stats.nodes;
             n_total += n_stats.nodes;
         }
@@ -1300,8 +1340,8 @@ mod tests {
         // Bounded exhaust well below the solution depth (16): a path-free
         // `ProvedAtLeast(_)` outcome that expands a real tree, so outcomes compare
         // by exact equality (no σ-mirror path ambiguity).
-        let (o_off, s_off) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, false);
-        let (o_on, s_on) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, true);
+        let (o_off, s_off) = Search::new(&fix, &IncManhattan).bound(10).parallel().run();
+        let (o_on, s_on) = Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).parallel().run();
 
         assert_eq!(o_off, o_on, "orbit-split changed the lower-bound outcome");
         assert!(
@@ -1325,8 +1365,8 @@ mod tests {
 
         // Sanity: with a bound at/above the depth, both find an optimal-length
         // solution (path may be a σ-mirror, so compare lengths not moves).
-        let (sol_off, _) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 30, None, false);
-        let (sol_on, _) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 30, None, true);
+        let (sol_off, _) = Search::new(&fix, &IncManhattan).bound(30).parallel().run();
+        let (sol_on, _) = Search::new(&fix, &IncManhattan).bound(30).orbit_split(true).parallel().run();
         match (sol_off, sol_on) {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
@@ -1367,28 +1407,25 @@ mod tests {
         assert!(is_symmetric(&fix), "fixture must be σ-symmetric");
 
         // Bounded exhaust below the solution depth (16): path-free ProvedAtLeast.
-        let (seq_off, s_seq_off) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 10, false);
-        let (seq_on, s_seq_on) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 10, true);
-        let (par_on, s_par_on) = idastar_inc_bounded_parallel_mut(&fix, &IncManhattan, 10, None, true);
+        // Both engines go through the same `Search` builder, so their outcomes are
+        // the same `LadderOutcome` type and compare directly.
+        let (seq_off, s_seq_off) = Search::new(&fix, &IncManhattan).bound(10).run();
+        let (seq_on, s_seq_on) = Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).run();
+        let (par_on, s_par_on) =
+            Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).parallel().run();
 
         // (1) The headline cross-check: sequential orbit-split is node-identical to
-        // the parallel orbit-split, and proves the same bound. (The two drivers
-        // return different outcome enums — BoundedOutcome vs LadderOutcome — so
-        // compare the proved bound explicitly.)
+        // the parallel orbit-split, with the same outcome.
         assert_eq!(
             s_seq_on.nodes, s_par_on.nodes,
             "sequential orbit nodes {} != parallel orbit nodes {}",
             s_seq_on.nodes, s_par_on.nodes
         );
-        let seq_bound = match seq_on {
-            BoundedOutcome::ProvedAtLeast(k) => k,
-            other => panic!("expected sequential path-free ProvedAtLeast, got {:?}", other),
-        };
-        let par_bound = match par_on {
-            LadderOutcome::ProvedAtLeast(k) => k,
-            other => panic!("expected parallel path-free ProvedAtLeast, got {:?}", other),
-        };
-        assert_eq!(seq_bound, par_bound, "sequential vs parallel proved-bound differs");
+        assert_eq!(seq_on, par_on, "sequential vs parallel orbit outcome differs");
+        assert!(
+            matches!(seq_on, LadderOutcome::ProvedAtLeast(_)),
+            "expected path-free ProvedAtLeast, got {seq_on:?}"
+        );
         // (2) The split actually reduces work vs the un-split sequential run…
         assert_eq!(seq_off, seq_on, "orbit-split changed the sequential lower-bound outcome");
         assert!(
@@ -1405,10 +1442,10 @@ mod tests {
 
         // (3) With a bound above the depth, orbit-split still finds an optimal-
         // length solution (path may be a σ-mirror, so compare lengths).
-        let (sol_off, _) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 30, false);
-        let (sol_on, _) = idastar_inc_mut_bounded_orbit_with_stats(&fix, &IncManhattan, 30, true);
+        let (sol_off, _) = Search::new(&fix, &IncManhattan).bound(30).run();
+        let (sol_on, _) = Search::new(&fix, &IncManhattan).bound(30).orbit_split(true).run();
         match (sol_off, sol_on) {
-            (BoundedOutcome::Solved(a), BoundedOutcome::Solved(b)) => {
+            (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
             }
             (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
@@ -1452,32 +1489,27 @@ mod tests {
             let start = scramble(seed, 20);
             // Bound at optimal − 2: strictly path-free (no early exit, so seq/par
             // node counts are comparable) yet ≥ h0 for a real tree.
-            let opt = idastar_inc_mut(&start, &IncManhattan).expect("solvable").len() as u8;
+            let opt = Search::new(&start, &IncManhattan).solve().expect("solvable").len() as u8;
             let bound = opt.saturating_sub(2);
-            // orbit_split = false (general boards); pruner = the move-DFA.
+            // pruner = the move-DFA; orbit off (general boards).
             let (seq_out, seq_st) =
-                idastar_inc_mut_bounded_pruned_orbit_with_stats(&start, &IncManhattan, &dfa, bound, false);
+                Search::new(&start, &IncManhattan).bound(bound).pruner(&dfa).run();
             let (par_out, par_st) =
-                idastar_inc_bounded_parallel_mut_pruned(&start, &IncManhattan, &dfa, bound, None, false);
+                Search::new(&start, &IncManhattan).bound(bound).pruner(&dfa).parallel().run();
             // Un-pruned sequential baseline (NullPruner) for the same tree.
-            let (_, plain_st) =
-                idastar_inc_mut_bounded_orbit_with_stats(&start, &IncManhattan, bound, false);
+            let (_, plain_st) = Search::new(&start, &IncManhattan).bound(bound).run();
 
             assert_eq!(
                 seq_st.nodes, par_st.nodes,
                 "seed {seed}: sequential pruned nodes {} != parallel pruned {}",
                 seq_st.nodes, par_st.nodes
             );
-            // Both prove the same lower bound (the exhaust is path-free at bound 12).
-            let seq_k = match seq_out {
-                BoundedOutcome::ProvedAtLeast(k) => k,
-                other => panic!("seed {seed}: expected ProvedAtLeast, got {:?}", other),
-            };
-            let par_k = match par_out {
-                LadderOutcome::ProvedAtLeast(k) => k,
-                other => panic!("seed {seed}: expected ProvedAtLeast, got {:?}", other),
-            };
-            assert_eq!(seq_k, par_k, "seed {seed}: proved-bound differs seq vs parallel");
+            // Both go through the builder, so outcomes share the LadderOutcome type.
+            assert_eq!(seq_out, par_out, "seed {seed}: outcome differs seq vs parallel");
+            assert!(
+                matches!(seq_out, LadderOutcome::ProvedAtLeast(_)),
+                "seed {seed}: expected ProvedAtLeast, got {seq_out:?}"
+            );
             assert!(
                 seq_st.nodes <= plain_st.nodes,
                 "seed {seed}: pruned {} did MORE work than un-pruned {}",

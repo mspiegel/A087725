@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use puzzle8::puzzle24::search::walking_distance::{
     load_dist_table, WdTable, FULL_WD_ENTRIES, WD_KIND_FULL,
 };
-use puzzle8::puzzle24::search::{idastar_inc_mut_with_stats, Cwd, Heuristic};
+use puzzle8::puzzle24::search::{Cwd, Heuristic, Search};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS, W};
 
 type Matrix = [[u8; W]; W];
@@ -151,7 +151,7 @@ fn misplaced_center_mass(s: &State) -> (u32, u32) {
 fn solve_exact(cwd: &Cwd, s: &State) -> (u32, u8, f64) {
     let h0 = cwd.h(s);
     let t = Instant::now();
-    let (sol, _st) = idastar_inc_mut_with_stats(s, cwd);
+    let (sol, _st) = Search::new(s, cwd).solve_with_stats();
     let d = sol.expect("solvable by construction").len() as u32;
     (d, h0, t.elapsed().as_secs_f64())
 }

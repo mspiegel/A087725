@@ -52,11 +52,8 @@ use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
 use puzzle8::puzzle24::search::{
-    idastar_inc_bounded_parallel_mut, idastar_inc_bounded_parallel_mut_pruned,
-    idastar_inc_mut_bounded_orbit_with_stats, idastar_inc_mut_bounded_pruned_orbit_with_stats,
-    idastar_inc_mut_orbit_with_stats, idastar_inc_mut_pruned_orbit_with_stats, BoundedOutcome, Cwd,
-    IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc, MaxInc, MoveDfa,
-    SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
+    Cwd, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc,
+    MaxInc, MoveDfa, Search, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
@@ -441,57 +438,8 @@ fn run_inc<E: IncHeuristic + IncHeuristicMut + Sync>(
 where
     <E as IncHeuristic>::Ctx: Send + Sync,
 {
-    if parallel {
-        // Shared-memory parallel IDA* (2P). max_bound = None -> unbounded solve.
-        let mb = max_bound.unwrap_or(u8::MAX);
-        let ((outcome, st), search_dt) = if move_dfa {
-            // Stack the move-pruning DFA (Taylor–Korf duplicate elimination) on top
-            // of the heuristic. Sound for lower-bound proofs; build() self-verifies.
-            let dfa = MoveDfa::build_default();
-            eprintln!(
-                "move-pruning DFA: {} states, {} KiB (L2-resident)",
-                dfa.states(),
-                dfa.table_bytes() / 1024
-            );
-            timed_search(t0.elapsed(), || {
-                idastar_inc_bounded_parallel_mut_pruned(start, e, &dfa, mb, None, orbit_split)
-            })
-        } else {
-            timed_search(t0.elapsed(), || {
-                idastar_inc_bounded_parallel_mut(start, e, mb, None, orbit_split)
-            })
-        };
-        let elapsed = t0.elapsed();
-        return match outcome {
-            LadderOutcome::Solved(s) => {
-                if let Some(mb) = max_bound {
-                    println!("Found within bound {} (optimal):", mb);
-                }
-                print_solution(start, &s, elapsed);
-                print_stats(&st, search_dt);
-                ExitCode::SUCCESS
-            }
-            LadderOutcome::ProvedAtLeast(k) => {
-                println!("Lower bound: depth >= {}", k);
-                println!("Wall-clock     : {:.2?}", elapsed);
-                print_stats(&st, search_dt);
-                ExitCode::SUCCESS
-            }
-            LadderOutcome::TimedOut(k) => {
-                // No deadline is passed here, so this is not expected.
-                println!("Lower bound: depth >= {} (timed out)", k);
-                print_stats(&st, search_dt);
-                ExitCode::SUCCESS
-            }
-            LadderOutcome::Unsolvable => {
-                eprintln!("position is unsolvable");
-                ExitCode::FAILURE
-            }
-        };
-    }
-    // Sequential make/unmake path. Stack the move-pruning DFA (Taylor–Korf
-    // duplicate elimination) when requested — same sound lower-bound pruning as the
-    // parallel `_pruned` driver, node-identical. `None` ⇒ the un-pruned driver.
+    // Build the move-pruning DFA (Taylor–Korf duplicate elimination) when
+    // requested — sound for lower-bound proofs; build() self-verifies.
     let dfa = if move_dfa { Some(MoveDfa::build_default()) } else { None };
     if let Some(dfa) = &dfa {
         eprintln!(
@@ -500,51 +448,42 @@ where
             dfa.table_bytes() / 1024
         );
     }
-    match max_bound {
-        None => {
-            let ((sol, st), search_dt) = timed_search(t0.elapsed(), || match &dfa {
-                Some(dfa) => idastar_inc_mut_pruned_orbit_with_stats(start, e, dfa, orbit_split),
-                None => idastar_inc_mut_orbit_with_stats(start, e, orbit_split),
-            });
-            let elapsed = t0.elapsed();
-            match sol {
-                Some(s) => {
-                    print_solution(start, &s, elapsed);
-                    print_stats(&st, search_dt);
-                    ExitCode::SUCCESS
-                }
-                None => {
-                    eprintln!("no solution found");
-                    ExitCode::FAILURE
-                }
-            }
+    // One declarative search; the (parallel, pruner) runtime flags pick the arm
+    // (each is a distinct type-state, all returning the same outcome + stats).
+    let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
+        let s = Search::new(start, e).maybe_bound(max_bound).orbit_split(orbit_split);
+        match (parallel, &dfa) {
+            (true, Some(dfa)) => s.pruner(dfa).parallel().run(),
+            (true, None) => s.parallel().run(),
+            (false, Some(dfa)) => s.pruner(dfa).run(),
+            (false, None) => s.run(),
         }
-        Some(mb) => {
-            let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || match &dfa {
-                Some(dfa) => {
-                    idastar_inc_mut_bounded_pruned_orbit_with_stats(start, e, dfa, mb, orbit_split)
-                }
-                None => idastar_inc_mut_bounded_orbit_with_stats(start, e, mb, orbit_split),
-            });
-            let elapsed = t0.elapsed();
-            match outcome {
-                BoundedOutcome::Solved(s) => {
-                    println!("Found within bound {} (optimal):", mb);
-                    print_solution(start, &s, elapsed);
-                    print_stats(&st, search_dt);
-                    ExitCode::SUCCESS
-                }
-                BoundedOutcome::ProvedAtLeast(k) => {
-                    println!("Lower bound: depth >= {}", k);
-                    println!("Wall-clock     : {:.2?}", elapsed);
-                    print_stats(&st, search_dt);
-                    ExitCode::SUCCESS
-                }
-                BoundedOutcome::Unsolvable => {
-                    eprintln!("position is unsolvable");
-                    ExitCode::FAILURE
-                }
+    });
+    let elapsed = t0.elapsed();
+    match outcome {
+        LadderOutcome::Solved(s) => {
+            if let Some(mb) = max_bound {
+                println!("Found within bound {} (optimal):", mb);
             }
+            print_solution(start, &s, elapsed);
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
+        }
+        LadderOutcome::ProvedAtLeast(k) => {
+            println!("Lower bound: depth >= {}", k);
+            println!("Wall-clock     : {:.2?}", elapsed);
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
+        }
+        LadderOutcome::TimedOut(k) => {
+            // No deadline is passed here, so this is not expected.
+            println!("Lower bound: depth >= {} (timed out)", k);
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
+        }
+        LadderOutcome::Unsolvable => {
+            eprintln!("position is unsolvable");
+            ExitCode::FAILURE
         }
     }
 }
