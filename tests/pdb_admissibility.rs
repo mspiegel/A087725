@@ -44,7 +44,7 @@ fn single_pdbs_admissible() {
     for tiles in patterns {
         let pdb = PatternDb::build(Pattern::new(tiles));
         let h = PdbHeuristic::new(&pdb);
-        assert_admissible(&h, &table, &format!("PDB{:?}", tiles));
+        assert_admissible(&h, &table, &format!("PDB{tiles:?}"));
     }
 }
 
@@ -63,7 +63,7 @@ fn additive_pairs_admissible() {
             PatternDb::build(Pattern::new(right)),
         ];
         let h = AdditivePdbHeuristic::new(&dbs);
-        assert_admissible(&h, &table, &format!("Add({:?}, {:?})", left, right));
+        assert_admissible(&h, &table, &format!("Add({left:?}, {right:?})"));
     }
 }
 

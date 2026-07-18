@@ -35,7 +35,7 @@ fn main() {
     let zpdb = ZpdbInc::new([&zdbs[0], &zdbs[1]]);
 
     let k = n_solves.min(antipode_ranks.len());
-    eprintln!("profiling zero-aware idastar on {} depth-80 antipodes (no cache)", k);
+    eprintln!("profiling zero-aware idastar on {k} depth-80 antipodes (no cache)");
 
     let (mut total_nodes, mut total_t) = (0u64, 0.0f64);
     for (i, &r) in antipode_ranks.iter().take(k).enumerate() {

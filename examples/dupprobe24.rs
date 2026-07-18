@@ -118,12 +118,12 @@ fn main() {
 
     let distinct = seen.len() as u64; // sampled distinct
     let dup = c.expansions.saturating_sub(distinct);
-    println!("board R, f-bound    : {}", bound);
+    println!("board R, f-bound    : {bound}");
     println!("sampling            : 1/{} (shift {})", 1u64 << shift, shift);
     println!("total expansions    : {}", c.total_exp);
     println!("boundary leaves     : {}", c.boundary);
     println!("sampled expansions  : {}", c.expansions);
-    println!("sampled distinct    : {}", distinct);
+    println!("sampled distinct    : {distinct}");
     println!(
         "duplicate expansions: {:.1}% of expansions",
         100.0 * dup as f64 / c.expansions.max(1) as f64
@@ -132,5 +132,5 @@ fn main() {
         "dup rate (exp/dist) : {:.3}x   <- FSM/TT ceiling",
         c.expansions as f64 / distinct.max(1) as f64
     );
-    println!("wall                : {:.2?}", el);
+    println!("wall                : {el:.2?}");
 }

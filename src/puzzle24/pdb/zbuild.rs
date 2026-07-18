@@ -266,7 +266,7 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
 
     let layout = ZpdbLayout::new(pattern);
     let total = layout.total();
-    let n_bytes = (total as usize + 3) / 4;
+    let n_bytes = (total as usize).div_ceil(4);
     let mut buf: Vec<u8> = vec![0u8; n_bytes]; // 00 = unvisited everywhere
 
     let cb = layout.cohort_base();
@@ -333,8 +333,7 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
     // `view` is no longer used; safe to mutate `buf` directly now.
     assert_eq!(
         cumulative, total,
-        "frontier-free BFS covered {} of {} states — graph not fully reached",
-        cumulative, total
+        "frontier-free BFS covered {cumulative} of {total} states — graph not fully reached"
     );
     super::zcodec::pack1_from_2bit_inplace(&mut buf, total as usize);
     (buf, layout, d as u8)
@@ -426,13 +425,11 @@ mod tests {
         assert_eq!(
             projected.len(),
             reference.len(),
-            "additive sizes differ for {:?}",
-            pattern
+            "additive sizes differ for {pattern:?}"
         );
         assert_eq!(
             projected, reference,
-            "min-over-regions ZPDB != verified additive build for {:?}",
-            pattern
+            "min-over-regions ZPDB != verified additive build for {pattern:?}"
         );
     }
 
@@ -463,10 +460,10 @@ mod tests {
             let (packed, _, ecc) = build_zpdb_2bit_packed(p);
             let dist = build_zpdb(p).0;
             let reference = pack_bits(&dist);
-            assert_eq!(packed, reference, "2-bit packed != pack_bits(build_zpdb) for {:?}", tiles);
+            assert_eq!(packed, reference, "2-bit packed != pack_bits(build_zpdb) for {tiles:?}");
             // The exposed eccentricity must equal the true max distance (oracle).
             let true_ecc = *dist.iter().max().unwrap();
-            assert_eq!(ecc, true_ecc, "eccentricity {} != oracle max {} for {:?}", ecc, true_ecc, tiles);
+            assert_eq!(ecc, true_ecc, "eccentricity {ecc} != oracle max {true_ecc} for {tiles:?}");
         }
     }
 
@@ -485,8 +482,7 @@ mod tests {
             assert_eq!(
                 zdb.cold_lookup_proj(&s),
                 dist[idx as usize],
-                "decode mismatch at idx {}",
-                idx
+                "decode mismatch at idx {idx}"
             );
         }
     }
@@ -528,9 +524,9 @@ mod tests {
         let layout = ZpdbLayout::new(p);
         let total = layout.total();
         let gib = |b: u64| b as f64 / (1u64 << 30) as f64;
-        println!("k8 total()          = {}", total);
-        println!("2-bit working bytes = {} ({:.2} GiB)", (total + 3) / 4, gib((total + 3) / 4));
-        println!("1-bit packed bytes  = {} ({:.2} GiB)", (total + 7) / 8, gib((total + 7) / 8));
+        println!("k8 total()          = {total}");
+        println!("2-bit working bytes = {} ({:.2} GiB)", total.div_ceil(4), gib(total.div_ceil(4)));
+        println!("1-bit packed bytes  = {} ({:.2} GiB)", total.div_ceil(8), gib(total.div_ceil(8)));
     }
 
     /// Full k=6 equivalence to the fast frontier builder (the k≤7 shipped path).
@@ -549,8 +545,7 @@ mod tests {
             assert_eq!(
                 build_zpdb_2bit_packed(p).0,
                 pack_bits(&build_zpdb_parallel(p).0),
-                "k6 mismatch {:?}",
-                tiles
+                "k6 mismatch {tiles:?}"
             );
         }
     }
@@ -581,7 +576,7 @@ mod tests {
     fn zpdb_goal_entries_are_zero() {
         let (dist, _) = build_zpdb(Pattern::new(&[1, 7, 13]));
         // The goal seeds were set to 0; at least one zero must exist.
-        assert!(dist.iter().any(|&d| d == 0));
+        assert!(dist.contains(&0));
     }
 
     #[test]
@@ -624,7 +619,7 @@ mod tests {
                 let deficit = r as i32 - p as i32;
                 max_deficit = max_deficit.max(deficit);
                 if shown < 8 {
-                    eprintln!("  config rank {}: min_r ZPDB = {}, additive = {} (ZPDB too low by {})", i, p, r, deficit);
+                    eprintln!("  config rank {i}: min_r ZPDB = {p}, additive = {r} (ZPDB too low by {deficit})");
                     shown += 1;
                 }
             }
@@ -633,7 +628,7 @@ mod tests {
             "k=6 part a [1,2,3,6,7,8]: {} / {} configs violate (min_r ZPDB == additive); max deficit {}",
             violations, projected.len(), max_deficit,
         );
-        assert_eq!(violations, 0, "ZPDB build is NOT dominance-correct at k=6 ({} violations)", violations);
+        assert_eq!(violations, 0, "ZPDB build is NOT dominance-correct at k=6 ({violations} violations)");
     }
 
     #[test]

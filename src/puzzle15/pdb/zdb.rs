@@ -223,17 +223,17 @@ impl From<std::io::Error> for LoadError {
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoadError::Io(e) => write!(f, "I/O error: {}", e),
-            LoadError::BadMagic(m) => write!(f, "bad magic: {:?}, expected {:?}", m, MAGIC),
-            LoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {}", v),
+            LoadError::Io(e) => write!(f, "I/O error: {e}"),
+            LoadError::BadMagic(m) => write!(f, "bad magic: {m:?}, expected {MAGIC:?}"),
+            LoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {v}"),
             LoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             LoadError::TrailingBytes => write!(f, "file has trailing bytes after payload"),
-            LoadError::ShortFile { got } => write!(f, "file too short: {} bytes", got),
+            LoadError::ShortFile { got } => write!(f, "file too short: {got} bytes"),
             LoadError::SizeMismatch { got, expected } => {
-                write!(f, "file size {} != expected {}", got, expected)
+                write!(f, "file size {got} != expected {expected}")
             }
             LoadError::TotalMismatch { in_file, expected } => {
-                write!(f, "entry total mismatch: file {} vs layout {}", in_file, expected)
+                write!(f, "entry total mismatch: file {in_file} vs layout {expected}")
             }
         }
     }

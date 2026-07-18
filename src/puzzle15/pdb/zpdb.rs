@@ -427,7 +427,7 @@ mod tests {
                     let proj = make_proj(pattern, &placement, b);
                     let r = layout.rank(&proj, pattern);
                     assert!(r < layout.total(), "rank {} >= total {}", r, layout.total());
-                    assert!(seen.insert(r), "duplicate rank {}", r);
+                    assert!(seen.insert(r), "duplicate rank {r}");
                 }
             }
         });
@@ -449,10 +449,10 @@ mod tests {
             let mut seen: HashSet<u64> = HashSet::new();
             for_each_ksubset(k, |cells, _| {
                 let r = shape_rank(cells);
-                assert!(r < binom(N_CELLS, k), "shape_rank {} >= C(16,{}) for {:?}", r, k, cells);
-                assert!(seen.insert(r), "shape_rank COLLISION at {} for cells {:?} (k={})", r, cells, k);
+                assert!(r < binom(N_CELLS, k), "shape_rank {r} >= C(16,{k}) for {cells:?}");
+                assert!(seen.insert(r), "shape_rank COLLISION at {r} for cells {cells:?} (k={k})");
             });
-            assert_eq!(seen.len() as u64, binom(N_CELLS, k), "shape_rank not surjective at k={}", k);
+            assert_eq!(seen.len() as u64, binom(N_CELLS, k), "shape_rank not surjective at k={k}");
         }
     }
 
@@ -485,7 +485,7 @@ mod tests {
         for k in 1..=7u8 {
             let items: Vec<u8> = (0..k).collect();
             for p in permutations(&items) {
-                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {:?}", p);
+                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {p:?}");
             }
         }
     }

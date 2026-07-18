@@ -253,11 +253,10 @@ mod tests {
         let (dist, layout) = build_zpdb(pattern);
         let projected = project_additive(pattern, &dist, &layout);
         let reference = build::build(pattern);
-        assert_eq!(projected.len(), reference.len(), "additive sizes differ for {:?}", pattern);
+        assert_eq!(projected.len(), reference.len(), "additive sizes differ for {pattern:?}");
         assert_eq!(
             projected, reference,
-            "min-over-regions ZPDB != verified additive build for {:?}",
-            pattern
+            "min-over-regions ZPDB != verified additive build for {pattern:?}"
         );
     }
 
@@ -278,7 +277,7 @@ mod tests {
     #[test]
     fn zpdb_goal_entries_are_zero() {
         let (dist, _) = build_zpdb(Pattern::new(&[1, 7, 13]));
-        assert!(dist.iter().any(|&d| d == 0));
+        assert!(dist.contains(&0));
     }
 
     #[test]

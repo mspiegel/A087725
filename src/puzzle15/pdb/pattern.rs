@@ -59,9 +59,9 @@ impl Pattern {
     pub fn new(tiles: &[u8]) -> Self {
         let mut bits = 0u32;
         for &t in tiles {
-            assert!((1..=15).contains(&t), "tile {} out of range 1..=15", t);
+            assert!((1..=15).contains(&t), "tile {t} out of range 1..=15");
             let mask = 1u32 << t;
-            assert_eq!(bits & mask, 0, "tile {} appears more than once", t);
+            assert_eq!(bits & mask, 0, "tile {t} appears more than once");
             bits |= mask;
         }
         Pattern(bits)
@@ -568,7 +568,7 @@ mod tests {
                 let r = n.rank_with_blank(p);
                 assert!(r < p.num_bfs_states(),
                     "rank_with_blank {} >= {}", r, p.num_bfs_states());
-                assert!(ranks.insert(r), "duplicate rank_with_blank {}", r);
+                assert!(ranks.insert(r), "duplicate rank_with_blank {r}");
                 seen_cells.insert(key);
                 q.push_back(n);
             }

@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         println!("\n=== Residue board #{} ===", i + 1);
-        println!("rank: {}", r);
+        println!("rank: {r}");
         println!("blank cell: {} (row {}, col {}, degree {})",
                  blank, blank / 4, blank % 4, degree);
         println!("h(s) = {}  (slack = {} - {} = {})", hv, depth, hv, depth as i32 - hv as i32);
@@ -100,15 +100,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print!("  ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
             }
             println!();
         }
         println!("neighbor depths (from A):");
         for (nr, nd) in &nb_at {
             match nd {
-                Some(d) => println!("  rank {} → d={}", nr, d),
-                None => println!("  rank {} → not in A", nr),
+                Some(d) => println!("  rank {nr} → d={d}"),
+                None => println!("  rank {nr} → not in A"),
             }
         }
     }

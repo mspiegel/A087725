@@ -35,8 +35,8 @@ pub mod tests_util {
             for s in &frontier {
                 for m in s.legal_moves().iter() {
                     let s_next = s.apply(m);
-                    if !dist.contains_key(&s_next.0) {
-                        dist.insert(s_next.0, next_depth);
+                    if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s_next.0) {
+                        e.insert(next_depth);
                         next.push(s_next);
                     }
                 }

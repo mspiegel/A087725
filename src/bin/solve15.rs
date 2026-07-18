@@ -53,7 +53,7 @@ struct Args {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf-plus|korf|additive|manhattan]", prog);
+    eprintln!("usage: {prog} --pdb-dir DIR [--position \"...\"] [--from FILE] [--heuristic korf-plus|korf|additive|manhattan]");
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -85,11 +85,11 @@ fn parse_args() -> Result<Args, String> {
                     "additive" => HeuristicChoice::Additive,
                     "korf" => HeuristicChoice::Korf,
                     "korf-plus" => HeuristicChoice::KorfPlus,
-                    other => return Err(format!("unknown heuristic {:?}", other)),
+                    other => return Err(format!("unknown heuristic {other:?}")),
                 };
             }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -102,27 +102,27 @@ fn parse_position(s: &str) -> Result<State, String> {
     let mut count = 0usize;
     for tok in s.split_whitespace() {
         if count >= N_CELLS {
-            return Err(format!("more than {} tokens", N_CELLS));
+            return Err(format!("more than {N_CELLS} tokens"));
         }
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {:?}: {}", tok, e))?
+            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v > 15 {
-            return Err(format!("value {} out of range 0..=15", v));
+            return Err(format!("value {v} out of range 0..=15"));
         }
         cells[count] = v;
         count += 1;
     }
     if count != N_CELLS {
-        return Err(format!("expected {} tokens, got {}", N_CELLS, count));
+        return Err(format!("expected {N_CELLS} tokens, got {count}"));
     }
     // Sanity: each value 0..=15 appears exactly once.
     let mut seen = [false; N_CELLS];
     for &v in &cells {
         if seen[v as usize] {
-            return Err(format!("value {} appears more than once", v));
+            return Err(format!("value {v} appears more than once"));
         }
         seen[v as usize] = true;
     }
@@ -148,7 +148,7 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
         Move::Right => "R",
     }).collect();
     println!("Moves          : {}", moves.join(" "));
-    println!("Wall-clock     : {:.2?}", elapsed);
+    println!("Wall-clock     : {elapsed:.2?}");
 
     // Sanity-check: applying the solution must reach GOAL.
     let mut cur = *start;
@@ -168,7 +168,7 @@ fn main() -> ExitCode {
         Ok(a) => a,
         Err(e) => {
             if e == "help" { print_usage(&prog); return ExitCode::SUCCESS; }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -185,7 +185,7 @@ fn main() -> ExitCode {
     };
     let start = match parse_position(&position_str) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: position parse: {}", e); return ExitCode::FAILURE; }
+        Err(e) => { eprintln!("error: position parse: {e}"); return ExitCode::FAILURE; }
     };
 
     if !start.is_solvable() {
@@ -206,7 +206,7 @@ fn main() -> ExitCode {
             };
             let (p7_db, p8_db) = match load_pdbs(&dir) {
                 Ok(x) => x,
-                Err(e) => { eprintln!("error: {}", e); return ExitCode::FAILURE; }
+                Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
             };
             let dbs = [p7_db, p8_db];
             let h_add = AdditivePdbHeuristic::new(&dbs);

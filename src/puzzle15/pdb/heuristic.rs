@@ -322,7 +322,7 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = refl.h(&State(*raw));
-            assert!(est <= true_dist, "reflected h({}) > true dist {}", est, true_dist);
+            assert!(est <= true_dist, "reflected h({est}) > true dist {true_dist}");
         }
     }
 
@@ -342,7 +342,7 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = h_max.h(&State(*raw));
-            assert!(est <= true_dist, "max h {} > true {} for {:?}", est, true_dist, raw);
+            assert!(est <= true_dist, "max h {est} > true {true_dist} for {raw:?}");
         }
     }
 
@@ -374,7 +374,7 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = h_korf.h(&State(*raw));
-            assert!(est <= true_dist, "korf h {} > true {} for {:?}", est, true_dist, raw);
+            assert!(est <= true_dist, "korf h {est} > true {true_dist} for {raw:?}");
         }
     }
 
@@ -435,7 +435,7 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
             let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {}", i);
+            assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {i}");
             s = ns;
             ctx = ctx_adv;
         }
@@ -457,8 +457,8 @@ mod tests {
         for seed in 0..12u32 {
             let (a_sol, a_st) = idastar_inc_with_stats(&s, &inc);
             let (b_sol, b_st) = idastar_inc_mut_with_stats(&s, &inc);
-            assert_eq!(a_sol, b_sol, "paths differ at depth {}", seed);
-            assert_eq!(a_st.nodes, b_st.nodes, "node counts differ at depth {}", seed);
+            assert_eq!(a_sol, b_sol, "paths differ at depth {seed}");
+            assert_eq!(a_st.nodes, b_st.nodes, "node counts differ at depth {seed}");
             for k in 0..4 {
                 let m = pseudo(seed.wrapping_add(k));
                 if s.legal_moves().contains(m) {

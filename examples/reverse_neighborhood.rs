@@ -59,14 +59,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("config: K={}, min_h={}, cache={}", max_k, min_h, cache_path.display());
     match reference_rank {
-        Some(r) => println!("reference (rank {}):", r),
+        Some(r) => println!("reference (rank {r}):"),
         None => println!("reference (default: singleton #17, perfect reverse, h=70):"),
     };
     for row in 0..4 {
         print!("  ");
         for col in 0..4 {
             let t = reference[row * 4 + col];
-            if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+            if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
         }
         println!();
     }
@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nverified depth histogram:");
     for (d, c) in &hist {
         let mark = if *d >= 76 { " ***" } else { "" };
-        println!("  d={:>3}: {:>8}{}", d, c, mark);
+        println!("  d={d:>3}: {c:>8}{mark}");
     }
 
     for target_d in (76..=80).rev() {
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let s = unrank(r);
             print!("  #{:>3} rank {:>14} blank@{:>2}: ", i + 1, r, s.blank_pos());
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{:>2}", t); }
+                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
                 if j % 4 == 3 { print!("  "); } else { print!(","); }
             }
             println!();

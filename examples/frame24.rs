@@ -133,7 +133,7 @@ fn main() -> ExitCode {
         picks.extend(sorted[mid..].iter().take(10));
         let mut text = String::from("# frame-conformant Tier-2 boards (top-20 WD + 10 median)\n");
         for (w, s) in &picks {
-            text.push_str(&format!("# WD = {}\n", w));
+            text.push_str(&format!("# WD = {w}\n"));
             let toks: Vec<String> = s.0.iter().map(|t| t.to_string()).collect();
             text.push_str(&toks.join(" "));
             text.push('\n');
@@ -145,7 +145,7 @@ fn main() -> ExitCode {
     let mut control_wd: Vec<u8> = (0..n).map(|_| wd.h(&construct_control(&mut rng))).collect();
 
     println!();
-    println!("== frame-rule Tier-1: proven-LB (WD) distributions, n={} each ==", n);
+    println!("== frame-rule Tier-1: proven-LB (WD) distributions, n={n} each ==");
     report("frame", &mut frame_wd);
     report("control", &mut control_wd);
     println!();

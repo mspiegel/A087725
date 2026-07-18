@@ -27,6 +27,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         out.push('\n');
     }
-    print!("{}", out);
+    print!("{out}");
     Ok(())
 }

@@ -163,13 +163,13 @@ mod tests {
         let a2 = State([6, 4, 7, 8, 5, 0, 3, 2, 1]);
         assert!(a1.is_solvable());
         assert!(a2.is_solvable());
-        assert_eq!(t.dist(&a1), DIAMETER, "a1 should be at distance {}", DIAMETER);
-        assert_eq!(t.dist(&a2), DIAMETER, "a2 should be at distance {}", DIAMETER);
+        assert_eq!(t.dist(&a1), DIAMETER, "a1 should be at distance {DIAMETER}");
+        assert_eq!(t.dist(&a2), DIAMETER, "a2 should be at distance {DIAMETER}");
 
         let antipodes = t.antipodes();
         let arr: Vec<[u8; 9]> = antipodes.iter().map(|s| s.0).collect();
-        assert!(arr.contains(&a1.0), "a1 not in antipode set: {:?}", arr);
-        assert!(arr.contains(&a2.0), "a2 not in antipode set: {:?}", arr);
+        assert!(arr.contains(&a1.0), "a1 not in antipode set: {arr:?}");
+        assert!(arr.contains(&a2.0), "a2 not in antipode set: {arr:?}");
     }
 
     #[test]

@@ -26,8 +26,8 @@ fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         for s in &frontier {
             for m in s.legal_moves().iter() {
                 let s2 = s.apply(m);
-                if !dist.contains_key(&s2.0) {
-                    dist.insert(s2.0, nd);
+                if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s2.0) {
+                    e.insert(nd);
                     next.push(s2);
                 }
             }
@@ -52,7 +52,7 @@ fn manhattan_solver_optimal_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let sol = idastar(&s, &ManhattanHeuristic).expect("solvable");
-        assert_eq!(sol.len() as u8, d, "manhattan non-optimal for {:?}", raw);
+        assert_eq!(sol.len() as u8, d, "manhattan non-optimal for {raw:?}");
         assert!(reaches_goal(&s, &sol));
     }
 }
@@ -73,7 +73,7 @@ fn korf_inc_solver_optimal_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let sol = idastar_inc(&s, &inc).expect("solvable");
-        assert_eq!(sol.len() as u8, d, "korf-inc non-optimal for {:?}", raw);
+        assert_eq!(sol.len() as u8, d, "korf-inc non-optimal for {raw:?}");
         assert!(reaches_goal(&s, &sol));
     }
 }
@@ -105,7 +105,7 @@ fn korf_and_manhattan_agree_on_optimal_length() {
             let opts: Vec<Move> = s
                 .legal_moves()
                 .iter()
-                .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+                .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
                 .collect();
             let m = opts[(next() as usize) % opts.len()];
             s = s.apply(m);

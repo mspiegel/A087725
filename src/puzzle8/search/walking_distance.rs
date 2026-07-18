@@ -79,8 +79,8 @@ fn build_table() -> HashMap<u32, u8> {
                         m2[to][g] += 1;
                         let new_br = *br - 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -97,8 +97,8 @@ fn build_table() -> HashMap<u32, u8> {
                         m2[to][g] += 1;
                         let new_br = *br + 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -190,7 +190,7 @@ mod tests {
         // WD-row should be 1 (one vertical move out of goal).
         // WD-col should be 0 (no column changes).
         let h = WalkingDistanceHeuristic.h(&s);
-        assert_eq!(h, 1, "WD after one Up should be 1; got {}", h);
+        assert_eq!(h, 1, "WD after one Up should be 1; got {h}");
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
         // Row-WD unchanged (no row crossings). Column-WD increases by 1.
         let s = GOAL.apply(Move::Left);
         let h = WalkingDistanceHeuristic.h(&s);
-        assert_eq!(h, 1, "WD after one Left should be 1; got {}", h);
+        assert_eq!(h, 1, "WD after one Left should be 1; got {h}");
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
                 s = s.apply(m);
                 depth += 1;
                 let h = WalkingDistanceHeuristic.h(&s);
-                assert!(h <= depth, "WD {} > depth {} after {} moves", h, depth, depth);
+                assert!(h <= depth, "WD {h} > depth {depth} after {depth} moves");
             }
         }
     }

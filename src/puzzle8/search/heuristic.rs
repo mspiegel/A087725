@@ -17,7 +17,7 @@ pub trait Heuristic {
 /// Blanket implementation: any reference to a [`Heuristic`] is also a
 /// [`Heuristic`]. Lets us pass borrowed heuristics to combinators like
 /// [`crate::puzzle8::search::MaxHeuristic`] without taking ownership.
-impl<'a, H: Heuristic + ?Sized> Heuristic for &'a H {
+impl<H: Heuristic + ?Sized> Heuristic for &H {
     #[inline]
     fn h(&self, s: &State) -> u8 {
         (**self).h(s)

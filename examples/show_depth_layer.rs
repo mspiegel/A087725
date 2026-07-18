@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if t == 0 {
                     print!(" __");
                 } else {
-                    print!(" {:>2}", t);
+                    print!(" {t:>2}");
                 }
             }
             println!();

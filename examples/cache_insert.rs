@@ -117,11 +117,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 rejected += 1;
                 let td = if true_d == u8::MAX { "UNSOLVABLE".to_string() } else { true_d.to_string() };
-                eprintln!("  REJECT rank {}: claimed d={}, true depth={} — NOT inserting", r, d, td);
+                eprintln!("  REJECT rank {r}: claimed d={d}, true depth={td} — NOT inserting");
             }
         }
         if rejected > 0 {
-            eprintln!("\n*** {} pair(s) FAILED verification and were dropped ***", rejected);
+            eprintln!("\n*** {rejected} pair(s) FAILED verification and were dropped ***");
         }
         println!("verified OK: {} / {} pairs", good.len(), good.len() as u32 + rejected);
         good
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("loading {} ...", cache_path.display());
     let mut c = cache::load(&cache_path)?;
     let n_before = c.len();
-    println!("loaded {} entries", n_before);
+    println!("loaded {n_before} entries");
 
     // Backup before mutation.
     let backup_path = cache_path.with_extension("bin.bak");
@@ -153,7 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &(r, d) in &pairs {
         match c.get(&r).copied() {
             Some(prev) if prev != d => {
-                println!("CONFLICT at rank {}: existing d={}, new d={} — skipping", r, prev, d);
+                println!("CONFLICT at rank {r}: existing d={prev}, new d={d} — skipping");
                 conflicts += 1;
                 continue;
             }
@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if r_refl != r {
             match c.get(&r_refl).copied() {
                 Some(prev) if prev != d => {
-                    println!("CONFLICT at reflected rank {}: existing d={}, new d={} — skipping mirror", r_refl, prev, d);
+                    println!("CONFLICT at reflected rank {r_refl}: existing d={prev}, new d={d} — skipping mirror");
                     conflicts += 1;
                 }
                 Some(_) => {}
@@ -175,10 +175,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nsummary:");
     println!("  pairs requested:    {}", pairs.len());
-    println!("  new direct inserts: {}", new_inserts);
-    println!("  mirror inserts:     {}", mirror_inserts);
-    println!("  already present:    {}", already_present);
-    println!("  conflicts (skipped):{}", conflicts);
+    println!("  new direct inserts: {new_inserts}");
+    println!("  mirror inserts:     {mirror_inserts}");
+    println!("  already present:    {already_present}");
+    println!("  conflicts (skipped):{conflicts}");
 
     if new_inserts + mirror_inserts > 0 {
         println!("\nsaving {} (was {}, now {}) ...",

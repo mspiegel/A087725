@@ -81,7 +81,7 @@ pub fn rank(s: &State) -> u64 {
 ///
 /// Panics if `r >= N_STATES`.
 pub fn unrank(r: u64) -> State {
-    assert!(r < N_STATES, "rank {} out of range [0, {})", r, N_STATES);
+    assert!(r < N_STATES, "rank {r} out of range [0, {N_STATES})");
 
     let blank_pos = (r / EVEN_BLOCK) as usize;
     let even_rank = r % EVEN_BLOCK;
@@ -231,7 +231,7 @@ mod tests {
                 let r = base + (k * EVEN_BLOCK / PER_BLOCK);
                 let s = unrank(r);
                 assert!(s.is_solvable(), "unrank({}) unsolvable: {:?}", r, s.0);
-                assert_eq!(rank(&s), r, "rank/unrank mismatch at r={}", r);
+                assert_eq!(rank(&s), r, "rank/unrank mismatch at r={r}");
                 assert!(seen.insert(s.0), "duplicate state at rank {}: {:?}", r, s.0);
             }
         }

@@ -93,7 +93,7 @@ fn main() {
     }
 
     println!("8-puzzle forced-displacement analysis");
-    println!("  forcibly-displaced pairs : {}", total_pairs);
+    println!("  forcibly-displaced pairs : {total_pairs}");
     println!();
     println!("For each forced (state, tile) pair, how many tiles total are at");
     println!("their goal cells in that state?");
@@ -124,7 +124,7 @@ fn main() {
         if correct != 1 { continue; }
         if keep[r as usize] & 1 != 0 { continue; } // tile 1 not forced
         let d = table.dist_of_rank(r);
-        if best.map_or(true, |(bd, _)| d < bd) {
+        if best.is_none_or(|(bd, _)| d < bd) {
             best = Some((d, r));
         }
     }
@@ -132,12 +132,12 @@ fn main() {
         let s = unrank(r);
         println!();
         println!("Shallowest state where tile 1 is the lone correct-and-forced tile:");
-        println!("  dist = {}, board (row-major):", d);
+        println!("  dist = {d}, board (row-major):");
         for row in 0..3 {
             print!("   ");
             for col in 0..3 {
                 let v = s.0[row * 3 + col];
-                if v == 0 { print!("  _"); } else { print!(" {:>2}", v); }
+                if v == 0 { print!("  _"); } else { print!(" {v:>2}"); }
             }
             println!();
         }

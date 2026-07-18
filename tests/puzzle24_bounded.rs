@@ -26,8 +26,8 @@ fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         for s in &frontier {
             for m in s.legal_moves().iter() {
                 let s2 = s.apply(m);
-                if !dist.contains_key(&s2.0) {
-                    dist.insert(s2.0, nd);
+                if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s2.0) {
+                    e.insert(nd);
                     next.push(s2);
                 }
             }
@@ -54,10 +54,10 @@ fn bound_equal_to_depth_solves_optimally() {
         let (outcome, _) = idastar_inc_bounded_with_stats(&s, &IncManhattan, d);
         match outcome {
             BoundedOutcome::Solved(sol) => {
-                assert_eq!(sol.len() as u8, d, "non-optimal for {:?}", raw);
-                assert!(reaches_goal(&s, &sol), "path doesn't reach GOAL for {:?}", raw);
+                assert_eq!(sol.len() as u8, d, "non-optimal for {raw:?}");
+                assert!(reaches_goal(&s, &sol), "path doesn't reach GOAL for {raw:?}");
             }
-            other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+            other => panic!("expected Solved for {raw:?}, got {other:?}"),
         }
     }
 }
@@ -74,9 +74,7 @@ fn bound_below_depth_proves_lower_bound() {
         assert_eq!(
             outcome,
             BoundedOutcome::ProvedAtLeast(d),
-            "expected ProvedAtLeast({}) for {:?}",
-            d,
-            raw
+            "expected ProvedAtLeast({d}) for {raw:?}"
         );
     }
 }
@@ -84,14 +82,14 @@ fn bound_below_depth_proves_lower_bound() {
 #[test]
 fn bound_below_root_h_proves_without_search() {
     let truth = bfs(8);
-    for (raw, _) in &truth {
+    for raw in truth.keys() {
         let s = State(*raw);
         let h0 = ManhattanHeuristic.h(&s);
         if h0 < 2 {
             continue;
         }
         let (outcome, stats) = idastar_inc_bounded_with_stats(&s, &IncManhattan, h0 - 1);
-        assert_eq!(outcome, BoundedOutcome::ProvedAtLeast(h0), "for {:?}", raw);
-        assert_eq!(stats.nodes, 0, "no nodes should expand below root h for {:?}", raw);
+        assert_eq!(outcome, BoundedOutcome::ProvedAtLeast(h0), "for {raw:?}");
+        assert_eq!(stats.nodes, 0, "no nodes should expand below root h for {raw:?}");
     }
 }

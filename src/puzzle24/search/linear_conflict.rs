@@ -312,8 +312,8 @@ mod tests {
         for (raw, &true_dist) in &truth {
             let lc = LinearConflictHeuristic.h(&State(*raw));
             let md = ManhattanHeuristic.h(&State(*raw));
-            assert!(lc >= md, "LC {} < MD {} for {:?}", lc, md, raw);
-            assert!(lc <= true_dist, "LC {} > truth {} for {:?}", lc, true_dist, raw);
+            assert!(lc >= md, "LC {lc} < MD {md} for {raw:?}");
+            assert!(lc <= true_dist, "LC {lc} > truth {true_dist} for {raw:?}");
         }
     }
 
@@ -322,11 +322,11 @@ mod tests {
     fn lc_inc_root_matches_scratch_on_shallow_bfs() {
         let truth = bfs_distances(9);
         let mut stats = SearchStats::default();
-        for (raw, _) in &truth {
+        for raw in truth.keys() {
             let s = State(*raw);
             let h_scratch = LinearConflictHeuristic.h(&s);
             let (h_inc, _) = IncHeuristic::root(&LinearConflictInc, &s, &mut stats);
-            assert_eq!(h_inc, h_scratch, "root mismatch for {:?}", raw);
+            assert_eq!(h_inc, h_scratch, "root mismatch for {raw:?}");
         }
     }
 
@@ -360,8 +360,7 @@ mod tests {
             assert_eq!(
                 h_adv,
                 LinearConflictHeuristic.h(&ns),
-                "advance vs scratch LC diverged at step {}",
-                step
+                "advance vs scratch LC diverged at step {step}"
             );
             s = ns;
             h = h_adv;

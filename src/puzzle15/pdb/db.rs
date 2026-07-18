@@ -225,18 +225,18 @@ impl From<std::io::Error> for LoadError {
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoadError::Io(e) => write!(f, "I/O error: {}", e),
-            LoadError::BadMagic(m) => write!(f, "bad magic: {:?}, expected {:?}", m, MAGIC),
+            LoadError::Io(e) => write!(f, "I/O error: {e}"),
+            LoadError::BadMagic(m) => write!(f, "bad magic: {m:?}, expected {MAGIC:?}"),
             LoadError::UnsupportedVersion(v) => {
-                write!(f, "unsupported version: {} (this build expects {})", v, VERSION)
+                write!(f, "unsupported version: {v} (this build expects {VERSION})")
             }
             LoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             LoadError::TrailingBytes => write!(f, "file has trailing bytes after expected payload"),
             LoadError::ShortFile { got } => {
-                write!(f, "file too short for header: got {} bytes, need {}", got, HEADER_BYTES)
+                write!(f, "file too short for header: got {got} bytes, need {HEADER_BYTES}")
             }
             LoadError::SizeMismatch { got, expected } => {
-                write!(f, "file size {} doesn't match expected {} (header + payload)", got, expected)
+                write!(f, "file size {got} doesn't match expected {expected} (header + payload)")
             }
         }
     }

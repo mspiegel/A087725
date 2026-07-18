@@ -296,7 +296,7 @@ where
                 log(&status(round, solves, store));
                 if let Some(p) = cache_path {
                     if let Err(e) = cache::save(p, cache) {
-                        log(&format!("cache save failed: {}", e));
+                        log(&format!("cache save failed: {e}"));
                     }
                 }
                 let _ = std::io::stdout().flush();
@@ -320,13 +320,13 @@ where
         }
         if budget > 0 && solves >= budget {
             capped = true;
-            log(&format!("solve budget {} reached after round {} — stopping (component not exhausted)", budget, round));
+            log(&format!("solve budget {budget} reached after round {round} — stopping (component not exhausted)"));
             break;
         }
     }
     if let Some(p) = cache_path {
         if let Err(e) = cache::save(p, cache) {
-            log(&format!("final cache save failed: {}", e));
+            log(&format!("final cache save failed: {e}"));
         }
     }
     log(&format!(
@@ -356,7 +356,7 @@ where
             complete,
         });
         if complete {
-            let path = out_dir.join(format!("depth{}.ranks", d));
+            let path = out_dir.join(format!("depth{d}.ranks"));
             store.write_layer(d, &path).map_err(|e| format!("{}: {}", path.display(), e))?;
         }
     }
@@ -386,7 +386,7 @@ pub fn run(
     }
     let p80 = out_dir.join("depth80.ranks");
     store.write_layer(80, &p80).map_err(|e| format!("{}: {}", p80.display(), e))?;
-    log(&format!("depth 80: {:>15} boards (seeded, = N)", seeded));
+    log(&format!("depth 80: {seeded:>15} boards (seeded, = N)"));
 
     let mut reports = Vec::new();
     for d in (down_to..=79).rev() {
@@ -412,7 +412,7 @@ pub fn run(
             ));
             break;
         }
-        let path = out_dir.join(format!("depth{}.ranks", d));
+        let path = out_dir.join(format!("depth{d}.ranks"));
         store.write_layer(d, &path).map_err(|e| format!("{}: {}", path.display(), e))?;
     }
     Ok(reports)

@@ -85,7 +85,7 @@ fn main() {
     let out = dir.join("enum");
     println!("filling store with depths 78..80 via band BFS (this takes a couple minutes)...");
     let mut cache = puzzle8::puzzle15::enumerate::cache::Cache::new();
-    let _ = frontier::run_band(&mut store, &hist, 78, 78, 0, &mut cache, None, &out, &verify, |_l| {});
+    let _ = frontier::run_band(&mut store, &hist, 78, 78, 0, &mut cache, None, &out, verify, |_l| {});
 
     // Per-true-depth stats for both estimators.
     println!("\n true | n     | korf-plus (goal-side LB)        | anchor 80-MtA (inadmissible)");

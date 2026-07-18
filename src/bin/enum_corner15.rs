@@ -55,7 +55,7 @@ struct Args {
 
 fn parse_tile_list<const N: usize>(s: &str, flag: &str) -> Result<[u8; N], String> {
     let parts: Vec<u8> = s.split(',')
-        .map(|t| t.trim().parse::<u8>().map_err(|e| format!("{}: {} in {:?}", flag, e, t)))
+        .map(|t| t.trim().parse::<u8>().map_err(|e| format!("{flag}: {e} in {t:?}")))
         .collect::<Result<_, _>>()?;
     if parts.len() != N {
         return Err(format!("{} needs {} values, got {}", flag, N, parts.len()));
@@ -63,10 +63,10 @@ fn parse_tile_list<const N: usize>(s: &str, flag: &str) -> Result<[u8; N], Strin
     let mut seen = [false; 16];
     for &t in &parts {
         if (t as usize) >= 16 {
-            return Err(format!("{}: tile {} out of range 0..16", flag, t));
+            return Err(format!("{flag}: tile {t} out of range 0..16"));
         }
         if seen[t as usize] {
-            return Err(format!("{}: duplicate tile {}", flag, t));
+            return Err(format!("{flag}: duplicate tile {t}"));
         }
         seen[t as usize] = true;
     }
@@ -88,10 +88,10 @@ fn parse_args() -> Result<Args, String> {
             "--pdb-dir" => { i += 1; pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?); }
             "--corners" => { i += 1; corners_str = Some(argv.get(i).ok_or("--corners needs a value")?.clone()); }
             "--interior" => { i += 1; interior_str = Some(argv.get(i).ok_or("--interior needs a value")?.clone()); }
-            "--min-md" => { i += 1; min_md = argv.get(i).ok_or("--min-md needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-md: {}", e))?; }
-            "--min-h" => { i += 1; min_h = argv.get(i).ok_or("--min-h needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-h: {}", e))?; }
+            "--min-md" => { i += 1; min_md = argv.get(i).ok_or("--min-md needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-md: {e}"))?; }
+            "--min-h" => { i += 1; min_h = argv.get(i).ok_or("--min-h needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-h: {e}"))?; }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -103,7 +103,7 @@ fn parse_args() -> Result<Args, String> {
     if let Some(ref it) = interior {
         for c in &corners {
             if it.contains(c) {
-                return Err(format!("corner tile {} overlaps with interior", c));
+                return Err(format!("corner tile {c} overlaps with interior"));
             }
         }
     }
@@ -145,7 +145,7 @@ fn enumerate_corner_only<H: Heuristic + Sync>(
     h: &H,
 ) -> Vec<u64> {
     let corner_set: u32 = corners.iter().fold(0u32, |acc, &t| acc | (1 << t));
-    let blank_in_corner = corners.iter().any(|&t| t == 0);
+    let blank_in_corner = corners.contains(&0);
 
     // Valid blank positions: parity-0 cells not at a corner. If 0 is one of the
     // corner tiles, blank is fixed at its corner and we skip blank position
@@ -278,9 +278,9 @@ fn run() -> Result<(), String> {
     let args = parse_args()?;
 
     let p7 = ZPatternDb::load_mmap(&args.pdb_dir.join("zpdb15_p7.zbin"))
-        .map_err(|e| format!("zpdb15_p7: {}", e))?;
+        .map_err(|e| format!("zpdb15_p7: {e}"))?;
     let p8 = ZPatternDb::load_mmap(&args.pdb_dir.join("zpdb15_p8.zbin"))
-        .map_err(|e| format!("zpdb15_p8: {}", e))?;
+        .map_err(|e| format!("zpdb15_p8: {e}"))?;
     let zdbs = [p7, p8];
     let h_zpdb = AdditiveZpdbHeuristic::new(&zdbs);
     WalkingDistanceHeuristic::warm_up();
@@ -313,9 +313,9 @@ fn run() -> Result<(), String> {
     let stdout = io::stdout();
     let mut w = BufWriter::new(stdout.lock());
     for r in &ranks {
-        w.write_all(&r.to_le_bytes()[..6]).map_err(|e| format!("stdout: {}", e))?;
+        w.write_all(&r.to_le_bytes()[..6]).map_err(|e| format!("stdout: {e}"))?;
     }
-    w.flush().map_err(|e| format!("flush: {}", e))?;
+    w.flush().map_err(|e| format!("flush: {e}"))?;
     Ok(())
 }
 
@@ -326,6 +326,6 @@ fn main() -> ExitCode {
             eprintln!("usage: enum_corner15 --pdb-dir DIR --corners A,B,C,D [--interior W,X,Y,Z] [--min-md N] [--min-h N]");
             ExitCode::SUCCESS
         }
-        Err(e) => { eprintln!("error: {}", e); ExitCode::FAILURE }
+        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
     }
 }

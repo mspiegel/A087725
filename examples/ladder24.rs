@@ -95,7 +95,7 @@ impl Heur {
             "zpdb-plus-k7" => Heur::ZpdbPlusK7,
             "select-k6" => Heur::SelectK6,
             "select-k7" => Heur::SelectK7,
-            other => return Err(format!("unknown heuristic {:?}", other)),
+            other => return Err(format!("unknown heuristic {other:?}")),
         })
     }
     fn needs_k6(self) -> bool {
@@ -202,7 +202,7 @@ fn parse_args() -> Result<Args, String> {
                     "optimal" => Mode::Optimal,
                     "bounded" => Mode::Bounded,
                     "both" => Mode::Both,
-                    other => return Err(format!("unknown mode {:?}", other)),
+                    other => return Err(format!("unknown mode {other:?}")),
                 };
             }
             "--walk-lengths" => {
@@ -210,28 +210,28 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--walk-lengths needs a value")?;
                 walk_lengths = s
                     .split(',')
-                    .map(|t| t.trim().parse::<u16>().map_err(|e| format!("walk len {:?}: {}", t, e)))
+                    .map(|t| t.trim().parse::<u16>().map_err(|e| format!("walk len {t:?}: {e}")))
                     .collect::<Result<_, _>>()?;
             }
             "--reps" => {
                 i += 1;
-                reps = argv.get(i).ok_or("--reps needs a value")?.parse().map_err(|e| format!("--reps: {}", e))?;
+                reps = argv.get(i).ok_or("--reps needs a value")?.parse().map_err(|e| format!("--reps: {e}"))?;
             }
             "--seed" => {
                 i += 1;
-                seed = argv.get(i).ok_or("--seed needs a value")?.parse().map_err(|e| format!("--seed: {}", e))?;
+                seed = argv.get(i).ok_or("--seed needs a value")?.parse().map_err(|e| format!("--seed: {e}"))?;
             }
             "--budget-secs" => {
                 i += 1;
-                budget_secs = argv.get(i).ok_or("--budget-secs needs a value")?.parse().map_err(|e| format!("--budget-secs: {}", e))?;
+                budget_secs = argv.get(i).ok_or("--budget-secs needs a value")?.parse().map_err(|e| format!("--budget-secs: {e}"))?;
             }
             "--bound-budget-secs" => {
                 i += 1;
-                bound_budget_secs = argv.get(i).ok_or("--bound-budget-secs needs a value")?.parse().map_err(|e| format!("--bound-budget-secs: {}", e))?;
+                bound_budget_secs = argv.get(i).ok_or("--bound-budget-secs needs a value")?.parse().map_err(|e| format!("--bound-budget-secs: {e}"))?;
             }
             "--max-bound" => {
                 i += 1;
-                max_bound = argv.get(i).ok_or("--max-bound needs a value")?.parse().map_err(|e| format!("--max-bound: {}", e))?;
+                max_bound = argv.get(i).ok_or("--max-bound needs a value")?.parse().map_err(|e| format!("--max-bound: {e}"))?;
             }
             "--from" => {
                 i += 1;
@@ -239,11 +239,11 @@ fn parse_args() -> Result<Args, String> {
             }
             "--top-n" => {
                 i += 1;
-                top_n = Some(argv.get(i).ok_or("--top-n needs a value")?.parse().map_err(|e| format!("--top-n: {}", e))?);
+                top_n = Some(argv.get(i).ok_or("--top-n needs a value")?.parse().map_err(|e| format!("--top-n: {e}"))?);
             }
             "--combine-slack" => {
                 i += 1;
-                combine_slack = argv.get(i).ok_or("--combine-slack needs a value")?.parse().map_err(|e| format!("--combine-slack: {}", e))?;
+                combine_slack = argv.get(i).ok_or("--combine-slack needs a value")?.parse().map_err(|e| format!("--combine-slack: {e}"))?;
             }
             "--parallel" => parallel = true,
             "--quiet" => quiet = true,
@@ -252,7 +252,7 @@ fn parse_args() -> Result<Args, String> {
                 out_tsv = Some(PathBuf::from(argv.get(i).ok_or("--out-tsv needs a value")?));
             }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -298,7 +298,7 @@ fn random_walk(seed: u64, len: u16) -> State {
         let opts: Vec<Move> = s
             .legal_moves()
             .iter()
-            .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+            .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
             .collect();
         let m = opts[(next() as usize) % opts.len()];
         s = s.apply(m);
@@ -366,12 +366,12 @@ where
             for m in &sol {
                 cur = cur.apply(*m);
             }
-            assert_eq!(cur, GOAL, "board {}: solution does not reach GOAL", label);
+            assert_eq!(cur, GOAL, "board {label}: solution does not reach GOAL");
             let d = sol.len() as u8;
-            (Some(d), d, format!("solved d={}", d))
+            (Some(d), d, format!("solved d={d}"))
         }
-        LadderOutcome::ProvedAtLeast(k) => (None, k, format!("LB>={}", k)),
-        LadderOutcome::TimedOut(k) => (None, k, format!("timeout LB>={}", k)),
+        LadderOutcome::ProvedAtLeast(k) => (None, k, format!("LB>={k}")),
+        LadderOutcome::TimedOut(k) => (None, k, format!("timeout LB>={k}")),
         LadderOutcome::Unsolvable => (None, 0, "unsolvable".to_string()),
     };
     Row { label, board: board_field(s), root_h: rh, nodes: stats.nodes, iters: stats.iterations, elapsed, solved_depth, lower_bound, pick: None, outcome: outcome_str }
@@ -379,8 +379,8 @@ where
 
 fn print_table(rows: &[Row]) {
     println!(
-        "  {:<14} {:>5} {:>16} {:>5} {:>11} {:>13}  {}",
-        "board", "h0", "nodes", "iters", "time", "nodes/s", "outcome"
+        "  {:<14} {:>5} {:>16} {:>5} {:>11} {:>13}  outcome",
+        "board", "h0", "nodes", "iters", "time", "nodes/s"
     );
     for r in rows {
         let secs = r.elapsed.as_secs_f64();
@@ -433,7 +433,7 @@ where
         println!("  => best proven lower bound on R: depth >= {}", r.lower_bound);
     }
     let best = rows.iter().map(|r| r.lower_bound).max().unwrap_or(0);
-    println!("  => highest lower bound across structured boards: {}", best);
+    println!("  => highest lower bound across structured boards: {best}");
     rows
 }
 
@@ -522,12 +522,12 @@ where
             for m in &sol {
                 cur = cur.apply(*m);
             }
-            assert_eq!(cur, GOAL, "board {}: solution does not reach GOAL", label);
+            assert_eq!(cur, GOAL, "board {label}: solution does not reach GOAL");
             let d = sol.len() as u8;
-            (Some(d), d, format!("[{}] solved d={}", tag, d))
+            (Some(d), d, format!("[{tag}] solved d={d}"))
         }
-        LadderOutcome::ProvedAtLeast(k) => (None, k, format!("[{}] LB>={}", tag, k)),
-        LadderOutcome::TimedOut(k) => (None, k, format!("[{}] timeout LB>={}", tag, k)),
+        LadderOutcome::ProvedAtLeast(k) => (None, k, format!("[{tag}] LB>={k}")),
+        LadderOutcome::TimedOut(k) => (None, k, format!("[{tag}] timeout LB>={k}")),
         LadderOutcome::Unsolvable => (None, 0, "unsolvable".to_string()),
     };
     let row = Row {
@@ -549,7 +549,7 @@ fn pick_counts(picks: &[Pick]) -> String {
     let c = picks.iter().filter(|p| **p == Pick::Cheap).count();
     let z = picks.iter().filter(|p| **p == Pick::Zpdb).count();
     let zp = picks.iter().filter(|p| **p == Pick::ZpdbPlus).count();
-    format!("picks: cheap={} zpdb={} zpdb+={}", c, z, zp)
+    format!("picks: cheap={c} zpdb={z} zpdb+={zp}")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -633,10 +633,10 @@ fn screen_top_n(set_name: &str, boards: Vec<(String, State)>, top_n: usize) -> V
     scored.sort_by(|a, b| b.0.cmp(&a.0));
     println!("\n=== SCREEN [{}] — cheap max(LC,WD) root over all {} candidates ===", set_name, scored.len());
     for (h, l, _) in &scored {
-        println!("  {:<14} cheap-h={}", l, h);
+        println!("  {l:<14} cheap-h={h}");
     }
     let keep = top_n.min(scored.len());
-    println!("  => keeping top {} hardest for the (selective) solve", keep);
+    println!("  => keeping top {keep} hardest for the (selective) solve");
     scored.into_iter().take(keep).map(|(_, l, s)| (l, s)).collect()
 }
 
@@ -723,7 +723,7 @@ fn write_tsv(path: &std::path::Path, header_note: &str, recs: &[Rec]) -> std::io
         std::fs::OpenOptions::new().create(true).append(true).open(path)?,
     );
     if fresh {
-        writeln!(f, "# ladder24 {}", header_note)?;
+        writeln!(f, "# ladder24 {header_note}")?;
         writeln!(f, "label\tboard\tmode\theur\tpick\th0\tlb\tsolved_depth\tnodes\titers\tsecs\toutcome")?;
     }
     for (mode, heur, r) in recs {
@@ -761,7 +761,7 @@ fn main() -> ExitCode {
                 );
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -771,7 +771,7 @@ fn main() -> ExitCode {
     for &len in &args.walk_lengths {
         for rep in 0..args.reps {
             let seed = args.seed.wrapping_add((len as u64) << 32).wrapping_add(rep as u64 * 0x9E3779B97F4A7C15);
-            walks.push((format!("walk{}#{}", len, rep), random_walk(seed, len)));
+            walks.push((format!("walk{len}#{rep}"), random_walk(seed, len)));
         }
     }
     let mut structured: Vec<(String, State)> = vec![
@@ -784,7 +784,7 @@ fn main() -> ExitCode {
                 for (i, line) in text.lines().enumerate() {
                     if let Some(s) = parse_board_line(line) {
                         if s.is_solvable() {
-                            structured.push((format!("from#{}", i), s));
+                            structured.push((format!("from#{i}"), s));
                         } else {
                             eprintln!("warning: --from line {} not solvable, skipped", i + 1);
                         }
@@ -805,13 +805,13 @@ fn main() -> ExitCode {
     let k6 = if need_k6 {
         match load_zpdbs(&args.pdb_dir, &ZPDB_FILES_K6) {
             Ok(d) => Some(d),
-            Err(e) => { eprintln!("error: {}", e); return ExitCode::FAILURE; }
+            Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
         }
     } else { None };
     let k7 = if need_k7 {
         match load_zpdbs(&args.pdb_dir, &ZPDB_FILES_K7) {
             Ok(d) => Some(d),
-            Err(e) => { eprintln!("error: {}", e); return ExitCode::FAILURE; }
+            Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
         }
     } else { None };
     // WD table is needed by any WD/zpdb-plus/select heuristic and by `--top-n`

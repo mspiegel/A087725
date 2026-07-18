@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     WalkingDistanceHeuristic::warm_up();
     LinearConflictInc::warm_up();
     let h = ZpdbPlusInc::new([&p7, &p8]);
-    println!("config: K={}, min_h={}", max_k, min_h);
+    println!("config: K={max_k}, min_h={min_h}");
 
     let mut all_finds: HashMap<u64, u8> = HashMap::new();
     let mut new_d77_total: usize = 0;
@@ -112,8 +112,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ref_new_d76 = 0;
         for &(r, d) in &results {
             *hist_total.entry(d).or_insert(0) += 1;
-            if d >= 76 {
-                if all_finds.insert(r, d).is_none() {
+            if d >= 76
+                && all_finds.insert(r, d).is_none() {
                     // Also insert reflection partner.
                     let refl_r = rank(&reflect(&unrank(r)));
                     if refl_r != r && !cache.contains_key(&refl_r) {
@@ -122,7 +122,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if d == 77 { ref_new_d77 += 1; }
                     if d == 76 { ref_new_d76 += 1; }
                 }
-            }
         }
         new_d77_total += ref_new_d77;
         new_d76_total += ref_new_d76;
@@ -140,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("total verified-depth histogram (across all refs, cache-miss only):");
     for (d, c) in &hist_total {
         let mark = if *d >= 76 { " ***" } else { "" };
-        println!("  d={:>3}: {:>8}{}", d, c, mark);
+        println!("  d={d:>3}: {c:>8}{mark}");
     }
 
     // Dump all unique d>=76 finds (including reflection partners we auto-added).
@@ -155,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let s = unrank(r);
             print!("FIND d={} rank={:>14} blank@{:>2}: ", d, r, s.blank_pos());
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{:>2}", t); }
+                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
                 if j % 4 == 3 { print!("  "); } else { print!(","); }
             }
             println!();

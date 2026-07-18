@@ -67,24 +67,24 @@ fn parse_args() -> Result<Args, String> {
                 mode_band = match argv.get(i).ok_or("--mode needs a value")?.as_str() {
                     "band" => true,
                     "descent" => false,
-                    other => return Err(format!("unknown mode {:?}", other)),
+                    other => return Err(format!("unknown mode {other:?}")),
                 };
             }
-            "--down-to" => { i += 1; down_to = argv.get(i).ok_or("--down-to needs a value")?.parse().map_err(|e| format!("--down-to: {}", e))?; }
-            "--floor" => { i += 1; floor = Some(argv.get(i).ok_or("--floor needs a value")?.parse().map_err(|e| format!("--floor: {}", e))?); }
-            "--budget" => { i += 1; budget = argv.get(i).ok_or("--budget needs a value")?.parse().map_err(|e| format!("--budget: {}", e))?; }
+            "--down-to" => { i += 1; down_to = argv.get(i).ok_or("--down-to needs a value")?.parse().map_err(|e| format!("--down-to: {e}"))?; }
+            "--floor" => { i += 1; floor = Some(argv.get(i).ok_or("--floor needs a value")?.parse().map_err(|e| format!("--floor: {e}"))?); }
+            "--budget" => { i += 1; budget = argv.get(i).ok_or("--budget needs a value")?.parse().map_err(|e| format!("--budget: {e}"))?; }
             "--cache" => { i += 1; cache = Some(PathBuf::from(argv.get(i).ok_or("--cache needs a value")?)); }
             "--no-cache" => { no_cache = true; }
             "--out" => { i += 1; out = PathBuf::from(argv.get(i).ok_or("--out needs a value")?); }
             "--no-verify" => { no_verify = true; }
             "--seed-ranks" => { i += 1; seed_ranks = Some(PathBuf::from(argv.get(i).ok_or("--seed-ranks needs a value")?)); }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
     if !(1..=80).contains(&down_to) {
-        return Err(format!("--down-to {} out of range 1..=80", down_to));
+        return Err(format!("--down-to {down_to} out of range 1..=80"));
     }
     if seed_ranks.is_some() && !mode_band {
         return Err("--seed-ranks requires --mode band".into());
@@ -93,8 +93,8 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn load_zpdbs(dir: &Path) -> Result<[ZPatternDb; 2], String> {
-    let p7 = ZPatternDb::load_mmap(&dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {}", e))?;
-    let p8 = ZPatternDb::load_mmap(&dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {}", e))?;
+    let p7 = ZPatternDb::load_mmap(&dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {e}"))?;
+    let p8 = ZPatternDb::load_mmap(&dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {e}"))?;
     Ok([p7, p8])
 }
 
@@ -187,7 +187,7 @@ fn run() -> Result<(), String> {
             let solved: Vec<(u64, u8)> = misses.par_iter().map(|&r| (r, verify(r))).collect();
             for &(r, d) in &solved {
                 if d == u8::MAX {
-                    return Err(format!("seed rank {} not solvable", r));
+                    return Err(format!("seed rank {r} not solvable"));
                 }
                 let r_refl = rank(&reflect(&unrank(r)));
                 cache.insert(r, d);
@@ -219,13 +219,13 @@ fn run() -> Result<(), String> {
             }
         }
         if cache_seeded > 0 {
-            println!("seeded {} boards from cache at depths {}..={}", cache_seeded, floor, DIAMETER);
+            println!("seeded {cache_seeded} boards from cache at depths {floor}..={DIAMETER}");
         }
         frontier::run_band(&mut store, &hist, args.down_to, floor, args.budget,
-                           &mut cache, cache_path.as_deref(), &args.out, &verify, |l| println!("{}", l))?
+                           &mut cache, cache_path.as_deref(), &args.out, verify, |l| println!("{l}"))?
     } else {
         let verifier_opt: Option<&dyn Fn(u64) -> u8> = if args.no_verify { None } else { Some(&verify) };
-        frontier::run(&mut store, &hist, args.down_to, &args.out, verifier_opt, |l| println!("{}", l))?
+        frontier::run(&mut store, &hist, args.down_to, &args.out, verifier_opt, |l| println!("{l}"))?
     };
 
     let all_ok = reports.iter().filter(|r| r.depth >= args.down_to).all(|r| r.complete);
@@ -285,6 +285,6 @@ fn main() -> ExitCode {
             eprintln!("usage: enumerate15 --pdb-dir DIR --data-dir DIR [--mode descent|band] --down-to T [--floor F] --out DIR [--no-verify] [--seed-ranks FILE]");
             ExitCode::SUCCESS
         }
-        Err(e) => { eprintln!("error: {}", e); ExitCode::FAILURE }
+        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
     }
 }

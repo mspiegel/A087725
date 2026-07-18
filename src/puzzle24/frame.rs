@@ -141,7 +141,7 @@ mod tests {
                 made += 1;
             }
         }
-        assert!(made > 4000, "contention too high: only {} of 5000 succeeded", made);
+        assert!(made > 4000, "contention too high: only {made} of 5000 succeeded");
     }
 
     #[test]

@@ -55,7 +55,7 @@ fn non_sentinel_slots_match_apply() {
             }
             let s_next = s.apply(m);
             assert_eq!(unrank(neighbor), s_next,
-                "rank {}: move {:?} -> rank {} but state mismatch", r, m, neighbor);
+                "rank {r}: move {m:?} -> rank {neighbor} but state mismatch");
         }
     }
 }
@@ -68,7 +68,7 @@ fn legal_count_matches_move_set() {
         let legal_count = s.legal_moves().len() as usize;
         let non_sentinel_count = records[r as usize].iter().filter(|&&n| n != u32::MAX).count();
         assert_eq!(non_sentinel_count, legal_count,
-            "rank {}: {} non-sentinel slots vs {} legal moves", r, non_sentinel_count, legal_count);
+            "rank {r}: {non_sentinel_count} non-sentinel slots vs {legal_count} legal moves");
     }
 }
 
@@ -104,7 +104,7 @@ fn pol8_optimal_moves_are_subset_of_adj8_legal_moves() {
         for (slot, &m) in Move::ALL.iter().enumerate() {
             if opt_mask & (1 << (m as u8)) != 0 {
                 assert!(records[r as usize][slot] != u32::MAX,
-                    "rank {}: pol8 marks {:?} optimal but adj8 says illegal", r, m);
+                    "rank {r}: pol8 marks {m:?} optimal but adj8 says illegal");
             }
         }
     }

@@ -30,9 +30,9 @@ use super::zpdb::ZpdbLayout;
 /// `debug_assert` catches a malformed input.
 pub fn pack_bits(dist: &[u8]) -> Vec<u8> {
     let n = dist.len();
-    let mut packed = vec![0u8; (n + 7) / 8];
+    let mut packed = vec![0u8; n.div_ceil(8)];
     for (i, &d) in dist.iter().enumerate() {
-        debug_assert!(d != u8::MAX, "ZPDB has UNVISITED at index {}", i);
+        debug_assert!(d != u8::MAX, "ZPDB has UNVISITED at index {i}");
         let bit = (d >> 1) & 1;
         packed[i / 8] |= bit << (i % 8);
     }
@@ -50,8 +50,8 @@ pub fn pack_bits(dist: &[u8]) -> Vec<u8> {
 /// `2w` and `2w+1` and writes byte `w ≤ 2w`, and byte `w` is never read again by
 /// any later output byte (which start at input byte `2(w+1) > w`).
 pub fn pack1_from_2bit_inplace(buf: &mut Vec<u8>, total: usize) {
-    let out_len = (total + 7) / 8;
-    debug_assert!(buf.len() >= (total + 3) / 4, "2-bit buffer too small");
+    let out_len = total.div_ceil(8);
+    debug_assert!(buf.len() >= total.div_ceil(4), "2-bit buffer too small");
     for w in 0..out_len {
         let mut byte = 0u8;
         for b in 0..8usize {
@@ -179,8 +179,8 @@ mod tests {
         let recovered = unpack_to_bit_values(&packed, dist.len());
         for (i, &d) in dist.iter().enumerate() {
             let want = ((d >> 1) & 1) << 1;
-            assert_eq!(recovered[i], want, "round-trip differs at i={} (d={})", i, d);
-            assert_eq!(lookup_bit(&packed, i as u64), want, "lookup_bit differs at i={}", i);
+            assert_eq!(recovered[i], want, "round-trip differs at i={i} (d={d})");
+            assert_eq!(lookup_bit(&packed, i as u64), want, "lookup_bit differs at i={i}");
         }
     }
 
@@ -249,8 +249,7 @@ mod tests {
                 let got = diff_lookup(&packed, 0, old_h);
                 assert_eq!(
                     got, next_h,
-                    "diff_lookup(old_h={}, Δ={}) = {} (wanted {})",
-                    old_h, delta, got, next_h
+                    "diff_lookup(old_h={old_h}, Δ={delta}) = {got} (wanted {next_h})"
                 );
             }
         }
@@ -292,11 +291,7 @@ mod tests {
                 assert_eq!(
                     perm_parity(rank, k),
                     (inv & 1) as u8,
-                    "k={} rank={} perm={:?} inv={}",
-                    k,
-                    rank,
-                    perm,
-                    inv
+                    "k={k} rank={rank} perm={perm:?} inv={inv}"
                 );
             }
         }
@@ -321,7 +316,7 @@ mod tests {
             let recomposed = layout.cohort_base()[s]
                 + p * layout.region_counts()[s] as u64
                 + r as u64;
-            assert_eq!(recomposed, idx, "unrank/rank not inverse at idx={}", idx);
+            assert_eq!(recomposed, idx, "unrank/rank not inverse at idx={idx}");
         }
     }
 
@@ -347,7 +342,7 @@ mod tests {
         let pattern = Pattern::new(&[1, 7, 13]);
         let (dist, layout) = build_zpdb(pattern);
         for (idx, &d) in dist.iter().enumerate() {
-            assert_ne!(d, u8::MAX, "unvisited entry at idx={}", idx);
+            assert_ne!(d, u8::MAX, "unvisited entry at idx={idx}");
             let par = parity_of_h(&layout, idx as u64);
             assert_eq!(
                 par,
@@ -421,8 +416,7 @@ mod tests {
                 let got = diff_lookup(&packed, n_idx, s_h);
                 assert_eq!(
                     got, n_h,
-                    "diff_lookup mismatch: s_idx={} s_h={} → n_idx={} got {} want {}",
-                    s_idx, s_h, n_idx, got, n_h
+                    "diff_lookup mismatch: s_idx={s_idx} s_h={s_h} → n_idx={n_idx} got {got} want {n_h}"
                 );
                 // The bipartite Δ=±1 property — already implied by
                 // diff_lookup landing on n_h, but assert it explicitly so a
@@ -430,9 +424,7 @@ mod tests {
                 let delta = n_h as i32 - s_h as i32;
                 assert!(
                     delta == 1 || delta == -1,
-                    "non-bipartite step: s_h={} n_h={}",
-                    s_h,
-                    n_h
+                    "non-bipartite step: s_h={s_h} n_h={n_h}"
                 );
                 if !visited[n_idx as usize] {
                     visited[n_idx as usize] = true;
@@ -442,7 +434,7 @@ mod tests {
         }
         // Sanity: BFS covered every entry the build BFS covered.
         for (i, &v) in visited.iter().enumerate() {
-            assert!(v, "BFS missed reachable entry {} (build reached it)", i);
+            assert!(v, "BFS missed reachable entry {i} (build reached it)");
         }
     }
 }

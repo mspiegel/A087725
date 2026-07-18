@@ -27,8 +27,8 @@ fn bfs_distances(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         }
         for m in s.legal_moves().iter() {
             let n = s.apply(m);
-            if !dist.contains_key(&n.0) {
-                dist.insert(n.0, d + 1);
+            if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(n.0) {
+                e.insert(d + 1);
                 frontier.push_back(n);
             }
         }
@@ -53,7 +53,7 @@ fn assert_idastar_optimal_for_each<H: Heuristic>(h: &H, truth: &HashMap<[u8; N_C
         for m in &sol {
             cur = cur.apply(*m);
         }
-        assert_eq!(cur, GOAL, "applying solution doesn't reach GOAL from {:?}", raw);
+        assert_eq!(cur, GOAL, "applying solution doesn't reach GOAL from {raw:?}");
         count += 1;
     }
     assert!(count > 0, "no states were tested");

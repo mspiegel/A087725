@@ -140,7 +140,7 @@ mod tests {
     fn tau_is_a_permutation() {
         let mut seen = [false; N_CELLS];
         for &t in &TAU {
-            assert!(!seen[t as usize], "TAU repeats {}", t);
+            assert!(!seen[t as usize], "TAU repeats {t}");
             seen[t as usize] = true;
         }
     }
@@ -151,7 +151,7 @@ mod tests {
         for k in 1u8..=24 {
             let sigma_image = SIGMA[(k - 1) as usize] as usize;
             let goal_tile_at_sigma = GOAL.0[sigma_image];
-            assert_eq!(TAU[k as usize], goal_tile_at_sigma, "τ({}) inconsistent", k);
+            assert_eq!(TAU[k as usize], goal_tile_at_sigma, "τ({k}) inconsistent");
         }
     }
 
@@ -210,7 +210,7 @@ mod tests {
             for m in s.legal_moves().iter() {
                 let lhs = reflect(&s.apply(m));
                 let rhs = reflect(&s).apply(transpose_move(m));
-                assert_eq!(lhs, rhs, "transpose_move broke commutation for {:?}", m);
+                assert_eq!(lhs, rhs, "transpose_move broke commutation for {m:?}");
             }
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
@@ -266,9 +266,7 @@ mod tests {
             assert_ne!(m, t, "transpose_move must have no fixpoint");
             assert!(
                 is_orbit_representative(m) ^ is_orbit_representative(t),
-                "exactly one of {{{:?}, {:?}}} is a representative",
-                m,
-                t
+                "exactly one of {{{m:?}, {t:?}}} is a representative"
             );
         }
         // R's corner orbit is {Down, Right}; Down is the kept representative.

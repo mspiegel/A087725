@@ -159,11 +159,10 @@ mod tests {
                     p,
                 );
                 let h = pdb[proj.rank(p) as usize];
-                assert_ne!(h, UNVISITED, "PDB has gap for {:?} pattern {}", raw, k);
+                assert_ne!(h, UNVISITED, "PDB has gap for {raw:?} pattern {k}");
                 assert!(
                     h <= true_dist,
-                    "PDB({}) = {} > true {} for state {:?}",
-                    k, h, true_dist, raw
+                    "PDB({k}) = {h} > true {true_dist} for state {raw:?}"
                 );
             }
         }
@@ -181,7 +180,7 @@ mod tests {
             let pdb = build(p);
             let goal_proj = ProjectedState::goal(p);
             let r = goal_proj.rank(p) as usize;
-            assert_eq!(pdb[r], 0, "goal projection should have distance 0 for {:?}", tiles);
+            assert_eq!(pdb[r], 0, "goal projection should have distance 0 for {tiles:?}");
         }
     }
 
@@ -203,7 +202,7 @@ mod tests {
         let p = Pattern::new(&[1, 2]);
         let pdb = build(p);
         let unvisited = pdb.iter().filter(|&&d| d == UNVISITED).count();
-        assert_eq!(unvisited, 0, "PDB has {} gaps for pattern {{1,2}}", unvisited);
+        assert_eq!(unvisited, 0, "PDB has {unvisited} gaps for pattern {{1,2}}");
     }
 
     #[test]

@@ -338,11 +338,11 @@ impl Sampler {
         self.seen += 1;
         // reservoir sampling
         if self.reservoir.len() < self.reservoir_size {
-            self.reservoir.push(Node { state: state.clone(), depth });
+            self.reservoir.push(Node { state: *state, depth });
         } else {
             let j = (self.rng.next() % self.seen) as usize;
             if j < self.reservoir_size {
-                self.reservoir[j] = Node { state: state.clone(), depth };
+                self.reservoir[j] = Node { state: *state, depth };
             }
         }
     }
@@ -401,7 +401,7 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
 
     // Replay forward from R; if any move is illegal, bail with a message.
     let mut s = r_board();
-    let mut traj = vec![s.clone()];
+    let mut traj = vec![s];
     for (i, &m) in moves.iter().enumerate() {
         if !s.legal_moves().contains(m) {
             eprintln!("  move {i} ({m:?}) illegal from R-forward replay — trying GOAL-reverse");
@@ -409,12 +409,12 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
             break;
         }
         s = s.apply(m);
-        traj.push(s.clone());
+        traj.push(s);
     }
     if traj.is_empty() {
         // reverse: replay inverse moves from GOAL
         let mut s = puzzle8::puzzle24::state::GOAL;
-        traj.push(s.clone());
+        traj.push(s);
         for &m in moves.iter().rev() {
             let inv = m.inverse();
             if !s.legal_moves().contains(inv) {
@@ -422,7 +422,7 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
                 return;
             }
             s = s.apply(inv);
-            traj.push(s.clone());
+            traj.push(s);
         }
         traj.reverse();
     }
@@ -570,7 +570,7 @@ fn main() {
         let mut den = 0.0f64;
         for d in 0..hb.len() {
             let dd = d as u16;
-            let vals: Vec<i16> = rows.iter().filter(|r| r.depth == dd).map(|r| fld(r)).collect();
+            let vals: Vec<i16> = rows.iter().filter(|r| r.depth == dd).map(fld).collect();
             if vals.is_empty() {
                 continue;
             }

@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into()).into();
     let c = cache::load(&cache_path)?;
     let mut hist = [0u64; 256];
-    for (_, &d) in &c { hist[d as usize] += 1; }
+    for &d in c.values() { hist[d as usize] += 1; }
     let lo = (0..256).find(|&i| hist[i] > 0).unwrap();
     let hi = (0..256).rev().find(|&i| hist[i] > 0).unwrap();
     let total: u64 = hist.iter().sum();

@@ -492,7 +492,7 @@ mod tests {
         let truth = bfs_distances(8);
         for (raw, &true_dist) in &truth {
             let est = h_korf.h(&State(*raw));
-            assert!(est <= true_dist, "korf h {} > true {} for {:?}", est, true_dist, raw);
+            assert!(est <= true_dist, "korf h {est} > true {true_dist} for {raw:?}");
         }
     }
 
@@ -724,7 +724,7 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
             let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "advance diverged at step {}", i);
+            assert_eq!(h_adv, h_fresh, "advance diverged at step {i}");
             s = ns;
             ctx = ctx_adv;
         }
@@ -766,8 +766,7 @@ mod tests {
                 let (h_fresh, _) = IncHeuristic::root(&inc, &child, &mut stats);
                 assert_eq!(
                     h_make, h_fresh,
-                    "make diverged from fresh root at step {} move {:?}",
-                    i, m
+                    "make diverged from fresh root at step {i} move {m:?}"
                 );
                 inc.unmake(&mut ctx, m);
             }
@@ -776,8 +775,7 @@ mod tests {
             assert_eq!(
                 ZpdbInc::korf_max(&ctx.n_h, &ctx.r_h),
                 h_parent,
-                "ctx not restored to parent after sibling sweep at step {}",
-                i
+                "ctx not restored to parent after sibling sweep at step {i}"
             );
             // Advance for real via make (no matching unmake — descend).
             let m = opts[(next() as usize) % opts.len()];
@@ -816,7 +814,7 @@ mod tests {
             let (sol_mut, st_mut) = Search::new(&s, &zinc).solve_with_stats();
             let lc = sol_copy.expect("copy IDA* found no solution").len();
             let lm = sol_mut.expect("mut IDA* found no solution").len();
-            assert_eq!(lc, lm, "optimal length differs (copy {} vs mut {})", lc, lm);
+            assert_eq!(lc, lm, "optimal length differs (copy {lc} vs mut {lm})");
             assert_eq!(
                 st_copy.nodes, st_mut.nodes,
                 "node count differs (copy {} vs mut {})",
@@ -858,11 +856,11 @@ mod tests {
             // Solving: same optimal length.
             let truth = match idastar_inc_bounded_parallel(&s, &zinc, u8::MAX, None).0 {
                 LadderOutcome::Solved(p) => p.len(),
-                o => panic!("copy solve unexpected: {:?}", o),
+                o => panic!("copy solve unexpected: {o:?}"),
             };
             match Search::new(&s, &zinc).parallel().run().0 {
                 LadderOutcome::Solved(pm) => assert_eq!(pm.len(), truth, "solved length differs"),
-                o => panic!("mut solve unexpected: {:?}", o),
+                o => panic!("mut solve unexpected: {o:?}"),
             }
             // Bounded exhaust at optimal-1: identical proven LB and node count.
             if truth == 0 {
@@ -873,9 +871,9 @@ mod tests {
             let (om, st_mut) = Search::new(&s, &zinc).bound(mb).parallel().run();
             match (oc, om) {
                 (LadderOutcome::ProvedAtLeast(a), LadderOutcome::ProvedAtLeast(b)) => {
-                    assert_eq!(a, b, "proven LB differs (copy {} vs mut {})", a, b);
+                    assert_eq!(a, b, "proven LB differs (copy {a} vs mut {b})");
                 }
-                (a, b) => panic!("expected both ProvedAtLeast, got {:?} / {:?}", a, b),
+                (a, b) => panic!("expected both ProvedAtLeast, got {a:?} / {b:?}"),
             }
             assert_eq!(
                 st_copy.nodes, st_mut.nodes,

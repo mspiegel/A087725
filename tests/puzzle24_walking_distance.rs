@@ -24,8 +24,8 @@ fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         for s in &frontier {
             for m in s.legal_moves().iter() {
                 let s2 = s.apply(m);
-                if !dist.contains_key(&s2.0) {
-                    dist.insert(s2.0, nd);
+                if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s2.0) {
+                    e.insert(nd);
                     next.push(s2);
                 }
             }
@@ -51,7 +51,7 @@ fn wd_admissible_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let wd = WalkingDistanceHeuristic.h(&s);
-        assert!(wd <= d, "WD {} > truth {} for {:?}", wd, d, raw);
+        assert!(wd <= d, "WD {wd} > truth {d} for {raw:?}");
     }
 }
 
@@ -62,7 +62,7 @@ fn wd_inc_solver_optimal_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let sol = idastar_inc(&s, &WalkingDistanceInc).expect("solvable");
-        assert_eq!(sol.len() as u8, d, "WD-inc non-optimal for {:?}", raw);
+        assert_eq!(sol.len() as u8, d, "WD-inc non-optimal for {raw:?}");
         assert!(reaches_goal(&s, &sol));
     }
 }

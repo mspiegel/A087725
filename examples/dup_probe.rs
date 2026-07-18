@@ -150,7 +150,7 @@ fn main() {
                 i += 1;
                 limit = argv[i].parse().expect("limit");
             }
-            other => panic!("unknown flag {}", other),
+            other => panic!("unknown flag {other}"),
         }
         i += 1;
     }

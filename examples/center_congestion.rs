@@ -802,7 +802,7 @@ fn random_walk(seed: u64, len: u32) -> State {
         let opts: Vec<Move> = s
             .legal_moves()
             .iter()
-            .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+            .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
             .collect();
         let m = opts[(next() % opts.len() as u64) as usize];
         s = s.apply(m);

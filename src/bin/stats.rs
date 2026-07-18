@@ -46,21 +46,21 @@ fn main() {
     let visited = t.visited_count();
     let diameter = t.diameter();
     println!("== 8-puzzle distance table ==");
-    println!("total states     : {}", visited);
-    println!("expected         : {}", N_STATES);
-    println!("diameter         : {}", diameter);
+    println!("total states     : {visited}");
+    println!("expected         : {N_STATES}");
+    println!("diameter         : {diameter}");
     println!();
 
     println!("== distance histogram ==");
     let hist = t.histogram();
     let total: u32 = hist.iter().sum();
     for (d, &count) in hist.iter().enumerate() {
-        println!("  d={:2}  {:>8} states", d, count);
+        println!("  d={d:2}  {count:>8} states");
     }
-    println!("  total {:>8}", total);
+    println!("  total {total:>8}");
     println!();
 
-    println!("== antipodes (distance {}) ==", diameter);
+    println!("== antipodes (distance {diameter}) ==");
     for (i, s) in t.antipodes().iter().enumerate() {
         println!("  #{}: {}", i + 1, format_state(s));
     }
@@ -76,7 +76,7 @@ fn main() {
     println!("== optimal-move branching factor ==");
     for (k, &count) in bf_hist.iter().enumerate() {
         if count > 0 {
-            println!("  {} optimal move(s): {:>8} states", k, count);
+            println!("  {k} optimal move(s): {count:>8} states");
         }
     }
     println!();

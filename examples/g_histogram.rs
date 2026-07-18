@@ -90,7 +90,7 @@ fn main() {
     let mut bound = h0;
     let t0 = std::time::Instant::now();
     while bound <= max_bound {
-        eprintln!("iteration threshold = {}", bound);
+        eprintln!("iteration threshold = {bound}");
         instr.bound = bound;
         let hb = instr.h(&start);
         instr.dfs(&start, start.blank_pos(), hb, 0, None);

@@ -100,7 +100,7 @@ fn benchmark<H: Heuristic>(
         total_h_calls += counter.count();
         let truth = table.dist(&s);
         let len = sol.len() as u8;
-        let err = if len >= truth { len - truth } else { truth - len };
+        let err = len.abs_diff(truth);
         if err > max_error {
             max_error = err;
         }
@@ -159,7 +159,7 @@ fn main() {
         &[1, 2, 3, 4, 5, 6, 7],
     ] {
         let pdb = PatternDb::build(Pattern::new(tiles));
-        let label = format!("PDB{:?}", tiles);
+        let label = format!("PDB{tiles:?}");
         let h = PdbHeuristic::new(&pdb);
         let r = benchmark(&label, &h, pdb.bytes_stored(), &table, &samples);
         r.print();
@@ -178,7 +178,7 @@ fn main() {
             parts.iter().map(|tiles| PatternDb::build(Pattern::new(tiles))).collect();
         let label = format!(
             "Additive[{}]",
-            parts.iter().map(|t| format!("{:?}", t)).collect::<Vec<_>>().join(" | ")
+            parts.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" | ")
         );
         let h = AdditivePdbHeuristic::new(&dbs);
         let bytes = h.bytes_stored();

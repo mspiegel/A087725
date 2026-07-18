@@ -168,14 +168,14 @@ fn main() -> ExitCode {
     let p7 = match PatternDb::load_mmap(&pdb_dir.join("pdb15_p7_korf.bin")) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("error loading p7: {}", e);
+            eprintln!("error loading p7: {e}");
             return ExitCode::FAILURE;
         }
     };
     let p8 = match PatternDb::load_mmap(&pdb_dir.join("pdb15_p8_korf.bin")) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("error loading p8: {}", e);
+            eprintln!("error loading p8: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -202,7 +202,7 @@ fn main() -> ExitCode {
     let ranks = match load_ranks(std::path::Path::new(&anti_path)) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -216,7 +216,7 @@ fn main() -> ExitCode {
         let moves = match idastar(&start, &h_plus) {
             Some(m) => m,
             None => {
-                eprintln!("antipode {} unsolvable?!", i);
+                eprintln!("antipode {i} unsolvable?!");
                 return ExitCode::FAILURE;
             }
         };
@@ -226,7 +226,7 @@ fn main() -> ExitCode {
             moves.len(),
             t.elapsed().as_secs_f64()
         );
-        assert_eq!(moves.len(), 80, "antipode {} not depth 80", i);
+        assert_eq!(moves.len(), 80, "antipode {i} not depth 80");
         // Every prefix of an optimal solution leaves remaining depth 80 - k.
         let mut s = start;
         corridor[80].add(&frame_metrics(&s));
@@ -238,7 +238,7 @@ fn main() -> ExitCode {
     }
 
     // ---- control: random walks from GOAL, exact-depth via optimal solve.
-    eprintln!("control: {} walks × lengths 20..=100 step 10 ...", control_walks);
+    eprintln!("control: {control_walks} walks × lengths 20..=100 step 10 ...");
     let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
     let mut control: HashMap<u8, Bucket> = HashMap::new(); // keyed by exact depth
     let t = Instant::now();

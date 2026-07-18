@@ -74,8 +74,8 @@ fn build_table() -> HashMap<u64, u8> {
                         m2[to][g] += 1;
                         let new_br = *br - 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -92,8 +92,8 @@ fn build_table() -> HashMap<u64, u8> {
                         m2[to][g] += 1;
                         let new_br = *br + 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -324,7 +324,7 @@ mod tests {
         let truth = bfs_distances(8);
         for (raw, &true_dist) in &truth {
             let est = WalkingDistanceHeuristic.h(&State(*raw));
-            assert!(est <= true_dist, "WD {} > truth {} for {:?}", est, true_dist, raw);
+            assert!(est <= true_dist, "WD {est} > truth {true_dist} for {raw:?}");
         }
     }
 
@@ -352,11 +352,11 @@ mod tests {
         WalkingDistanceHeuristic::warm_up();
         let truth = bfs_distances(10);
         let mut stats = SearchStats::default();
-        for (raw, _) in &truth {
+        for raw in truth.keys() {
             let s = State(*raw);
             let scratch = WalkingDistanceHeuristic.h(&s);
             let (inc, _) = IncHeuristic::root(&WalkingDistanceInc, &s, &mut stats);
-            assert_eq!(inc, scratch, "root mismatch for {:?}", raw);
+            assert_eq!(inc, scratch, "root mismatch for {raw:?}");
         }
     }
 
@@ -389,8 +389,7 @@ mod tests {
             assert_eq!(
                 h_adv,
                 WalkingDistanceHeuristic.h(&ns),
-                "advance vs scratch WD diverged at step {}",
-                step
+                "advance vs scratch WD diverged at step {step}"
             );
             s = ns;
             ctx = ctx_adv;
@@ -405,8 +404,7 @@ mod tests {
         let n = WalkingDistanceHeuristic::table_size();
         assert!(
             (1_000..100_000).contains(&n),
-            "unexpected WD table size {} (expected ~25k)",
-            n
+            "unexpected WD table size {n} (expected ~25k)"
         );
     }
 
@@ -436,7 +434,7 @@ mod tests {
             for m in &sol {
                 cur = cur.apply(*m);
             }
-            assert_eq!(cur, GOAL, "WD solution doesn't reach goal from {:?}", raw);
+            assert_eq!(cur, GOAL, "WD solution doesn't reach goal from {raw:?}");
         }
     }
 }

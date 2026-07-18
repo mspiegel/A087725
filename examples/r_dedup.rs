@@ -70,7 +70,7 @@ fn main() {
     let cwd = Cwd::new();
     let mut scratch = CwdScratch::new();
     let h0 = cwd.eval(&start, &mut scratch);
-    eprintln!("cWD(R) = {}", h0);
+    eprintln!("cWD(R) = {h0}");
 
     let mut instr = Instr {
         cwd,
@@ -93,7 +93,7 @@ fn main() {
 
     let distinct = instr.seen.len() as f64;
     let te = instr.tree_expanded as f64;
-    println!("\n=== R proof (>= {}) duplicate ratio ===", bound);
+    println!("\n=== R proof (>= {bound}) duplicate ratio ===");
     println!("tree nodes expanded : {}", instr.tree_expanded);
     println!("total visited       : {}", instr.visited);
     println!("distinct expanded   : {}", instr.seen.len());

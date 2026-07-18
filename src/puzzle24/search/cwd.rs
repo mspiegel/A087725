@@ -967,7 +967,7 @@ mod tests {
         for (state, &d) in &truth {
             let s = State(*state);
             let h = cwd.eval(&s, &mut scratch);
-            assert!(h <= d, "cWD {} over-estimates true {} at {:?}", h, d, state);
+            assert!(h <= d, "cWD {h} over-estimates true {d} at {state:?}");
             assert!(h >= wd.h(&s), "cWD {} below WD {} at {:?}", h, wd.h(&s), state);
         }
     }

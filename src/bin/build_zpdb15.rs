@@ -35,8 +35,7 @@ fn part_tiles(part: &str) -> Option<Vec<u8>> {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "usage: {} (--part 7|8 | --tiles T1,T2,...) --out PATH [--threads N]",
-        prog
+        "usage: {prog} (--part 7|8 | --tiles T1,T2,...) --out PATH [--threads N]"
     );
     eprintln!("  --part     one block of the canonical Korf 7-8 partition");
     eprintln!("  --tiles    comma-separated tile values in 1..=15");
@@ -62,7 +61,7 @@ fn parse_args() -> Result<Args, String> {
             "--part" => {
                 i += 1;
                 let s = argv.get(i).ok_or("--part needs a value")?;
-                tiles = Some(part_tiles(s).ok_or_else(|| format!("unknown part {:?}", s))?);
+                tiles = Some(part_tiles(s).ok_or_else(|| format!("unknown part {s:?}"))?);
             }
             "--tiles" => {
                 i += 1;
@@ -72,9 +71,9 @@ fn parse_args() -> Result<Args, String> {
                     let t = token
                         .trim()
                         .parse::<u8>()
-                        .map_err(|e| format!("bad tile {:?}: {}", token, e))?;
+                        .map_err(|e| format!("bad tile {token:?}: {e}"))?;
                     if !(1..=15).contains(&t) {
-                        return Err(format!("tile {} out of range 1..=15", t));
+                        return Err(format!("tile {t} out of range 1..=15"));
                     }
                     v.push(t);
                 }
@@ -90,11 +89,11 @@ fn parse_args() -> Result<Args, String> {
                     argv.get(i)
                         .ok_or("--threads needs a value")?
                         .parse::<usize>()
-                        .map_err(|e| format!("bad threads: {}", e))?,
+                        .map_err(|e| format!("bad threads: {e}"))?,
                 );
             }
             "-h" | "--help" => return Err(String::from("help")),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -113,7 +112,7 @@ fn main() -> ExitCode {
                 print_usage(&prog);
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -146,9 +145,9 @@ fn main() -> ExitCode {
     println!("  ZPDB entries : {}", layout.total());
     let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
     let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
-    println!("  Max depth    : {}", maxd);
+    println!("  Max depth    : {maxd}");
     if unvisited != 0 {
-        eprintln!("error: ZPDB build left {} unvisited entries", unvisited);
+        eprintln!("error: ZPDB build left {unvisited} unvisited entries");
         return ExitCode::FAILURE;
     }
 
@@ -159,7 +158,7 @@ fn main() -> ExitCode {
     }
 
     let bytes = std::fs::metadata(&args.out).map(|m| m.len()).unwrap_or(0);
-    println!("Bytes   : {}", bytes);
+    println!("Bytes   : {bytes}");
 
     ExitCode::SUCCESS
 }

@@ -18,8 +18,8 @@ fn bfs_distances(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         }
         for m in s.legal_moves().iter() {
             let n = s.apply(m);
-            if !dist.contains_key(&n.0) {
-                dist.insert(n.0, d + 1);
+            if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(n.0) {
+                e.insert(d + 1);
                 frontier.push_back(n);
             }
         }
@@ -36,10 +36,7 @@ fn wd_is_admissible_on_shallow_bfs() {
         let est = h.h(&State(*raw));
         assert!(
             est <= true_dist,
-            "WD({:?}) = {} > truth = {}",
-            raw,
-            est,
-            true_dist
+            "WD({raw:?}) = {est} > truth = {true_dist}"
         );
     }
 }

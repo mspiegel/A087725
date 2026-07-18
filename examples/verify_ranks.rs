@@ -37,14 +37,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let elapsed = t0.elapsed();
 
         println!("=== #{} ===", i + 1);
-        println!("rank: {}", r);
-        println!("depth: {}  (verify took {:.2?})", d, elapsed);
+        println!("rank: {r}");
+        println!("depth: {d}  (verify took {elapsed:.2?})");
         println!("grid:");
         for row in 0..4 {
             print!("  ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
             }
             println!();
         }

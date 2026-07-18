@@ -21,7 +21,7 @@ fn parse_state(input: &str) -> Result<State, String> {
             '0' | '_' | '.' => 0,
             '1'..='8' => c.to_digit(10).unwrap() as u8,
             ' ' | '/' | '|' | '\t' | '\n' | ',' => continue,
-            _ => return Err(format!("unexpected character: {:?}", c)),
+            _ => return Err(format!("unexpected character: {c:?}")),
         };
         tiles.push(v);
     }
@@ -31,7 +31,7 @@ fn parse_state(input: &str) -> Result<State, String> {
     let mut seen = [false; 9];
     for &t in &tiles {
         if seen[t as usize] {
-            return Err(format!("tile {} appears more than once", t));
+            return Err(format!("tile {t} appears more than once"));
         }
         seen[t as usize] = true;
     }
@@ -39,7 +39,7 @@ fn parse_state(input: &str) -> Result<State, String> {
     arr.copy_from_slice(&tiles);
     let s = State(arr);
     if !s.is_solvable() {
-        return Err(format!("state is unsolvable: {:?}", arr));
+        return Err(format!("state is unsolvable: {arr:?}"));
     }
     Ok(s)
 }
@@ -65,7 +65,7 @@ fn main() {
     let s = match parse_state(&input) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("parse error: {}", e);
+            eprintln!("parse error: {e}");
             std::process::exit(2);
         }
     };
@@ -87,13 +87,13 @@ fn main() {
             expected,
             "solution length does not match table distance"
         );
-        eprintln!("optimal length: {}", expected);
+        eprintln!("optimal length: {expected}");
     } else {
         eprintln!("optimal length: {} (table not loaded; verifying via IDA* admissibility)", solution.len());
     }
 
     let s_chars: String = solution.iter().map(|&m| move_char(m)).collect();
-    println!("{}", s_chars);
+    println!("{s_chars}");
 
     // Sanity replay.
     let mut cur = s;

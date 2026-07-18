@@ -70,7 +70,7 @@ pub fn rank(s: &State) -> u32 {
 ///
 /// Panics if `r >= N_STATES`.
 pub fn unrank(r: u32) -> State {
-    assert!(r < N_STATES, "rank {} out of range [0, {})", r, N_STATES);
+    assert!(r < N_STATES, "rank {r} out of range [0, {N_STATES})");
 
     let blank_pos = (r / EVEN_BLOCK) as usize;
     let even_rank = r % EVEN_BLOCK;

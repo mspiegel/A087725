@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut stats = SearchStats::default();
         let (hv, _) = h.root(&s, &mut stats);
         if hv >= min_h {
-            println!("{}", r);
+            println!("{r}");
         }
     }
     Ok(())

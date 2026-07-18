@@ -537,9 +537,9 @@ mod tests {
     #[test]
     fn null_pruner_prunes_nothing() {
         let p = NullPruner;
-        let st = p.root_state(12);
-        assert!(!p.is_pruned(st, Move::Up));
-        assert!(!p.is_pruned(st, Move::Left));
+        p.root_state(12);
+        assert!(!p.is_pruned((), Move::Up));
+        assert!(!p.is_pruned((), Move::Left));
     }
 
     #[test]

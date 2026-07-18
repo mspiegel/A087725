@@ -220,7 +220,7 @@ mod tests {
                 violations += 1;
             }
         }
-        assert_eq!(violations, 0, "{} admissibility violations", violations);
+        assert_eq!(violations, 0, "{violations} admissibility violations");
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
                 violations += 1;
             }
         }
-        assert_eq!(violations, 0, "{} admissibility violations", violations);
+        assert_eq!(violations, 0, "{violations} admissibility violations");
     }
 
     /// Tighter-or-equal than blank-agnostic: zpdb(s) >= additive.h(s) pointwise.
@@ -247,11 +247,11 @@ mod tests {
         let truth = bfs_distances(9);
         let mut strictly_greater = 0usize;
         let mut total = 0usize;
-        for (raw, _) in &truth {
+        for raw in truth.keys() {
             let s = State(*raw);
             let z = zh.h(&s);
             let a = pdb.h(&s);
-            assert!(z >= a, "zpdb {} < blank-agnostic {} for {:?}", z, a, raw);
+            assert!(z >= a, "zpdb {z} < blank-agnostic {a} for {raw:?}");
             if z > a {
                 strictly_greater += 1;
             }
@@ -348,8 +348,8 @@ mod tests {
                 .max(refl.h(&s))
                 .max(LinearConflictHeuristic.h(&s))
                 .max(WalkingDistanceHeuristic.h(&s));
-            assert!(hz >= korf_plus, "zpdb-plus {} < korf-plus {} at {:?}", hz, korf_plus, raw);
-            assert!(hz <= td, "zpdb-plus {} inadmissible (true {}) at {:?}", hz, td, raw);
+            assert!(hz >= korf_plus, "zpdb-plus {hz} < korf-plus {korf_plus} at {raw:?}");
+            assert!(hz <= td, "zpdb-plus {hz} inadmissible (true {td}) at {raw:?}");
         }
     }
 

@@ -71,7 +71,7 @@ enum Partition {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} (--part a|b|c|d [--partition k6|k7] | --tiles T1,T2,...) --out PATH [--zero-aware] [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
+    eprintln!("usage: {prog} (--part a|b|c|d [--partition k6|k7] | --tiles T1,T2,...) --out PATH [--zero-aware] [--threads N] [--verify-sha PATH] [--write-sha PATH]");
     eprintln!("  --part       one block of the selected partition (default k6)");
     eprintln!("  --partition  k6 (6-6-6-6, default) or k7 (7-7-7-3)");
     eprintln!("  --tiles      comma-separated tile values in 1..=24");
@@ -115,7 +115,7 @@ fn parse_args() -> Result<Args, String> {
                 partition = match argv.get(i).ok_or("--partition needs a value")?.as_str() {
                     "k6" => Partition::K6,
                     "k7" => Partition::K7,
-                    other => return Err(format!("unknown partition {:?} (k6|k7)", other)),
+                    other => return Err(format!("unknown partition {other:?} (k6|k7)")),
                 };
             }
             "--tiles" => {
@@ -123,9 +123,9 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--tiles needs a value")?;
                 let mut v: Vec<u8> = Vec::new();
                 for token in s.split(',') {
-                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {:?}: {}", token, e))?;
+                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {token:?}: {e}"))?;
                     if !(1..=24).contains(&t) {
-                        return Err(format!("tile {} out of range 1..=24", t));
+                        return Err(format!("tile {t} out of range 1..=24"));
                     }
                     v.push(t);
                 }
@@ -139,7 +139,7 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 threads = Some(
                     argv.get(i).ok_or("--threads needs a value")?
-                        .parse::<usize>().map_err(|e| format!("bad threads: {}", e))?,
+                        .parse::<usize>().map_err(|e| format!("bad threads: {e}"))?,
                 );
             }
             "--verify-sha" => {
@@ -154,7 +154,7 @@ fn parse_args() -> Result<Args, String> {
                 zero_aware = true;
             }
             "-h" | "--help" => return Err(String::from("help")),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -163,7 +163,7 @@ fn parse_args() -> Result<Args, String> {
         (Some(_), Some(_)) => return Err("give either --tiles or --part, not both".into()),
         (Some(v), None) => v,
         (None, Some(c)) => part_tiles(partition, c)
-            .ok_or_else(|| format!("unknown part {:?} for the selected partition", c))?,
+            .ok_or_else(|| format!("unknown part {c:?} for the selected partition"))?,
         (None, None) => return Err("missing --part or --tiles".into()),
     };
     let out = out.ok_or("missing --out")?;
@@ -177,7 +177,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(64);
     for b in digest.iter() {
         use std::fmt::Write;
-        write!(&mut s, "{:02x}", b).unwrap();
+        write!(&mut s, "{b:02x}").unwrap();
     }
     s
 }
@@ -191,7 +191,7 @@ fn main() -> ExitCode {
                 print_usage(&prog);
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -237,7 +237,7 @@ fn main() -> ExitCode {
             println!("ZPDB (frontier-free 2-bit) BFS complete in {:.2?}", t0.elapsed());
             println!("  ZPDB entries : {}", layout.total());
             println!("  Packed bytes : {}", packed.len());
-            println!("  Max depth    : {}  (eccentricity — sum across a partition for the Σ-ecc bound)", maxd);
+            println!("  Max depth    : {maxd}  (eccentricity — sum across a partition for the Σ-ecc bound)");
             ZPatternDb::from_packed(pattern, packed)
         } else {
             let (dist, layout) = build_zpdb_parallel(pattern);
@@ -245,9 +245,9 @@ fn main() -> ExitCode {
             println!("  ZPDB entries : {}", layout.total());
             let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
             let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
-            println!("  Max depth    : {}", maxd);
+            println!("  Max depth    : {maxd}");
             if unvisited != 0 {
-                eprintln!("error: ZPDB build left {} unvisited entries", unvisited);
+                eprintln!("error: ZPDB build left {unvisited} unvisited entries");
                 return ExitCode::FAILURE;
             }
             ZPatternDb::from_dist(pattern, &dist)
@@ -267,7 +267,7 @@ fn main() -> ExitCode {
 
     let file_bytes = std::fs::read(&args.out).expect("read just-written file");
     let sha = sha256_hex(&file_bytes);
-    println!("SHA-256 : {}", sha);
+    println!("SHA-256 : {sha}");
     println!("Bytes   : {}", file_bytes.len());
 
     if let Some(verify_path) = &args.verify_sha {
@@ -278,13 +278,13 @@ fn main() -> ExitCode {
                 std::process::exit(1);
             });
         if expected != sha {
-            eprintln!("error: SHA-256 mismatch\n  expected: {}\n  computed: {}", expected, sha);
+            eprintln!("error: SHA-256 mismatch\n  expected: {expected}\n  computed: {sha}");
             return ExitCode::FAILURE;
         }
         println!("SHA-256 matches pinned {}", verify_path.display());
     }
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{}\n", sha)).expect("writing SHA file");
+        std::fs::write(write_path, format!("{sha}\n")).expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }
 

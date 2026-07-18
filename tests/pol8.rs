@@ -52,7 +52,7 @@ fn no_illegal_bits_set() {
             "rank {} (state {:?}): mask 0b{:04b} has illegal bits beyond legal 0b{:04b}",
             r, s.0, mask, legal_mask);
         // Also: high 4 bits always zero (MoveSet layout uses only low 4 bits).
-        assert_eq!(mask & 0xF0, 0, "rank {}: high 4 bits should be zero (got 0b{:08b})", r, mask);
+        assert_eq!(mask & 0xF0, 0, "rank {r}: high 4 bits should be zero (got 0b{mask:08b})");
     }
 }
 

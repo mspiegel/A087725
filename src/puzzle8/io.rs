@@ -39,12 +39,12 @@ impl From<std::io::Error> for LoadError {
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoadError::Io(e) => write!(f, "I/O error: {}", e),
+            LoadError::Io(e) => write!(f, "I/O error: {e}"),
             LoadError::BadMagic(m) => {
-                write!(f, "bad magic: {:?}, expected {:?}", m, MAGIC)
+                write!(f, "bad magic: {m:?}, expected {MAGIC:?}")
             }
             LoadError::UnsupportedVersion(v) => {
-                write!(f, "unsupported version: {} (this build expects {})", v, VERSION)
+                write!(f, "unsupported version: {v} (this build expects {VERSION})")
             }
             LoadError::TrailingBytes => write!(f, "file has trailing bytes after expected payload"),
         }
@@ -122,7 +122,7 @@ mod tests {
         drop(f);
         match load(&path) {
             Err(LoadError::BadMagic(_)) => {}
-            Err(e) => panic!("expected BadMagic, got {}", e),
+            Err(e) => panic!("expected BadMagic, got {e}"),
             Ok(_) => panic!("expected BadMagic, got Ok"),
         }
         std::fs::remove_file(&path).ok();
@@ -138,7 +138,7 @@ mod tests {
         drop(f);
         match load(&path) {
             Err(LoadError::UnsupportedVersion(999)) => {}
-            Err(e) => panic!("expected UnsupportedVersion(999), got {}", e),
+            Err(e) => panic!("expected UnsupportedVersion(999), got {e}"),
             Ok(_) => panic!("expected UnsupportedVersion(999), got Ok"),
         }
         std::fs::remove_file(&path).ok();
@@ -155,7 +155,7 @@ mod tests {
         drop(f);
         match load(&path) {
             Err(LoadError::TrailingBytes) => {}
-            Err(e) => panic!("expected TrailingBytes, got {}", e),
+            Err(e) => panic!("expected TrailingBytes, got {e}"),
             Ok(_) => panic!("expected TrailingBytes, got Ok"),
         }
         std::fs::remove_file(&path).ok();

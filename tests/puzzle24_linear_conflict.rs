@@ -24,8 +24,8 @@ fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         for s in &frontier {
             for m in s.legal_moves().iter() {
                 let s2 = s.apply(m);
-                if !dist.contains_key(&s2.0) {
-                    dist.insert(s2.0, nd);
+                if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s2.0) {
+                    e.insert(nd);
                     next.push(s2);
                 }
             }
@@ -51,8 +51,8 @@ fn lc_admissible_and_dominates_manhattan() {
         let s = State(*raw);
         let lc = LinearConflictHeuristic.h(&s);
         let md = ManhattanHeuristic.h(&s);
-        assert!(lc >= md, "LC {} < MD {} for {:?}", lc, md, raw);
-        assert!(lc <= d, "LC {} > truth {} for {:?}", lc, d, raw);
+        assert!(lc >= md, "LC {lc} < MD {md} for {raw:?}");
+        assert!(lc <= d, "LC {lc} > truth {d} for {raw:?}");
     }
 }
 
@@ -62,7 +62,7 @@ fn lc_inc_solver_optimal_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let sol = idastar_inc(&s, &LinearConflictInc).expect("solvable");
-        assert_eq!(sol.len() as u8, d, "LC-inc non-optimal for {:?}", raw);
+        assert_eq!(sol.len() as u8, d, "LC-inc non-optimal for {raw:?}");
         assert!(reaches_goal(&s, &sol));
     }
 }

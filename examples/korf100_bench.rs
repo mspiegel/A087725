@@ -111,7 +111,7 @@ fn parse_args() -> Result<Args, String> {
                     "additive" => HeuristicChoice::Additive,
                     "korf" => HeuristicChoice::Korf,
                     "korf-plus" => HeuristicChoice::KorfPlus,
-                    other => return Err(format!("unknown heuristic {:?}", other)),
+                    other => return Err(format!("unknown heuristic {other:?}")),
                 };
             }
             "--limit" => {
@@ -120,14 +120,14 @@ fn parse_args() -> Result<Args, String> {
                     argv.get(i)
                         .ok_or("--limit needs a value")?
                         .parse::<usize>()
-                        .map_err(|e| format!("--limit: {}", e))?,
+                        .map_err(|e| format!("--limit: {e}"))?,
                 );
             }
             "--quiet" => quiet = true,
             "--scratch" => scratch = true,
             "--mut" => mut_ctx = true,
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -312,13 +312,13 @@ fn print_summary(name: &str, rows: &[Row], mismatches: &[(u32, u8, u8)]) {
     let slowest = rows.iter().max_by_key(|r| r.elapsed).unwrap();
     let heaviest = rows.iter().max_by_key(|r| r.nodes).unwrap();
 
-    println!("\n=== Korf-100 summary ({}, n={}) ===", name, n);
+    println!("\n=== Korf-100 summary ({name}, n={n}) ===");
     println!("total optimal moves : {}  (mean {:.2}; Korf 1985 ~52-53)",
         total_optimal, total_optimal as f64 / n as f64);
-    println!("total nodes         : {}", total_nodes);
+    println!("total nodes         : {total_nodes}");
     println!("mean nodes/instance : {}", total_nodes / n);
     println!("mean iterations     : {:.1}", total_iters as f64 / n as f64);
-    println!("total wall-clock    : {:.2?}", total_time);
+    println!("total wall-clock    : {total_time:.2?}");
     println!("mean wall-clock     : {:.2?}", total_time / n as u32);
     println!("throughput          : {:.3} Mnodes/s", nps / 1.0e6);
     println!("heaviest (nodes)    : #{} -> {} nodes, {:.2?}",
@@ -327,11 +327,11 @@ fn print_summary(name: &str, rows: &[Row], mismatches: &[(u32, u8, u8)]) {
         slowest.index, slowest.elapsed, slowest.nodes);
 
     if mismatches.is_empty() {
-        println!("optimality          : OK — all {} match Korf 1985 Table 1", n);
+        println!("optimality          : OK — all {n} match Korf 1985 Table 1");
     } else {
         println!("optimality          : {} MISMATCH(es):", mismatches.len());
         for (idx, found, want) in mismatches {
-            println!("    instance #{}: solver {} vs Korf {}", idx, found, want);
+            println!("    instance #{idx}: solver {found} vs Korf {want}");
         }
     }
 }
@@ -345,7 +345,7 @@ fn main() -> ExitCode {
                            [--heuristic korf|korf-plus|additive|manhattan] [--limit N] [--quiet] [--scratch] [--mut]");
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -353,7 +353,7 @@ fn main() -> ExitCode {
     let mut instances = match parse_instances(&args.instances) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -369,7 +369,7 @@ fn main() -> ExitCode {
         let (p7_db, p8_db) = match load_pdbs(&args.pdb_dir) {
             Ok(x) => x,
             Err(e) => {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
                 return ExitCode::FAILURE;
             }
         };

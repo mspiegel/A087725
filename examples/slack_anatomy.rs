@@ -136,7 +136,7 @@ fn analyze(start: &State, path: &[Move], wd: &WdTable, cwd: &Cwd) -> Anat {
     let mut ev: Vec<Vec<u32>> = vec![Vec::new(); N_CELLS * 2 * NB];
     let idx = |t: usize, ax: usize, b: usize| (t * 2 + ax) * NB + b;
 
-    let mut s = start.clone();
+    let mut s = *start;
     let mut blank = s.0.iter().position(|&t| t == 0).unwrap();
     for (i, &m) in path.iter().enumerate() {
         let s2 = s.apply(m);
@@ -207,7 +207,7 @@ fn analyze(start: &State, path: &[Move], wd: &WdTable, cwd: &Cwd) -> Anat {
                     a.rt_b_c[b] += pairs;
                 }
                 if pairs > 0 {
-                    let g = (tile - 1) as usize;
+                    let g = (tile - 1);
                     let gl = if ax == 0 { g / W } else { g % W };
                     if gl == b || gl == b + 1 {
                         a.rt_home += pairs;
@@ -405,7 +405,7 @@ fn yield_dem(k: &[u8; W], thru: &[u32; W], rule: u8) -> [u8; W] {
 fn observed_exits(start: &State, path: &[Move]) -> ([u8; W], [u8; W]) {
     let mut e_r = [0u32; W];
     let mut e_c = [0u32; W];
-    let mut s = start.clone();
+    let mut s = *start;
     let mut blank = s.0.iter().position(|&t| t == 0).unwrap();
     for &m in path {
         let s2 = s.apply(m);
@@ -595,7 +595,7 @@ fn random_walk(seed: u64, len: u32) -> State {
         let opts: Vec<Move> = s
             .legal_moves()
             .iter()
-            .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+            .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
             .collect();
         let m = opts[(next() % opts.len() as u64) as usize];
         s = s.apply(m);
@@ -820,7 +820,7 @@ fn run_rpath(file: &str) {
     eprintln!("R path: {} moves from {file}", moves.len());
     let start = r_board();
     // verify replay legality (analyze asserts GOAL at the end)
-    let mut s = start.clone();
+    let mut s = start;
     for (i, &m) in moves.iter().enumerate() {
         assert!(s.legal_moves().contains(m), "move {i} illegal in forward replay");
         s = s.apply(m);
@@ -836,7 +836,7 @@ fn run_rpath(file: &str) {
     eprintln!("\nper-tile churn (round-trip pairs, tile ▸ axis:boundary×pairs):");
     // recompute events for the dump (cheap)
     let mut ev: HashMap<(usize, usize, usize), u32> = HashMap::new();
-    let mut s = start.clone();
+    let mut s = start;
     let mut blank = s.0.iter().position(|&t| t == 0).unwrap();
     for &m in moves.iter() {
         let s2 = s.apply(m);

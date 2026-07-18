@@ -15,7 +15,7 @@ pub trait Heuristic {
 
 /// Blanket impl: any reference to a [`Heuristic`] is also a [`Heuristic`], so
 /// borrowed PDBs can be passed to combinators like `MaxHeuristic`.
-impl<'a, H: Heuristic + ?Sized> Heuristic for &'a H {
+impl<H: Heuristic + ?Sized> Heuristic for &H {
     #[inline]
     fn h(&self, s: &State) -> u8 {
         (**self).h(s)
@@ -310,7 +310,7 @@ where
         let k = ctx.pending.len();
         // Lipschitz upper bound on the child's h_b; if it can't exceed the
         // budget, B can't prune here either.
-        if ctx.b_val as usize + k + 1 <= budget as usize {
+        if ctx.b_val as usize + k < budget as usize {
             ctx.pending.push((m, *child));
             ctx.tags.push(LazyTag::Pending);
             // Admissible: true h_b ≥ b_val − k − 1 (may saturate to 0).
@@ -506,7 +506,7 @@ mod tests {
                     let after = s.apply(m);
                     let h_after = ManhattanHeuristic.h(&after);
                     let diff = (h_after as i16) - (h_before as i16);
-                    assert!(diff == 1 || diff == -1, "Δh = {} not ±1", diff);
+                    assert!(diff == 1 || diff == -1, "Δh = {diff} not ±1");
                     s = after;
                     break;
                 }
@@ -519,7 +519,7 @@ mod tests {
         let table = crate::puzzle24::search::tests_util::bfs_distances(10);
         for (state, &truth) in &table {
             let est = ManhattanHeuristic.h(&State(*state));
-            assert!(est <= truth, "h({:?}) = {} > true {}", state, est, truth);
+            assert!(est <= truth, "h({state:?}) = {est} > true {truth}");
         }
     }
 
@@ -613,7 +613,7 @@ mod tests {
                 let legal: Vec<Move> = s
                     .legal_moves()
                     .iter()
-                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .filter(|&m| last.is_none_or(|p| m != p.inverse()))
                     .collect();
                 x ^= x >> 12;
                 x ^= x << 25;
@@ -727,7 +727,7 @@ mod tests {
                 let legal: Vec<Move> = s
                     .legal_moves()
                     .iter()
-                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .filter(|&m| last.is_none_or(|p| m != p.inverse()))
                     .collect();
                 x ^= x >> 12;
                 x ^= x << 25;
@@ -808,9 +808,9 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = mx.advance(&ctx, &ns, m, &mut stats);
             let scratch = LinearConflictHeuristic.h(&ns).max(WalkingDistanceHeuristic.h(&ns));
-            assert_eq!(h_adv, scratch, "MaxInc advance vs scratch diverged at step {}", step);
+            assert_eq!(h_adv, scratch, "MaxInc advance vs scratch diverged at step {step}");
             let (h_fresh, _) = mx.root(&ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "MaxInc advance vs fresh root diverged at step {}", step);
+            assert_eq!(h_adv, h_fresh, "MaxInc advance vs fresh root diverged at step {step}");
             s = ns;
             ctx = ctx_adv;
         }

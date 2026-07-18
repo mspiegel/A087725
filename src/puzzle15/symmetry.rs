@@ -117,7 +117,7 @@ mod tests {
     fn tau_is_a_permutation_of_0_to_15() {
         let mut seen = [false; N_CELLS];
         for &t in &TAU {
-            assert!(!seen[t as usize], "TAU repeats {}", t);
+            assert!(!seen[t as usize], "TAU repeats {t}");
             seen[t as usize] = true;
         }
     }
@@ -134,8 +134,7 @@ mod tests {
             let goal_tile_at_sigma = GOAL.0[sigma_image];
             assert_eq!(
                 TAU[k as usize], goal_tile_at_sigma,
-                "τ({}) inconsistent with σ image of its goal position",
-                k
+                "τ({k}) inconsistent with σ image of its goal position"
             );
         }
     }

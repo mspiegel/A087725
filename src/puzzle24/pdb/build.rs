@@ -123,8 +123,8 @@ mod tests {
             for (raw, &true_dist) in &truth {
                 let proj = ProjectedState::from_state(&State(*raw), p);
                 let h = pdb[proj.rank(p) as usize];
-                assert_ne!(h, UNVISITED, "gap for tile {} at {:?}", k, raw);
-                assert!(h <= true_dist, "PDB({})={} > true {}", k, h, true_dist);
+                assert_ne!(h, UNVISITED, "gap for tile {k} at {raw:?}");
+                assert!(h <= true_dist, "PDB({k})={h} > true {true_dist}");
             }
         }
     }
@@ -137,7 +137,7 @@ mod tests {
         for (raw, &true_dist) in &truth {
             let proj = ProjectedState::from_state(&State(*raw), p);
             let h = pdb[proj.rank(p) as usize];
-            assert!(h <= true_dist, "h {} > true {}", h, true_dist);
+            assert!(h <= true_dist, "h {h} > true {true_dist}");
         }
     }
 

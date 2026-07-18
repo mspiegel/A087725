@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nverified depth histogram:");
     for (d, c) in &hist {
         let mark = if *d >= 76 { " ***" } else { "" };
-        println!("  d={:>3}: {:>6}{}", d, c, mark);
+        println!("  d={d:>3}: {c:>6}{mark}");
     }
 
     // Dump deep finds with cell grids.
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let s = unrank(r);
             print!("  #{:>3} rank {:>14} blank@{:>2}: ", i + 1, r, s.blank_pos());
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{:>2}", t); }
+                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
                 if j % 4 == 3 { print!("  "); } else { print!(","); }
             }
             println!();
@@ -145,7 +145,7 @@ fn k_step_expand(
         for &(ref x, last) in &frontier {
             let blank = x.blank_pos();
             for m in State::legal_moves_at(blank).iter() {
-                if last.map_or(false, |lm| m == lm.inverse()) { continue; }
+                if last.is_some_and(|lm| m == lm.inverse()) { continue; }
                 let (ns, _) = x.apply_at(m, blank);
                 let nr = rank(&ns);
                 if seen.insert(nr) {

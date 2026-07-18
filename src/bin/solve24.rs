@@ -164,12 +164,11 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 
 fn print_usage(prog: &str) {
     eprintln!(
-        "usage: {} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
+        "usage: {prog} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
-         [--no-root-orbit-split]  (auto-on for σ-symmetric boards)",
-        prog
+         [--no-root-orbit-split]  (auto-on for σ-symmetric boards)"
     );
 }
 
@@ -216,7 +215,7 @@ fn parse_args() -> Result<Args, String> {
                     "cwd-zpdb-lazy" => HeuristicChoice::CwdZpdbLazy,
                     "cwd-zpdb8-lazy" => HeuristicChoice::CwdZpdb8Lazy,
                     "select" => HeuristicChoice::Select,
-                    other => return Err(format!("unknown heuristic {:?}", other)),
+                    other => return Err(format!("unknown heuristic {other:?}")),
                 };
             }
             "--pdb-set" => {
@@ -224,7 +223,7 @@ fn parse_args() -> Result<Args, String> {
                 pdb_set = match argv.get(i).ok_or("--pdb-set needs a value")?.as_str() {
                     "k6" => PdbSet::K6,
                     "k7" => PdbSet::K7,
-                    other => return Err(format!("unknown pdb-set {:?}", other)),
+                    other => return Err(format!("unknown pdb-set {other:?}")),
                 };
             }
             "--max-bound" => {
@@ -233,7 +232,7 @@ fn parse_args() -> Result<Args, String> {
                     .get(i)
                     .ok_or("--max-bound needs a value")?
                     .parse()
-                    .map_err(|e| format!("--max-bound: {}", e))?;
+                    .map_err(|e| format!("--max-bound: {e}"))?;
                 max_bound = Some(t);
             }
             "--prove-at-least" => {
@@ -242,7 +241,7 @@ fn parse_args() -> Result<Args, String> {
                     .get(i)
                     .ok_or("--prove-at-least needs a value")?
                     .parse()
-                    .map_err(|e| format!("--prove-at-least: {}", e))?;
+                    .map_err(|e| format!("--prove-at-least: {e}"))?;
                 if t == 0 {
                     return Err("--prove-at-least must be >= 1".into());
                 }
@@ -264,10 +263,10 @@ fn parse_args() -> Result<Args, String> {
                     .get(i)
                     .ok_or("--combine-slack needs a value")?
                     .parse()
-                    .map_err(|e| format!("--combine-slack: {}", e))?;
+                    .map_err(|e| format!("--combine-slack: {e}"))?;
             }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -291,26 +290,26 @@ fn parse_position(s: &str) -> Result<State, String> {
     let mut count = 0usize;
     for tok in s.split_whitespace() {
         if count >= N_CELLS {
-            return Err(format!("more than {} tokens", N_CELLS));
+            return Err(format!("more than {N_CELLS} tokens"));
         }
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {:?}: {}", tok, e))?
+            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v > 24 {
-            return Err(format!("value {} out of range 0..=24", v));
+            return Err(format!("value {v} out of range 0..=24"));
         }
         cells[count] = v;
         count += 1;
     }
     if count != N_CELLS {
-        return Err(format!("expected {} tokens, got {}", N_CELLS, count));
+        return Err(format!("expected {N_CELLS} tokens, got {count}"));
     }
     let mut seen = [false; N_CELLS];
     for &v in &cells {
         if seen[v as usize] {
-            return Err(format!("value {} appears more than once", v));
+            return Err(format!("value {v} appears more than once"));
         }
         seen[v as usize] = true;
     }
@@ -367,7 +366,7 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
         })
         .collect();
     println!("Moves          : {}", moves.join(" "));
-    println!("Wall-clock     : {:.2?}", elapsed);
+    println!("Wall-clock     : {elapsed:.2?}");
 
     let mut cur = *start;
     for m in sol {
@@ -414,7 +413,7 @@ fn timed_search<R>(setup: std::time::Duration, f: impl FnOnce() -> R) -> (R, std
 fn print_stats(st: &SearchStats, search: std::time::Duration) {
     println!("Nodes          : {}", st.nodes);
     println!("Iterations     : {}", st.iterations);
-    println!("Search time    : {:.2?}", search);
+    println!("Search time    : {search:.2?}");
     let secs = search.as_secs_f64();
     if secs > 0.0 {
         println!("Throughput     : {:.2} Mnodes/s", st.nodes as f64 / secs / 1e6);
@@ -463,21 +462,21 @@ where
     match outcome {
         LadderOutcome::Solved(s) => {
             if let Some(mb) = max_bound {
-                println!("Found within bound {} (optimal):", mb);
+                println!("Found within bound {mb} (optimal):");
             }
             print_solution(start, &s, elapsed);
             print_stats(&st, search_dt);
             ExitCode::SUCCESS
         }
         LadderOutcome::ProvedAtLeast(k) => {
-            println!("Lower bound: depth >= {}", k);
-            println!("Wall-clock     : {:.2?}", elapsed);
+            println!("Lower bound: depth >= {k}");
+            println!("Wall-clock     : {elapsed:.2?}");
             print_stats(&st, search_dt);
             ExitCode::SUCCESS
         }
         LadderOutcome::TimedOut(k) => {
             // No deadline is passed here, so this is not expected.
-            println!("Lower bound: depth >= {} (timed out)", k);
+            println!("Lower bound: depth >= {k} (timed out)");
             print_stats(&st, search_dt);
             ExitCode::SUCCESS
         }
@@ -492,7 +491,7 @@ fn require_dir(args: &Args, label: &str) -> Result<PathBuf, ExitCode> {
     match &args.pdb_dir {
         Some(d) => Ok(d.clone()),
         None => {
-            eprintln!("error: --pdb-dir required for {} heuristic", label);
+            eprintln!("error: --pdb-dir required for {label} heuristic");
             Err(ExitCode::FAILURE)
         }
     }
@@ -507,7 +506,7 @@ fn main() -> ExitCode {
                 print_usage(&prog);
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -530,7 +529,7 @@ fn main() -> ExitCode {
     let start = match parse_position(&position_str) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("error: position parse: {}", e);
+            eprintln!("error: position parse: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -583,7 +582,7 @@ fn main() -> ExitCode {
             let dbs = match load_pdbs(&dir) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -598,7 +597,7 @@ fn main() -> ExitCode {
             let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -613,7 +612,7 @@ fn main() -> ExitCode {
             let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -630,7 +629,7 @@ fn main() -> ExitCode {
             let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -653,7 +652,7 @@ fn main() -> ExitCode {
             let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -675,14 +674,14 @@ fn main() -> ExitCode {
             let k6 = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
             let k8 = match load_zpdbs_k8(&dir) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -707,7 +706,7 @@ fn main() -> ExitCode {
             let dbs = match load_zpdbs(&dir, args.pdb_set) {
                 Ok(x) => x,
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     return ExitCode::FAILURE;
                 }
             };
@@ -722,15 +721,15 @@ fn main() -> ExitCode {
             let zpdb_root = IncHeuristic::root(&zpdb, &start, &mut st).0;
             match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
                 Pick::Cheap => {
-                    println!("Selected       : max(LC,WD)  (cheap_h {} >= zpdb_h {})", cheap_root, zpdb_root);
+                    println!("Selected       : max(LC,WD)  (cheap_h {cheap_root} >= zpdb_h {zpdb_root})");
                     run_inc(&start, &cheap, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }
                 Pick::Zpdb => {
-                    println!("Selected       : zpdb  (zpdb_h {} > cheap_h {})", zpdb_root, cheap_root);
+                    println!("Selected       : zpdb  (zpdb_h {zpdb_root} > cheap_h {cheap_root})");
                     run_inc(&start, &zpdb, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }
                 Pick::ZpdbPlus => {
-                    println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {})", zpdb_root);
+                    println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {zpdb_root})");
                     let zplus = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
                     run_inc(&start, &zplus, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
                 }

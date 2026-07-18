@@ -18,7 +18,7 @@ fn render(s: &State) -> String {
             if v == 0 {
                 out.push_str("  _");
             } else {
-                out.push_str(&format!(" {:>2}", v));
+                out.push_str(&format!(" {v:>2}"));
             }
         }
         out.push('\n');
@@ -76,5 +76,5 @@ fn main() {
         println!("    dist={}", table.dist(&cur));
     }
     println!();
-    println!("Solved in {} moves.", step);
+    println!("Solved in {step} moves.");
 }

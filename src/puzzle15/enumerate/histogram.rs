@@ -25,20 +25,20 @@ pub fn load(path: &Path) -> Result<Histogram, String> {
             .next()
             .ok_or("empty data line")?
             .parse()
-            .map_err(|e| format!("bad depth in {:?}: {}", line, e))?;
+            .map_err(|e| format!("bad depth in {line:?}: {e}"))?;
         let n: u64 = it
             .next()
-            .ok_or_else(|| format!("missing count in {:?}", line))?
+            .ok_or_else(|| format!("missing count in {line:?}"))?
             .parse()
-            .map_err(|e| format!("bad count in {:?}: {}", line, e))?;
+            .map_err(|e| format!("bad count in {line:?}: {e}"))?;
         if d > DIAMETER as usize {
-            return Err(format!("depth {} exceeds diameter {}", d, DIAMETER));
+            return Err(format!("depth {d} exceeds diameter {DIAMETER}"));
         }
         hist[d] = n;
         seen[d] = true;
     }
     if let Some(d) = seen.iter().position(|&s| !s) {
-        return Err(format!("histogram missing depth {}", d));
+        return Err(format!("histogram missing depth {d}"));
     }
     Ok(hist)
 }

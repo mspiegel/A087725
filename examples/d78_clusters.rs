@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("filtered to blank@{}: {} boards remain", bf, boards.len());
     }
     let n = boards.len();
-    println!("clustering {} d={} boards at eps={}\n", n, depth, eps);
+    println!("clustering {n} d={depth} boards at eps={eps}\n");
 
     let states: Vec<State> = boards.iter().map(|&r| unrank(r)).collect();
 
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_clusters = clusters.len();
     let n_singletons = clusters.values().filter(|v| v.len() == 1).count();
     println!("clustering done in {:.1?}", t_cluster.elapsed());
-    println!("found {} clusters ({} singletons)", n_clusters, n_singletons);
+    println!("found {n_clusters} clusters ({n_singletons} singletons)");
 
     // Cluster size histogram.
     let mut size_hist: BTreeMap<usize, usize> = BTreeMap::new();
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("\ncluster size distribution:");
     for (size, count) in &size_hist {
-        println!("  size {:>4}: {} clusters", size, count);
+        println!("  size {size:>4}: {count} clusters");
     }
 
     // Sort clusters by size descending.
@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 print!("    ");
                 for col in 0..4 {
                     let t = s.0[row * 4 + col];
-                    if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+                    if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
                 }
                 println!();
             }
@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 print!("    ");
                 for col in 0..4 {
                     let t = nb.0[row * 4 + col];
-                    if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+                    if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
                 }
                 println!();
             }
@@ -270,7 +270,7 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
     let n_members = members.len();
     // For very small clusters (2..=4), dump every member's rank with a tag
     // so callers can grep them out.
-    if n_members >= 2 && n_members <= 4 {
+    if (2..=4).contains(&n_members) {
         for &i in members {
             println!("MEMBER cluster#{} rank={} h={} blank@{}",
                      idx, boards[i], h_values[i], states[i].blank_pos());
@@ -288,17 +288,15 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
     let mut blank_dist: BTreeMap<u8, u32> = BTreeMap::new();
     for &i in members { *blank_dist.entry(states[i].blank_pos()).or_insert(0) += 1; }
 
-    println!("\nCluster #{}: {} boards, mean_ham={:.2}, fixed(universal)={}, fixed(dominant_80%)={}",
-             idx, n_members, mean_ham, n_fixed_u, n_fixed_d);
-    println!("  reflection: {} self-sym, {} pair(s), {} singletons",
-             self_sym, pairs, single);
+    println!("\nCluster #{idx}: {n_members} boards, mean_ham={mean_ham:.2}, fixed(universal)={n_fixed_u}, fixed(dominant_80%)={n_fixed_d}");
+    println!("  reflection: {self_sym} self-sym, {pairs} pair(s), {single} singletons");
     println!("  universal signature ('?' = varies):");
     for row in 0..4 {
         print!("    ");
         for col in 0..4 {
             match sig_u[row * 4 + col] {
                 Some(0) => print!(" __"),
-                Some(t) => print!(" {:>2}", t),
+                Some(t) => print!(" {t:>2}"),
                 None => print!("  ?"),
             }
         }
@@ -311,7 +309,7 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
             for col in 0..4 {
                 match sig_d[row * 4 + col] {
                     Some(0) => print!(" __"),
-                    Some(t) => print!(" {:>2}", t),
+                    Some(t) => print!(" {t:>2}"),
                     None => print!("  ?"),
                 }
             }
@@ -319,10 +317,10 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
         }
     }
     print!("  h: ");
-    for (hv, c) in &h_dist { print!("h{}={} ", hv, c); }
+    for (hv, c) in &h_dist { print!("h{hv}={c} "); }
     println!();
     print!("  blanks: ");
-    for (b, c) in &blank_dist { print!("@{}={} ", b, c); }
+    for (b, c) in &blank_dist { print!("@{b}={c} "); }
     println!();
 }
 

@@ -27,7 +27,7 @@ fn parse_args() -> PathBuf {
                 std::process::exit(0);
             }
             other => {
-                eprintln!("unknown argument: {}", other);
+                eprintln!("unknown argument: {other}");
                 std::process::exit(2);
             }
         }
@@ -44,17 +44,17 @@ fn main() {
         }
     }
 
-    eprintln!("building 8-puzzle distance table ({} states)...", N_STATES);
+    eprintln!("building 8-puzzle distance table ({N_STATES} states)...");
     let t_start = Instant::now();
     let table = DistanceTable::build();
     let build_ms = t_start.elapsed().as_millis();
 
     let visited = table.visited_count();
     let diameter = table.diameter();
-    assert_eq!(visited, N_STATES, "BFS missed states: {}/{}", visited, N_STATES);
-    assert_eq!(diameter, DIAMETER, "unexpected diameter: {}", diameter);
+    assert_eq!(visited, N_STATES, "BFS missed states: {visited}/{N_STATES}");
+    assert_eq!(diameter, DIAMETER, "unexpected diameter: {diameter}");
 
-    eprintln!("build OK: {} states, diameter {}, {} ms", visited, diameter, build_ms);
+    eprintln!("build OK: {visited} states, diameter {diameter}, {build_ms} ms");
 
     save(&table, &out).expect("save distance table");
     let meta = std::fs::metadata(&out).expect("stat output");

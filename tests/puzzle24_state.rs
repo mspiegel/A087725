@@ -51,7 +51,7 @@ fn solvability_parity_is_odd_width_rule() {
     let mut s = GOAL;
     let mut blanks_seen = [false; N_CELLS];
     for i in 0u32..6000 {
-        assert!(s.is_solvable(), "blank slide broke solvability at step {}", i);
+        assert!(s.is_solvable(), "blank slide broke solvability at step {i}");
         blanks_seen[s.blank_pos() as usize] = true;
         let moves = s.legal_moves();
         let opts: Vec<Move> = moves.iter().collect();
@@ -86,7 +86,7 @@ fn hand_traced_five_move_sequence() {
     let mut s = GOAL;
     let mut blank = s.blank_pos();
     for m in seq {
-        assert!(State::legal_moves_at(blank).contains(m), "illegal {:?} at blank {}", m, blank);
+        assert!(State::legal_moves_at(blank).contains(m), "illegal {m:?} at blank {blank}");
         let (next, nb) = s.apply_at(m, blank);
         s = next;
         blank = nb;
@@ -127,7 +127,7 @@ fn reflection_involution() {
     let mut s = GOAL;
     for i in 0u32..3000 {
         // reflect ∘ reflect == identity.
-        assert_eq!(reflect(&reflect(&s)), s, "reflect² broke at step {}", i);
+        assert_eq!(reflect(&reflect(&s)), s, "reflect² broke at step {i}");
         // Distance-preserving symmetry keeps states solvable.
         assert_eq!(reflect(&s).is_solvable(), s.is_solvable());
         // reflect(s.apply(m)) == reflect(s).apply(transpose_move(m)).
@@ -135,8 +135,7 @@ fn reflection_involution() {
             assert_eq!(
                 reflect(&s.apply(m)),
                 reflect(&s).apply(transpose_move(m)),
-                "reflection/move commutation broke for {:?}",
-                m
+                "reflection/move commutation broke for {m:?}"
             );
         }
         for k in 0u32..4 {

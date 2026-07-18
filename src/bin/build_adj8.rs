@@ -45,7 +45,7 @@ const HEADER_BYTES: usize = 8;
 const FILE_SIZE: usize = HEADER_BYTES + RECORD_SIZE * (N_STATES as usize);
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --out <PATH> [--verify-sha PATH] [--write-sha PATH]", prog);
+    eprintln!("usage: {prog} --out <PATH> [--verify-sha PATH] [--write-sha PATH]");
     eprintln!("  --out        path to write the adjacency binary");
     eprintln!("  --verify-sha read this file as the expected SHA-256 hex; fail if mismatch");
     eprintln!("  --write-sha  write the computed SHA-256 hex to this file");
@@ -79,7 +79,7 @@ fn parse_args() -> Result<Args, String> {
                 write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
             }
             "-h" | "--help" => return Err(String::from("help")),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -95,7 +95,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(64);
     for b in digest.iter() {
         use std::fmt::Write;
-        write!(&mut s, "{:02x}", b).unwrap();
+        write!(&mut s, "{b:02x}").unwrap();
     }
     s
 }
@@ -109,13 +109,13 @@ fn main() -> ExitCode {
                 print_usage(&prog);
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
     };
 
-    eprintln!("Computing neighbor ranks for {} states", N_STATES);
+    eprintln!("Computing neighbor ranks for {N_STATES} states");
     let t0 = Instant::now();
     let mut file_bytes = Vec::with_capacity(FILE_SIZE);
     file_bytes.extend_from_slice(MAGIC);
@@ -137,7 +137,7 @@ fn main() -> ExitCode {
     }
     debug_assert_eq!(file_bytes.len(), FILE_SIZE);
     let elapsed = t0.elapsed();
-    eprintln!("Derivation complete in {:.2?}", elapsed);
+    eprintln!("Derivation complete in {elapsed:.2?}");
 
     if let Some(parent) = args.out.parent() {
         if !parent.as_os_str().is_empty() {
@@ -151,7 +151,7 @@ fn main() -> ExitCode {
     }
 
     let sha = sha256_hex(&file_bytes);
-    println!("SHA-256 : {}", sha);
+    println!("SHA-256 : {sha}");
     println!("Bytes   : {}", file_bytes.len());
 
     if let Some(verify_path) = &args.verify_sha {
@@ -164,15 +164,15 @@ fn main() -> ExitCode {
         };
         if expected != sha {
             eprintln!("error: SHA-256 mismatch");
-            eprintln!("  expected: {}", expected);
-            eprintln!("  computed: {}", sha);
+            eprintln!("  expected: {expected}");
+            eprintln!("  computed: {sha}");
             return ExitCode::FAILURE;
         }
         println!("SHA-256 matches pinned {}", verify_path.display());
     }
 
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{}\n", sha))
+        std::fs::write(write_path, format!("{sha}\n"))
             .expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }

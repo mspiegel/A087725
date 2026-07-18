@@ -38,13 +38,13 @@ fn run() -> Result<(), String> {
     while i < argv.len() {
         match argv[i].as_str() {
             "--file" => { i += 1; file = Some(PathBuf::from(argv.get(i).ok_or("--file needs a value")?)); }
-            "--limit" => { i += 1; limit = Some(argv.get(i).ok_or("--limit needs a value")?.parse().map_err(|e| format!("--limit: {}", e))?); }
+            "--limit" => { i += 1; limit = Some(argv.get(i).ok_or("--limit needs a value")?.parse().map_err(|e| format!("--limit: {e}"))?); }
             "--print" => print = true,
             "--verify" => verify = true,
-            "--depth" => { i += 1; depth = Some(argv.get(i).ok_or("--depth needs a value")?.parse().map_err(|e| format!("--depth: {}", e))?); }
+            "--depth" => { i += 1; depth = Some(argv.get(i).ok_or("--depth needs a value")?.parse().map_err(|e| format!("--depth: {e}"))?); }
             "--pdb-dir" => { i += 1; pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?); }
-            "--sample" => { i += 1; sample = argv.get(i).ok_or("--sample needs a value")?.parse().map_err(|e| format!("--sample: {}", e))?; }
-            other => return Err(format!("unknown flag: {}", other)),
+            "--sample" => { i += 1; sample = argv.get(i).ok_or("--sample needs a value")?.parse().map_err(|e| format!("--sample: {e}"))?; }
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -56,7 +56,7 @@ fn run() -> Result<(), String> {
     for &r in &ranks {
         let s = unrank(r);
         if !s.is_solvable() || rank(&s) != r {
-            return Err(format!("rank {} fails round-trip / solvability", r));
+            return Err(format!("rank {r} fails round-trip / solvability"));
         }
     }
     println!("round-trip + solvability: OK ({} ranks)", ranks.len());
@@ -73,8 +73,8 @@ fn run() -> Result<(), String> {
         // Zero-aware "zpdb-plus" verifier — pointwise dominates the additive
         // korf-plus it replaces, advanced incrementally per node.
         let zdbs = [
-            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {}", e))?,
-            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {}", e))?,
+            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p7.zbin")).map_err(|e| format!("zp7: {e}"))?,
+            ZPatternDb::load_mmap(&pdb_dir.join("zpdb15_p8.zbin")).map_err(|e| format!("zp8: {e}"))?,
         ];
         WalkingDistanceHeuristic::warm_up();
         let h_plus = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
@@ -85,11 +85,11 @@ fn run() -> Result<(), String> {
         for &r in ranks.iter().step_by(step) {
             let got = idastar_inc_with_stats(&unrank(r), &h_plus).0.map(|v| v.len() as u8).unwrap_or(u8::MAX);
             if got != d {
-                return Err(format!("rank {} has optimal depth {} != claimed {}", r, got, d));
+                return Err(format!("rank {r} has optimal depth {got} != claimed {d}"));
             }
             checked += 1;
         }
-        println!("verify: OK — {} sampled boards all solve to depth {}", checked, d);
+        println!("verify: OK — {checked} sampled boards all solve to depth {d}");
     }
     Ok(())
 }
@@ -97,6 +97,6 @@ fn run() -> Result<(), String> {
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => { eprintln!("error: {}", e); ExitCode::FAILURE }
+        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
     }
 }

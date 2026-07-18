@@ -37,10 +37,10 @@ fn parse_args() -> Result<Args, String> {
     while i < argv.len() {
         match argv[i].as_str() {
             "--pdb-dir" => { i += 1; pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?); }
-            "--min-h" => { i += 1; min_h = argv.get(i).ok_or("--min-h needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-h: {}", e))?; }
+            "--min-h" => { i += 1; min_h = argv.get(i).ok_or("--min-h needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-h: {e}"))?; }
             "--in" => { i += 1; in_path = Some(PathBuf::from(argv.get(i).ok_or("--in needs a value")?)); }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -51,9 +51,9 @@ fn run() -> Result<(), String> {
     let args = parse_args()?;
 
     let p7 = ZPatternDb::load_mmap(&args.pdb_dir.join("zpdb15_p7.zbin"))
-        .map_err(|e| format!("zpdb15_p7: {}", e))?;
+        .map_err(|e| format!("zpdb15_p7: {e}"))?;
     let p8 = ZPatternDb::load_mmap(&args.pdb_dir.join("zpdb15_p8.zbin"))
-        .map_err(|e| format!("zpdb15_p8: {}", e))?;
+        .map_err(|e| format!("zpdb15_p8: {e}"))?;
     let zdbs = [p7, p8];
     let h_zpdb = AdditiveZpdbHeuristic::new(&zdbs);
     WalkingDistanceHeuristic::warm_up();
@@ -68,7 +68,7 @@ fn run() -> Result<(), String> {
                 .read_to_end(&mut input).map_err(|e| format!("{}: {}", p.display(), e))?;
         }
         None => {
-            io::stdin().read_to_end(&mut input).map_err(|e| format!("stdin: {}", e))?;
+            io::stdin().read_to_end(&mut input).map_err(|e| format!("stdin: {e}"))?;
         }
     }
     if input.len() % 6 != 0 {
@@ -92,16 +92,16 @@ fn run() -> Result<(), String> {
         let h_refl = h_zpdb.h(&sr).max(h_wd.h(&sr)).max(h_lc.h(&sr));
         let h_korf = h_direct.max(h_refl);
         if h_korf >= args.min_h {
-            out.write_all(chunk).map_err(|e| format!("stdout: {}", e))?;
+            out.write_all(chunk).map_err(|e| format!("stdout: {e}"))?;
             kept += 1;
         }
         tick += 1;
         if tick % 1_000_000 == 0 {
-            eprintln!("  processed {}/{} ({} kept)", tick, n, kept);
+            eprintln!("  processed {tick}/{n} ({kept} kept)");
         }
     }
-    out.flush().map_err(|e| format!("stdout flush: {}", e))?;
-    eprintln!("h_filter15: kept {} / {}", kept, n);
+    out.flush().map_err(|e| format!("stdout flush: {e}"))?;
+    eprintln!("h_filter15: kept {kept} / {n}");
     Ok(())
 }
 
@@ -112,6 +112,6 @@ fn main() -> ExitCode {
             eprintln!("usage: h_filter15 --pdb-dir DIR [--min-h N] [--in PATH] (stdin/stdout)");
             ExitCode::SUCCESS
         }
-        Err(e) => { eprintln!("error: {}", e); ExitCode::FAILURE }
+        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
     }
 }

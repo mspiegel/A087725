@@ -93,8 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mean_h = row.iter().map(|(h, c)| (*h as u64) * c).sum::<u64>() as f64 / n as f64;
         let mean_slack = (d as f64) - mean_h;
         let max_slack = d.saturating_sub(min_h);
-        println!("{:>5}  {:>12}  {:>5} {:>5}  {:>6.2}  {:>8.2}  {:>8}",
-                 d, n, min_h, max_h, mean_h, mean_slack, max_slack);
+        println!("{d:>5}  {n:>12}  {min_h:>5} {max_h:>5}  {mean_h:>6.2}  {mean_slack:>8.2}  {max_slack:>8}");
     }
 
     // Focused dump: for high-depth rows (≥75), show the full h-histogram so we
@@ -107,9 +106,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|((_, h), &c)| (*h, c))
             .collect();
         let n: u64 = row.iter().map(|(_, c)| c).sum();
-        print!("  d={:>2} (n={:>6}):", d, n);
+        print!("  d={d:>2} (n={n:>6}):");
         for (hv, c) in &row {
-            print!(" {}:{}", hv, c);
+            print!(" {hv}:{c}");
         }
         println!();
     }
@@ -128,18 +127,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     print!("{:>5}", "T");
     for (label, _) in &depth_tiers {
-        print!("  {:>10}", label);
+        print!("  {label:>10}");
     }
     println!();
     for t in (60u8..=80).rev() {
-        print!("  >={:>2}", t);
+        print!("  >={t:>2}");
         for (_, pred) in &depth_tiers {
             let count: u64 = hist
                 .iter()
                 .filter(|((d, hv), _)| *hv >= t && pred(*d))
                 .map(|(_, &c)| c)
                 .sum();
-            print!("  {:>10}", count);
+            print!("  {count:>10}");
         }
         println!();
     }

@@ -48,9 +48,9 @@ impl Pattern {
     pub fn new(tiles: &[u8]) -> Self {
         let mut bits = 0u16;
         for &t in tiles {
-            assert!((1..=8).contains(&t), "tile {} out of range 1..=8", t);
+            assert!((1..=8).contains(&t), "tile {t} out of range 1..=8");
             let mask = 1u16 << t;
-            assert_eq!(bits & mask, 0, "tile {} appears more than once", t);
+            assert_eq!(bits & mask, 0, "tile {t} appears more than once");
             bits |= mask;
         }
         Pattern(bits)
@@ -364,7 +364,7 @@ mod tests {
                 }
                 let r = n.rank(p);
                 assert!(r < p.num_projected_states(), "rank {} >= {}", r, p.num_projected_states());
-                assert!(ranks.insert(r), "duplicate rank {} for distinct states", r);
+                assert!(ranks.insert(r), "duplicate rank {r} for distinct states");
                 seen.insert(n.0, r);
                 q.push_back(n);
             }

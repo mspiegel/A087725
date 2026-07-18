@@ -34,7 +34,7 @@ pub const HEADER_BYTES: usize = 24;
 /// pattern.
 pub fn file_size_for(pattern: Pattern) -> u64 {
     let total = ZpdbLayout::new(pattern).total();
-    HEADER_BYTES as u64 + (total + 7) / 8
+    HEADER_BYTES as u64 + total.div_ceil(8)
 }
 
 enum Storage {
@@ -83,10 +83,10 @@ impl ZPatternDb {
         let layout = ZpdbLayout::new(pattern);
         assert_eq!(
             packed.len() as u64,
-            (layout.total() + 7) / 8,
+            layout.total().div_ceil(8),
             "packed length {} != (total + 7)/8 = {}",
             packed.len(),
-            (layout.total() + 7) / 8
+            layout.total().div_ceil(8)
         );
         Self { pattern, layout, storage: Storage::Owned(packed) }
     }
@@ -202,7 +202,7 @@ impl ZPatternDb {
                 expected: layout.total(),
             });
         }
-        let nbytes = ((total + 7) / 8) as usize;
+        let nbytes = total.div_ceil(8) as usize;
         let mut packed = vec![0u8; nbytes];
         f.read_exact(&mut packed)?;
         let mut tail = [0u8; 1];
@@ -229,7 +229,7 @@ impl ZPatternDb {
                 expected: layout.total(),
             });
         }
-        let expected = HEADER_BYTES as u64 + (total + 7) / 8;
+        let expected = HEADER_BYTES as u64 + total.div_ceil(8);
         if (map.len() as u64) != expected {
             return Err(LoadError::SizeMismatch {
                 got: map.len() as u64,
@@ -279,17 +279,17 @@ impl From<std::io::Error> for LoadError {
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoadError::Io(e) => write!(f, "I/O error: {}", e),
-            LoadError::BadMagic(m) => write!(f, "bad magic: {:?}, expected {:?}", m, MAGIC),
-            LoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {}", v),
+            LoadError::Io(e) => write!(f, "I/O error: {e}"),
+            LoadError::BadMagic(m) => write!(f, "bad magic: {m:?}, expected {MAGIC:?}"),
+            LoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {v}"),
             LoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             LoadError::TrailingBytes => write!(f, "file has trailing bytes after payload"),
-            LoadError::ShortFile { got } => write!(f, "file too short: {} bytes", got),
+            LoadError::ShortFile { got } => write!(f, "file too short: {got} bytes"),
             LoadError::SizeMismatch { got, expected } => {
-                write!(f, "file size {} != expected {}", got, expected)
+                write!(f, "file size {got} != expected {expected}")
             }
             LoadError::TotalMismatch { in_file, expected } => {
-                write!(f, "entry total mismatch: file {} vs layout {}", in_file, expected)
+                write!(f, "entry total mismatch: file {in_file} vs layout {expected}")
             }
         }
     }
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(actual, file_size_for(zdb.pattern()));
         assert_eq!(
             actual,
-            HEADER_BYTES as u64 + (zdb.layout().total() + 7) / 8
+            HEADER_BYTES as u64 + zdb.layout().total().div_ceil(8)
         );
         std::fs::remove_file(&path).ok();
     }
@@ -372,7 +372,7 @@ mod tests {
         drop(opt);
         match ZPatternDb::load(&path) {
             Err(LoadError::Io(_)) => {}
-            Err(e) => panic!("expected Io error on truncated file, got {:?}", e),
+            Err(e) => panic!("expected Io error on truncated file, got {e:?}"),
             Ok(_) => panic!("expected Io error on truncated file, got Ok"),
         }
         std::fs::remove_file(&path).ok();

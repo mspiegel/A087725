@@ -160,7 +160,7 @@ fn perturb(rng: &mut Rng, s: &State, k: u32) -> State {
     for _ in 0..k {
         let legal = cur.legal_moves();
         let choices: Vec<Move> =
-            legal.iter().filter(|&m| last.map_or(true, |l| m != l.inverse())).collect();
+            legal.iter().filter(|&m| last.is_none_or(|l| m != l.inverse())).collect();
         if choices.is_empty() {
             break;
         }
@@ -340,12 +340,12 @@ fn main() -> ExitCode {
             attempts += 1;
             if let Some(s) = construct_frame_with(&mut |n| rng.below(n)) {
                 if sc.wd.h(&s) >= min_seed_wd {
-                    seeds.push((format!("frame#{}", made), s));
+                    seeds.push((format!("frame#{made}"), s));
                     made += 1;
                 }
             }
         }
-        eprintln!("frame seeds: {} (>= WD {}), {} attempts", made, min_seed_wd, attempts);
+        eprintln!("frame seeds: {made} (>= WD {min_seed_wd}), {attempts} attempts");
     }
     // reseed files (catalog flywheel)
     for path in args_multi(&argv, "--reseed") {
@@ -355,16 +355,16 @@ fn main() -> ExitCode {
                 for (ln, line) in text.lines().enumerate() {
                     if let Some(s) = parse_board_line(line) {
                         if s.is_solvable() {
-                            seeds.push((format!("reseed:{}#{}", path, ln), s));
+                            seeds.push((format!("reseed:{path}#{ln}"), s));
                             n += 1;
                         } else {
                             eprintln!("warning: {}:{} not solvable, skipped", path, ln + 1);
                         }
                     }
                 }
-                eprintln!("reseed {}: {} boards", path, n);
+                eprintln!("reseed {path}: {n} boards");
             }
-            Err(e) => eprintln!("warning: cannot read --reseed {}: {}", path, e),
+            Err(e) => eprintln!("warning: cannot read --reseed {path}: {e}"),
         }
     }
 
@@ -446,7 +446,7 @@ fn main() -> ExitCode {
         let _ = writeln!(text, "{}", board_tokens(&c.board));
     }
     if let Err(e) = std::fs::write(&out, &text) {
-        eprintln!("write {}: {}", out, e);
+        eprintln!("write {out}: {e}");
         return ExitCode::FAILURE;
     }
 
@@ -474,7 +474,7 @@ fn main() -> ExitCode {
         n, out, scores[0], mean, scores[n - 1], mean_pair, min_dist
     );
     let frame_cnt = chosen.iter().filter(|c| c.lineage.contains("frame=1")).count();
-    eprintln!("  frame-conformant emitted: {}/{}", frame_cnt, n);
+    eprintln!("  frame-conformant emitted: {frame_cnt}/{n}");
     ExitCode::SUCCESS
 }
 

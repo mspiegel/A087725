@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(bf) = blank_filter {
             if unrank(r).blank_pos() != bf { continue; }
         }
-        println!("{}", r);
+        println!("{r}");
     }
     Ok(())
 }

@@ -154,8 +154,8 @@ fn build_table_from(goal_m: &WdMatrix, blank_idx: u8) -> WdTable {
                         m2[to][g] += 1;
                         let new_br = *br - 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -172,8 +172,8 @@ fn build_table_from(goal_m: &WdMatrix, blank_idx: u8) -> WdTable {
                         m2[to][g] += 1;
                         let new_br = *br + 1;
                         let key = pack(&m2, new_br);
-                        if !table.contains_key(&key) {
-                            table.insert(key, next_depth);
+                        if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                            e.insert(next_depth);
                             next.push((m2, new_br));
                         }
                     }
@@ -248,20 +248,20 @@ impl From<io::Error> for WdLoadError {
 impl std::fmt::Display for WdLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WdLoadError::Io(e) => write!(f, "I/O error: {}", e),
+            WdLoadError::Io(e) => write!(f, "I/O error: {e}"),
             WdLoadError::BadMagic(m) => {
-                write!(f, "bad magic: {:?}, expected {:?}", m, WD_TABLE_MAGIC)
+                write!(f, "bad magic: {m:?}, expected {WD_TABLE_MAGIC:?}")
             }
-            WdLoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {}", v),
+            WdLoadError::UnsupportedVersion(v) => write!(f, "unsupported version: {v}"),
             WdLoadError::KindMismatch { in_file, expected } => {
-                write!(f, "kind mismatch: file {} vs expected {}", in_file, expected)
+                write!(f, "kind mismatch: file {in_file} vs expected {expected}")
             }
             WdLoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             WdLoadError::EntryMismatch { in_file, expected } => {
-                write!(f, "entry count mismatch: file {} vs expected {}", in_file, expected)
+                write!(f, "entry count mismatch: file {in_file} vs expected {expected}")
             }
             WdLoadError::SizeMismatch { got, expected } => {
-                write!(f, "file size {} != expected {}", got, expected)
+                write!(f, "file size {got} != expected {expected}")
             }
             WdLoadError::AlreadyInitialized => {
                 write!(f, "WD table already initialized; warm_up_from must be called first")
@@ -453,7 +453,7 @@ impl WalkingDistanceHeuristic {
                 );
             }
             Some(WdTableSource::Built { entries }) => {
-                eprintln!("WD table: built {} entries via BFS in {:?}", entries, elapsed);
+                eprintln!("WD table: built {entries} entries via BFS in {elapsed:?}");
             }
             None => {}
         }
@@ -913,7 +913,7 @@ mod tests {
         let truth = bfs_distances(8);
         for (raw, &true_dist) in &truth {
             let est = WalkingDistanceHeuristic.h(&State(*raw));
-            assert!(est <= true_dist, "WD {} > truth {} for {:?}", est, true_dist, raw);
+            assert!(est <= true_dist, "WD {est} > truth {true_dist} for {raw:?}");
         }
     }
 
@@ -955,11 +955,11 @@ mod tests {
         WalkingDistanceHeuristic::warm_up();
         let truth = bfs_distances(9);
         let mut stats = SearchStats::default();
-        for (raw, _) in &truth {
+        for raw in truth.keys() {
             let s = State(*raw);
             let scratch = WalkingDistanceHeuristic.h(&s);
             let (inc, _) = IncHeuristic::root(&WalkingDistanceInc, &s, &mut stats);
-            assert_eq!(inc, scratch, "root mismatch for {:?}", raw);
+            assert_eq!(inc, scratch, "root mismatch for {raw:?}");
         }
     }
 
@@ -992,8 +992,7 @@ mod tests {
             assert_eq!(
                 h_adv,
                 WalkingDistanceHeuristic.h(&ns),
-                "advance vs scratch WD diverged at step {}",
-                step
+                "advance vs scratch WD diverged at step {step}"
             );
             s = ns;
             ctx = ctx_adv;
@@ -1008,7 +1007,7 @@ mod tests {
         const WD24_STATES: usize = 65_650_495;
         let n = WalkingDistanceHeuristic::table_size();
         assert_eq!(n, WD24_STATES, "WD table size drifted from the measured value");
-        println!("24-puzzle WD table size: {} states", n);
+        println!("24-puzzle WD table size: {n} states");
     }
 
     /// The make/unmake driver must expand the exact same nodes and return the
@@ -1092,7 +1091,7 @@ mod tests {
         let path = tmp_path("wd_kind.bin");
         save_dist_table(&path, TEST_KIND, &synthetic_table()).unwrap();
         let err = load_dist_table(&path, WD_KIND_FULL, None).unwrap_err();
-        assert!(matches!(err, WdLoadError::KindMismatch { .. }), "got {:?}", err);
+        assert!(matches!(err, WdLoadError::KindMismatch { .. }), "got {err:?}");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1103,7 +1102,7 @@ mod tests {
         save_dist_table(&path, TEST_KIND, &table).unwrap();
         let wrong = table.len() as u64 + 1;
         let err = load_dist_table(&path, TEST_KIND, Some(wrong)).unwrap_err();
-        assert!(matches!(err, WdLoadError::EntryMismatch { .. }), "got {:?}", err);
+        assert!(matches!(err, WdLoadError::EntryMismatch { .. }), "got {err:?}");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1116,7 +1115,7 @@ mod tests {
         bytes[0] ^= 0xFF;
         std::fs::write(&path, &bytes).unwrap();
         let err = load_dist_table(&path, TEST_KIND, None).unwrap_err();
-        assert!(matches!(err, WdLoadError::BadMagic(_)), "got {:?}", err);
+        assert!(matches!(err, WdLoadError::BadMagic(_)), "got {err:?}");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1129,7 +1128,7 @@ mod tests {
         bytes.pop();
         std::fs::write(&path, &bytes).unwrap();
         let err = load_dist_table(&path, TEST_KIND, None).unwrap_err();
-        assert!(matches!(err, WdLoadError::SizeMismatch { .. }), "got {:?}", err);
+        assert!(matches!(err, WdLoadError::SizeMismatch { .. }), "got {err:?}");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1211,7 +1210,7 @@ mod tests {
         let wd_to_r = WalkingDistanceTo::new(&r);
         for m in r.legal_moves().iter() {
             let n = r.apply(m);
-            assert_eq!(wd_to_r.h(&n), 1, "WD-to-R(R.apply({:?})) should be 1", m);
+            assert_eq!(wd_to_r.h(&n), 1, "WD-to-R(R.apply({m:?})) should be 1");
         }
     }
 
@@ -1228,7 +1227,7 @@ mod tests {
         let elapsed = t.elapsed();
         // The col table must be shared (blank at row 0 == col 0).
         assert!(wd_to_r.col_table.is_none(), "R should reuse one table for both axes");
-        println!("WalkingDistanceTo::new(&R) built in {:?}", elapsed);
-        assert!(elapsed.as_secs() < 60, "R WD build took too long: {:?}", elapsed);
+        println!("WalkingDistanceTo::new(&R) built in {elapsed:?}");
+        assert!(elapsed.as_secs() < 60, "R WD build took too long: {elapsed:?}");
     }
 }

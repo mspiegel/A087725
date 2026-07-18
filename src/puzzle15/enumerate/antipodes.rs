@@ -14,25 +14,25 @@ fn parse_board(line: &str) -> Result<State, String> {
     let mut count = 0usize;
     for tok in line.split_whitespace() {
         if count >= N_CELLS {
-            return Err(format!("more than {} tokens in {:?}", N_CELLS, line));
+            return Err(format!("more than {N_CELLS} tokens in {line:?}"));
         }
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {:?}: {}", tok, e))?
+            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v as usize >= N_CELLS {
-            return Err(format!("value {} out of range in {:?}", v, line));
+            return Err(format!("value {v} out of range in {line:?}"));
         }
         if seen[v as usize] {
-            return Err(format!("value {} repeats in {:?}", v, line));
+            return Err(format!("value {v} repeats in {line:?}"));
         }
         seen[v as usize] = true;
         cells[count] = v;
         count += 1;
     }
     if count != N_CELLS {
-        return Err(format!("expected {} tokens, got {} in {:?}", N_CELLS, count, line));
+        return Err(format!("expected {N_CELLS} tokens, got {count} in {line:?}"));
     }
     Ok(State(cells))
 }

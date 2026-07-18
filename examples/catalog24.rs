@@ -121,7 +121,7 @@ fn val_str(kind: &str, value: f64) -> String {
     match kind {
         "lb" | "ub" | "exact" => format!("{}", value as i64),
         "lineage" => "-".to_string(),
-        _ => format!("{:.1}", value),
+        _ => format!("{value:.1}"),
     }
 }
 
@@ -420,7 +420,7 @@ fn opt_i(x: Option<i64>) -> String {
     x.map(|v| v.to_string()).unwrap_or_else(|| "-".into())
 }
 fn opt_f(x: Option<f64>) -> String {
-    x.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "-".into())
+    x.map(|v| format!("{v:.1}")).unwrap_or_else(|| "-".into())
 }
 
 fn main() -> ExitCode {
@@ -476,7 +476,7 @@ fn main() -> ExitCode {
         };
         if is_new {
             writeln!(f, "# catalog24 append-only evidence log").ok();
-            writeln!(f, "{}", HEADER).ok();
+            writeln!(f, "{HEADER}").ok();
         }
         for e in &fresh {
             writeln!(f, "{}", e.to_line()).ok();
@@ -506,7 +506,7 @@ fn main() -> ExitCode {
         }
     }
     if bug > 0 {
-        eprintln!("WARNING: {} bracket inversions (best_ub < best_lb)", bug);
+        eprintln!("WARNING: {bug} bracket inversions (best_ub < best_lb)");
     }
 
     // Ranked view.
@@ -541,7 +541,7 @@ fn main() -> ExitCode {
     if let Some(path) = arg_opt(&argv, "--reseed-out") {
         let k: usize = arg(&argv, "--reseed-top", 15);
         let mut text = String::new();
-        let _ = writeln!(text, "# catalog24 reseed: top {} by proven LB (added {})", k, added);
+        let _ = writeln!(text, "# catalog24 reseed: top {k} by proven LB (added {added})");
         for (i, b) in brackets.iter().take(k).enumerate() {
             let _ = writeln!(
                 text,
@@ -551,7 +551,7 @@ fn main() -> ExitCode {
             let _ = writeln!(text, "{}", b.board);
         }
         if let Err(e) = std::fs::write(&path, &text) {
-            eprintln!("error writing {}: {}", path, e);
+            eprintln!("error writing {path}: {e}");
         } else {
             eprintln!("wrote {} reseed boards -> {}", brackets.len().min(k), path);
         }
@@ -578,8 +578,7 @@ fn main() -> ExitCode {
         let mut text = String::new();
         let _ = writeln!(
             text,
-            "# catalog24 escalate: top {} by (budget-limited, UB) with gap >= {} (added {})",
-            m, gap_min, added
+            "# catalog24 escalate: top {m} by (budget-limited, UB) with gap >= {gap_min} (added {added})"
         );
         for (i, b) in cands.iter().take(m).enumerate() {
             let _ = writeln!(
@@ -595,7 +594,7 @@ fn main() -> ExitCode {
             let _ = writeln!(text, "{}", b.board);
         }
         if let Err(e) = std::fs::write(&path, &text) {
-            eprintln!("error writing {}: {}", path, e);
+            eprintln!("error writing {path}: {e}");
         } else {
             eprintln!("wrote {} escalation boards -> {}", cands.len().min(m), path);
         }

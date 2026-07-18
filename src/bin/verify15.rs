@@ -44,7 +44,7 @@ struct Args {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --pdb-dir DIR [--antipodes FILE] [--samples N] [--depth D] [--seed S] [--cross-check]", prog);
+    eprintln!("usage: {prog} --pdb-dir DIR [--antipodes FILE] [--samples N] [--depth D] [--seed S] [--cross-check]");
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -66,7 +66,7 @@ fn parse_args() -> Result<Args, String> {
             "--seed" => { i += 1; seed = argv.get(i).ok_or("--seed needs a value")?.parse().map_err(|e: std::num::ParseIntError| e.to_string())?; }
             "--cross-check" => { cross_check = true; }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -78,18 +78,18 @@ fn parse_position(s: &str) -> Result<State, String> {
     let mut cells = [0u8; N_CELLS];
     let mut count = 0usize;
     for tok in s.split_whitespace() {
-        if count >= N_CELLS { return Err(format!("more than {} tokens", N_CELLS)); }
+        if count >= N_CELLS { return Err(format!("more than {N_CELLS} tokens")); }
         let v = if tok == "_" || tok == "." { 0 } else {
-            tok.parse::<u8>().map_err(|e| format!("token {:?}: {}", tok, e))?
+            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
         };
-        if v > 15 { return Err(format!("value {} out of range", v)); }
+        if v > 15 { return Err(format!("value {v} out of range")); }
         cells[count] = v;
         count += 1;
     }
-    if count != N_CELLS { return Err(format!("expected {} tokens, got {}", N_CELLS, count)); }
+    if count != N_CELLS { return Err(format!("expected {N_CELLS} tokens, got {count}")); }
     let mut seen = [false; N_CELLS];
     for &v in &cells {
-        if seen[v as usize] { return Err(format!("duplicate {}", v)); }
+        if seen[v as usize] { return Err(format!("duplicate {v}")); }
         seen[v as usize] = true;
     }
     Ok(State(cells))
@@ -201,7 +201,7 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
         debug_assert!(s.is_solvable());
 
         let t0 = Instant::now();
-        let sol = idastar(&s, &h_korf).ok_or_else(|| format!("sample {} unsolved", k))?;
+        let sol = idastar(&s, &h_korf).ok_or_else(|| format!("sample {k} unsolved"))?;
         let elapsed = t0.elapsed();
         let len = sol.len() as u8;
         if (len as u32) > args.depth {
@@ -215,7 +215,7 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
         let mut cur = s;
         for m in &sol { cur = cur.apply(*m); }
         if cur != GOAL {
-            println!("sample {:>4}: solution does not reach GOAL — FAIL", k);
+            println!("sample {k:>4}: solution does not reach GOAL — FAIL");
             all_pass = false;
             continue;
         }
@@ -223,7 +223,7 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
         if args.cross_check {
             // Cross-check against IDA*+Manhattan when feasible (depth ≤ 25 typically OK).
             let m_sol = idastar(&s, &ManhattanHeuristic)
-                .ok_or_else(|| format!("sample {} unsolved by Manhattan", k))?;
+                .ok_or_else(|| format!("sample {k} unsolved by Manhattan"))?;
             if (m_sol.len() as u8) != len {
                 println!("sample {:>4}: PDB={} != Manhattan={} — FAIL", k, len, m_sol.len());
                 all_pass = false;
@@ -250,7 +250,7 @@ fn main() -> ExitCode {
         Ok(a) => a,
         Err(e) => {
             if e == "help" { print_usage(&prog); return ExitCode::SUCCESS; }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -264,6 +264,6 @@ fn main() -> ExitCode {
 
     match result {
         Ok(()) => { println!("\nverification: PASS"); ExitCode::SUCCESS }
-        Err(e) => { eprintln!("\nverification: FAIL — {}", e); ExitCode::FAILURE }
+        Err(e) => { eprintln!("\nverification: FAIL — {e}"); ExitCode::FAILURE }
     }
 }

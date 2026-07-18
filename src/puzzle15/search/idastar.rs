@@ -431,7 +431,7 @@ mod tests {
             for m in &sol {
                 cur = cur.apply(*m);
             }
-            assert_eq!(cur, GOAL, "solution doesn't reach goal from {:?}", raw);
+            assert_eq!(cur, GOAL, "solution doesn't reach goal from {raw:?}");
         }
     }
 

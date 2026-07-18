@@ -29,8 +29,8 @@ fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         for s in &frontier {
             for m in s.legal_moves().iter() {
                 let s2 = s.apply(m);
-                if !dist.contains_key(&s2.0) {
-                    dist.insert(s2.0, nd);
+                if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(s2.0) {
+                    e.insert(nd);
                     next.push(s2);
                 }
             }
@@ -69,8 +69,8 @@ fn zpdb_plus_admissible_and_dominates_korf_plus() {
             .max(refl.h(&s))
             .max(LinearConflictHeuristic.h(&s))
             .max(WalkingDistanceHeuristic.h(&s));
-        assert!(hz >= korf_plus, "zpdb-plus {} < korf-plus {} for {:?}", hz, korf_plus, raw);
-        assert!(hz <= d, "zpdb-plus {} inadmissible (truth {}) for {:?}", hz, d, raw);
+        assert!(hz >= korf_plus, "zpdb-plus {hz} < korf-plus {korf_plus} for {raw:?}");
+        assert!(hz <= d, "zpdb-plus {hz} inadmissible (truth {d}) for {raw:?}");
     }
 }
 
@@ -88,7 +88,7 @@ fn zpdb_plus_solver_optimal_on_shallow_states() {
     for (raw, &d) in &truth {
         let s = State(*raw);
         let sol = idastar_inc(&s, &zplus).expect("solvable");
-        assert_eq!(sol.len() as u8, d, "zpdb-plus non-optimal for {:?}", raw);
+        assert_eq!(sol.len() as u8, d, "zpdb-plus non-optimal for {raw:?}");
         assert!(reaches_goal(&s, &sol));
     }
 
@@ -107,7 +107,7 @@ fn zpdb_plus_solver_optimal_on_shallow_states() {
             let opts: Vec<Move> = s
                 .legal_moves()
                 .iter()
-                .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+                .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
                 .collect();
             let m = opts[(next() as usize) % opts.len()];
             s = s.apply(m);

@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Mean intra-group Hamming for low-h:
     let intra_low = mean_off_diagonal(&hamming);
-    println!("Mean intra-group Hamming distance: {:.2}", intra_low);
+    println!("Mean intra-group Hamming distance: {intra_low:.2}");
 
     // === Outlier set #2: rarest blank cell (cell 10, expected 26 boards) ===
     // First find the rarest blank cell among d=78 boards.
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Outlier set 2: rarest blank cell ===");
     println!("blank distribution (sorted ascending):");
     for (cell, n) in &blank_counts {
-        println!("  cell {:>2}: {} boards", cell, n);
+        println!("  cell {cell:>2}: {n} boards");
     }
     let rare_blank: Vec<&Entry> = entries.iter().filter(|e| e.blank == rarest_blank).collect();
     println!("\n{} d=78 boards with blank at rarest cell {}:", rare_blank.len(), rarest_blank);
@@ -92,26 +92,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let hamming_rare = pairwise_hamming(&rare_blank);
     let intra_rare = mean_off_diagonal(&hamming_rare);
-    println!("Mean intra-group Hamming distance (blank={}): {:.2}", rarest_blank, intra_rare);
+    println!("Mean intra-group Hamming distance (blank={rarest_blank}): {intra_rare:.2}");
 
     // === Cross-group: do low_h boards overlap with rare_blank boards? ===
     let mut overlap = 0;
     for e in &low_h {
         if e.blank == rarest_blank { overlap += 1; }
     }
-    println!("\nOverlap (h={} AND blank={}): {} boards", min_h, rarest_blank, overlap);
+    println!("\nOverlap (h={min_h} AND blank={rarest_blank}): {overlap} boards");
 
     // === Baseline for context: pick a random sample of "typical" d=78 boards ===
     // (Use first 20 boards in cache iteration order — biased but cheap.)
     let baseline: Vec<&Entry> = entries.iter().take(20).collect();
     let hamming_base = pairwise_hamming(&baseline);
     let intra_base = mean_off_diagonal(&hamming_base);
-    println!("\nBaseline mean intra-group Hamming (20 arbitrary d=78 boards): {:.2}", intra_base);
+    println!("\nBaseline mean intra-group Hamming (20 arbitrary d=78 boards): {intra_base:.2}");
     println!("\n→ Low intra-group Hamming relative to baseline means outliers cluster structurally.");
 
     // === Cross-group distances ===
     let cross_low_rare = mean_cross(&low_h, &rare_blank);
-    println!("Mean Hamming distance from low-h group to rare-blank group: {:.2}", cross_low_rare);
+    println!("Mean Hamming distance from low-h group to rare-blank group: {cross_low_rare:.2}");
 
     println!("\ntotal elapsed {:.1?}", t0.elapsed());
     Ok(())
@@ -133,7 +133,7 @@ fn print_grids(group: &[&Entry]) {
             print!("    ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {:>2}", t); }
+                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
             }
             println!();
         }

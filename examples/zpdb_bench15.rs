@@ -104,7 +104,7 @@ fn main() {
     );
 
     let k = n_solves.min(antipode_ranks.len());
-    println!("\nidastar solve on {} antipodes (nodes / wall):", k);
+    println!("\nidastar solve on {k} antipodes (nodes / wall):");
     println!("  #        korf-plus                 zero-aware            speedup");
     let (mut kp_nodes, mut za_nodes, mut kp_t, mut za_t) = (0u64, 0u64, 0.0f64, 0.0f64);
     for &r in antipode_ranks.iter().take(k) {

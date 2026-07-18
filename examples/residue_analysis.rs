@@ -114,8 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mean_h = fs.iter().map(|f| f.h as f64).sum::<f64>() / n as f64;
         let bmax = fs.iter().filter(|f| f.above == 0).count();
         let nonmax = n - bmax;
-        println!("{:>5}  {:>9}  {:>5}  {:>5}  {:>6.2}  {:>10}  {:>10}",
-                 d, n, min_h, max_h, mean_h, bmax, nonmax);
+        println!("{d:>5}  {n:>9}  {min_h:>5}  {max_h:>5}  {mean_h:>6.2}  {bmax:>10}  {nonmax:>10}");
     }
 
     // Blank-cell distribution per depth, separately for Bellman-max candidates
@@ -133,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let nb: u32 = bmax.iter().sum();
         let no: u32 = other.iter().sum();
-        println!("  d={:>2} (max={:>6}, oth={:>6}):", d, nb, no);
+        println!("  d={d:>2} (max={nb:>6}, oth={no:>6}):");
         for row in 0..4 {
             print!("    bmax:");
             for col in 0..4 {
@@ -156,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for f in fs {
             tab[f.degree as usize][f.above as usize] += 1;
         }
-        println!("  d={:>2}:", d);
+        println!("  d={d:>2}:");
         println!("           above=0 above=1 above=2 above=3 above=4");
         for deg in 2..=4 {
             let row = &tab[deg];
@@ -178,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hs.sort();
         print!("  d={:>2} (n={}):", d, bmaxes.len());
         for (hv, c) in hs {
-            print!(" h{}={}", hv, c);
+            print!(" h{hv}={c}");
         }
         println!();
     }
@@ -192,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("  rank {} blank@{} deg={} h={} above={} below={}: ",
                f.rank, f.blank, f.degree, f.h, f.above, f.below);
         for (i, &t) in s.0.iter().enumerate() {
-            if t == 0 { print!("__"); } else { print!("{:>2}", t); }
+            if t == 0 { print!("__"); } else { print!("{t:>2}"); }
             if i % 4 == 3 { print!(" "); } else { print!(","); }
         }
         println!();

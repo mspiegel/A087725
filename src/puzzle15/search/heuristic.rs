@@ -16,7 +16,7 @@ pub trait Heuristic {
 /// Blanket implementation: any reference to a [`Heuristic`] is also a
 /// [`Heuristic`]. Lets us pass borrowed PDBs to combinators like
 /// `MaxHeuristic` without taking ownership.
-impl<'a, H: Heuristic + ?Sized> Heuristic for &'a H {
+impl<H: Heuristic + ?Sized> Heuristic for &H {
     #[inline]
     fn h(&self, s: &State) -> u8 {
         (**self).h(s)
@@ -75,7 +75,7 @@ mod tests {
                     let after = s.apply(m);
                     let h_after = ManhattanHeuristic.h(&after);
                     let diff = (h_after as i16) - (h_before as i16);
-                    assert!(diff == 1 || diff == -1, "Δh = {} not ±1", diff);
+                    assert!(diff == 1 || diff == -1, "Δh = {diff} not ±1");
                     s = after;
                     break;
                 }
@@ -90,7 +90,7 @@ mod tests {
         let table = crate::puzzle15::search::tests_util::bfs_distances(10);
         for (state, &truth) in &table {
             let est = ManhattanHeuristic.h(&State(*state));
-            assert!(est <= truth, "h({:?}) = {} > true {}", state, est, truth);
+            assert!(est <= truth, "h({state:?}) = {est} > true {truth}");
         }
     }
 }

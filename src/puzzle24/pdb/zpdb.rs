@@ -440,7 +440,7 @@ impl ZpdbLayout {
     /// knows `sr` from cohort iteration and would otherwise pay the search per
     /// (re-)expanded node.
     pub fn unrank_in_cohort(&self, sr: usize, pr: u64, region: u8) -> ProjectedState {
-        debug_assert!(sr < self.counts.len(), "shape rank {} out of range", sr);
+        debug_assert!(sr < self.counts.len(), "shape rank {sr} out of range");
 
         // 2. Combinadic unrank of the shape `sr` → k ascending occupied cells.
         let mut occ_cells = [0u8; 8];
@@ -450,7 +450,7 @@ impl ZpdbLayout {
             while binom(c + 1, i + 1) <= rem_sr {
                 c += 1;
             }
-            debug_assert!(c < N_CELLS, "combinadic cell {} out of range", c);
+            debug_assert!(c < N_CELLS, "combinadic cell {c} out of range");
             occ_cells[i] = c as u8;
             rem_sr -= binom(c, i + 1);
         }
@@ -557,7 +557,7 @@ mod tests {
                     let proj = make_proj(pattern, &placement, b);
                     let r = layout.rank(&proj, pattern);
                     assert!(r < layout.total(), "rank {} >= total {}", r, layout.total());
-                    assert!(seen.insert(r), "duplicate rank {}", r);
+                    assert!(seen.insert(r), "duplicate rank {r}");
                 }
             }
         });
@@ -615,7 +615,7 @@ mod tests {
         for k in 1..=7u8 {
             let items: Vec<u8> = (0..k).collect();
             for p in permutations(&items) {
-                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {:?}", p);
+                assert_eq!(perm_rank(&p), reference(&p), "perm_rank diverged on {p:?}");
             }
         }
     }
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn full_occupancy_is_zero_regions() {
-        let occ = ((1u32 << N_CELLS) - 1) & !0; // all 25 cells
+        let occ = ((1u32 << N_CELLS) - 1); // all 25 cells
         let (n, label) = regions(occ);
         assert_eq!(n, 0);
         assert!(label.iter().all(|&l| l == OCCUPIED));
@@ -710,7 +710,7 @@ mod tests {
         assert_eq!(720 * total_regions, 181_008_000);
         // Average 1.42 (paper).
         let avg = total_regions as f64 / shapes as f64;
-        assert!((avg - 1.42).abs() < 0.005, "avg regions {} not ≈ 1.42", avg);
+        assert!((avg - 1.42).abs() < 0.005, "avg regions {avg} not ≈ 1.42");
     }
 
     #[test]
@@ -738,9 +738,9 @@ mod tests {
         // 7! · 806_876 == 4,066,655,040 — fits u32 (< 4,294,967,296) and matches
         // the corrected docs/zpdb-codec-spec.md Table 1 entry.
         assert_eq!(5040 * total_regions, 4_066_655_040);
-        assert!(max_regions <= 8, "max zero-tile regions {} implausible for k=7", max_regions);
+        assert!(max_regions <= 8, "max zero-tile regions {max_regions} implausible for k=7");
         let avg = total_regions as f64 / shapes as f64;
-        assert!((avg - 1.68).abs() < 0.01, "avg regions {} not ≈ 1.68", avg);
+        assert!((avg - 1.68).abs() < 0.01, "avg regions {avg} not ≈ 1.68");
     }
 
     /// The k=7 `(m,p,r)` rank lands in `[0, total())` and is injective — checked
@@ -787,7 +787,7 @@ mod tests {
             let sig = (placement, region);
 
             if let Some(prev) = seen.get(&r) {
-                assert_eq!(*prev, sig, "rank {} collides on distinct (m,p,r)", r);
+                assert_eq!(*prev, sig, "rank {r} collides on distinct (m,p,r)");
             } else {
                 seen.insert(r, sig);
             }
@@ -822,7 +822,7 @@ mod tests {
         let mut x = 0u64;
         while x < total {
             let proj = layout.unrank_representative(x);
-            assert_eq!(layout.rank(&proj, pattern), x, "k=7 round-trip failed at {}", x);
+            assert_eq!(layout.rank(&proj, pattern), x, "k=7 round-trip failed at {x}");
             x += step;
         }
         for x in [total - 1, total - 2, total - 3] {

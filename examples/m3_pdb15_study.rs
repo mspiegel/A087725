@@ -116,7 +116,7 @@ fn benchmark<H: Heuristic>(name: &str, bytes_stored: usize, h: &H, samples: &[St
         total_ns += t.elapsed().as_nanos() as u64;
         total_calls += counting.count();
         let len = sol.len() as u8;
-        let err = if len > truth[idx] { len - truth[idx] } else { truth[idx] - len };
+        let err = len.abs_diff(truth[idx]);
         if err > max_err { max_err = err; }
     }
     Report {
@@ -139,7 +139,7 @@ fn main() {
         .map(|k| random_scramble(SEED_BASE.wrapping_add(k as u64), WALK_DEPTH))
         .collect();
 
-    println!("Computing ground-truth distances via IDA*+Manhattan (admissible) — depth ≤ {}.", WALK_DEPTH);
+    println!("Computing ground-truth distances via IDA*+Manhattan (admissible) — depth ≤ {WALK_DEPTH}.");
     let t = Instant::now();
     let truth: Vec<u8> = samples.iter()
         .map(|s| idastar(s, &ManhattanHeuristic).expect("manhattan solves").len() as u8)

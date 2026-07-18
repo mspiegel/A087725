@@ -91,14 +91,14 @@ fn sweep(label_prefix: &str, data: &[u8]) -> Vec<Result> {
     let mut out = Vec::new();
 
     out.push(Result {
-        label: format!("{}: raw", label_prefix),
+        label: format!("{label_prefix}: raw"),
         bytes: data.len(),
     });
 
     let h_bits = shannon_entropy_bits_per_byte(data);
     let h_bytes = ((h_bits * data.len() as f64) / 8.0).ceil() as usize;
     out.push(Result {
-        label: format!("{}: Shannon entropy floor", label_prefix),
+        label: format!("{label_prefix}: Shannon entropy floor"),
         bytes: h_bytes,
     });
 
@@ -117,14 +117,13 @@ fn sweep(label_prefix: &str, data: &[u8]) -> Vec<Result> {
             Some(size) => {
                 let _dt = t0.elapsed();
                 out.push(Result {
-                    label: format!("{}: {}", label_prefix, label),
+                    label: format!("{label_prefix}: {label}"),
                     bytes: size,
                 });
             }
             None => {
                 eprintln!(
-                    "  (skipping {}: command unavailable or returned non-zero)",
-                    cmd
+                    "  (skipping {cmd}: command unavailable or returned non-zero)"
                 );
             }
         }
@@ -154,7 +153,7 @@ fn main() {
     println!();
 
     println!("== Direction #7: Kolmogorov-complexity floor ==");
-    println!("Two variants of the same {}-byte payload:", n);
+    println!("Two variants of the same {n}-byte payload:");
     println!("  raw  - distance bytes in rank order (the canonical layout)");
     println!("  gap  - distance(s) - Manhattan(s) per rank (heuristic-gap encoding)");
     println!();

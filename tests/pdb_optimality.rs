@@ -54,7 +54,7 @@ fn assert_optimal_on_sample<H: Heuristic>(
         assert_eq!(len, truth, "{}: IDA* gave {} for {:?}, truth = {}", label, len, s.0, truth);
         checked += 1;
     }
-    assert!(checked > 100, "sample too small for {}: {} states", label, checked);
+    assert!(checked > 100, "sample too small for {label}: {checked} states");
 }
 
 #[test]

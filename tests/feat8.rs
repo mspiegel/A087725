@@ -73,7 +73,7 @@ fn distance_field_matches_table() {
     let records = build_records(&t);
     for r in 0..N_STATES {
         assert_eq!(records[r as usize][10], t.dist_of_rank(r),
-            "rank {}: feat8 distance doesn't match table", r);
+            "rank {r}: feat8 distance doesn't match table");
     }
 }
 
@@ -84,7 +84,7 @@ fn board_field_matches_unrank() {
     for r in 0..N_STATES {
         let s = unrank(r);
         assert_eq!(&records[r as usize][0..9], &s.0,
-            "rank {}: feat8 board doesn't match unrank({})", r, r);
+            "rank {r}: feat8 board doesn't match unrank({r})");
     }
 }
 
@@ -134,7 +134,7 @@ fn correct_tile_mask_matches_board_placements() {
             let bit = (rec[14] >> (t - 1)) & 1;
             let at_goal = board[(t - 1) as usize] == t;
             assert_eq!(bit == 1, at_goal,
-                "rank {}: tile {} bit={} but at_goal={}", r, t, bit, at_goal);
+                "rank {r}: tile {t} bit={bit} but at_goal={at_goal}");
         }
     }
 }
@@ -146,7 +146,7 @@ fn num_optimal_moves_matches_table() {
     for r in 0..N_STATES {
         let s = unrank(r);
         assert_eq!(records[r as usize][15], t.optimal_moves(&s).len() as u8,
-            "rank {}: num_optimal_moves disagrees with table", r);
+            "rank {r}: num_optimal_moves disagrees with table");
     }
 }
 
@@ -157,7 +157,7 @@ fn reflected_canonical_rank_le_r() {
         let rec = &records[r as usize];
         let canonical = u32::from_le_bytes(rec[20..24].try_into().unwrap());
         assert!(canonical <= r,
-            "rank {}: reflected_canonical_rank {} > r", r, canonical);
+            "rank {r}: reflected_canonical_rank {canonical} > r");
     }
 }
 
@@ -169,9 +169,9 @@ fn self_symmetric_flag_iff_state_equals_its_reflection() {
         let s = unrank(r);
         let is_self = reflect(&s) == s;
         let flag = rec[16];
-        assert!(flag == 0 || flag == 1, "rank {}: self_symmetric_flag must be 0 or 1", r);
+        assert!(flag == 0 || flag == 1, "rank {r}: self_symmetric_flag must be 0 or 1");
         assert_eq!(flag == 1, is_self,
-            "rank {}: flag={} but reflect==self? {}", r, flag, is_self);
+            "rank {r}: flag={flag} but reflect==self? {is_self}");
     }
 }
 
@@ -197,7 +197,7 @@ fn cross_consistency_with_pol8_optimal_move_count() {
         let s = unrank(r);
         let mask = t.optimal_moves(&s).0;
         assert_eq!(records[r as usize][15], mask.count_ones() as u8,
-            "rank {}: num_optimal_moves != popcount(pol8 mask)", r);
+            "rank {r}: num_optimal_moves != popcount(pol8 mask)");
     }
 }
 

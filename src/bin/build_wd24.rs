@@ -55,7 +55,7 @@ fn parse_args() -> Result<Args, String> {
                 write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
             }
             "-h" | "--help" => return Err("help".into()),
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -69,7 +69,7 @@ fn parse_args() -> Result<Args, String> {
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
-    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn main() -> ExitCode {
@@ -77,7 +77,7 @@ fn main() -> ExitCode {
         Ok(a) => a,
         Err(msg) => {
             if msg != "help" {
-                eprintln!("error: {}", msg);
+                eprintln!("error: {msg}");
             }
             eprintln!(
                 "usage: build_wd24 --out data/wd24.bin \
@@ -124,7 +124,7 @@ fn main() -> ExitCode {
 
     let file_bytes = std::fs::read(&args.out).expect("read just-written file");
     let sha = sha256_hex(&file_bytes);
-    println!("SHA-256 : {}", sha);
+    println!("SHA-256 : {sha}");
     println!("Bytes   : {}", file_bytes.len());
 
     if let Some(verify_path) = &args.verify_sha {
@@ -135,13 +135,13 @@ fn main() -> ExitCode {
                 std::process::exit(1);
             });
         if expected != sha {
-            eprintln!("error: SHA-256 mismatch\n  expected: {}\n  computed: {}", expected, sha);
+            eprintln!("error: SHA-256 mismatch\n  expected: {expected}\n  computed: {sha}");
             return ExitCode::FAILURE;
         }
         println!("SHA-256 matches pinned {}", verify_path.display());
     }
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{}\n", sha)).expect("writing SHA file");
+        std::fs::write(write_path, format!("{sha}\n")).expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }
 

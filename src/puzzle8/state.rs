@@ -128,19 +128,19 @@ impl State {
         let bc = b % 3;
         let (nr, nc) = match m {
             Move::Up => {
-                assert!(br > 0, "illegal Up from blank at {}", b);
+                assert!(br > 0, "illegal Up from blank at {b}");
                 (br - 1, bc)
             }
             Move::Down => {
-                assert!(br < 2, "illegal Down from blank at {}", b);
+                assert!(br < 2, "illegal Down from blank at {b}");
                 (br + 1, bc)
             }
             Move::Left => {
-                assert!(bc > 0, "illegal Left from blank at {}", b);
+                assert!(bc > 0, "illegal Left from blank at {b}");
                 (br, bc - 1)
             }
             Move::Right => {
-                assert!(bc < 2, "illegal Right from blank at {}", b);
+                assert!(bc < 2, "illegal Right from blank at {b}");
                 (br, bc + 1)
             }
         };
@@ -218,7 +218,7 @@ mod tests {
         for m in path {
             assert!(s.legal_moves().contains(m));
             s = s.apply(m);
-            assert!(s.is_solvable(), "unsolvable after apply: {:?}", s);
+            assert!(s.is_solvable(), "unsolvable after apply: {s:?}");
         }
     }
 

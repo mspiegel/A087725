@@ -33,5 +33,5 @@ fn idastar_manhattan_matches_table_distance_on_full_state_space() {
             assert_eq!(cur, GOAL, "solution does not reach GOAL from {:?}", s.0);
         }
     }
-    assert_eq!(mismatches, 0, "{} states had non-optimal IDA*+Manhattan solutions", mismatches);
+    assert_eq!(mismatches, 0, "{mismatches} states had non-optimal IDA*+Manhattan solutions");
 }

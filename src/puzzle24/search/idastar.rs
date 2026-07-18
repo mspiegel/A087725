@@ -1245,7 +1245,7 @@ mod tests {
         for _ in 0..steps {
             let mut legal: Vec<Move> = Vec::new();
             for m in State::legal_moves_at(blank).iter() {
-                if last.map_or(true, |p| m != p.inverse()) {
+                if last.is_none_or(|p| m != p.inverse()) {
                     legal.push(m);
                 }
             }
@@ -1346,8 +1346,7 @@ mod tests {
         assert_eq!(o_off, o_on, "orbit-split changed the lower-bound outcome");
         assert!(
             matches!(o_on, LadderOutcome::ProvedAtLeast(_)),
-            "expected a path-free ProvedAtLeast, got {:?}",
-            o_on
+            "expected a path-free ProvedAtLeast, got {o_on:?}"
         );
         assert!(
             s_on.nodes < s_off.nodes,
@@ -1371,7 +1370,7 @@ mod tests {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
             }
-            (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
+            (a, b) => panic!("expected both Solved, got {a:?} / {b:?}"),
         }
     }
 
@@ -1448,7 +1447,7 @@ mod tests {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
             }
-            (a, b) => panic!("expected both Solved, got {:?} / {:?}", a, b),
+            (a, b) => panic!("expected both Solved, got {a:?} / {b:?}"),
         }
     }
 
@@ -1471,7 +1470,7 @@ mod tests {
                 let legal: Vec<Move> = s
                     .legal_moves()
                     .iter()
-                    .filter(|&m| last.map_or(true, |p| m != p.inverse()))
+                    .filter(|&m| last.is_none_or(|p| m != p.inverse()))
                     .collect();
                 x ^= x >> 12;
                 x ^= x << 25;
@@ -1567,12 +1566,12 @@ mod tests {
         for (raw, &truth) in &table {
             let s = State(*raw);
             let sol = idastar(&s, &ManhattanHeuristic).expect("solver should solve");
-            assert_eq!(sol.len() as u8, truth, "non-optimal for {:?}", raw);
+            assert_eq!(sol.len() as u8, truth, "non-optimal for {raw:?}");
             let mut cur = s;
             for m in &sol {
                 cur = cur.apply(*m);
             }
-            assert_eq!(cur, GOAL, "solution doesn't reach goal from {:?}", raw);
+            assert_eq!(cur, GOAL, "solution doesn't reach goal from {raw:?}");
         }
     }
 
@@ -1593,7 +1592,7 @@ mod tests {
             let opts: Vec<Move> = s
                 .legal_moves()
                 .iter()
-                .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+                .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
                 .collect();
             let m = opts[(next() as usize) % opts.len()];
             s = s.apply(m);
@@ -1618,7 +1617,7 @@ mod tests {
         for (raw, &truth) in table.iter().take(2000) {
             let s = State(*raw);
             let sol = idastar_inc(&s, &manh).expect("inc solver should solve");
-            assert_eq!(sol.len() as u8, truth, "inc non-optimal for {:?}", raw);
+            assert_eq!(sol.len() as u8, truth, "inc non-optimal for {raw:?}");
         }
     }
 
@@ -1635,14 +1634,14 @@ mod tests {
             let (outcome, _) = idastar_inc_bounded_with_stats(&s, &IncManhattan, truth);
             match outcome {
                 BoundedOutcome::Solved(sol) => {
-                    assert_eq!(sol.len() as u8, truth, "non-optimal for {:?}", raw);
+                    assert_eq!(sol.len() as u8, truth, "non-optimal for {raw:?}");
                     let mut cur = s;
                     for m in &sol {
                         cur = cur.apply(*m);
                     }
-                    assert_eq!(cur, GOAL, "solution doesn't reach goal from {:?}", raw);
+                    assert_eq!(cur, GOAL, "solution doesn't reach goal from {raw:?}");
                 }
-                other => panic!("expected Solved at max_bound==depth, got {:?} for {:?}", other, raw),
+                other => panic!("expected Solved at max_bound==depth, got {other:?} for {raw:?}"),
             }
         }
     }
@@ -1661,9 +1660,7 @@ mod tests {
             assert_eq!(
                 outcome,
                 BoundedOutcome::ProvedAtLeast(truth),
-                "expected ProvedAtLeast({}) for {:?}",
-                truth,
-                raw
+                "expected ProvedAtLeast({truth}) for {raw:?}"
             );
         }
     }
@@ -1698,7 +1695,7 @@ mod tests {
             let (outcome, _) = idastar_inc_bounded_with_stats(&s, &IncManhattan, 200);
             match outcome {
                 BoundedOutcome::Solved(sol) => assert_eq!(sol.len() as u8, truth),
-                other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+                other => panic!("expected Solved for {raw:?}, got {other:?}"),
             }
         }
     }
@@ -1711,8 +1708,8 @@ mod tests {
             let s = State(*raw);
             let (outcome, _) = idastar_inc_ladder(&s, &IncManhattan, u8::MAX, None);
             match outcome {
-                LadderOutcome::Solved(sol) => assert_eq!(sol.len() as u8, truth, "for {:?}", raw),
-                other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+                LadderOutcome::Solved(sol) => assert_eq!(sol.len() as u8, truth, "for {raw:?}"),
+                other => panic!("expected Solved for {raw:?}, got {other:?}"),
             }
         }
     }
@@ -1727,7 +1724,7 @@ mod tests {
             }
             let s = State(*raw);
             let (outcome, _) = idastar_inc_ladder(&s, &IncManhattan, truth - 1, None);
-            assert_eq!(outcome, LadderOutcome::ProvedAtLeast(truth), "for {:?}", raw);
+            assert_eq!(outcome, LadderOutcome::ProvedAtLeast(truth), "for {raw:?}");
         }
     }
 
@@ -1743,8 +1740,8 @@ mod tests {
         let past = std::time::Instant::now() - std::time::Duration::from_millis(1);
         let (outcome, _) = idastar_inc_ladder(&r, &IncManhattan, u8::MAX, Some(past));
         match outcome {
-            LadderOutcome::TimedOut(k) => assert!(k >= h0, "timeout LB {} < root h {}", k, h0),
-            other => panic!("expected TimedOut, got {:?}", other),
+            LadderOutcome::TimedOut(k) => assert!(k >= h0, "timeout LB {k} < root h {h0}"),
+            other => panic!("expected TimedOut, got {other:?}"),
         }
     }
 
@@ -1761,10 +1758,10 @@ mod tests {
         // Telemetry fires only on failed iterations; thresholds are strictly
         // increasing and all strictly below the final (solving) threshold.
         for w in thresholds.windows(2) {
-            assert!(w[0] < w[1], "thresholds not increasing: {:?}", thresholds);
+            assert!(w[0] < w[1], "thresholds not increasing: {thresholds:?}");
         }
         for &t in &thresholds {
-            assert!(t < truth, "telemetry fired at solving threshold {} (depth {})", t, truth);
+            assert!(t < truth, "telemetry fired at solving threshold {t} (depth {truth})");
         }
     }
 
@@ -1782,23 +1779,23 @@ mod tests {
             let (par, _) = idastar_inc_bounded_parallel(&s, &IncManhattan, u8::MAX, None);
             let par_sol = match &par {
                 LadderOutcome::Solved(sol) => {
-                    assert_eq!(sol.len() as u8, truth, "parallel non-optimal for {:?}", raw);
+                    assert_eq!(sol.len() as u8, truth, "parallel non-optimal for {raw:?}");
                     let mut cur = s;
                     for m in sol {
                         cur = cur.apply(*m);
                     }
-                    assert_eq!(cur, GOAL, "parallel path doesn't reach GOAL for {:?}", raw);
+                    assert_eq!(cur, GOAL, "parallel path doesn't reach GOAL for {raw:?}");
                     sol.clone()
                 }
-                other => panic!("expected Solved for {:?}, got {:?}", raw, other),
+                other => panic!("expected Solved for {raw:?}, got {other:?}"),
             };
             // Same optimal length as the sequential ladder driver.
             let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, u8::MAX, None);
             match seq {
                 LadderOutcome::Solved(a) => {
-                    assert_eq!(a.len(), par_sol.len(), "parallel vs sequential length mismatch for {:?}", raw);
+                    assert_eq!(a.len(), par_sol.len(), "parallel vs sequential length mismatch for {raw:?}");
                 }
-                other => panic!("expected sequential Solved, got {:?}", other),
+                other => panic!("expected sequential Solved, got {other:?}"),
             }
         }
     }
@@ -1816,9 +1813,9 @@ mod tests {
             // max_bound = depth-1: parallel must prove depth >= truth, matching
             // the sequential ladder exactly.
             let (par, _) = idastar_inc_bounded_parallel(&s, &IncManhattan, truth - 1, None);
-            assert_eq!(par, LadderOutcome::ProvedAtLeast(truth), "parallel LB wrong for {:?}", raw);
+            assert_eq!(par, LadderOutcome::ProvedAtLeast(truth), "parallel LB wrong for {raw:?}");
             let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, truth - 1, None);
-            assert_eq!(seq, par, "parallel vs sequential LB mismatch for {:?}", raw);
+            assert_eq!(seq, par, "parallel vs sequential LB mismatch for {raw:?}");
         }
     }
 

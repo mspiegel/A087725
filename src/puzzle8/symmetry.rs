@@ -78,7 +78,7 @@ mod tests {
     fn tau_is_a_permutation_of_0_to_8() {
         let mut seen = [false; 9];
         for &t in &TAU {
-            assert!(!seen[t as usize], "TAU repeats {}", t);
+            assert!(!seen[t as usize], "TAU repeats {t}");
             seen[t as usize] = true;
         }
     }
@@ -171,6 +171,6 @@ mod tests {
         // 2*n - (self-symmetric count) == N_STATES. n must be between
         // N/2 and N/2 + small.
         assert!(n >= N_STATES / 2);
-        assert!(n <= N_STATES / 2 + 1000, "too many orbits: {}", n);
+        assert!(n <= N_STATES / 2 + 1000, "too many orbits: {n}");
     }
 }

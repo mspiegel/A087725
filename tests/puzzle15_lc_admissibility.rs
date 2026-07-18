@@ -20,8 +20,8 @@ fn bfs_distances(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
         }
         for m in s.legal_moves().iter() {
             let n = s.apply(m);
-            if !dist.contains_key(&n.0) {
-                dist.insert(n.0, d + 1);
+            if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(n.0) {
+                e.insert(d + 1);
                 frontier.push_back(n);
             }
         }
@@ -39,17 +39,11 @@ fn lc_is_admissible_and_dominates_manhattan_on_shallow_bfs() {
         let est_md = md.h(&State(*raw));
         assert!(
             est_lc <= true_dist,
-            "LC({:?}) = {} > truth = {}",
-            raw,
-            est_lc,
-            true_dist
+            "LC({raw:?}) = {est_lc} > truth = {true_dist}"
         );
         assert!(
             est_lc >= est_md,
-            "LC({:?}) = {} < MD = {} (LC should never loosen MD)",
-            raw,
-            est_lc,
-            est_md
+            "LC({raw:?}) = {est_lc} < MD = {est_md} (LC should never loosen MD)"
         );
     }
 }

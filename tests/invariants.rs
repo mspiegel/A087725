@@ -65,7 +65,7 @@ fn distance_histogram_matches_published() {
     let hist = t.histogram();
     assert_eq!(hist.len(), EXPECTED.len());
     for (d, (&got, &want)) in hist.iter().zip(EXPECTED.iter()).enumerate() {
-        assert_eq!(got, want, "histogram mismatch at d={}: got {}, want {}", d, got, want);
+        assert_eq!(got, want, "histogram mismatch at d={d}: got {got}, want {want}");
     }
     let total: u32 = hist.iter().sum();
     assert_eq!(total, N_STATES);
@@ -81,6 +81,6 @@ fn antipodes_share_odd_tile_skeleton() {
     for tile in [1u8, 3, 5, 7] {
         let p1 = a1.0.iter().position(|&t| t == tile).unwrap();
         let p2 = a2.0.iter().position(|&t| t == tile).unwrap();
-        assert_eq!(p1, p2, "tile {} differs: a1 at {}, a2 at {}", tile, p1, p2);
+        assert_eq!(p1, p2, "tile {tile} differs: a1 at {p1}, a2 at {p2}");
     }
 }

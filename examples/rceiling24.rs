@@ -56,7 +56,7 @@ fn random_walk(seed: u64, len: u32) -> State {
         let opts: Vec<Move> = s
             .legal_moves()
             .iter()
-            .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+            .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
             .collect();
         let m = opts[(next() as usize) % opts.len()];
         s = s.apply(m);
@@ -92,13 +92,13 @@ fn check_partition(name: &str, p: &[[u8; 6]; 4]) {
     let mut seen = [false; 25];
     for block in p {
         for &t in block {
-            assert!((1..=24).contains(&t), "{}: tile {} out of range", name, t);
-            assert!(!seen[t as usize], "{}: tile {} repeats", name, t);
+            assert!((1..=24).contains(&t), "{name}: tile {t} out of range");
+            assert!(!seen[t as usize], "{name}: tile {t} repeats");
             seen[t as usize] = true;
         }
     }
     for (t, &s) in seen.iter().enumerate().take(25).skip(1) {
-        assert!(s, "{}: tile {} missing", name, t);
+        assert!(s, "{name}: tile {t} missing");
     }
 }
 
@@ -132,7 +132,7 @@ fn main() {
     ];
     for len in [200u32, 300, 400] {
         let s = random_walk(0x24_C0FFEE_0000 ^ (len as u64), len);
-        boards.push((format!("walk{}", len), s));
+        boards.push((format!("walk{len}"), s));
     }
 
     // Reference (non-PDB) heuristics. WD on R is the number to beat (≈140).
@@ -148,7 +148,7 @@ fn main() {
         ("spatial".into(), [[1, 2, 6, 7, 11, 12], [3, 4, 5, 8, 9, 10], [13, 14, 15, 16, 17, 18], [19, 20, 21, 22, 23, 24]]),
     ];
     for seed in 0..5u64 {
-        partitions.push((format!("rnd{}", seed), random_partition(0x9E3779B97F4A7C15u64.wrapping_mul(seed + 1))));
+        partitions.push((format!("rnd{seed}"), random_partition(0x9E3779B97F4A7C15u64.wrapping_mul(seed + 1))));
     }
 
     // h[partition][board].
@@ -204,7 +204,7 @@ fn main() {
 
     println!("\n=== VERDICT (R) ===");
     println!("  WD(R)               = {}", wd[0]);
-    println!("  best k6 zpdb(R)     = {}  (partition: {})", r_zpdb_max, r_best);
+    println!("  best k6 zpdb(R)     = {r_zpdb_max}  (partition: {r_best})");
     println!("  bounded-LB frontier = 144 (WD, 120s; data/ladder24_calibration.txt)");
     if r_zpdb_max > wd[0] {
         println!(

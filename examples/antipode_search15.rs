@@ -87,7 +87,7 @@ fn main() {
     );
     let verify = |r: u64| -> u8 { idastar(&unrank(r), &h).map(|v| v.len() as u8).unwrap_or(u8::MAX) };
 
-    println!("anchor-guided search: budget {} solves, expand floor {}", budget, floor);
+    println!("anchor-guided search: budget {budget} solves, expand floor {floor}");
     let t0 = Instant::now();
 
     let mut store: HashMap<u64, u8> = HashMap::new();

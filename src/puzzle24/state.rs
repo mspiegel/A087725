@@ -225,7 +225,7 @@ impl State {
     #[inline]
     pub fn apply_at(&self, m: Move, blank: u8) -> (Self, u8) {
         let nb = NEIGHBOR[blank as usize][m as usize];
-        debug_assert!(nb != NO_NEIGHBOR, "illegal {:?} from blank at {}", m, blank);
+        debug_assert!(nb != NO_NEIGHBOR, "illegal {m:?} from blank at {blank}");
         let mut next = self.0;
         next.swap(blank as usize, nb as usize);
         (State(next), nb)
@@ -317,7 +317,7 @@ mod tests {
         for m in path {
             assert!(s.legal_moves().contains(m));
             s = s.apply(m);
-            assert!(s.is_solvable(), "unsolvable after apply: {:?}", s);
+            assert!(s.is_solvable(), "unsolvable after apply: {s:?}");
         }
     }
 
@@ -427,7 +427,7 @@ mod tests {
         let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..1000 {
-            assert!(s.is_solvable(), "lost solvability after step {}", i);
+            assert!(s.is_solvable(), "lost solvability after step {i}");
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {

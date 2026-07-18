@@ -196,7 +196,7 @@ mod tests {
                     frontier.push(s_next);
                 }
                 // d_s <= d_n + cost (otherwise the BFS missed an opportunity)
-                assert!(d_s <= d_n + cost, "d_s={} > d_n={} + cost={}", d_s, d_n, cost);
+                assert!(d_s <= d_n + cost, "d_s={d_s} > d_n={d_n} + cost={cost}");
                 if d_n + cost == d_s {
                     found_better = true;
                 }

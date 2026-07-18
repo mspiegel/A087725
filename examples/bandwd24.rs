@@ -136,8 +136,8 @@ fn build_bkt_table() -> WdTable {
                     m2[nb][gb] -= 1;
                     m2[bb][gb] += 1;
                     let key = pack_bkt(&m2, nb as u8);
-                    if !table.contains_key(&key) {
-                        table.insert(key, nd);
+                    if let std::collections::hash_map::Entry::Vacant(e) = table.entry(key) {
+                        e.insert(nd);
                         next.push((m2, nb as u8));
                     }
                 }
@@ -444,7 +444,7 @@ fn main() {
             let s = random_board(&mut seed, len);
             let r = band_wd(&rowt, &bktt, &s, goal_key, 5_000_000);
             let v = r.exact.expect("shallow board should solve under cap");
-            assert!(v as usize <= len, "band-WD {} > walk length {} — INADMISSIBLE", v, len);
+            assert!(v as usize <= len, "band-WD {v} > walk length {len} — INADMISSIBLE");
             let (wr, _) = wd_full(&rowt, &s);
             let mb = project_bkts(&board_to_band(&s).0);
             let wbk = wd_bkt(&bktt, &mb, (board_to_band(&s).1 % NB) as u8);

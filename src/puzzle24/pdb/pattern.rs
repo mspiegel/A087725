@@ -37,9 +37,9 @@ impl Pattern {
     pub fn new(tiles: &[u8]) -> Self {
         let mut bits = 0u32;
         for &t in tiles {
-            assert!((1..=24).contains(&t), "tile {} out of range 1..=24", t);
+            assert!((1..=24).contains(&t), "tile {t} out of range 1..=24");
             let mask = 1u32 << t;
-            assert_eq!(bits & mask, 0, "tile {} appears more than once", t);
+            assert_eq!(bits & mask, 0, "tile {t} appears more than once");
             bits |= mask;
         }
         Pattern(bits)

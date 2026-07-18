@@ -22,7 +22,7 @@ use puzzle8::puzzle15::pdb::pattern::Pattern;
 use sha2::{Digest, Sha256};
 
 fn print_usage(prog: &str) {
-    eprintln!("usage: {} --tiles <T1,T2,...> --out <PATH> [--threads N] [--verify-sha PATH] [--write-sha PATH]", prog);
+    eprintln!("usage: {prog} --tiles <T1,T2,...> --out <PATH> [--threads N] [--verify-sha PATH] [--write-sha PATH]");
     eprintln!("  --tiles      comma-separated tile values in 1..=15");
     eprintln!("  --out        path to write the PDB binary");
     eprintln!("  --threads    rayon thread count (default: system)");
@@ -54,9 +54,9 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--tiles needs a value")?;
                 let mut v: Vec<u8> = Vec::new();
                 for token in s.split(',') {
-                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {:?}: {}", token, e))?;
+                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {token:?}: {e}"))?;
                     if !(1..=15).contains(&t) {
-                        return Err(format!("tile {} out of range 1..=15", t));
+                        return Err(format!("tile {t} out of range 1..=15"));
                     }
                     v.push(t);
                 }
@@ -69,7 +69,7 @@ fn parse_args() -> Result<Args, String> {
             "--threads" => {
                 i += 1;
                 let n = argv.get(i).ok_or("--threads needs a value")?
-                    .parse::<usize>().map_err(|e| format!("bad threads: {}", e))?;
+                    .parse::<usize>().map_err(|e| format!("bad threads: {e}"))?;
                 threads = Some(n);
             }
             "--verify-sha" => {
@@ -83,7 +83,7 @@ fn parse_args() -> Result<Args, String> {
             "-h" | "--help" => {
                 return Err(String::from("help"));
             }
-            other => return Err(format!("unknown flag: {}", other)),
+            other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
@@ -100,7 +100,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(64);
     for b in digest.iter() {
         use std::fmt::Write;
-        write!(&mut s, "{:02x}", b).unwrap();
+        write!(&mut s, "{b:02x}").unwrap();
     }
     s
 }
@@ -114,7 +114,7 @@ fn main() -> ExitCode {
                 print_usage(&prog);
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
         }
@@ -136,7 +136,7 @@ fn main() -> ExitCode {
     let t0 = Instant::now();
     let pdb = PatternDb::build_parallel(pattern);
     let elapsed = t0.elapsed();
-    println!("Build complete in {:.2?}", elapsed);
+    println!("Build complete in {elapsed:.2?}");
 
     if let Some(parent) = args.out.parent() {
         if !parent.as_os_str().is_empty() {
@@ -152,7 +152,7 @@ fn main() -> ExitCode {
     // Compute SHA-256 of the on-disk file for reporting and pin verification.
     let file_bytes = std::fs::read(&args.out).expect("read just-written file");
     let sha = sha256_hex(&file_bytes);
-    println!("SHA-256 : {}", sha);
+    println!("SHA-256 : {sha}");
     println!("Bytes   : {}", file_bytes.len());
 
     if let Some(verify_path) = &args.verify_sha {
@@ -161,15 +161,15 @@ fn main() -> ExitCode {
             .unwrap_or_else(|e| { eprintln!("error reading {}: {}", verify_path.display(), e); std::process::exit(1); });
         if expected != sha {
             eprintln!("error: SHA-256 mismatch");
-            eprintln!("  expected: {}", expected);
-            eprintln!("  computed: {}", sha);
+            eprintln!("  expected: {expected}");
+            eprintln!("  computed: {sha}");
             return ExitCode::FAILURE;
         }
         println!("SHA-256 matches pinned {}", verify_path.display());
     }
 
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{}\n", sha))
+        std::fs::write(write_path, format!("{sha}\n"))
             .expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }
