@@ -265,7 +265,6 @@ struct BandResult {
     lb: u8,
     closed: usize,
     pops: u64,
-    completed: bool,
 }
 
 /// A* for band-WD from `start` to the abstract goal. Bucket-queue by f, closed
@@ -302,11 +301,11 @@ fn band_wd(
             pops += 1;
 
             if key == goal_key {
-                return BandResult { exact: Some(g), lb: g, closed: best.len(), pops, completed: true };
+                return BandResult { exact: Some(g), lb: g, closed: best.len(), pops };
             }
             if best.len() > cap {
                 // All f' < f exhausted, goal not among them ⇒ band-WD ≥ f.
-                return BandResult { exact: None, lb: f as u8, closed: best.len(), pops, completed: false };
+                return BandResult { exact: None, lb: f as u8, closed: best.len(), pops };
             }
 
             let (m, blank_sc) = unpack_band(key);
@@ -339,7 +338,7 @@ fn band_wd(
         }
     }
     // f-range exhausted without goal (should not happen: goal within 160).
-    BandResult { exact: None, lb: buckets.len() as u8, closed: best.len(), pops, completed: false }
+    BandResult { exact: None, lb: buckets.len() as u8, closed: best.len(), pops }
 }
 
 /// WD_full = WD_row + WD_col, the current best admissible baseline.
@@ -446,7 +445,7 @@ fn main() {
             let r = band_wd(&rowt, &bktt, &s, goal_key, 5_000_000);
             let v = r.exact.expect("shallow board should solve under cap");
             assert!(v as usize <= len, "band-WD {} > walk length {} — INADMISSIBLE", v, len);
-            let (wr, wc) = wd_full(&rowt, &s);
+            let (wr, _) = wd_full(&rowt, &s);
             let mb = project_bkts(&board_to_band(&s).0);
             let wbk = wd_bkt(&bktt, &mb, (board_to_band(&s).1 % NB) as u8);
             assert!(v >= wr + wbk, "band-WD {} < WD_row+WD_bucket {} — bound violated", v, wr + wbk);

@@ -314,7 +314,6 @@ fn r_board() -> State {
 struct Node {
     state: State,
     depth: u16,
-    wd: u8,
 }
 
 struct Sampler {
@@ -331,7 +330,7 @@ struct Sampler {
 }
 
 impl Sampler {
-    fn consider(&mut self, state: &State, depth: u16, wdv: u8) {
+    fn consider(&mut self, state: &State, depth: u16) {
         if (depth as usize) >= self.depth_hist.len() {
             self.depth_hist.resize(depth as usize + 1, 0);
         }
@@ -339,21 +338,21 @@ impl Sampler {
         self.seen += 1;
         // reservoir sampling
         if self.reservoir.len() < self.reservoir_size {
-            self.reservoir.push(Node { state: state.clone(), depth, wd: wdv });
+            self.reservoir.push(Node { state: state.clone(), depth });
         } else {
             let j = (self.rng.next() % self.seen) as usize;
             if j < self.reservoir_size {
-                self.reservoir[j] = Node { state: state.clone(), depth, wd: wdv };
+                self.reservoir[j] = Node { state: state.clone(), depth };
             }
         }
     }
 
-    fn dfs(&mut self, s: &State, g: u16, prev_inv: Option<Move>, wdv: u8) {
+    fn dfs(&mut self, s: &State, g: u16, prev_inv: Option<Move>) {
         if self.expansions >= self.cap {
             return;
         }
         self.expansions += 1;
-        self.consider(s, g, wdv);
+        self.consider(s, g);
         // shuffle children (Fisher–Yates on the up-to-4 legal moves)
         let mut cands: Vec<Move> = s
             .legal_moves()
@@ -369,7 +368,7 @@ impl Sampler {
             let (mr, br, _, mc, bc, _) = project(&child);
             let cw = wd(&self.table, &mr, br, &mc, bc);
             if g + 1 + cw as u16 <= self.threshold {
-                self.dfs(&child, g + 1, Some(m.inverse()), cw);
+                self.dfs(&child, g + 1, Some(m.inverse()));
                 if self.expansions >= self.cap {
                     return;
                 }
@@ -514,10 +513,8 @@ fn main() {
         reservoir_size,
         depth_hist: Vec::new(),
     };
-    let (mr, br, _, mc, bc, _) = project(&r);
-    let wr = wd(&sampler.table, &mr, br, &mc, bc);
     let tdfs = Instant::now();
-    sampler.dfs(&r, 0, None, wr);
+    sampler.dfs(&r, 0, None);
     eprintln!(
         "DFS: {} expansions in {:.1}s, {} sampled, deepest expanded depth {}",
         sampler.expansions,
