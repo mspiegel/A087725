@@ -292,6 +292,13 @@ impl<'a, const N: usize> IncHeuristicMut for KorfPdbInc<'a, N> {
 /// admissible because the diagonal symmetry preserves distance to GOAL.
 pub struct ZpdbInc<'a, const N: usize> {
     dbs: [&'a ZPatternDb; N],
+    /// When set, the reflected (Korf-max diagonal) view is *not maintained* —
+    /// `make`/`unmake` slide and rank only the normal projection, and the value
+    /// is `Σ normal_h` instead of `max(Σ normal_h, Σ reflected_h)`. Still
+    /// admissible (a weaker LB). Halves this layer's per-node projection slides
+    /// and index ranks; worthwhile only where the reflected view contributes
+    /// negligible pruning (measured: k6 on R ≈ +0.4% nodes, k8 ≈ +9%).
+    no_reflect: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -311,12 +318,28 @@ impl<'a, const N: usize> ZpdbInc<'a, N> {
             assert_eq!(union & p, 0, "ZPDB patterns must be disjoint");
             union |= p;
         }
-        Self { dbs }
+        Self {
+            dbs,
+            no_reflect: false,
+        }
+    }
+
+    /// Enable/disable the [`no_reflect`](Self::no_reflect) mode (drop the
+    /// reflected view). Chainable at construction.
+    ///
+    /// [`no_reflect`]: ZpdbInc::no_reflect
+    pub fn with_no_reflect(mut self, v: bool) -> Self {
+        self.no_reflect = v;
+        self
     }
 
     #[inline]
     fn value(&self, ctx: &ZpdbCtx<N>) -> u8 {
-        Self::korf_max(&ctx.n_h, &ctx.r_h)
+        if self.no_reflect {
+            Self::sum_n(&ctx.n_h)
+        } else {
+            Self::korf_max(&ctx.n_h, &ctx.r_h)
+        }
     }
 
     /// Korf-max over the two views: `max(Σ normal_h, Σ reflected_h)`, saturating.
@@ -331,6 +354,18 @@ impl<'a, const N: usize> ZpdbInc<'a, N> {
             hr += r_h[i] as u32;
         }
         hn.max(hr).min(u8::MAX as u32) as u8
+    }
+
+    /// Normal-view sum only (`Σ normal_h`), for [`no_reflect`](Self::no_reflect).
+    ///
+    /// [`no_reflect`]: ZpdbInc::no_reflect
+    #[inline]
+    fn sum_n(n_h: &[u8; N]) -> u8 {
+        let mut hn: u32 = 0;
+        for &h in n_h {
+            hn += h as u32;
+        }
+        hn.min(u8::MAX as u32) as u8
     }
 }
 
@@ -436,9 +471,16 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
         for i in 0..N {
             let db = self.dbs[i];
             ctx.n_h[i] = db.cold_lookup_proj(&ctx.normal[i]);
-            ctx.r_h[i] = db.cold_lookup_proj(&ctx.reflected[i]);
+            if !self.no_reflect {
+                ctx.r_h[i] = db.cold_lookup_proj(&ctx.reflected[i]);
+            }
         }
-        (Self::korf_max(&ctx.n_h, &ctx.r_h), ctx)
+        let h = if self.no_reflect {
+            Self::sum_n(&ctx.n_h)
+        } else {
+            Self::korf_max(&ctx.n_h, &ctx.r_h)
+        };
+        (h, ctx)
     }
 
     // Projection-based: the raw `child` state is not needed — the projections
@@ -461,16 +503,23 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
                 #[cfg(feature = "zpdb-locality")]
                 locality::note_probes(1);
             }
-            // Reflected view (same logic under transpose_move(m)).
-            let r_cost = ctx.reflected[i].apply_in_place(tm);
-            if r_cost != 0 {
-                let r_idx = db.layout().rank(&ctx.reflected[i], db.pattern());
-                ctx.r_h[i] = db.diff_lookup(r_idx, ctx.r_h[i]);
-                #[cfg(feature = "zpdb-locality")]
-                locality::note_probes(1);
+            // Reflected view (same logic under transpose_move(m)) — skipped
+            // entirely in `no_reflect` mode.
+            if !self.no_reflect {
+                let r_cost = ctx.reflected[i].apply_in_place(tm);
+                if r_cost != 0 {
+                    let r_idx = db.layout().rank(&ctx.reflected[i], db.pattern());
+                    ctx.r_h[i] = db.diff_lookup(r_idx, ctx.r_h[i]);
+                    #[cfg(feature = "zpdb-locality")]
+                    locality::note_probes(1);
+                }
             }
         }
-        Self::korf_max(&ctx.n_h, &ctx.r_h)
+        if self.no_reflect {
+            Self::sum_n(&ctx.n_h)
+        } else {
+            Self::korf_max(&ctx.n_h, &ctx.r_h)
+        }
     }
 
     fn unmake(&self, ctx: &mut Self::Ctx, m: Move) {
@@ -480,7 +529,9 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
         let tm = transpose_move(m);
         for i in 0..N {
             ctx.normal[i].apply_in_place(m.inverse());
-            ctx.reflected[i].apply_in_place(tm.inverse());
+            if !self.no_reflect {
+                ctx.reflected[i].apply_in_place(tm.inverse());
+            }
         }
     }
 }

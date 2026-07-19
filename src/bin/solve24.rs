@@ -143,6 +143,11 @@ struct Args {
     /// `Some(true)` = force on (warns + ignored if the board is not symmetric);
     /// `Some(false)` = off (`--no-root-orbit-split`, for A/B measurement).
     root_orbit_split: Option<bool>,
+    /// Restore k6's reflected (Korf-max diagonal) view; **default off**. By
+    /// default the k6 zpdb tier's reflected view is dropped — saving ~half its
+    /// per-node projection/rank cost (~12% faster search on R) for a small node
+    /// increase — and `--k6-reflect` turns it back on.
+    k6_reflect: bool,
 }
 
 /// The `select` heuristic's 3-way choice (mirrors `examples/ladder24.rs`).
@@ -171,7 +176,8 @@ fn print_usage(prog: &str) {
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
-         [--no-root-orbit-split]  (auto-on for σ-symmetric boards)"
+         [--no-root-orbit-split]  (auto-on for σ-symmetric boards)\n         \
+         [--k6-reflect]  (restore k6's reflected view; default off)"
     );
 }
 
@@ -187,6 +193,7 @@ fn parse_args() -> Result<Args, String> {
     let mut cwd_neighbor_prune = true;
     let mut combine_slack = 0u8;
     let mut root_orbit_split: Option<bool> = None;
+    let mut k6_reflect = false;
 
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -260,6 +267,10 @@ fn parse_args() -> Result<Args, String> {
             "--no-cwd-neighbor-prune" => cwd_neighbor_prune = false,
             "--root-orbit-split" => root_orbit_split = Some(true),
             "--no-root-orbit-split" => root_orbit_split = Some(false),
+            // k6 reflected view defaults OFF for cwd-zpdb8-lazy; restore with
+            // `--k6-reflect` (the `--no-` form is the accepted default no-op).
+            "--k6-reflect" => k6_reflect = true,
+            "--no-k6-reflect" => k6_reflect = false,
             "--combine-slack" => {
                 i += 1;
                 combine_slack = argv
@@ -285,6 +296,7 @@ fn parse_args() -> Result<Args, String> {
         cwd_neighbor_prune,
         combine_slack,
         root_orbit_split,
+        k6_reflect,
     })
 }
 
@@ -764,7 +776,12 @@ fn main() -> ExitCode {
                     ""
                 },
             );
-            let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            // Same default as cwd-zpdb8-lazy: drop the zpdb tier's reflected view
+            // (`--k6-reflect` restores it). Here that tier is the *finest* term,
+            // so its reflection may carry more weight than k6-as-mid-tier does —
+            // the node cost is unmeasured on this heuristic.
+            let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]])
+                .with_no_reflect(!args.k6_reflect);
             let inc = LazyMaxInc::new(cwd, zpdb);
             run_inc(
                 &start,
@@ -806,7 +823,11 @@ fn main() -> ExitCode {
                     ""
                 },
             );
-            let z6 = ZpdbInc::new([&k6[0], &k6[1], &k6[2], &k6[3]]);
+            // k6's reflected view is dropped by default (measured ≈ +0.4% nodes
+            // on R for ~half of k6's per-node projection/rank cost, ~12% faster
+            // search); `--k6-reflect` restores it. k8 keeps its reflected view.
+            let z6 =
+                ZpdbInc::new([&k6[0], &k6[1], &k6[2], &k6[3]]).with_no_reflect(!args.k6_reflect);
             let z8 = ZpdbInc::new([&k8[0], &k8[1], &k8[2]]);
             // Nested lazy: cWD (cheap, every node) → k6 (mid) → k8 (finest).
             let inc = LazyMaxInc::new(LazyMaxInc::new(cwd, z6), z8);
