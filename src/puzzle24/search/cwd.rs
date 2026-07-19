@@ -111,6 +111,30 @@ fn pack(m: &Matrix, blank: u8) -> u64 {
     k
 }
 
+/// Bit offset of the packed 3-bit field for matrix cell `(r, c)` (`c < W-1`).
+/// [`pack`] shifts cell `(r,c)` — linear index `r*(W-1)+c` — left the most for
+/// `(0,0)` and least for the last cell, so field `i` sits at `((W*(W-1)-1)-i)*3`.
+#[inline]
+const fn key_bit(r: usize, c: usize) -> u64 {
+    ((W * (W - 1) - 1 - (r * (W - 1) + c)) * 3) as u64
+}
+/// The blank field's bit offset (the top 3 bits, above the `W*(W-1)` cells).
+const KEY_BLANK_BIT: u64 = (W * (W - 1) * 3) as u64;
+
+/// Set the 3-bit field for cell `(r, c)` in a packed key to `val`, in place —
+/// the O(1) incremental alternative to re-[`pack`]ing the whole matrix.
+#[inline]
+fn key_set_cell(key: u64, r: usize, c: usize, val: u8) -> u64 {
+    let bit = key_bit(r, c);
+    (key & !(0x7u64 << bit)) | ((val as u64) << bit)
+}
+
+/// Set the blank field (row/column index) in a packed key.
+#[inline]
+fn key_set_blank(key: u64, blank: u8) -> u64 {
+    (key & !(0x7u64 << KEY_BLANK_BIT)) | ((blank as u64) << KEY_BLANK_BIT)
+}
+
 fn unpack(key: u64) -> (Matrix, u8) {
     let blank = ((key >> 60) & 0x7) as u8;
     let mut m = [[0u8; W]; W];
@@ -579,6 +603,11 @@ fn demand_col_line(s: &State, g: usize) -> u8 {
 pub struct CwdState {
     m_row: Matrix,
     m_col: Matrix,
+    /// Packed WD-table keys for the two axes, maintained incrementally by `make`
+    /// (a move touches one axis) instead of re-`pack`ing the matrix each node.
+    /// Invariant: `key_row == pack(&m_row, br)` and `key_col == pack(&m_col, bc)`.
+    key_row: u64,
+    key_col: u64,
     br: u8,
     bc: u8,
     dem_row: [u8; W],
@@ -610,6 +639,8 @@ struct CwdUndo {
     g: u8,
     br: u8,
     bc: u8,
+    /// Pre-move packed key of the changed axis (`key_row` if vertical, else `key_col`).
+    key: u64,
     demline: u8,
     demold: u8,
     wd: u8,
@@ -631,11 +662,15 @@ impl Cwd {
     fn root_state(&self, s: &State) -> CwdState {
         let (m_row, br, dem_row, m_col, bc, dem_col) = project(s);
         let mg = self.merged.as_ref().expect("root_state needs merged table");
-        let r = mg.get(&pack(&m_row, br)).expect("row reachable");
-        let c = mg.get(&pack(&m_col, bc)).expect("col reachable");
+        let key_row = pack(&m_row, br);
+        let key_col = pack(&m_col, bc);
+        let r = mg.get(&key_row).expect("row reachable");
+        let c = mg.get(&key_col).expect("col reachable");
         CwdState {
             m_row,
             m_col,
+            key_row,
+            key_col,
             br,
             bc,
             dem_row,
@@ -673,6 +708,8 @@ impl IncHeuristicMut for Cwd {
             let state = CwdState {
                 m_row: [[0; W]; W],
                 m_col: [[0; W]; W],
+                key_row: 0,
+                key_col: 0,
                 br: 0,
                 bc: 0,
                 dem_row: [0; W],
@@ -727,6 +764,7 @@ impl IncHeuristicMut for Cwd {
             g: 0,
             br: st.br,
             bc: st.bc,
+            key: 0,
             demline: 255,
             demold: 0,
             wd: 0,
@@ -740,6 +778,7 @@ impl IncHeuristicMut for Cwd {
             undo.surch = st.surch_row;
             undo.curves = st.curves_row;
             undo.nbr_wd = st.nbr_wd_row;
+            undo.key = st.key_row;
             st.m_row[rf][gr] -= 1;
             st.m_row[rt][gr] += 1;
             undo.i = rf as u8;
@@ -754,7 +793,16 @@ impl IncHeuristicMut for Cwd {
             }
             st.br = rf as u8;
             st.bc = cf as u8;
-            let cell = mg.get(&pack(&st.m_row, st.br)).expect("row reachable");
+            // Incremental key: only the row axis changed. Columns `< W-1` are
+            // encoded (the last is derived from the blank-row margins), so update
+            // the moved goal-group's two cells when encoded, and always the blank.
+            if gr < W - 1 {
+                st.key_row = key_set_cell(st.key_row, rf, gr, st.m_row[rf][gr]);
+                st.key_row = key_set_cell(st.key_row, rt, gr, st.m_row[rt][gr]);
+            }
+            st.key_row = key_set_blank(st.key_row, st.br);
+            debug_assert_eq!(st.key_row, pack(&st.m_row, st.br), "key_row drift");
+            let cell = mg.get(&st.key_row).expect("row reachable");
             st.wd_row = cell.wd;
             st.curves_row = cell.curves;
             st.nbr_wd_row = cell.nbr_wd;
@@ -765,6 +813,7 @@ impl IncHeuristicMut for Cwd {
             undo.surch = st.surch_col;
             undo.curves = st.curves_col;
             undo.nbr_wd = st.nbr_wd_col;
+            undo.key = st.key_col;
             st.m_col[cf][gc] -= 1;
             st.m_col[ct][gc] += 1;
             undo.i = cf as u8;
@@ -777,7 +826,14 @@ impl IncHeuristicMut for Cwd {
             }
             st.br = rf as u8;
             st.bc = cf as u8;
-            let cell = mg.get(&pack(&st.m_col, st.bc)).expect("col reachable");
+            // Incremental key: only the column axis changed (see the row branch).
+            if gc < W - 1 {
+                st.key_col = key_set_cell(st.key_col, cf, gc, st.m_col[cf][gc]);
+                st.key_col = key_set_cell(st.key_col, ct, gc, st.m_col[ct][gc]);
+            }
+            st.key_col = key_set_blank(st.key_col, st.bc);
+            debug_assert_eq!(st.key_col, pack(&st.m_col, st.bc), "key_col drift");
+            let cell = mg.get(&st.key_col).expect("col reachable");
             st.wd_col = cell.wd;
             st.curves_col = cell.curves;
             st.nbr_wd_col = cell.nbr_wd;
@@ -796,6 +852,7 @@ impl IncHeuristicMut for Cwd {
         if u.vertical {
             st.m_row[u.i as usize][u.g as usize] += 1;
             st.m_row[u.j as usize][u.g as usize] -= 1;
+            st.key_row = u.key;
             st.wd_row = u.wd;
             st.surch_row = u.surch;
             st.curves_row = u.curves;
@@ -806,6 +863,7 @@ impl IncHeuristicMut for Cwd {
         } else {
             st.m_col[u.i as usize][u.g as usize] += 1;
             st.m_col[u.j as usize][u.g as usize] -= 1;
+            st.key_col = u.key;
             st.wd_col = u.wd;
             st.surch_col = u.surch;
             st.curves_col = u.curves;
