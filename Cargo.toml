@@ -219,6 +219,17 @@ codegen-units = 1
 # not per-binary, so this also applies to other release-built binaries.
 panic = "abort"
 
+# Fully-optimized build (identical codegen to `release`) *plus* debug symbols and
+# a packed `.dSYM`, so `sample`/`samply` can attribute hot lines — including
+# inlined frames — back to source. Use for profiling the search hot path:
+#   cargo build --profile profiling --bin solve24 --features "mmap parallel"
+# LTO/codegen-units are inherited from release so the profile is representative;
+# the inlining smear that costs is the price of measuring the real binary.
+[profile.profiling]
+inherits = "release"
+debug = true
+split-debuginfo = "packed"
+
 [[example]]
 name = "zpdb_bench15"
 required-features = ["mmap", "parallel"]
