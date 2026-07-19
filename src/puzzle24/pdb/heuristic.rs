@@ -492,11 +492,21 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
         let tm = transpose_move(m);
         #[cfg(feature = "zpdb-locality")]
         locality::note_make();
+        // The blank slide is identical across a view's groups (all share the
+        // board blank), so compute the `(b, n)` geometry once per view and feed
+        // it to each group's `apply_in_place_at` — hoisting `blank_pos`/`step`
+        // out of the per-group loop.
+        let (nb, nn) = ctx.normal[0].move_target(m);
+        let (rb, rn) = if self.no_reflect {
+            (0, 0)
+        } else {
+            ctx.reflected[0].move_target(tm)
+        };
         for i in 0..N {
             let db = self.dbs[i];
             // Normal view: cost `1` iff a pattern tile swapped with the blank,
             // which is exactly when the (m,p,r) index — and thus `h` — moves.
-            let n_cost = ctx.normal[i].apply_in_place(m);
+            let n_cost = ctx.normal[i].apply_in_place_at(nb, nn);
             if n_cost != 0 {
                 let n_idx = db.layout().rank(&ctx.normal[i], db.pattern());
                 ctx.n_h[i] = db.diff_lookup(n_idx, ctx.n_h[i]);
@@ -506,7 +516,7 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
             // Reflected view (same logic under transpose_move(m)) — skipped
             // entirely in `no_reflect` mode.
             if !self.no_reflect {
-                let r_cost = ctx.reflected[i].apply_in_place(tm);
+                let r_cost = ctx.reflected[i].apply_in_place_at(rb, rn);
                 if r_cost != 0 {
                     let r_idx = db.layout().rank(&ctx.reflected[i], db.pattern());
                     ctx.r_h[i] = db.diff_lookup(r_idx, ctx.r_h[i]);
@@ -527,10 +537,18 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
         ctx.n_h = n_h;
         ctx.r_h = r_h;
         let tm = transpose_move(m);
+        let mi = m.inverse();
+        let tmi = tm.inverse();
+        let (nb, nn) = ctx.normal[0].move_target(mi);
+        let (rb, rn) = if self.no_reflect {
+            (0, 0)
+        } else {
+            ctx.reflected[0].move_target(tmi)
+        };
         for i in 0..N {
-            ctx.normal[i].apply_in_place(m.inverse());
+            ctx.normal[i].apply_in_place_at(nb, nn);
             if !self.no_reflect {
-                ctx.reflected[i].apply_in_place(tm.inverse());
+                ctx.reflected[i].apply_in_place_at(rb, rn);
             }
         }
     }

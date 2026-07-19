@@ -219,9 +219,29 @@ impl ProjectedState {
     /// snapshot-free — only the derived PDB `h` values need saving to unmake.
     #[inline]
     pub fn apply_in_place(&mut self, m: Move) -> u8 {
+        let (b, n) = self.move_target(m);
+        self.apply_in_place_at(b, n)
+    }
+
+    /// The blank's current cell `b` and its destination `n` under move `m` — the
+    /// `(b, n)` pair that every group of one projection *view* shares (all its
+    /// projections hold the blank at the same board cell). A caller sliding many
+    /// parallel projections computes this once and feeds it to
+    /// [`apply_in_place_at`](Self::apply_in_place_at) per group, hoisting the
+    /// `blank_pos`/`step`/index math out of the per-group loop.
+    #[inline]
+    pub fn move_target(&self, m: Move) -> (usize, usize) {
         let b = self.blank_pos() as usize;
         let (nr, nc) = step(b, m);
-        let n = nr * W + nc;
+        (b, nr * W + nc)
+    }
+
+    /// [`apply_in_place`](Self::apply_in_place) with the blank cell `b` and its
+    /// destination `n` precomputed via [`move_target`](Self::move_target). `b`
+    /// must equal `self.blank_pos()` and `n` its destination under the move.
+    #[inline]
+    pub fn apply_in_place_at(&mut self, b: usize, n: usize) -> u8 {
+        debug_assert_eq!(b, self.blank_pos() as usize, "b must be the current blank");
         let swapped = self.cells[n];
         let cost = if swapped == ANON { 0 } else { 1 };
         self.cells.swap(b, n);
