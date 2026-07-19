@@ -176,7 +176,7 @@ where
             &mut expanded,
         );
         for &(s, gf, gb) in &meetings {
-            if best.map_or(true, |(b, ..)| gf + gb < b) {
+            if best.is_none_or(|(b, ..)| gf + gb < b) {
                 best = Some((gf + gb, gf, gb, s));
             }
         }
@@ -193,7 +193,7 @@ where
             &mut expanded,
         );
         for &(s, gb, gf) in &meetings {
-            if best.map_or(true, |(b, ..)| gf + gb < b) {
+            if best.is_none_or(|(b, ..)| gf + gb < b) {
                 best = Some((gf + gb, gf, gb, s));
             }
         }
@@ -375,7 +375,7 @@ where
             cfg.w_ff, &mut meetings, &mut expanded,
         );
         for &(s, gf, gb) in &meetings {
-            if best.map_or(true, |(b, ..)| gf + gb < b) {
+            if best.is_none_or(|(b, ..)| gf + gb < b) {
                 best = Some((gf + gb, gf, gb, s));
             }
         }
@@ -387,7 +387,7 @@ where
             cfg.w_ff, &mut meetings, &mut expanded,
         );
         for &(s, gb, gf) in &meetings {
-            if best.map_or(true, |(b, ..)| gf + gb < b) {
+            if best.is_none_or(|(b, ..)| gf + gb < b) {
                 best = Some((gf + gb, gf, gb, s));
             }
         }

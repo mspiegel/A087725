@@ -232,7 +232,7 @@ where
         match search_pruned(start, &cfg, incumbent, &heuristic_batch, &admissible_h) {
             BwasOutcome::Solved { moves, nodes_expanded } => {
                 total += nodes_expanded;
-                if best.as_ref().map_or(true, |b| moves.len() < b.len()) {
+                if best.as_ref().is_none_or(|b| moves.len() < b.len()) {
                     best = Some(moves);
                 }
             }
@@ -295,14 +295,14 @@ mod tests {
             let start = State(*raw);
             match search(&start, &cfg, manhattan_batch) {
                 BwasOutcome::Solved { moves, .. } => {
-                    assert_eq!(moves.len() as u8, dist, "suboptimal on {:?}", raw);
+                    assert_eq!(moves.len() as u8, dist, "suboptimal on {raw:?}");
                     assert_valid_solution(&start, &moves);
                     checked += 1;
                 }
                 BwasOutcome::BudgetExceeded { .. } => panic!("unlimited budget exceeded"),
             }
         }
-        assert!(checked > 20, "too few states checked: {}", checked);
+        assert!(checked > 20, "too few states checked: {checked}");
     }
 
     #[test]
@@ -355,13 +355,13 @@ mod tests {
                 ManhattanHeuristic.h(s)
             }) {
                 BwasOutcome::Solved { moves, .. } => {
-                    assert_eq!(moves.len() as u8, dist, "anytime not optimal on {:?}", raw);
+                    assert_eq!(moves.len() as u8, dist, "anytime not optimal on {raw:?}");
                     assert_valid_solution(&start, &moves);
                     checked += 1;
                 }
                 BwasOutcome::BudgetExceeded { .. } => panic!("anytime failed (unlimited budget)"),
             }
         }
-        assert!(checked > 20, "too few checked: {}", checked);
+        assert!(checked > 20, "too few checked: {checked}");
     }
 }

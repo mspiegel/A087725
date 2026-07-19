@@ -68,7 +68,7 @@ fn main() -> ExitCode {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init device: {}", e);
+                eprintln!("error: could not init device: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -123,7 +123,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("training error: {}", e);
+            eprintln!("training error: {e}");
             ExitCode::FAILURE
         }
     }

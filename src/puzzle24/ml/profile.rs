@@ -69,7 +69,7 @@ pub fn report() -> String {
         let ms = dur.as_secs_f64() * 1000.0;
         let per = if n > 0 { ms / n as f64 } else { 0.0 };
         let pct = if total_ms > 0.0 { 100.0 * ms / total_ms } else { 0.0 };
-        out += &format!("{name}\t{:.1}\t{:.1}\t{n}\t{:.3}\n", ms, pct, per);
+        out += &format!("{name}\t{ms:.1}\t{pct:.1}\t{n}\t{per:.3}\n");
     }
     out
 }

@@ -233,14 +233,14 @@ mod tests {
             let start = State(*raw);
             match search(&start, &cfg, manhattan_batch) {
                 BwasOutcome::Solved { moves, .. } => {
-                    assert_eq!(moves.len() as u8, dist, "suboptimal on {:?}", raw);
+                    assert_eq!(moves.len() as u8, dist, "suboptimal on {raw:?}");
                     assert_valid_solution(&start, &moves);
                     checked += 1;
                 }
                 BwasOutcome::BudgetExceeded { .. } => panic!("unlimited budget exceeded"),
             }
         }
-        assert!(checked > 20, "too few states checked: {}", checked);
+        assert!(checked > 20, "too few states checked: {checked}");
     }
 
     #[test]

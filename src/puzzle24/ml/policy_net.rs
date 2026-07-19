@@ -140,11 +140,10 @@ mod tests {
             let (m, lp) = sample_move(&net, &GOAL, blank, None, &dev, &mut rng).unwrap();
             assert!(
                 m == Move::Up || m == Move::Left,
-                "sampled illegal move {:?} from GOAL corner",
-                m
+                "sampled illegal move {m:?} from GOAL corner"
             );
             let lpv = lp.to_scalar::<f32>().unwrap();
-            assert!(lpv <= 1e-4 && lpv.is_finite(), "bad log-prob {}", lpv);
+            assert!(lpv <= 1e-4 && lpv.is_finite(), "bad log-prob {lpv}");
         }
     }
 
@@ -194,6 +193,6 @@ mod tests {
             }
         }
         let total: f32 = probs.iter().sum();
-        assert!((total - 1.0).abs() < 1e-4, "probs sum to {}", total);
+        assert!((total - 1.0).abs() < 1e-4, "probs sum to {total}");
     }
 }

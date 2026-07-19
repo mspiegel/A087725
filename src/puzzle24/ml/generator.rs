@@ -538,7 +538,7 @@ mod tests {
         let mut rng = Rng::new(3);
         for _ in 0..20 {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite(), "reward not finite: {}", r);
+            assert!(r.is_finite(), "reward not finite: {r}");
         }
         assert!(g.reward_baseline().is_finite());
     }
@@ -555,12 +555,12 @@ mod tests {
         let rounds = 20;
         for _ in 0..rounds {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {}", r);
+            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {r}");
             if r > 350.0 {
                 big += 1;
             }
         }
-        assert!(big >= 15, "expected most rounds to show large regret, got {}/{}", big, rounds);
+        assert!(big >= 15, "expected most rounds to show large regret, got {big}/{rounds}");
     }
 
     #[test]
@@ -614,7 +614,7 @@ mod tests {
         let mut rng = Rng::new(17);
         for _ in 0..5 {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite(), "WD-baseline reward not finite: {}", r);
+            assert!(r.is_finite(), "WD-baseline reward not finite: {r}");
         }
     }
 
@@ -633,7 +633,7 @@ mod tests {
         let mut prev = f32::NEG_INFINITY;
         for wd in 0..=140 {
             let r = composite_reward(wd as f32, v, lambda);
-            assert!(r >= prev - 1e-6, "not non-decreasing at wd={}", wd);
+            assert!(r >= prev - 1e-6, "not non-decreasing at wd={wd}");
             prev = r;
         }
     }
@@ -644,14 +644,14 @@ mod tests {
         // Uniform over 4 legal moves ⇒ H = ln 4 (the max).
         let uniform = Tensor::from_vec(vec![(0.25f32).ln(); 4], (4,), &dev).unwrap();
         let h = entropy_of(&uniform).unwrap().to_scalar::<f32>().unwrap();
-        assert!((h - (4f32).ln()).abs() < 1e-4, "uniform entropy {} != ln4", h);
+        assert!((h - (4f32).ln()).abs() < 1e-4, "uniform entropy {h} != ln4");
         // Two moves masked to -1e30 (as log_softmax would): H = ln 2, and finite
         // (the `0·(-1e30)` terms are -0.0, not NaN).
         let masked =
             Tensor::from_vec(vec![(0.5f32).ln(), (0.5f32).ln(), -1e30, -1e30], (4,), &dev).unwrap();
         let h2 = entropy_of(&masked).unwrap().to_scalar::<f32>().unwrap();
-        assert!(h2.is_finite() && (0.0..=(4f32).ln() + 1e-3).contains(&h2), "bad masked H {}", h2);
-        assert!((h2 - (2f32).ln()).abs() < 1e-3, "masked entropy {} != ln2", h2);
+        assert!(h2.is_finite() && (0.0..=(4f32).ln() + 1e-3).contains(&h2), "bad masked H {h2}");
+        assert!((h2 - (2f32).ln()).abs() < 1e-3, "masked entropy {h2} != ln2");
     }
 
     #[test]
@@ -692,7 +692,7 @@ mod tests {
             sum as f32 / n as f32
         };
         let (m4, m40, m120) = (mean_wd(4, 1), mean_wd(40, 2), mean_wd(120, 3));
-        assert!(m4 < m40 && m40 < m120, "WD not increasing with k: {} {} {}", m4, m40, m120);
+        assert!(m4 < m40 && m40 < m120, "WD not increasing with k: {m4} {m40} {m120}");
     }
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
         let mut rng = Rng::new(7);
         for _ in 0..10 {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite() && r >= 0.0, "WdDepth reward bad: {}", r);
+            assert!(r.is_finite() && r >= 0.0, "WdDepth reward bad: {r}");
         }
         assert!(g.reward_baseline().is_finite());
     }
@@ -736,11 +736,11 @@ mod tests {
         assert_eq!(depths.len(), pool.len(), "depth labels not aligned with pool");
         // The ladder spans depths; its deepest boards are genuinely deep.
         let max_wd = pool.iter().map(|s| WalkingDistanceHeuristic.h(s)).max().unwrap();
-        assert!(max_wd > 100, "ladder pool max WD only {}", max_wd);
+        assert!(max_wd > 100, "ladder pool max WD only {max_wd}");
         for s in &pool {
             assert!(s.is_solvable());
         }
         let r = g.train_round(constant_value, &mut rng).unwrap();
-        assert!(r.is_finite() && r > 0.0, "train_round no-op {}", r);
+        assert!(r.is_finite() && r > 0.0, "train_round no-op {r}");
     }
 }

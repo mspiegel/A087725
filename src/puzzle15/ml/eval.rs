@@ -63,15 +63,15 @@ impl EvalReport {
             self.holdout_solved,
             self.holdout_n,
             self.holdout_fail_rate * 100.0,
-            self.holdout_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+            self.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
         );
         println!(
             "  antipodes(80): solved {}/{}, mean len {}, mean excess over 80 {} (DeepCubeA: +2.8)",
             self.antipode_solved,
             self.antipode_n,
-            self.antipode_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+            self.antipode_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
             self.antipode_mean_excess
-                .map(|v| format!("{:+.2}", v))
+                .map(|v| format!("{v:+.2}"))
                 .unwrap_or_else(|| "-".into()),
         );
     }

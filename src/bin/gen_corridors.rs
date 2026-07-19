@@ -169,7 +169,7 @@ fn random_walk(seed: u64, len: u32) -> State {
         let opts: Vec<Move> = s
             .legal_moves()
             .iter()
-            .filter(|&m| last.map_or(true, |p: Move| m != p.inverse()))
+            .filter(|&m| last.is_none_or(|p: Move| m != p.inverse()))
             .collect();
         let m = opts[(next() as usize) % opts.len()];
         s = s.apply(m);
@@ -260,7 +260,7 @@ fn write_lines(
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().collect();
     let mode = arg(&argv, "--mode", "exact".to_string());
-    let out = PathBuf::from(arg(&argv, "--out", format!("data/corridors_{}.txt", mode)));
+    let out = PathBuf::from(arg(&argv, "--out", format!("data/corridors_{mode}.txt")));
     let min_rem: usize = arg(&argv, "--min-rem", 30);
 
     // ---------------- ubfile mode: learned-solver UPPER bounds for boards from
@@ -318,7 +318,7 @@ fn main() -> ExitCode {
         println!(
             "ubfile: {} boards, {} @ {}, device {}",
             boards.len(),
-            if anytime { format!("anytime {:?}", weights) } else { format!("bwas {} w{}", bwas_budget, weight) },
+            if anytime { format!("anytime {weights:?}") } else { format!("bwas {bwas_budget} w{weight}") },
             solver,
             device_kind(&device)
         );
@@ -349,10 +349,10 @@ fn main() -> ExitCode {
         for (i, b) in boards.iter().enumerate() {
             let w = wdh.h(b);
             let outcome = if anytime {
-                anytime_search(b, &weights, 2000, bwas_budget, &value_of, |s| wdh.h(s))
+                anytime_search(b, &weights, 2000, bwas_budget, value_of, |s| wdh.h(s))
             } else {
                 let bcfg = BwasConfig { weight, batch_size: 2000, node_budget: bwas_budget };
-                bwas_search(b, &bcfg, &value_of)
+                bwas_search(b, &bcfg, value_of)
             };
             match outcome {
                 BwasOutcome::Solved { moves, nodes_expanded } => {
@@ -485,7 +485,7 @@ fn main() -> ExitCode {
                 let lc = lch.h(b);
                 let vf_s = vf.as_ref().map(|v| format!("{:.1}", v[k])).unwrap_or_else(|| "-".into());
                 let vp_s = vp.as_ref().map(|v| format!("{:.1}", v[k])).unwrap_or_else(|| "-".into());
-                println!("{:>3} {:>4} {:>4} {:>7} {:>7}", idx, w, lc, vf_s, vp_s);
+                println!("{idx:>3} {w:>4} {lc:>4} {vf_s:>7} {vp_s:>7}");
                 if let Some(f) = tsv.as_mut() {
                     writeln!(f, "{}\t{}\t{}\t{}\t{}\t{}", idx, board_field(b), w, lc, vf_s, vp_s).ok();
                 }
@@ -509,7 +509,7 @@ fn main() -> ExitCode {
         let rows = match puzzle8::puzzle24::ml::corridor::load_file(&input) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -541,7 +541,7 @@ fn main() -> ExitCode {
             );
             for (bound, c) in hist.iter().enumerate() {
                 if *c > 0 {
-                    println!("  bound {:>2}: {:>5}", bound, c);
+                    println!("  bound {bound:>2}: {c:>5}");
                 }
             }
         }
@@ -563,7 +563,7 @@ fn main() -> ExitCode {
         let rows = match puzzle8::puzzle24::ml::corridor::load_file(&input) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -588,7 +588,7 @@ fn main() -> ExitCode {
             match ZPatternDb::load_mmap(&pdb_dir.join(name)) {
                 Ok(d) => dbs.push(d),
                 Err(e) => {
-                    eprintln!("error loading {}: {}", name, e);
+                    eprintln!("error loading {name}: {e}");
                     return ExitCode::FAILURE;
                 }
             }
@@ -614,7 +614,7 @@ fn main() -> ExitCode {
             }
             slack_hist[slack] += 1;
             slack_sum += slack;
-            debug_assert!(opt <= label, "label {} below optimal {}?!", label, opt);
+            debug_assert!(opt <= label, "label {label} below optimal {opt}?!");
         }
         println!(
             "audit: {}/{} solved in {:.0}s; mean slack (label - optimal) = {:.2}",
@@ -625,7 +625,7 @@ fn main() -> ExitCode {
         );
         for (slack, n) in slack_hist.iter().enumerate() {
             if *n > 0 {
-                println!("  slack {:>2}: {:>4} states", slack, n);
+                println!("  slack {slack:>2}: {n:>4} states");
             }
         }
         return ExitCode::SUCCESS;
@@ -665,7 +665,7 @@ fn main() -> ExitCode {
         let net = match ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
             Ok(n) => n,
             Err(e) => {
-                eprintln!("error building net: {}", e);
+                eprintln!("error building net: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -730,7 +730,7 @@ fn main() -> ExitCode {
             len_hist.iter().position(|&c| c > 0).unwrap_or(0),
             len_hist.len().saturating_sub(1),
         );
-        eprintln!("frame: {}/{} solved; solution-length range {}..{}", solved, done, lo, hi);
+        eprintln!("frame: {solved}/{done} solved; solution-length range {lo}..{hi}");
         if let Some(pp) = &pairs_out {
             let mut f = std::io::BufWriter::new(std::fs::File::create(pp).expect("pairs file"));
             for (b, label, s) in &pair_rows {
@@ -744,7 +744,7 @@ fn main() -> ExitCode {
                 classes[*b] += 1;
             }
             let covered = classes.iter().filter(|&&c| c > 0).count();
-            eprintln!("pair target-blank coverage: {}/25 cells", covered);
+            eprintln!("pair target-blank coverage: {covered}/25 cells");
         }
         rows
     } else if mode == "exact" {
@@ -760,7 +760,7 @@ fn main() -> ExitCode {
             match ZPatternDb::load_mmap(&pdb_dir.join(name)) {
                 Ok(d) => dbs.push(d),
                 Err(e) => {
-                    eprintln!("error loading {}: {}", name, e);
+                    eprintln!("error loading {name}: {e}");
                     return ExitCode::FAILURE;
                 }
             }
@@ -845,7 +845,7 @@ fn main() -> ExitCode {
         {
             Ok(n) => n,
             Err(e) => {
-                eprintln!("error building net: {}", e);
+                eprintln!("error building net: {e}");
                 return ExitCode::FAILURE;
             }
         };

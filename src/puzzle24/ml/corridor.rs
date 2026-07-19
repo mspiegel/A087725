@@ -97,7 +97,7 @@ fn parse_moves(s: &str) -> Vec<Move> {
             "D" => Move::Down,
             "L" => Move::Left,
             "R" => Move::Right,
-            other => panic!("bad move token {:?}", other),
+            other => panic!("bad move token {other:?}"),
         })
         .collect()
 }

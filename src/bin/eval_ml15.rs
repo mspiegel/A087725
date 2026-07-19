@@ -60,7 +60,7 @@ fn main() -> ExitCode {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init device: {}", e);
+                eprintln!("error: could not init device: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -71,7 +71,7 @@ fn main() -> ExitCode {
     let net = match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("error building net: {}", e);
+            eprintln!("error building net: {e}");
             return ExitCode::FAILURE;
         }
     };

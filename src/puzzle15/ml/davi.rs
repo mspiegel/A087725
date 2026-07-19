@@ -214,7 +214,7 @@ mod tests {
         let mut rng = Rng::new(1);
         let states: Vec<State> = (0..32).map(|_| scramble(&mut rng, 3).0).collect();
         let loss = davi.train_step(&states).unwrap();
-        assert!(loss.is_finite(), "loss was not finite: {}", loss);
+        assert!(loss.is_finite(), "loss was not finite: {loss}");
         assert!(loss >= 0.0);
     }
 
@@ -276,9 +276,7 @@ mod tests {
         let first = first_window / window as f32;
         assert!(
             best_second_half < first * 0.6,
-            "loss did not trend down enough: first-window {:.3} -> best-second-half {:.3}",
-            first,
-            best_second_half
+            "loss did not trend down enough: first-window {first:.3} -> best-second-half {best_second_half:.3}"
         );
     }
 }

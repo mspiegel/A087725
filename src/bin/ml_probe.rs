@@ -17,7 +17,7 @@ fn main() -> candle_core::Result<()> {
     let a = Tensor::ones((4, 4), DType::F32, &dev)?;
     let b = (&a + &a)?;
     let sum = b.sum_all()?.to_scalar::<f32>()?;
-    println!("2 * ones(4,4) summed = {} (expected 32)", sum);
+    println!("2 * ones(4,4) summed = {sum} (expected 32)");
     assert_eq!(sum, 32.0);
 
     println!("ml_probe OK");

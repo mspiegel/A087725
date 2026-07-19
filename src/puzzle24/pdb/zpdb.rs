@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn full_occupancy_is_zero_regions() {
-        let occ = ((1u32 << N_CELLS) - 1); // all 25 cells
+        let occ = (1u32 << N_CELLS) - 1; // all 25 cells
         let (n, label) = regions(occ);
         assert_eq!(n, 0);
         assert!(label.iter().all(|&l| l == OCCUPIED));

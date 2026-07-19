@@ -150,12 +150,12 @@ mod tests {
             }
             let start = State(*raw);
             let sol = beam_search(&start, &ManhattanHeuristic, &cfg)
-                .unwrap_or_else(|| panic!("beam failed to solve depth-{} board {:?}", dist, raw));
+                .unwrap_or_else(|| panic!("beam failed to solve depth-{dist} board {raw:?}"));
             assert!(replay_reaches_goal(&start, &sol), "beam path did not reach GOAL");
             assert!(sol.len() as u8 >= dist, "beam length {} < optimal {}", sol.len(), dist);
             checked += 1;
         }
-        assert!(checked > 20, "too few boards checked: {}", checked);
+        assert!(checked > 20, "too few boards checked: {checked}");
     }
 
     #[test]

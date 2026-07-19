@@ -58,7 +58,7 @@ fn main() -> ExitCode {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init device: {}", e);
+                eprintln!("error: could not init device: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -69,7 +69,7 @@ fn main() -> ExitCode {
         match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
             Ok(n) => n,
             Err(e) => {
-                eprintln!("error building net: {}", e);
+                eprintln!("error building net: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -208,7 +208,7 @@ fn main() -> ExitCode {
                     println!("moves: {}", s.join(" "));
                 }
             }
-            None => println!("R unsolved (FF-MITM: beams never met) in {:.0}s", secs),
+            None => println!("R unsolved (FF-MITM: beams never met) in {secs:.0}s"),
         }
         return ExitCode::SUCCESS;
     }
@@ -270,7 +270,7 @@ fn main() -> ExitCode {
                     res.len, res.g_fwd, res.g_bwd, secs, ok
                 );
             }
-            None => println!("R unsolved (MITM: beams never met) in {:.0}s", secs),
+            None => println!("R unsolved (MITM: beams never met) in {secs:.0}s"),
         }
         return ExitCode::SUCCESS;
     }
@@ -296,7 +296,7 @@ fn main() -> ExitCode {
             );
         }
         BwasOutcome::BudgetExceeded { nodes_expanded } => {
-            println!("R unsolved ({} nodes, {:.0}s)", nodes_expanded, secs);
+            println!("R unsolved ({nodes_expanded} nodes, {secs:.0}s)");
         }
     }
     ExitCode::SUCCESS

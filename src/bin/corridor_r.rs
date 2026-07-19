@@ -59,7 +59,7 @@ fn parse_moves(s: &str) -> Vec<Move> {
             "D" => Move::Down,
             "L" => Move::Left,
             "R" => Move::Right,
-            other => panic!("bad move token {:?}", other),
+            other => panic!("bad move token {other:?}"),
         })
         .collect()
 }
@@ -110,7 +110,7 @@ fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
 fn profile(name: &str, states: &[State], values: &[f32]) {
     let len = states.len() - 1;
     println!();
-    println!("== {} (length {}) ==", name, len);
+    println!("== {name} (length {len}) ==");
     println!(
         "{:>4} {:>5} {:>4} {:>7} {:>7} {:>7}",
         "k", "rem", "WD", "rem-WD", "V", "V-rem"
@@ -145,8 +145,7 @@ fn profile(name: &str, states: &[State], values: &[f32]) {
         }
     }
     println!(
-        "-- {}: WD rises on {}/{} steps; max |V-rem| = {:+.1} at k={}",
-        name, wd_rises, len, max_verr, max_verr_k
+        "-- {name}: WD rises on {wd_rises}/{len} steps; max |V-rem| = {max_verr:+.1} at k={max_verr_k}"
     );
 }
 
@@ -213,7 +212,7 @@ fn main() -> ExitCode {
             ) {
                 Ok(n) => n,
                 Err(e) => {
-                    eprintln!("error building net: {}", e);
+                    eprintln!("error building net: {e}");
                     return ExitCode::FAILURE;
                 }
             };

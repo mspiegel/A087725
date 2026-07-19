@@ -258,7 +258,7 @@ mod tests {
             max_wd(&construct_deep_boards(width, &cfg, &mut rng))
         };
         let (a, b, c) = (mx(50, 1), mx(500, 2), mx(2000, 3));
-        assert!(a <= b && b <= c, "WD not non-decreasing in width: {} {} {}", a, b, c);
+        assert!(a <= b && b <= c, "WD not non-decreasing in width: {a} {b} {c}");
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
             max_wd(&construct_deep_boards(1000, &cfg, &mut rng))
         };
         let (a, b, c) = (mx(40), mx(80), mx(160));
-        assert!(a < b && b <= c, "WD not increasing with depth: {} {} {}", a, b, c);
+        assert!(a < b && b <= c, "WD not increasing with depth: {a} {b} {c}");
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
         assert!(!ladder.is_empty());
         let min_d = ladder.iter().map(|&(_, d)| d).min().unwrap();
         let max_d = ladder.iter().map(|&(_, d)| d).max().unwrap();
-        assert!(min_d < 40 && max_d > 100, "ladder depth span {}..{}", min_d, max_d);
+        assert!(min_d < 40 && max_d > 100, "ladder depth span {min_d}..{max_d}");
         // Each label upper-bounds optimal: WD(board) ≤ walk_depth, board solvable.
         for &(s, d) in &ladder {
             assert!(s.is_solvable(), "unsolvable ladder board {:?}", s.0);

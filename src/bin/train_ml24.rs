@@ -173,7 +173,7 @@ fn main() -> ExitCode {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init device: {}", e);
+                eprintln!("error: could not init device: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -266,7 +266,7 @@ fn main() -> ExitCode {
         let mut g = match Generator::new(&cfg.generator, device.clone()) {
             Ok(g) => g,
             Err(e) => {
-                eprintln!("dry-run: generator init failed: {}", e);
+                eprintln!("dry-run: generator init failed: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -304,7 +304,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("training error: {}", e);
+            eprintln!("training error: {e}");
             ExitCode::FAILURE
         }
     }

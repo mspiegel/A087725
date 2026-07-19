@@ -112,7 +112,7 @@ fn main() -> ExitCode {
                 all.append(&mut v);
             }
             Err(e) => {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
     let net = match ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("build net: {}", e);
+            eprintln!("build net: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -151,7 +151,7 @@ fn main() -> ExitCode {
     let mut opt = match AdamW::new(vm.all_vars(), ParamsAdamW { lr, ..Default::default() }) {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("optimizer: {}", e);
+            eprintln!("optimizer: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -192,7 +192,7 @@ fn main() -> ExitCode {
         let x = match encode_batch(&states, &device) {
             Ok(x) => x,
             Err(e) => {
-                eprintln!("encode: {}", e);
+                eprintln!("encode: {e}");
                 return ExitCode::FAILURE;
             }
         };
@@ -217,7 +217,7 @@ fn main() -> ExitCode {
             );
             loss_acc = 0.0;
             if let Err(e) = vm.save(out.join("value_latest.safetensors")) {
-                eprintln!("save: {}", e);
+                eprintln!("save: {e}");
             }
         }
     }

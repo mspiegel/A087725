@@ -207,7 +207,7 @@ fn analyze(start: &State, path: &[Move], wd: &WdTable, cwd: &Cwd) -> Anat {
                     a.rt_b_c[b] += pairs;
                 }
                 if pairs > 0 {
-                    let g = (tile - 1);
+                    let g = tile - 1;
                     let gl = if ax == 0 { g / W } else { g % W };
                     if gl == b || gl == b + 1 {
                         a.rt_home += pairs;

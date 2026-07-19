@@ -37,7 +37,7 @@ fn main() {
             } else {
                 out.iter().map(|&(_, w)| w as f64).sum::<f64>() / out.len() as f64
             };
-            println!("{:>7}  {:>6}  {:>7}  {:>8.1}  {:>9.0}", width, depth, max_wd, mean_wd, ms);
+            println!("{width:>7}  {depth:>6}  {max_wd:>7}  {mean_wd:>8.1}  {ms:>9.0}");
         }
     }
 }

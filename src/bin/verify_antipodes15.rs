@@ -51,12 +51,12 @@ fn main() -> ExitCode {
     let net = match ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("error building net: {}", e);
+            eprintln!("error building net: {e}");
             return ExitCode::FAILURE;
         }
     };
     if let Err(e) = vm.load(&checkpoint) {
-        eprintln!("error loading {}: {}", checkpoint, e);
+        eprintln!("error loading {checkpoint}: {e}");
         return ExitCode::FAILURE;
     }
     println!("loaded {checkpoint} (hidden {hidden}, blocks {blocks}); CPU; weight {weight}, budget {budget}");
@@ -67,7 +67,7 @@ fn main() -> ExitCode {
     let antipodes: Vec<State> = match load_ranks(std::path::Path::new(&path)) {
         Ok(ranks) => ranks.into_iter().map(unrank).collect(),
         Err(e) => {
-            eprintln!("error loading antipodes {}: {}", path, e);
+            eprintln!("error loading antipodes {path}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -86,7 +86,7 @@ fn main() -> ExitCode {
     let mut verified_optimal = 0usize;
     for (i, s) in antipodes.iter().enumerate() {
         assert_ne!(*s, GOAL, "antipode {i} is GOAL — bad load");
-        match search(s, &cfg, &value_of) {
+        match search(s, &cfg, value_of) {
             BwasOutcome::Solved { moves, nodes_expanded } => {
                 solved += 1;
                 // Independent re-application from the original board.
@@ -100,7 +100,7 @@ fn main() -> ExitCode {
                     verified_optimal += 1;
                 }
                 let prefix: String =
-                    moves.iter().take(12).map(|m| format!("{:?}", m).chars().next().unwrap()).collect();
+                    moves.iter().take(12).map(|m| format!("{m:?}").chars().next().unwrap()).collect();
                 println!(
                     "antipode {:>2}: len {:>3}  nodes {:>7}  reaches_GOAL={}  optimal={}  moves[..12]={}",
                     i,
@@ -112,7 +112,7 @@ fn main() -> ExitCode {
                 );
             }
             BwasOutcome::BudgetExceeded { nodes_expanded } => {
-                println!("antipode {:>2}: UNSOLVED within budget (expanded {})", i, nodes_expanded);
+                println!("antipode {i:>2}: UNSOLVED within budget (expanded {nodes_expanded})");
             }
         }
     }

@@ -138,7 +138,7 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         let mut pool = Vec::new();
         for p in &cfg.corridor_data {
             let mut part = corridor::load_file(p)
-                .map_err(|e| candle_core::Error::Msg(format!("corridor data: {}", e)))?;
+                .map_err(|e| candle_core::Error::Msg(format!("corridor data: {e}")))?;
             pool.append(&mut part);
         }
         pool
@@ -272,8 +272,7 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             });
             if cfg.verbose {
                 eprintln!(
-                    "    [R156-OOD] V-rem: {:+.1} (rem 120-156)  {:+.1} (80-119)  {:+.1} (40-79)",
-                    deep_e, mid_e, low_e
+                    "    [R156-OOD] V-rem: {deep_e:+.1} (rem 120-156)  {mid_e:+.1} (80-119)  {low_e:+.1} (40-79)"
                 );
             }
             let prefix = format!(
@@ -283,8 +282,8 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 gen_reward,
                 generator.reward_baseline(),
             );
-            let opt = |v: Option<f32>| v.map(|x| format!("{:.2}", x)).unwrap_or_else(|| "-".into());
-            let optsign = |v: Option<f32>| v.map(|x| format!("{:+.2}", x)).unwrap_or_else(|| "-".into());
+            let opt = |v: Option<f32>| v.map(|x| format!("{x:.2}")).unwrap_or_else(|| "-".into());
+            let optsign = |v: Option<f32>| v.map(|x| format!("{x:+.2}")).unwrap_or_else(|| "-".into());
             let (header, line) = match &cfg.eval {
                 EvalSpec::MidDepth(ec) => {
                     let r = eval::run(|s| davi.value_of(s).expect("solver value_of failed"), ec);
@@ -312,7 +311,7 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                         .map(|rr| {
                             let l = rr.learned.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
                             let b = rr.beam.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
-                            format!("{}/{}", l, b)
+                            format!("{l}/{b}")
                         })
                         .unwrap_or_else(|| "-".into());
                     let line = format!(

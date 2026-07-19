@@ -120,12 +120,12 @@ fn main() -> ExitCode {
     let net = match ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("build net: {}", e);
+            eprintln!("build net: {e}");
             return ExitCode::FAILURE;
         }
     };
     if let Err(e) = vm.load(&checkpoint) {
-        eprintln!("load {}: {}", checkpoint, e);
+        eprintln!("load {checkpoint}: {e}");
         return ExitCode::FAILURE;
     }
     let value_of = |s: &[State]| net.values(s, &device).expect("forward");

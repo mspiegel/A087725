@@ -104,7 +104,7 @@ fn main() -> ExitCode {
     let net = match ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("build net: {}", e);
+            eprintln!("build net: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -157,9 +157,9 @@ fn main() -> ExitCode {
         WalkingDistanceHeuristic::warm_up();
         let weights = [2.5f32, 2.0];
         let budget: u64 = arg(&argv, "--fo-budget", 8_000_000);
-        println!("forward-only: anytime weights {:?}, budget/weight {}", weights, budget);
+        println!("forward-only: anytime weights {weights:?}, budget/weight {budget}");
         let t = Instant::now();
-        let out = anytime_search(&start, &weights, 2000, budget, &fwd, |s: &State| {
+        let out = anytime_search(&start, &weights, 2000, budget, fwd, |s: &State| {
             WalkingDistanceHeuristic.h(s)
         });
         let secs = t.elapsed().as_secs_f64();
@@ -178,7 +178,7 @@ fn main() -> ExitCode {
                 );
             }
             BwasOutcome::BudgetExceeded { nodes_expanded } => {
-                println!("forward-only unsolved ({} nodes, {:.0}s)", nodes_expanded, secs)
+                println!("forward-only unsolved ({nodes_expanded} nodes, {secs:.0}s)")
             }
         }
         return ExitCode::SUCCESS;
@@ -199,7 +199,7 @@ fn main() -> ExitCode {
                 r.len, r.g_fwd, r.g_bwd, secs, ok
             );
         }
-        None => println!("unsolved (beams never met) in {:.0}s", secs),
+        None => println!("unsolved (beams never met) in {secs:.0}s"),
     }
     ExitCode::SUCCESS
 }

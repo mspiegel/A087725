@@ -277,7 +277,7 @@ mod tests {
         let mut rng = Rng::new(3);
         for _ in 0..20 {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite(), "reward not finite: {}", r);
+            assert!(r.is_finite(), "reward not finite: {r}");
         }
         assert!(g.reward_baseline().is_finite());
     }
@@ -296,12 +296,12 @@ mod tests {
         let rounds = 20;
         for _ in 0..rounds {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {}", r);
+            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {r}");
             if r > 180.0 {
                 big += 1;
             }
         }
-        assert!(big >= 15, "expected most rounds to show large regret, got {}/{}", big, rounds);
+        assert!(big >= 15, "expected most rounds to show large regret, got {big}/{rounds}");
     }
 
     #[test]

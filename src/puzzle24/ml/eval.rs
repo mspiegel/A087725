@@ -84,14 +84,14 @@ impl EvalReport {
             self.holdout_solved,
             self.holdout_n,
             self.holdout_fail_rate * 100.0,
-            self.holdout_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+            self.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
         );
         eprintln!(
             "  optimal-labeled: {}/{}, mean excess over optimal: {}",
             self.optimal_labeled_n,
             self.holdout_n,
             self.mean_excess_over_optimal
-                .map(|v| format!("{:+.2}", v))
+                .map(|v| format!("{v:+.2}"))
                 .unwrap_or_else(|| "-".into()),
         );
     }
@@ -259,13 +259,13 @@ impl DeepEvalReport {
         );
         eprintln!(
             "  mean len: learned {}, beam {}",
-            self.mean_learned_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
-            self.mean_beam_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+            self.mean_learned_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+            self.mean_beam_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
         );
         eprintln!(
             "  mean excess over beam (both-solved): {}  [negative = learned beats beam], learned wins {}/{}",
             self.mean_excess_over_beam
-                .map(|v| format!("{:+.2}", v))
+                .map(|v| format!("{v:+.2}"))
                 .unwrap_or_else(|| "-".into()),
             self.learned_wins,
             self.both_solved,

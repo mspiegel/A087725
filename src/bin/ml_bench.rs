@@ -65,7 +65,7 @@ fn main() -> ExitCode {
         match pick_device() {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: could not init Metal device: {}", e);
+                eprintln!("error: could not init Metal device: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -76,7 +76,7 @@ fn main() -> ExitCode {
     match run(&device, hidden, batch, iters, peak_tflops) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("bench error: {}", e);
+            eprintln!("bench error: {e}");
             ExitCode::FAILURE
         }
     }
@@ -102,8 +102,7 @@ fn run(dev: &Device, h: usize, b: usize, iters: usize, peak_tflops: f64) -> Resu
         let gflops = gflop / (ms / 1000.0);
         let pct = 100.0 * gflops / (peak_tflops * 1000.0);
         println!(
-            "  [{:>5},{h}] x [{h},{h}]  {:>7.3} ms/iter  {:>7.0} GFLOP/s  ({:>4.1}% of peak)",
-            m, ms, gflops, pct
+            "  [{m:>5},{h}] x [{h},{h}]  {ms:>7.3} ms/iter  {gflops:>7.0} GFLOP/s  ({pct:>4.1}% of peak)"
         );
     }
 
@@ -120,10 +119,10 @@ fn run(dev: &Device, h: usize, b: usize, iters: usize, peak_tflops: f64) -> Resu
     let t_ln = bench(dev, iters, || ln.forward(&x))?;
     let t_rn = bench(dev, iters, || manual_rmsnorm(&x, &rms_w, 1e-5))?;
     let t_relu = bench(dev, iters, || x.relu())?;
-    println!("  linear(h->h)         {:>7.3}", t_lin);
+    println!("  linear(h->h)         {t_lin:>7.3}");
     println!("  layer_norm_no_bias   {:>7.3}   ({:.2}x a linear)", t_ln, t_ln / t_lin);
     println!("  manual_rmsnorm       {:>7.3}   ({:.2}x a linear)", t_rn, t_rn / t_lin);
-    println!("  relu                 {:>7.3}", t_relu);
+    println!("  relu                 {t_relu:>7.3}");
 
     // ---- 3. Residual-block A/B (the real block shape: 2 linears + 2 norms) ----
     println!("\n── residual block forward on [{b},{h}] (ms/iter) ──");
@@ -147,14 +146,13 @@ fn run(dev: &Device, h: usize, b: usize, iters: usize, peak_tflops: f64) -> Resu
         let hh = l2.forward(&hh)?;
         (&x + hh)?.relu()
     })?;
-    println!("  block w/ LayerNorm (current)  {:>7.3}", block_ln);
-    println!("  block w/ manual RmsNorm        {:>7.3}", block_rn);
-    println!("  block, no norm                 {:>7.3}", block_none);
+    println!("  block w/ LayerNorm (current)  {block_ln:>7.3}");
+    println!("  block w/ manual RmsNorm        {block_rn:>7.3}");
+    println!("  block, no norm                 {block_none:>7.3}");
     let ln_tax = 100.0 * (block_ln - block_none) / block_ln;
     let block_speedup = block_ln / block_rn;
     println!(
-        "  => LayerNorm is {:.0}% of the block; switching to manual RmsNorm makes the block {:.2}x faster",
-        ln_tax, block_speedup
+        "  => LayerNorm is {ln_tax:.0}% of the block; switching to manual RmsNorm makes the block {block_speedup:.2}x faster"
     );
 
     Ok(())

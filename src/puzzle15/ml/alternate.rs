@@ -149,11 +149,11 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 gen_reward,
                 generator.reward_baseline(),
                 report.holdout_solved,
-                report.holdout_mean_len.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "-".into()),
+                report.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
                 report.antipode_solved,
                 report
                     .antipode_mean_excess
-                    .map(|v| format!("{:+.2}", v))
+                    .map(|v| format!("{v:+.2}"))
                     .unwrap_or_else(|| "-".into()),
             );
             checkpoint::append_metrics(&cfg.checkpoint_dir, METRICS_HEADER, &line)?;
