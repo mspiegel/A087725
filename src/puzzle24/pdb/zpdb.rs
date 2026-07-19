@@ -223,6 +223,16 @@ fn for_each_ksubset(k: usize, mut f: impl FnMut(&[u8], u32)) {
 /// `k!·regions(m)` entries of one shape into a contiguous cohort. The total is
 /// `k! · Σ_m regions(m)` — e.g. `720 · 251,400 = 181,008,000` for `k = 6`, the
 /// figure from Clausecker & Reinefeld Table 1.
+/// One shape's `rank`-time data, co-located so a query touches a single ~40-byte
+/// record (≈one cache line) instead of three large parallel arrays indexed by the
+/// same random `sr`. See [`ZpdbLayout::shape_info`].
+#[derive(Clone)]
+struct ShapeInfo {
+    cohort_base: u64,
+    count: u8,
+    labels: [u8; N_CELLS],
+}
+
 pub struct ZpdbLayout {
     k: usize,
     kfact: u64,
@@ -251,6 +261,11 @@ pub struct ZpdbLayout {
     /// (even); the rest follow by induction.
     shape_parity: Vec<u8>,
     total: u64,
+    /// Co-located `(cohort_base, count, labels)` per shape for the `rank` hot
+    /// path — one cache-line fetch replaces three scattered lookups into the
+    /// large `cohort_base`/`labels`/`counts` arrays (which stay for the cold
+    /// unrank/build/codec paths). Derived at construction.
+    shape_info: Vec<ShapeInfo>,
 }
 
 /// Sorted occupied cells from a mask, written to `out`; returns the count.
@@ -312,6 +327,14 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
+        // Co-locate the three per-shape `rank` inputs (built above) into one array.
+        let shape_info = (0..nshapes)
+            .map(|s| ShapeInfo {
+                cohort_base: cohort_base[s],
+                count: counts[s],
+                labels: labels[s],
+            })
+            .collect();
         Self {
             k,
             kfact,
@@ -322,6 +345,7 @@ impl ZpdbLayout {
             labels,
             shape_parity,
             total: acc,
+            shape_info,
         }
     }
 
@@ -405,10 +429,11 @@ impl ZpdbLayout {
 
         let sr = sr as usize;
         let pr = perm_rank(&perm[..self.k]);
-        let count = self.counts[sr] as u64;
-        let r = self.labels[sr][blank] as u64;
-        debug_assert!(r < count);
-        self.cohort_base[sr] + pr * count + r
+        // Single co-located fetch (≈one cache line) for the three per-shape inputs.
+        let si = &self.shape_info[sr];
+        let r = si.labels[blank] as u64;
+        debug_assert!(r < si.count as u64);
+        si.cohort_base + pr * si.count as u64 + r
     }
 
     /// Reconstruct a **representative** projected state for entry `rank` — the
