@@ -706,8 +706,6 @@ pub struct CwdState {
     dem_col: [u8; W],
     wd_row: u8,
     wd_col: u8,
-    curves_row: [u16; W],
-    curves_col: [u16; W],
     surch_row: u8,
     surch_col: u8,
     nbr_wd_row: [u8; 2 * W],
@@ -722,8 +720,14 @@ impl CwdState {
 }
 
 /// One undo frame: the changed axis's matrix cell-pair, the pre-move blank, the
-/// (at most one) changed demand, and the pre-move cached WD/surcharge/curves for
-/// that axis. Reversing is O(1). `demline == 255` ⇒ no demand changed.
+/// (at most one) changed demand, and the pre-move cached WD/surcharge/neighbor-WD
+/// for that axis. Reversing is O(1). `demline == 255` ⇒ no demand changed.
+///
+/// Two derivable values are deliberately *not* stored, to keep the frame small
+/// (20 B, no 8-byte alignment): the per-line `curves` (transient inside `make` —
+/// read only to compute `surch` right after the cell probe) and the packed `key`
+/// (`unmake` recomputes it from the reverted matrix via the same incremental
+/// `key_set_*` ops `make` uses, instead of carrying an 8-byte `u64`).
 struct CwdUndo {
     vertical: bool,
     i: u8,
@@ -731,13 +735,10 @@ struct CwdUndo {
     g: u8,
     br: u8,
     bc: u8,
-    /// Pre-move packed key of the changed axis (`key_row` if vertical, else `key_col`).
-    key: u64,
     demline: u8,
     demold: u8,
     wd: u8,
     surch: u8,
-    curves: [u16; W],
     nbr_wd: [u8; 2 * W],
 }
 
@@ -769,8 +770,6 @@ impl Cwd {
             dem_col,
             wd_row: r.wd,
             wd_col: c.wd,
-            curves_row: r.curves,
-            curves_col: c.curves,
             surch_row: surcharge_from_curves(&r.curves, &dem_row),
             surch_col: surcharge_from_curves(&c.curves, &dem_col),
             nbr_wd_row: r.nbr_wd,
@@ -808,8 +807,6 @@ impl IncHeuristicMut for Cwd {
                 dem_col: [0; W],
                 wd_row: 0,
                 wd_col: 0,
-                curves_row: [0; W],
-                curves_col: [0; W],
                 surch_row: 0,
                 surch_col: 0,
                 nbr_wd_row: [255; 2 * W],
@@ -856,21 +853,17 @@ impl IncHeuristicMut for Cwd {
             g: 0,
             br: st.br,
             bc: st.bc,
-            key: 0,
             demline: 255,
             demold: 0,
             wd: 0,
             surch: 0,
-            curves: [0; W],
             nbr_wd: [255; 2 * W],
         };
         if rf != rt {
             // vertical slide: only the row axis (contingency, blank-row) changes
             undo.wd = st.wd_row;
             undo.surch = st.surch_row;
-            undo.curves = st.curves_row;
             undo.nbr_wd = st.nbr_wd_row;
-            undo.key = st.key_row;
             st.m_row[rf][gr] -= 1;
             st.m_row[rt][gr] += 1;
             undo.i = rf as u8;
@@ -896,16 +889,13 @@ impl IncHeuristicMut for Cwd {
             debug_assert_eq!(st.key_row, pack(&st.m_row, st.br), "key_row drift");
             let cell = mg.get(&st.key_row).expect("row reachable");
             st.wd_row = cell.wd;
-            st.curves_row = cell.curves;
             st.nbr_wd_row = cell.nbr_wd;
-            st.surch_row = surcharge_from_curves(&st.curves_row, &st.dem_row);
+            st.surch_row = surcharge_from_curves(&cell.curves, &st.dem_row);
         } else {
             // horizontal slide: only the column axis changes
             undo.wd = st.wd_col;
             undo.surch = st.surch_col;
-            undo.curves = st.curves_col;
             undo.nbr_wd = st.nbr_wd_col;
-            undo.key = st.key_col;
             st.m_col[cf][gc] -= 1;
             st.m_col[ct][gc] += 1;
             undo.i = cf as u8;
@@ -927,9 +917,8 @@ impl IncHeuristicMut for Cwd {
             debug_assert_eq!(st.key_col, pack(&st.m_col, st.bc), "key_col drift");
             let cell = mg.get(&st.key_col).expect("col reachable");
             st.wd_col = cell.wd;
-            st.curves_col = cell.curves;
             st.nbr_wd_col = cell.nbr_wd;
-            st.surch_col = surcharge_from_curves(&st.curves_col, &st.dem_col);
+            st.surch_col = surcharge_from_curves(&cell.curves, &st.dem_col);
         }
         ctx.undo.push(undo);
         st.h()
@@ -941,24 +930,35 @@ impl IncHeuristicMut for Cwd {
         }
         let u = ctx.undo.pop().expect("unmake without matching make");
         let st = &mut ctx.state;
+        let (i, j, g) = (u.i as usize, u.j as usize, u.g as usize);
         if u.vertical {
-            st.m_row[u.i as usize][u.g as usize] += 1;
-            st.m_row[u.j as usize][u.g as usize] -= 1;
-            st.key_row = u.key;
+            st.m_row[i][g] += 1;
+            st.m_row[j][g] -= 1;
+            // Recompute key_row from the reverted matrix (inverse of make's O(1)
+            // incremental update), instead of storing the 8-byte pre-move key.
+            if g < W - 1 {
+                st.key_row = key_set_cell(st.key_row, i, g, st.m_row[i][g]);
+                st.key_row = key_set_cell(st.key_row, j, g, st.m_row[j][g]);
+            }
+            st.key_row = key_set_blank(st.key_row, u.br);
+            debug_assert_eq!(st.key_row, pack(&st.m_row, u.br), "key_row unmake drift");
             st.wd_row = u.wd;
             st.surch_row = u.surch;
-            st.curves_row = u.curves;
             st.nbr_wd_row = u.nbr_wd;
             if u.demline != 255 {
                 st.dem_row[u.demline as usize] = u.demold;
             }
         } else {
-            st.m_col[u.i as usize][u.g as usize] += 1;
-            st.m_col[u.j as usize][u.g as usize] -= 1;
-            st.key_col = u.key;
+            st.m_col[i][g] += 1;
+            st.m_col[j][g] -= 1;
+            if g < W - 1 {
+                st.key_col = key_set_cell(st.key_col, i, g, st.m_col[i][g]);
+                st.key_col = key_set_cell(st.key_col, j, g, st.m_col[j][g]);
+            }
+            st.key_col = key_set_blank(st.key_col, u.bc);
+            debug_assert_eq!(st.key_col, pack(&st.m_col, u.bc), "key_col unmake drift");
             st.wd_col = u.wd;
             st.surch_col = u.surch;
-            st.curves_col = u.curves;
             st.nbr_wd_col = u.nbr_wd;
             if u.demline != 255 {
                 st.dem_col[u.demline as usize] = u.demold;
