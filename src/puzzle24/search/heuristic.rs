@@ -301,14 +301,21 @@ where
         if ha > budget {
             ctx.pending.push((m, *child));
             ctx.tags.push(LazyTag::Pending);
+            #[cfg(feature = "prune-histogram")]
+            crate::puzzle24::search::idastar::prune_histogram::note_cwd_pruned();
             return ha;
         }
+        #[cfg(feature = "prune-histogram")]
+        crate::puzzle24::search::idastar::prune_histogram::note_cwd_survived();
         let k = ctx.pending.len();
         // Lipschitz upper bound on the child's h_b; if it can't exceed the
         // budget, B can't prune here either.
         if ctx.b_val as usize + k < budget as usize {
             ctx.pending.push((m, *child));
             ctx.tags.push(LazyTag::Pending);
+            // B (k8) provably can't reach the budget here — it does not prune.
+            #[cfg(feature = "prune-histogram")]
+            crate::puzzle24::search::idastar::prune_histogram::note_k8_survived();
             // Admissible: true h_b ≥ b_val − k − 1 (may saturate to 0).
             return ha.max(ctx.b_val.saturating_sub(k as u8 + 1));
         }
@@ -318,6 +325,14 @@ where
         debug_assert!((hb as i16 - prev as i16).abs() <= 1, "B is not 1-Lipschitz");
         ctx.b_val = hb;
         ctx.tags.push(LazyTag::Applied(prev));
+        // B (k8) was evaluated: it prunes iff the combined value exceeds budget
+        // (`ha ≤ budget` here, so any excess is B's).
+        #[cfg(feature = "prune-histogram")]
+        if ha.max(hb) > budget {
+            crate::puzzle24::search::idastar::prune_histogram::note_k8_pruned();
+        } else {
+            crate::puzzle24::search::idastar::prune_histogram::note_k8_survived();
+        }
         ha.max(hb)
     }
 

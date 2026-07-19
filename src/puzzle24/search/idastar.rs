@@ -1202,6 +1202,97 @@ fn run_seq_core<E: IncHeuristicMut, P: MovePruner>(
     }
 }
 
+/// Per-depth cWD-vs-k8 prune histogram (feature `prune-histogram`, off by
+/// default). For each child that *reaches* the lazy combiner's `make_bounded`
+/// (i.e. survived the neighbor prune — which is deliberately excluded here), it
+/// records, at the child's depth: whether the cheap tier (cWD) pruned it, and if
+/// not, whether the finest tier (k8 zPDB) pruned it. `cwd_survived` equals
+/// `k8_pruned + k8_survived` by construction. The child depth is stashed in a
+/// thread-local by `search_inc_mut` right before the `make_bounded` call, since
+/// `make_bounded` sees only the `budget`, not the depth.
+#[cfg(feature = "prune-histogram")]
+pub mod prune_histogram {
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    pub const MAX_DEPTH: usize = 256;
+    /// Columns: 0 = cWD pruned, 1 = cWD survived, 2 = k8 pruned, 3 = k8 survived.
+    pub const COLS: usize = 4;
+
+    // Const initializers for the atomic-array `static` below; each slot becomes a
+    // distinct atomic, so the interior-mutability lint is a false positive here.
+    #[allow(clippy::declare_interior_mutable_const)]
+    const Z: AtomicU64 = AtomicU64::new(0);
+    #[allow(clippy::declare_interior_mutable_const)]
+    const ROW: [AtomicU64; COLS] = [Z; COLS];
+    static HIST: [[AtomicU64; COLS]; MAX_DEPTH] = [ROW; MAX_DEPTH];
+
+    thread_local! {
+        static DEPTH: Cell<u8> = const { Cell::new(0) };
+    }
+
+    /// Stash the depth of the child about to be evaluated by `make_bounded`.
+    #[inline(always)]
+    pub fn set_depth(d: u8) {
+        DEPTH.with(|c| c.set(d));
+    }
+
+    #[inline(always)]
+    fn bump(col: usize) {
+        let d = DEPTH.with(|c| c.get()) as usize;
+        if d < MAX_DEPTH {
+            HIST[d][col].fetch_add(1, Relaxed);
+        }
+    }
+
+    #[inline(always)]
+    pub fn note_cwd_pruned() {
+        bump(0);
+    }
+    #[inline(always)]
+    pub fn note_cwd_survived() {
+        bump(1);
+    }
+    #[inline(always)]
+    pub fn note_k8_pruned() {
+        bump(2);
+    }
+    #[inline(always)]
+    pub fn note_k8_survived() {
+        bump(3);
+    }
+
+    /// Rendered table: one row per depth with any activity, plus a totals footer.
+    pub fn report() -> String {
+        let mut out = String::from(
+            "prune histogram (children reaching make_bounded; neighbor-prune excluded):\n",
+        );
+        out.push_str(&format!(
+            "{:>5}  {:>15} {:>15} {:>15} {:>15}\n",
+            "depth", "cwd_pruned", "cwd_survived", "k8_pruned", "k8_survived"
+        ));
+        let mut tot = [0u64; COLS];
+        for d in 0..MAX_DEPTH {
+            let row: [u64; COLS] = std::array::from_fn(|c| HIST[d][c].load(Relaxed));
+            if row.iter().all(|&x| x == 0) {
+                continue;
+            }
+            for c in 0..COLS {
+                tot[c] += row[c];
+            }
+            out.push_str(&format!(
+                "{:>5}  {:>15} {:>15} {:>15} {:>15}\n",
+                d, row[0], row[1], row[2], row[3]
+            ));
+        }
+        out.push_str(&format!(
+            "{:>5}  {:>15} {:>15} {:>15} {:>15}",
+            "all", tot[0], tot[1], tot[2], tot[3]
+        ));
+        out
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Loop-invariant parameters of one IDA\* threshold, bundled into a single
 /// pointer so the hot recursive [`search_inc_mut`] passes ~9 args (fitting
@@ -1294,6 +1385,10 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
             }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
+        // Tag the child's depth for the (feature-gated) prune histogram recorded
+        // inside `make_bounded`, which sees only the budget, not the depth.
+        #[cfg(feature = "prune-histogram")]
+        prune_histogram::set_depth(g + 1);
         let child_h = inv
             .e
             .make_bounded(ctx, &s_next, m, inv.bound.saturating_sub(g + 1));

@@ -454,6 +454,11 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
     }
     #[cfg(feature = "zpdb-locality")]
     println!("{}", puzzle8::puzzle24::pdb::heuristic::locality::report());
+    #[cfg(feature = "prune-histogram")]
+    println!(
+        "{}",
+        puzzle8::puzzle24::search::idastar::prune_histogram::report()
+    );
 }
 
 /// Drive an incremental heuristic, dispatching on bounded vs optimal mode.

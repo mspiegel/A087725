@@ -37,6 +37,9 @@ verifier-stats = []
 # at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
 # `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
 zpdb-locality = []
+# Per-depth cWD-vs-k8 prune histogram for cwd-zpdb8-lazy (diagnostic, off by
+# default; a relaxed-atomic bump per prune decision). Printed by solve24 at exit.
+prune-histogram = []
 # 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
 # See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
 # automatically on macOS via the target block below, with runtime CPU fallback
