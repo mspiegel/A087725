@@ -578,6 +578,60 @@ and an upper envelope for every per-line escape-demand rule.
 
 Data: `data/yg_{70,90,110}.tsv`, `data/yield_gap_probe.txt`.
 
+## 8i. Engine throughput — the deep-board heuristic is compute-bound, and only *work-reduction* pays (2026-07-19)
+
+Everything above sharpens the *heuristic* (fewer nodes). §8i is orthogonal:
+make each node **cheaper**. The production combiner `cwd-zpdb8-lazy`
+(`max(cWD, k6-zpdb, k8-zpdb)`, lazily) was profiled and tuned on R at
+exhaust-144 (proves ≥146; warm, 8 threads; node-identical A/Bs throughout —
+every change here preserves the 268,071,922-node tree exactly).
+
+**Where the time goes (line-level, `sample` + dSYM on the search phase).** The
+hot path is *compute-bound*, not memory-bound: the k8 table read (`diff_lookup`)
+is only **1.8%** — the ~2000×-reused working set stays cache-resident (the
+30.5 GiB tables held resident on a 32 GiB box with *one* hard fault, RSS growth
+all clean file-backed pages). The real cost is index arithmetic and projection
+bookkeeping: `ZpdbLayout::rank` ~18–22%, `ProjectedState::apply_in_place`
+~20–23%, `Cwd::make` ~16% (of which `pack` alone ~5.8%).
+
+**Three wins — all genuine work-reduction, all node-identical:**
+
+| commit | change | Mn/s |
+|--------|--------|------|
+| `abd66d8` | drop k6's *reflected* Korf-max view (stop maintaining it) | 34 → 38.7 |
+| `936b6ce` | hoist the shared blank/step out of `ZpdbInc`'s per-group `apply_in_place` | 38.7 → 44.0 |
+| `7e09bca` | maintain cWD's packed WD-table key incrementally (no per-node re-`pack`) | 44.0 → 44.9 |
+
+Cumulative **≈ 34 → 45 Mn/s (+32%)** search throughput on R, at zero node cost.
+Details: k6's reflected view binds 22.9% of *evals* but costs only **+0.39%
+nodes** to drop (vs k8's +9.16%, which grows +10.7%→+17.3% at 144→146 and stays
+valuable) — so k8 keeps reflection, k6 drops it by default (`--k6-reflect`
+restores). The hoist removes 3–4 redundant `blank_pos`/`step` recomputes per
+node (a view's projections share the board blank). The cWD key is rebuilt from
+the 5×5 matrix every node, but a move touches one axis / two cells → O(1)
+update (`key_row == pack(&m_row, br)` invariant, `debug_assert`-checked).
+
+**The governing law (the reusable finding):** on the Apple-silicon
+out-of-order core, **a sampling profiler's % on cheap, predictable, vectorized
+instructions is not reclaimable time** — only removing real *multi-instruction
+work* moves the needle. Every "shave instructions the core already hides"
+attempt was neutral-to-negative, even when it looked like the biggest hot spot:
+
+| dead end | result | why |
+|----------|--------|-----|
+| software prefetch / MLP (within-node + cross-child) | −0.7% / **−37%** | k8 working set is cache-resident; nothing to hide. probes/make = 2.000 (the 3 k8 groups partition all 24 tiles → one group/move) |
+| incremental `rank` (maintain occ/sr/perm) | −0.7% | the from-scratch ascending walk (the 15.5% part) is a tight cache-hot loop; the incremental `slide` costs the same |
+| `get_unchecked` in `rank`/`apply` (10+9 bounds checks) | −1.8% | bounds branches are predicted-not-taken (free); `rank` shrank 322→111 instrs for *no* cycle win |
+| `h == 0` gate on the `s == GOAL` compare | +0.4% (noise) | the 25-byte compare is ~2 vectorized NEON ops; the 3.3% of *samples* is ~0 cycles |
+| huge pages for the k8 mmap | infeasible | macOS can't superpage a file mmap without an anonymous copy that breaks the 30.5/32 GiB residency |
+
+The contrast is the whole lesson: cWD `pack` (a 20-iteration *loop*) removed →
++3.6%; the goal compare (2 instructions) removed → 0. Same "eliminate the hot
+line," opposite outcome, because one was work and one was already free.
+
+Instrumentation kept: the gated `zpdb-locality` feature (`c4032e7`, off by
+default) — exact `make`/probe counters. A/B logs: `data/r_k8lazy_*_ab.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
