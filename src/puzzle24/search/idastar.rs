@@ -837,6 +837,16 @@ where
             })
             .collect();
         let found_flag = std::sync::atomic::AtomicBool::new(false);
+        // Workers share one invariant bundle; `orbit_split` is `false` (the split
+        // already applied the root σ-filter). One `&inv` per iteration, not per node.
+        let inv = SearchInv {
+            e,
+            p: pruner,
+            found: &found_flag,
+            deadline,
+            bound,
+            orbit_split: false,
+        };
         let results: Vec<(Wr, SearchStats)> = units
             .par_iter()
             .map(|u| {
@@ -844,21 +854,7 @@ where
                 let mut path: Vec<Move> = Vec::new();
                 let (h_u, mut ctx) = IncHeuristicMut::root(e, &u.state);
                 let step = search_inc_mut(
-                    &u.state,
-                    u.blank,
-                    &mut ctx,
-                    h_u,
-                    u.g,
-                    bound,
-                    deadline,
-                    &found_flag,
-                    &mut path,
-                    u.last,
-                    e,
-                    pruner,
-                    u.pst,
-                    false,
-                    &mut st,
+                    &inv, &u.state, u.blank, &mut ctx, h_u, u.g, &mut path, u.last, u.pst, &mut st,
                 );
                 let wr = match step {
                     Step::Found => {
@@ -1183,22 +1179,16 @@ fn run_seq_core<E: IncHeuristicMut, P: MovePruner>(
             }
         }
         stats.iterations += 1;
-        match search_inc_mut(
-            start,
-            blank,
-            &mut ctx,
-            h0,
-            0,
-            bound,
-            deadline,
-            &found,
-            &mut path,
-            None,
+        let inv = SearchInv {
             e,
-            pruner,
-            pst0,
+            p: pruner,
+            found: &found,
+            deadline,
+            bound,
             orbit_split,
-            &mut stats,
+        };
+        match search_inc_mut(
+            &inv, start, blank, &mut ctx, h0, 0, &mut path, None, pst0, &mut stats,
         ) {
             Step::Found => return (LadderOutcome::Solved(path), stats),
             Step::Aborted => return (LadderOutcome::TimedOut(bound), stats),
@@ -1213,21 +1203,31 @@ fn run_seq_core<E: IncHeuristicMut, P: MovePruner>(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Loop-invariant parameters of one IDA\* threshold, bundled into a single
+/// pointer so the hot recursive [`search_inc_mut`] passes ~9 args (fitting
+/// ARM64's 8 argument registers, spilling ≈1) instead of 15 — 7 of which were
+/// stack-passed and re-loaded from the caller's frame every node. Only `bound`
+/// differs between thresholds, so the driver rebuilds this once per iteration.
+struct SearchInv<'a, E, P> {
+    e: &'a E,
+    p: &'a P,
+    found: &'a std::sync::atomic::AtomicBool,
+    deadline: Option<std::time::Instant>,
+    bound: u8,
+    orbit_split: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
+    inv: &SearchInv<E, P>,
     s: &State,
     blank: u8,
     ctx: &mut E::Ctx,
     h_val: u8,
     g: u8,
-    bound: u8,
-    deadline: Option<std::time::Instant>,
-    found: &std::sync::atomic::AtomicBool,
     path: &mut Vec<Move>,
     last: Option<Move>,
-    e: &E,
-    p: &P,
     pst: P::St,
-    orbit_split: bool,
     stats: &mut SearchStats,
 ) -> Step {
     stats.nodes += 1;
@@ -1236,21 +1236,21 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
     // `Found` path — we return without unmaking. In the sequential driver
     // `found` is a private cell and `deadline` is `None`, so this never fires.
     if stats.nodes & DEADLINE_CHECK_MASK == 0 {
-        if found.load(std::sync::atomic::Ordering::Relaxed) {
+        if inv.found.load(std::sync::atomic::Ordering::Relaxed) {
             return Step::Aborted;
         }
-        if let Some(dl) = deadline {
+        if let Some(dl) = inv.deadline {
             if std::time::Instant::now() >= dl {
                 return Step::Aborted;
             }
         }
     }
     let f = g.saturating_add(h_val);
-    if f > bound {
+    if f > inv.bound {
         return Step::Bound(f);
     }
     if s == &GOAL {
-        found.store(true, std::sync::atomic::Ordering::Relaxed);
+        inv.found.store(true, std::sync::atomic::Ordering::Relaxed);
         return Step::Found;
     }
 
@@ -1264,7 +1264,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         // driver). Applied at `g == 0` only; deeper filtering would drop real
         // boards. The dropped child's kept mirror carries the same `f`, so neither
         // `stats.nodes` nor the next-threshold `min_next` is affected.
-        if orbit_split && g == 0 && !symmetry::is_orbit_representative(m) {
+        if inv.orbit_split && g == 0 && !symmetry::is_orbit_representative(m) {
             continue;
         }
         if let Some(prev) = last {
@@ -1275,7 +1275,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         // Skip provably-redundant continuations (duplicate subtrees). Sound: the
         // pruned board is reachable by a shorter/equal path, so no new board — and
         // no threshold — is lost. `NullPruner` makes this a no-op.
-        if p.is_pruned(pst, m) {
+        if inv.p.is_pruned(pst, m) {
             continue;
         }
         // Prune the child before generating/probing it, when the heuristic can
@@ -1284,9 +1284,9 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         // `Bound` at its first line anyway; feeding `f_child` into `min_next`
         // preserves the next IDA* threshold. No-op for heuristics that return
         // `None` (the default), which monomorphizes the branch away.
-        if let Some(lb) = e.child_h_lb(ctx, s, blank, m) {
+        if let Some(lb) = inv.e.child_h_lb(ctx, s, blank, m) {
             let f_child = (g + 1).saturating_add(lb);
-            if f_child > bound {
+            if f_child > inv.bound {
                 if f_child < min_next {
                     min_next = f_child;
                 }
@@ -1294,23 +1294,20 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
             }
         }
         let (s_next, next_blank) = s.apply_at(m, blank);
-        let child_h = e.make_bounded(ctx, &s_next, m, bound.saturating_sub(g + 1));
+        let child_h = inv
+            .e
+            .make_bounded(ctx, &s_next, m, inv.bound.saturating_sub(g + 1));
         path.push(m);
         match search_inc_mut(
+            inv,
             &s_next,
             next_blank,
             ctx,
             child_h,
             g + 1,
-            bound,
-            deadline,
-            found,
             path,
             Some(m),
-            e,
-            p,
-            p.advance(pst, m),
-            orbit_split,
+            inv.p.advance(pst, m),
             stats,
         ) {
             // On Found/Aborted the whole search terminates so `ctx` is discarded
@@ -1319,7 +1316,7 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
             Step::Aborted => return Step::Aborted,
             Step::Bound(n) => {
                 path.pop();
-                e.unmake(ctx, m); // restore path + ctx for the next sibling
+                inv.e.unmake(ctx, m); // restore path + ctx for the next sibling
                 if n < min_next {
                     min_next = n;
                 }
