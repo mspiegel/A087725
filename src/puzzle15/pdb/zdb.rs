@@ -70,7 +70,11 @@ impl ZPatternDb {
             dist.len(),
             layout.total()
         );
-        Self { pattern, layout, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            layout,
+            storage: Storage::Owned(dist),
+        }
     }
 
     /// Build the ZPDB end-to-end (single-threaded BFS).
@@ -151,13 +155,20 @@ impl ZPatternDb {
         let (pattern, total) = parse_header(&header)?;
         let layout = ZpdbLayout::new(pattern);
         if layout.total() != total {
-            return Err(LoadError::TotalMismatch { in_file: total, expected: layout.total() });
+            return Err(LoadError::TotalMismatch {
+                in_file: total,
+                expected: layout.total(),
+            });
         }
         let mut raw = vec![0u8; total as usize];
         f.read_exact(&mut raw)?;
         let mut tail = [0u8; 1];
         match f.read(&mut tail)? {
-            0 => Ok(Self { pattern, layout, storage: Storage::Owned(raw) }),
+            0 => Ok(Self {
+                pattern,
+                layout,
+                storage: Storage::Owned(raw),
+            }),
             _ => Err(LoadError::TrailingBytes),
         }
     }
@@ -174,13 +185,23 @@ impl ZPatternDb {
         let (pattern, total) = parse_header(&header)?;
         let layout = ZpdbLayout::new(pattern);
         if layout.total() != total {
-            return Err(LoadError::TotalMismatch { in_file: total, expected: layout.total() });
+            return Err(LoadError::TotalMismatch {
+                in_file: total,
+                expected: layout.total(),
+            });
         }
         let expected = HEADER_BYTES as u64 + total;
         if (map.len() as u64) != expected {
-            return Err(LoadError::SizeMismatch { got: map.len() as u64, expected });
+            return Err(LoadError::SizeMismatch {
+                got: map.len() as u64,
+                expected,
+            });
         }
-        Ok(Self { pattern, layout, storage: Storage::Mmapped(map) })
+        Ok(Self {
+            pattern,
+            layout,
+            storage: Storage::Mmapped(map),
+        })
     }
 }
 
@@ -233,7 +254,10 @@ impl std::fmt::Display for LoadError {
                 write!(f, "file size {got} != expected {expected}")
             }
             LoadError::TotalMismatch { in_file, expected } => {
-                write!(f, "entry total mismatch: file {in_file} vs layout {expected}")
+                write!(
+                    f,
+                    "entry total mismatch: file {in_file} vs layout {expected}"
+                )
             }
         }
     }
@@ -291,7 +315,10 @@ mod tests {
         f.write_all(&zdb.layout().total().to_le_bytes()).unwrap();
         f.write_all(zdb.raw()).unwrap();
         drop(f);
-        assert!(matches!(ZPatternDb::load(&path), Err(LoadError::BadMagic(_))));
+        assert!(matches!(
+            ZPatternDb::load(&path),
+            Err(LoadError::BadMagic(_))
+        ));
         std::fs::remove_file(&path).ok();
     }
 
@@ -304,10 +331,14 @@ mod tests {
         f.write_all(&VERSION.to_le_bytes()).unwrap();
         f.write_all(&zdb.pattern().0.to_le_bytes()).unwrap();
         f.write_all(&0u32.to_le_bytes()).unwrap();
-        f.write_all(&(zdb.layout().total() + 8).to_le_bytes()).unwrap();
+        f.write_all(&(zdb.layout().total() + 8).to_le_bytes())
+            .unwrap();
         f.write_all(zdb.raw()).unwrap();
         drop(f);
-        assert!(matches!(ZPatternDb::load(&path), Err(LoadError::TotalMismatch { .. })));
+        assert!(matches!(
+            ZPatternDb::load(&path),
+            Err(LoadError::TotalMismatch { .. })
+        ));
         std::fs::remove_file(&path).ok();
     }
 
@@ -327,9 +358,9 @@ mod tests {
     /// Cold lookup at every reachable entry equals `dist[idx]`.
     #[test]
     fn cold_lookup_matches_dist_at_every_entry_k3() {
+        use super::super::pattern::ANON;
         use super::super::zbuild::{build_zpdb, gen_moves};
         use super::super::zpdb::{regions, OCCUPIED};
-        use super::super::pattern::ANON;
 
         let pattern = Pattern::new(&[1, 7, 13]);
         let (dist, layout) = build_zpdb(pattern);

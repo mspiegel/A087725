@@ -104,7 +104,12 @@ impl ValueNet {
             body.push(ResBlock::new(hidden, vb.pp(format!("block{i}")))?);
         }
         let out = linear(hidden, 1, vb.pp("out"))?;
-        Ok(Self { in_proj, in_norm, blocks: body, out })
+        Ok(Self {
+            in_proj,
+            in_norm,
+            blocks: body,
+            out,
+        })
     }
 
     /// Convenience: encode `states`, run a forward pass, return one scalar
@@ -161,8 +166,10 @@ mod tests {
         let net = ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &dev), 48, 3).unwrap();
         let states = [GOAL, GOAL.apply(crate::puzzle15::state::Move::Up)];
         let batched = net.values(&states, &dev).unwrap();
-        let one_by_one: Vec<f32> =
-            states.iter().flat_map(|s| net.values(std::slice::from_ref(s), &dev).unwrap()).collect();
+        let one_by_one: Vec<f32> = states
+            .iter()
+            .flat_map(|s| net.values(std::slice::from_ref(s), &dev).unwrap())
+            .collect();
         for (a, b) in batched.iter().zip(one_by_one.iter()) {
             assert!((a - b).abs() < 1e-4, "batch vs single differ: {a} vs {b}");
         }
@@ -189,8 +196,14 @@ mod tests {
         let out_b_after = net_b.values(&states, &dev).unwrap();
 
         // Before load: B differs from A (different random init). After: identical.
-        assert_ne!(out_a, out_b_before, "distinct random inits unexpectedly equal");
-        assert_eq!(out_a, out_b_after, "loaded weights did not reproduce A's output");
+        assert_ne!(
+            out_a, out_b_before,
+            "distinct random inits unexpectedly equal"
+        );
+        assert_eq!(
+            out_a, out_b_after,
+            "loaded weights did not reproduce A's output"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

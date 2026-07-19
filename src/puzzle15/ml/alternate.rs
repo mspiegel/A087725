@@ -84,7 +84,11 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             let t = std::time::Instant::now();
             let pool = generator.sample_pool(pool_size, &mut rng)?;
             if cfg.verbose {
-                eprintln!("    [pool] {} gen boards in {:.0} ms", pool_size, t.elapsed().as_secs_f64() * 1000.0);
+                eprintln!(
+                    "    [pool] {} gen boards in {:.0} ms",
+                    pool_size,
+                    t.elapsed().as_secs_f64() * 1000.0
+                );
             }
             pool
         } else {
@@ -108,7 +112,12 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             // Windowed per-step timing to expose any degradation over a round.
             if cfg.verbose && (i + 1) % win_every == 0 {
                 let ms = win.elapsed().as_secs_f64() * 1000.0 / win_every as f64;
-                eprintln!("    [solver {}/{}] {:.0} ms/step", i + 1, cfg.solver_steps_per_round, ms);
+                eprintln!(
+                    "    [solver {}/{}] {:.0} ms/step",
+                    i + 1,
+                    cfg.solver_steps_per_round,
+                    ms
+                );
                 win = std::time::Instant::now();
             }
         }
@@ -117,8 +126,10 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         // ---- Generator phase (solver frozen: value_of is read-only) ----
         let mut reward_sum = 0.0f32;
         for _ in 0..cfg.generator_steps_per_round {
-            let r = generator
-                .train_round(|s| davi.value_of(s).expect("solver value_of failed"), &mut rng)?;
+            let r = generator.train_round(
+                |s| davi.value_of(s).expect("solver value_of failed"),
+                &mut rng,
+            )?;
             reward_sum += r;
         }
         let gen_reward = reward_sum / cfg.generator_steps_per_round.max(1) as f32;
@@ -137,11 +148,19 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         let is_last = round + 1 == cfg.rounds;
         let do_eval = is_last || (cfg.eval_every > 0 && (round + 1) % cfg.eval_every == 0);
         if do_eval {
-            let report = eval::run(|s| davi.value_of(s).expect("solver value_of failed"), &cfg.eval);
+            let report = eval::run(
+                |s| davi.value_of(s).expect("solver value_of failed"),
+                &cfg.eval,
+            );
             if cfg.verbose {
                 report.print();
             }
-            checkpoint::save(&cfg.checkpoint_dir, round, davi.online_varmap(), generator.varmap())?;
+            checkpoint::save(
+                &cfg.checkpoint_dir,
+                round,
+                davi.online_varmap(),
+                generator.varmap(),
+            )?;
             let line = format!(
                 "{}\t{:.4}\t{:.3}\t{:.3}\t{}\t{}\t{}\t{}",
                 round,
@@ -149,7 +168,10 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 gen_reward,
                 generator.reward_baseline(),
                 report.holdout_solved,
-                report.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+                report
+                    .holdout_mean_len
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".into()),
                 report.antipode_solved,
                 report
                     .antipode_mean_excess
@@ -164,22 +186,32 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bwas::BwasConfig;
+    use super::*;
 
     #[test]
     fn tiny_loop_runs_and_checkpoints() {
         let dir = std::env::temp_dir().join(format!("ml_alt_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
-        let small_bwas = BwasConfig { weight: 2.0, batch_size: 16, node_budget: 20_000 };
+        let small_bwas = BwasConfig {
+            weight: 2.0,
+            batch_size: 16,
+            node_budget: 20_000,
+        };
         let cfg = AlternationConfig {
             rounds: 2,
             solver_steps_per_round: 5,
             generator_steps_per_round: 5,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10 },
+            davi: DaviConfig {
+                k_max: 8,
+                hidden: 32,
+                blocks: 1,
+                lr: 1e-3,
+                target_sync_every: 10,
+            },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
@@ -205,12 +237,18 @@ mod tests {
         run(&cfg, Device::Cpu).unwrap();
 
         // Resuming from the just-written checkpoint must run without error.
-        let mut cfg_resume = AlternationConfig { resume: true, ..cfg };
+        let mut cfg_resume = AlternationConfig {
+            resume: true,
+            ..cfg
+        };
         cfg_resume.rounds = 1;
         run(&cfg_resume, Device::Cpu).unwrap();
 
         // Checkpoints + metrics were written across the round boundary.
-        assert!(checkpoint::value_latest_path(&dir).exists(), "no latest checkpoint written");
+        assert!(
+            checkpoint::value_latest_path(&dir).exists(),
+            "no latest checkpoint written"
+        );
         assert!(dir.join("metrics.tsv").exists(), "no metrics written");
 
         // The latest checkpoint reloads into a fresh net (verifies save/load across rounds).
@@ -218,8 +256,12 @@ mod tests {
         use candle_core::DType;
         use candle_nn::{VarBuilder, VarMap};
         let mut vm = VarMap::new();
-        let _net =
-            ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32, 1).unwrap();
+        let _net = ValueNet::new(
+            VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu),
+            32,
+            1,
+        )
+        .unwrap();
         vm.load(checkpoint::value_latest_path(&dir)).unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);

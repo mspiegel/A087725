@@ -64,7 +64,10 @@ impl Instr {
 }
 
 fn main() {
-    let max_bound: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(144);
+    let max_bound: u8 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(144);
     let start = r_board();
     eprintln!("cWD: loading tables…");
     let cwd = Cwd::new();
@@ -84,7 +87,11 @@ fn main() {
     let mut bound = h0;
     let t0 = std::time::Instant::now();
     while bound <= max_bound {
-        eprintln!("iteration threshold = {} (elapsed {:.0}s)", bound, t0.elapsed().as_secs_f64());
+        eprintln!(
+            "iteration threshold = {} (elapsed {:.0}s)",
+            bound,
+            t0.elapsed().as_secs_f64()
+        );
         instr.bound = bound;
         let hb = instr.h(&start);
         instr.dfs(&start, start.blank_pos(), hb, 0, None);
@@ -97,6 +104,9 @@ fn main() {
     println!("tree nodes expanded : {}", instr.tree_expanded);
     println!("total visited       : {}", instr.visited);
     println!("distinct expanded   : {}", instr.seen.len());
-    println!("DUPLICATE RATIO     : {:.3}x  (A*/TT speedup ceiling)", te / distinct);
+    println!(
+        "DUPLICATE RATIO     : {:.3}x  (A*/TT speedup ceiling)",
+        te / distinct
+    );
     println!("elapsed             : {:.1}s", t0.elapsed().as_secs_f64());
 }

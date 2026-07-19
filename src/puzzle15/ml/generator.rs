@@ -43,7 +43,11 @@ impl Default for GeneratorConfig {
             hidden: DEFAULT_HIDDEN,
             lr: 1e-3,
             baseline_decay: 0.95,
-            solver_bwas: BwasConfig { weight: 2.0, batch_size: 1000, node_budget: 100_000 },
+            solver_bwas: BwasConfig {
+                weight: 2.0,
+                batch_size: 1000,
+                node_budget: 100_000,
+            },
             fail_penalty: 200.0,
         }
     }
@@ -67,8 +71,17 @@ impl Generator {
         WalkingDistanceHeuristic::warm_up();
 
         let varmap = VarMap::new();
-        let net = PolicyNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), cfg.hidden)?;
-        let opt = AdamW::new(varmap.all_vars(), ParamsAdamW { lr: cfg.lr, ..Default::default() })?;
+        let net = PolicyNet::new(
+            VarBuilder::from_varmap(&varmap, DType::F32, &device),
+            cfg.hidden,
+        )?;
+        let opt = AdamW::new(
+            varmap.all_vars(),
+            ParamsAdamW {
+                lr: cfg.lr,
+                ..Default::default()
+            },
+        )?;
         Ok(Self {
             varmap,
             net,
@@ -172,7 +185,8 @@ impl Generator {
                 let banned = last[i].map(|m| m.inverse());
                 let legal = State::legal_moves_at(blank);
                 let row = &rows[a];
-                let allowed = |k: usize| legal.contains(Move::ALL[k]) && Some(Move::ALL[k]) != banned;
+                let allowed =
+                    |k: usize| legal.contains(Move::ALL[k]) && Some(Move::ALL[k]) != banned;
 
                 // Masked softmax weights over allowed moves (max-subtracted).
                 let mut mx = f32::NEG_INFINITY;
@@ -222,8 +236,8 @@ impl Generator {
         let mut last: Option<Move> = None;
         for _ in 0..k {
             let banned = last.map(|m| m.inverse());
-            let (m, _lp) =
-                sample_move(&self.net, &s, blank, banned, &self.device, rng).expect("policy sample");
+            let (m, _lp) = sample_move(&self.net, &s, blank, banned, &self.device, rng)
+                .expect("policy sample");
             let (ns, nb) = s.apply_at(m, blank);
             s = ns;
             blank = nb;
@@ -263,7 +277,11 @@ mod tests {
                 hidden: 32,
                 lr: 1e-3,
                 baseline_decay: 0.9,
-                solver_bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: budget },
+                solver_bwas: BwasConfig {
+                    weight: 1.0,
+                    batch_size: 8,
+                    node_budget: budget,
+                },
                 fail_penalty: 200.0,
             },
             Device::Cpu,
@@ -296,12 +314,18 @@ mod tests {
         let rounds = 20;
         for _ in 0..rounds {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {r}");
+            assert!(
+                r.is_finite() && r >= 0.0,
+                "reward should be finite & >=0, got {r}"
+            );
             if r > 180.0 {
                 big += 1;
             }
         }
-        assert!(big >= 15, "expected most rounds to show large regret, got {big}/{rounds}");
+        assert!(
+            big >= 15,
+            "expected most rounds to show large regret, got {big}/{rounds}"
+        );
     }
 
     #[test]

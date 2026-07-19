@@ -16,8 +16,8 @@ use super::generator::BaselineHeuristic;
 use super::scramble::{scramble_exact, Rng};
 use super::wdsearch::{construct_deep_boards, Diversity, WdSearchConfig};
 use crate::puzzle24::search::{
-    Heuristic, IncHeuristicMut, LadderOutcome, LinearConflictInc, ManhattanHeuristic, MaxInc, Search,
-    WalkingDistanceHeuristic, WalkingDistanceInc,
+    Heuristic, IncHeuristicMut, LadderOutcome, LinearConflictInc, ManhattanHeuristic, MaxInc,
+    Search, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use crate::puzzle24::state::{State, DIAMETER_LOWER, N_CELLS};
 
@@ -51,7 +51,11 @@ pub struct EvalConfig {
 impl Default for EvalConfig {
     fn default() -> Self {
         Self {
-            bwas: BwasConfig { weight: 2.0, batch_size: 1000, node_budget: 1_000_000 },
+            bwas: BwasConfig {
+                weight: 2.0,
+                batch_size: 1000,
+                node_budget: 1_000_000,
+            },
             holdout_n: 100,
             depth_min: 20,
             depth_max: 50,
@@ -84,7 +88,9 @@ impl EvalReport {
             self.holdout_solved,
             self.holdout_n,
             self.holdout_fail_rate * 100.0,
-            self.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+            self.holdout_mean_len
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
         );
         eprintln!(
             "  optimal-labeled: {}/{}, mean excess over optimal: {}",
@@ -107,7 +113,11 @@ where
         LabelHeuristic::Lc => run_with(value_of, cfg, &LinearConflictInc),
         LabelHeuristic::LcWd => {
             WalkingDistanceHeuristic::warm_up();
-            run_with(value_of, cfg, &MaxInc::new(LinearConflictInc, WalkingDistanceInc))
+            run_with(
+                value_of,
+                cfg,
+                &MaxInc::new(LinearConflictInc, WalkingDistanceInc),
+            )
         }
     }
 }
@@ -135,11 +145,14 @@ where
 
     for board in &holdout {
         // True optimal (admissible idastar, bounded).
-        let optimal: Option<u32> =
-            match Search::new(board, opt_h).bound(cfg.optimal_max_bound).run().0 {
-                LadderOutcome::Solved(moves) => Some(moves.len() as u32),
-                _ => None, // ProvedAtLeast / TimedOut / Unsolvable → unlabeled
-            };
+        let optimal: Option<u32> = match Search::new(board, opt_h)
+            .bound(cfg.optimal_max_bound)
+            .run()
+            .0
+        {
+            LadderOutcome::Solved(moves) => Some(moves.len() as u32),
+            _ => None, // ProvedAtLeast / TimedOut / Unsolvable → unlabeled
+        };
         if optimal.is_some() {
             labeled += 1;
         }
@@ -259,8 +272,12 @@ impl DeepEvalReport {
         );
         eprintln!(
             "  mean len: learned {}, beam {}",
-            self.mean_learned_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
-            self.mean_beam_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+            self.mean_learned_len
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
+            self.mean_beam_len
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
         );
         eprintln!(
             "  mean excess over beam (both-solved): {}  [negative = learned beats beam], learned wins {}/{}",
@@ -273,8 +290,12 @@ impl DeepEvalReport {
         if let Some(r) = &self.r_line {
             eprintln!(
                 "  R board: learned {}, beam {}  (WD LB {}, DIAMETER_LOWER {})",
-                r.learned.map(|v| v.to_string()).unwrap_or_else(|| "unsolved".into()),
-                r.beam.map(|v| v.to_string()).unwrap_or_else(|| "unsolved".into()),
+                r.learned
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "unsolved".into()),
+                r.beam
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "unsolved".into()),
                 r.wd_lb,
                 DIAMETER_LOWER,
             );
@@ -352,7 +373,11 @@ where
                 WalkingDistanceHeuristic::warm_up();
                 WalkingDistanceHeuristic.h(board)
             };
-            r_line = Some(RBoardResult { learned, beam, wd_lb });
+            r_line = Some(RBoardResult {
+                learned,
+                beam,
+                wd_lb,
+            });
             continue;
         }
 
@@ -381,8 +406,7 @@ where
         mean_learned_len: (learned_solved > 0)
             .then(|| learned_len_sum as f32 / learned_solved as f32),
         mean_beam_len: (beam_solved > 0).then(|| beam_len_sum as f32 / beam_solved as f32),
-        mean_excess_over_beam: (both_solved > 0)
-            .then(|| excess_sum as f32 / both_solved as f32),
+        mean_excess_over_beam: (both_solved > 0).then(|| excess_sum as f32 / both_solved as f32),
         learned_wins,
         r_line,
     }
@@ -393,14 +417,21 @@ mod tests {
     use super::*;
 
     fn manhattan_batch(states: &[State]) -> Vec<f32> {
-        states.iter().map(|s| ManhattanHeuristic.h(s) as f32).collect()
+        states
+            .iter()
+            .map(|s| ManhattanHeuristic.h(s) as f32)
+            .collect()
     }
 
     #[test]
     fn harness_io_and_reporting_path() {
         // Shallow holdout + LC-only labeling => fast and table-free (no WD load).
         let cfg = EvalConfig {
-            bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: 500_000 },
+            bwas: BwasConfig {
+                weight: 1.0,
+                batch_size: 8,
+                node_budget: 500_000,
+            },
             holdout_n: 12,
             depth_min: 4,
             depth_max: 10,
@@ -410,10 +441,17 @@ mod tests {
         };
         let rep = run(manhattan_batch, &cfg);
         assert_eq!(rep.holdout_n, 12);
-        assert!(rep.holdout_solved >= 8, "shallow holdout solved too few: {}", rep.holdout_solved);
+        assert!(
+            rep.holdout_solved >= 8,
+            "shallow holdout solved too few: {}",
+            rep.holdout_solved
+        );
         assert!(rep.holdout_mean_len.is_some());
         // Shallow boards must all get a true-optimal label within bound 20.
-        assert_eq!(rep.optimal_labeled_n, 12, "all shallow boards should be labeled");
+        assert_eq!(
+            rep.optimal_labeled_n, 12,
+            "all shallow boards should be labeled"
+        );
         assert!(rep.mean_excess_over_optimal.is_some());
     }
 
@@ -423,8 +461,16 @@ mod tests {
         // here is Manhattan-BWAS, so it and the beam should both solve most
         // boards; this checks the deep grading path is populated and consistent.
         let cfg = DeepEvalConfig {
-            bwas: BwasConfig { weight: 2.0, batch_size: 16, node_budget: 300_000 },
-            beam: BeamConfig { width: 200, max_depth: 80, node_budget: 500_000 },
+            bwas: BwasConfig {
+                weight: 2.0,
+                batch_size: 16,
+                node_budget: 300_000,
+            },
+            beam: BeamConfig {
+                width: 200,
+                max_depth: 80,
+                node_budget: 500_000,
+            },
             baseline: BaselineHeuristic::Manhattan,
             holdout_n: 8,
             depth_min: 12,
@@ -435,8 +481,16 @@ mod tests {
         };
         let rep = run_deep(manhattan_batch, &cfg);
         assert_eq!(rep.n, 8);
-        assert!(rep.learned_solved >= 6, "learned solved too few: {}", rep.learned_solved);
-        assert!(rep.beam_solved >= 6, "beam solved too few: {}", rep.beam_solved);
+        assert!(
+            rep.learned_solved >= 6,
+            "learned solved too few: {}",
+            rep.learned_solved
+        );
+        assert!(
+            rep.beam_solved >= 6,
+            "beam solved too few: {}",
+            rep.beam_solved
+        );
         assert!(rep.both_solved >= 6);
         assert!(rep.mean_learned_len.is_some() && rep.mean_beam_len.is_some());
         assert!(rep.mean_excess_over_beam.is_some());

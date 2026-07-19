@@ -122,7 +122,11 @@ pub struct ZpdbPlusCtx<const N: usize> {
 impl<'a, const N: usize> ZpdbPlusInc<'a, N> {
     /// Build from `N` pairwise-disjoint ZPDBs (same contract as [`ZpdbInc::new`]).
     pub fn new(dbs: [&'a ZPatternDb; N]) -> Self {
-        Self { zpdb: ZpdbInc::new(dbs), lc: LinearConflictInc, wd: WalkingDistanceInc }
+        Self {
+            zpdb: ZpdbInc::new(dbs),
+            lc: LinearConflictInc,
+            wd: WalkingDistanceInc,
+        }
     }
 }
 
@@ -138,7 +142,14 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
         let (h_lc, lctx) = IncHeuristic::root(&self.lc, s, stats);
         let (h_wd, wctx) = IncHeuristic::root(&self.wd, s, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
-        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
+        (
+            h,
+            ZpdbPlusCtx {
+                zpdb: zctx,
+                lc: lctx,
+                wd: wctx,
+            },
+        )
     }
 
     #[inline]
@@ -153,7 +164,14 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
         let (h_lc, lctx) = self.lc.advance(&parent.lc, child, m, stats);
         let (h_wd, wctx) = self.wd.advance(&parent.wd, child, m, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
-        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
+        (
+            h,
+            ZpdbPlusCtx {
+                zpdb: zctx,
+                lc: lctx,
+                wd: wctx,
+            },
+        )
     }
 }
 
@@ -176,7 +194,14 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbPlusInc<'a, N> {
         let (h_lc, lctx) = IncHeuristicMut::root(&self.lc, s);
         let (h_wd, wctx) = IncHeuristicMut::root(&self.wd, s);
         let h = h_zpdb.max(h_lc).max(h_wd);
-        (h, ZpdbPlusMutCtx { zpdb: zctx, lc: lctx, wd: wctx })
+        (
+            h,
+            ZpdbPlusMutCtx {
+                zpdb: zctx,
+                lc: lctx,
+                wd: wctx,
+            },
+        )
     }
 
     #[inline]
@@ -315,7 +340,11 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = zplus.advance(&ctx, &ns, m, &mut stats);
             let (h_fresh, _) = IncHeuristic::root(&zplus, &ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "advance diverged at step {} (state {:?})", i, ns.0);
+            assert_eq!(
+                h_adv, h_fresh,
+                "advance diverged at step {} (state {:?})",
+                i, ns.0
+            );
             s = ns;
             ctx = ctx_adv;
         }
@@ -348,8 +377,14 @@ mod tests {
                 .max(refl.h(&s))
                 .max(LinearConflictHeuristic.h(&s))
                 .max(WalkingDistanceHeuristic.h(&s));
-            assert!(hz >= korf_plus, "zpdb-plus {hz} < korf-plus {korf_plus} at {raw:?}");
-            assert!(hz <= td, "zpdb-plus {hz} inadmissible (true {td}) at {raw:?}");
+            assert!(
+                hz >= korf_plus,
+                "zpdb-plus {hz} < korf-plus {korf_plus} at {raw:?}"
+            );
+            assert!(
+                hz <= td,
+                "zpdb-plus {hz} inadmissible (true {td}) at {raw:?}"
+            );
         }
     }
 
@@ -372,7 +407,11 @@ mod tests {
             .collect();
         samples.sort_by_key(|(s, _)| s.0);
         samples.truncate(20);
-        assert!(samples.len() >= 10, "not enough deep samples ({})", samples.len());
+        assert!(
+            samples.len() >= 10,
+            "not enough deep samples ({})",
+            samples.len()
+        );
         for (s, true_d) in &samples {
             let (sol, _) = idastar_inc_with_stats(s, &zplus);
             let sol = sol.expect("ZpdbPlus IDA* found no solution");
@@ -398,7 +437,12 @@ mod tests {
         ];
         let zplus = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
         let mut rng: u64 = 0x1618_0339_8875_2440;
-        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
         for _ in 0..5 {
             let mut s = GOAL;
             for _ in 0..16 {
@@ -407,7 +451,11 @@ mod tests {
             }
             let (c, cs) = idastar_inc_with_stats(&s, &zplus);
             let (m, ms) = Search::new(&s, &zplus).solve_with_stats();
-            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "ZpdbPlus length differs");
+            assert_eq!(
+                c.expect("copy").len(),
+                m.expect("mut").len(),
+                "ZpdbPlus length differs"
+            );
             assert_eq!(cs.nodes, ms.nodes, "ZpdbPlus node count differs");
         }
     }

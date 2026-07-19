@@ -13,10 +13,9 @@
 use puzzle8::puzzle8::bfs::DistanceTable;
 use puzzle8::puzzle8::rank::unrank;
 use puzzle8::puzzle8::search::{
-    Heuristic, LinearConflictHeuristic, ManhattanHeuristic, MaxHeuristic,
-    WalkingDistanceHeuristic,
+    Heuristic, LinearConflictHeuristic, ManhattanHeuristic, MaxHeuristic, WalkingDistanceHeuristic,
 };
-use puzzle8::puzzle8::state::{N_STATES, State};
+use puzzle8::puzzle8::state::{State, N_STATES};
 
 fn format_state(s: &State) -> String {
     let mut out = String::new();

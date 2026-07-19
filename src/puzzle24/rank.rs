@@ -50,7 +50,11 @@ const EVEN_BLOCK: u128 = {
 ///
 /// Debug-asserts that `s` is solvable.
 pub fn rank(s: &State) -> u128 {
-    debug_assert!(s.is_solvable(), "rank() called on unsolvable state: {:?}", s.0);
+    debug_assert!(
+        s.is_solvable(),
+        "rank() called on unsolvable state: {:?}",
+        s.0
+    );
 
     let blank_pos = s.blank_pos() as u128;
 

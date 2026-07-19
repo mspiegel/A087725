@@ -494,8 +494,12 @@ fn yield_eval(s: &State, path: &[Move], table: &WdTable) -> YieldRow {
 fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
     eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
     let cwd = Cwd::new();
-    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
-        .expect("wd24.bin load");
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
     let next: std::sync::atomic::AtomicU64 = 0.into();
     let done: std::sync::atomic::AtomicU64 = 0.into();
     let results: std::sync::Mutex<Vec<(u64, YieldRow)>> =
@@ -530,8 +534,18 @@ fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
     for (i, r) in &rows {
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            i, r.d, r.h0, r.h_rule[0], r.h_rule[1], r.h_rule[2], r.h_ceil,
-            r.fired[0], r.fired[1], r.fired[2], r.exits_tot, r.fallback as u8
+            i,
+            r.d,
+            r.h0,
+            r.h_rule[0],
+            r.h_rule[1],
+            r.h_rule[2],
+            r.h_ceil,
+            r.fired[0],
+            r.fired[1],
+            r.fired[2],
+            r.exits_tot,
+            r.fallback as u8
         );
         for k in 0..3 {
             gain[k] += (r.h_rule[k] - r.h0) as f64;
@@ -545,11 +559,17 @@ fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
         assert!(r.h_ceil <= r.d, "ceiling exceeded d* on board {i} — bug");
     }
     let nn = rows.len() as f64;
-    eprintln!("=== transit-yield gap [len={len}] (n={}, fallbacks={nfb}) ===", rows.len());
+    eprintln!(
+        "=== transit-yield gap [len={len}] (n={}, fallbacks={nfb}) ===",
+        rows.len()
+    );
     for k in 0..3 {
         eprintln!(
             "  R{}: mean gain {:.3}  fired-lines/board {:.2}  UNSOUND on {} boards",
-            k + 1, gain[k] / nn, fired[k] / nn, viol[k]
+            k + 1,
+            gain[k] / nn,
+            fired[k] / nn,
+            viol[k]
         );
     }
     eprintln!(
@@ -563,18 +583,30 @@ fn run_yieldgap(n: u64, len: u32, seed0: u64, threads: usize) {
 
 fn run_yieldr(file: &str) {
     eprintln!("loading raw WD table…");
-    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
-        .expect("wd24.bin load");
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
     let text = std::fs::read_to_string(file).expect("read move file");
-    let body: String =
-        text.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join(" ");
+    let body: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
     let moves = parse_moves(&body);
     let start = r_board();
     let row = yield_eval(&start, &moves, &table);
     eprintln!("=== transit-yield on R (156-move path; d* unknown, LB 150 / UB 156) ===");
     eprintln!(
         "  h0(ref cWD) {}  R1 {}  R2 {}  R3 {}  CEIL {}  (observed exits {}, fallback {})",
-        row.h0, row.h_rule[0], row.h_rule[1], row.h_rule[2], row.h_ceil, row.exits_tot,
+        row.h0,
+        row.h_rule[0],
+        row.h_rule[1],
+        row.h_rule[2],
+        row.h_ceil,
+        row.exits_tot,
         row.fallback
     );
 }
@@ -632,9 +664,9 @@ struct Agg {
     slack: f64,
     slack_v: f64,
     slack_h: f64,
-    rt2: f64,        // 2(RT_v + RT_c)
-    wd_over: f64,    // (wd_r − fv) + (wd_c − fc)
-    surch: f64,      // cwd − wd_r − wd_c
+    rt2: f64,     // 2(RT_v + RT_c)
+    wd_over: f64, // (wd_r − fv) + (wd_c − fc)
+    surch: f64,   // cwd − wd_r − wd_c
     rt_home: f64,
     rt_far: f64,
     blank_rt: f64,
@@ -712,9 +744,16 @@ impl Agg {
             self.dem / n
         );
         let f = |v: &[f64; NB]| {
-            v.iter().map(|x| format!("{:.2}", x / n)).collect::<Vec<_>>().join(" ")
+            v.iter()
+                .map(|x| format!("{:.2}", x / n))
+                .collect::<Vec<_>>()
+                .join(" ")
         };
-        eprintln!("  RT by row boundary  [{}]   col boundary [{}]", f(&self.rt_b_v), f(&self.rt_b_c));
+        eprintln!(
+            "  RT by row boundary  [{}]   col boundary [{}]",
+            f(&self.rt_b_v),
+            f(&self.rt_b_c)
+        );
         eprintln!(
             "  excess events by path third: {:.1}% / {:.1}% / {:.1}%",
             100.0 * self.phase[0] / (self.phase.iter().sum::<f64>().max(1.0)),
@@ -733,7 +772,12 @@ fn tsv_header() {
 }
 
 fn tsv_row(i: u64, seed: u64, len: u32, a: &Anat, sec: f64) {
-    let f = |v: &[u32; NB]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+    let f = |v: &[u32; NB]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     println!(
         "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{},{},{}\t{:.2}",
         i,
@@ -766,8 +810,12 @@ fn tsv_row(i: u64, seed: u64, len: u32, a: &Anat, sec: f64) {
 fn run_walks(n: u64, len: u32, seed0: u64, threads: usize) {
     eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
     let cwd = Cwd::new();
-    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
-        .expect("wd24.bin load");
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
     let next: std::sync::atomic::AtomicU64 = 0.into();
     let done: std::sync::atomic::AtomicU64 = 0.into();
     let results: std::sync::Mutex<Vec<(u64, u64, Anat, f64)>> =
@@ -808,8 +856,12 @@ fn run_walks(n: u64, len: u32, seed0: u64, threads: usize) {
 fn run_rpath(file: &str) {
     eprintln!("loading cWD + raw WD table…");
     let cwd = Cwd::new();
-    let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
-        .expect("wd24.bin load");
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
     let text = std::fs::read_to_string(file).expect("read move file");
     let body: String = text
         .lines()
@@ -822,7 +874,10 @@ fn run_rpath(file: &str) {
     // verify replay legality (analyze asserts GOAL at the end)
     let mut s = start;
     for (i, &m) in moves.iter().enumerate() {
-        assert!(s.legal_moves().contains(m), "move {i} illegal in forward replay");
+        assert!(
+            s.legal_moves().contains(m),
+            "move {i} illegal in forward replay"
+        );
         s = s.apply(m);
     }
     let a = analyze(&start, &moves, &table, &cwd);
@@ -857,12 +912,21 @@ fn run_rpath(file: &str) {
         let g = tile - 1;
         let mut parts = Vec::new();
         for ax in 0..2 {
-            let (cur, gl) = if ax == 0 { (pos / W, g / W) } else { (pos % W, g % W) };
+            let (cur, gl) = if ax == 0 {
+                (pos / W, g / W)
+            } else {
+                (pos % W, g % W)
+            };
             for b in 0..NB {
                 let x = ev.get(&(tile, ax, b)).copied().unwrap_or(0);
                 let r = u32::from(b >= cur.min(gl) && b < cur.max(gl));
                 if x > r {
-                    parts.push(format!("{}{}×{}", if ax == 0 { "r" } else { "c" }, b, (x - r) / 2));
+                    parts.push(format!(
+                        "{}{}×{}",
+                        if ax == 0 { "r" } else { "c" },
+                        b,
+                        (x - r) / 2
+                    ));
                 }
             }
         }
@@ -890,11 +954,17 @@ fn main() {
             run_yieldgap(n, len, seed0, threads);
         }
         Some("yieldr") => {
-            let file = args.get(2).map(String::as_str).unwrap_or("data/r156_ours_solution.txt");
+            let file = args
+                .get(2)
+                .map(String::as_str)
+                .unwrap_or("data/r156_ours_solution.txt");
             run_yieldr(file);
         }
         Some("rpath") => {
-            let file = args.get(2).map(String::as_str).unwrap_or("data/r156_ours_solution.txt");
+            let file = args
+                .get(2)
+                .map(String::as_str)
+                .unwrap_or("data/r156_ours_solution.txt");
             run_rpath(file);
         }
         other => {

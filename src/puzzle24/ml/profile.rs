@@ -60,7 +60,10 @@ pub fn report() -> String {
     let m = acc().lock().unwrap();
     let mut rows: Vec<(&'static str, (Duration, u64))> = m.iter().map(|(k, v)| (*k, *v)).collect();
     rows.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
-    let total_ms: f64 = rows.iter().map(|(_, (d, _))| d.as_secs_f64() * 1000.0).sum();
+    let total_ms: f64 = rows
+        .iter()
+        .map(|(_, (d, _))| d.as_secs_f64() * 1000.0)
+        .sum();
     let mut out = String::from(
         "── phase profile (profiled runs force per-phase syncs; totals exceed unprofiled) ──\n\
          phase\ttotal_ms\t%\tcalls\tms/call\n",
@@ -68,7 +71,11 @@ pub fn report() -> String {
     for (name, (dur, n)) in rows {
         let ms = dur.as_secs_f64() * 1000.0;
         let per = if n > 0 { ms / n as f64 } else { 0.0 };
-        let pct = if total_ms > 0.0 { 100.0 * ms / total_ms } else { 0.0 };
+        let pct = if total_ms > 0.0 {
+            100.0 * ms / total_ms
+        } else {
+            0.0
+        };
         out += &format!("{name}\t{ms:.1}\t{pct:.1}\t{n}\t{per:.3}\n");
     }
     out

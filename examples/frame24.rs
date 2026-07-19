@@ -92,7 +92,13 @@ fn report(name: &str, wds: &mut [u8]) {
     while b <= hi {
         let c = wds.iter().filter(|&&w| w >= b && w < b + 10).count();
         if c > 0 {
-            println!("    WD {:>3}-{:<3} {:>5}  {}", b, b + 9, c, "#".repeat(c * 60 / n + 1));
+            println!(
+                "    WD {:>3}-{:<3} {:>5}  {}",
+                b,
+                b + 9,
+                c,
+                "#".repeat(c * 60 / n + 1)
+            );
         }
         b += 10;
     }
@@ -125,7 +131,11 @@ fn main() -> ExitCode {
 
     // --out FILE: emit a WD-spread of frame boards for Tier-2 (top 20 by WD +
     // 10 at the median), as 25-token lines (ladder24/solve24 format).
-    if let Some(path) = argv.iter().position(|a| a == "--out").and_then(|i| argv.get(i + 1)) {
+    if let Some(path) = argv
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| argv.get(i + 1))
+    {
         let mut sorted = frame.clone();
         sorted.sort_by(|a, b| b.0.cmp(&a.0).then((a.1).0.cmp(&(b.1).0)));
         let mut picks: Vec<&(u8, State)> = sorted.iter().take(20).collect();

@@ -25,7 +25,11 @@ pub struct BeamConfig {
 
 impl Default for BeamConfig {
     fn default() -> Self {
-        Self { width: 1000, max_depth: 220, node_budget: 2_000_000 }
+        Self {
+            width: 1000,
+            max_depth: 220,
+            node_budget: 2_000_000,
+        }
     }
 }
 
@@ -52,8 +56,12 @@ pub fn beam_search<H: Heuristic + ?Sized>(
     let mut visited: HashSet<State> = HashSet::new();
     visited.insert(*start);
 
-    let mut layer: Vec<BeamNode> =
-        vec![BeamNode { state: *start, blank: start.blank_pos(), last: None, path: Vec::new() }];
+    let mut layer: Vec<BeamNode> = vec![BeamNode {
+        state: *start,
+        blank: start.blank_pos(),
+        last: None,
+        path: Vec::new(),
+    }];
 
     let mut expanded: u64 = 0;
 
@@ -84,7 +92,15 @@ pub fn beam_search<H: Heuristic + ?Sized>(
                 let hv = h.h(&ns);
                 let mut path = node.path.clone();
                 path.push(m);
-                children.push((hv, BeamNode { state: ns, blank: nb, last: Some(m), path }));
+                children.push((
+                    hv,
+                    BeamNode {
+                        state: ns,
+                        blank: nb,
+                        last: Some(m),
+                        path,
+                    },
+                ));
             }
         }
 
@@ -131,7 +147,10 @@ mod tests {
     #[test]
     fn goal_returns_empty() {
         let cfg = BeamConfig::default();
-        assert_eq!(beam_search(&GOAL, &ManhattanHeuristic, &cfg), Some(Vec::new()));
+        assert_eq!(
+            beam_search(&GOAL, &ManhattanHeuristic, &cfg),
+            Some(Vec::new())
+        );
     }
 
     #[test]
@@ -139,7 +158,11 @@ mod tests {
         // On depth-<=8 boards a width-200 Manhattan beam should solve every board
         // with a valid path whose length is >= the true optimal (BFS) distance.
         let truth = bfs_distances(8);
-        let cfg = BeamConfig { width: 200, max_depth: 60, node_budget: 2_000_000 };
+        let cfg = BeamConfig {
+            width: 200,
+            max_depth: 60,
+            node_budget: 2_000_000,
+        };
         let mut checked = 0;
         for (i, (raw, &dist)) in truth.iter().enumerate() {
             if checked >= 40 {
@@ -151,8 +174,16 @@ mod tests {
             let start = State(*raw);
             let sol = beam_search(&start, &ManhattanHeuristic, &cfg)
                 .unwrap_or_else(|| panic!("beam failed to solve depth-{dist} board {raw:?}"));
-            assert!(replay_reaches_goal(&start, &sol), "beam path did not reach GOAL");
-            assert!(sol.len() as u8 >= dist, "beam length {} < optimal {}", sol.len(), dist);
+            assert!(
+                replay_reaches_goal(&start, &sol),
+                "beam path did not reach GOAL"
+            );
+            assert!(
+                sol.len() as u8 >= dist,
+                "beam length {} < optimal {}",
+                sol.len(),
+                dist
+            );
             checked += 1;
         }
         assert!(checked > 20, "too few boards checked: {checked}");
@@ -163,7 +194,11 @@ mod tests {
         // Width 1 = greedy best-first. It may solve or cleanly give up, but must
         // never loop (the visited set + budget guarantee termination).
         let truth = bfs_distances(6);
-        let cfg = BeamConfig { width: 1, max_depth: 200, node_budget: 100_000 };
+        let cfg = BeamConfig {
+            width: 1,
+            max_depth: 200,
+            node_budget: 100_000,
+        };
         for (raw, _) in truth.iter().take(30) {
             let start = State(*raw);
             if let Some(sol) = beam_search(&start, &ManhattanHeuristic, &cfg) {
@@ -177,7 +212,11 @@ mod tests {
         // A scrambled board with a 1-expansion budget must give up, not loop.
         let truth = bfs_distances(8);
         let (raw, _) = truth.iter().find(|(_, &d)| d >= 6).unwrap();
-        let cfg = BeamConfig { width: 1000, max_depth: 220, node_budget: 1 };
+        let cfg = BeamConfig {
+            width: 1000,
+            max_depth: 220,
+            node_budget: 1,
+        };
         assert_eq!(beam_search(&State(*raw), &ManhattanHeuristic, &cfg), None);
     }
 }

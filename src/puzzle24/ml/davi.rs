@@ -76,7 +76,10 @@ impl Davi {
 
         let opt = AdamW::new(
             online_varmap.all_vars(),
-            ParamsAdamW { lr: cfg.lr, ..Default::default() },
+            ParamsAdamW {
+                lr: cfg.lr,
+                ..Default::default()
+            },
         )?;
 
         let mut davi = Self {
@@ -193,7 +196,9 @@ impl Davi {
     pub fn sync_target(&mut self) -> Result<()> {
         let pairs: Vec<(String, Tensor)> = {
             let data = self.online_varmap.data().lock().unwrap();
-            data.iter().map(|(n, v)| (n.clone(), v.as_tensor().clone())).collect()
+            data.iter()
+                .map(|(n, v)| (n.clone(), v.as_tensor().clone()))
+                .collect()
         };
         for (name, tensor) in pairs {
             self.target_varmap.set_one(&name, &tensor)?;
@@ -233,7 +238,14 @@ mod tests {
 
     fn cpu_davi(k_max: u32) -> Davi {
         Davi::new(
-            &DaviConfig { k_max, hidden: 64, blocks: 2, lr: 1e-3, target_sync_every: 50, residual: false },
+            &DaviConfig {
+                k_max,
+                hidden: 64,
+                blocks: 2,
+                lr: 1e-3,
+                target_sync_every: 50,
+                residual: false,
+            },
             Device::Cpu,
         )
         .unwrap()
@@ -254,7 +266,14 @@ mod tests {
         // A supervised anchor pulls V(state) toward the given (deep) target,
         // overriding the bootstrap — the walk-length lever.
         let mut davi = Davi::new(
-            &DaviConfig { k_max: 5, hidden: 64, blocks: 2, lr: 5e-3, target_sync_every: 10_000, residual: false },
+            &DaviConfig {
+                k_max: 5,
+                hidden: 64,
+                blocks: 2,
+                lr: 5e-3,
+                target_sync_every: 10_000,
+                residual: false,
+            },
             Device::Cpu,
         )
         .unwrap();
@@ -305,7 +324,10 @@ mod tests {
             (after - target).abs() < (before - target).abs(),
             "residual V_total did not move toward target: {before} -> {after} (target {target})"
         );
-        assert!((after - target).abs() < 10.0, "residual V_total {after} not near target {target}");
+        assert!(
+            (after - target).abs() < 10.0,
+            "residual V_total {after} not near target {target}"
+        );
     }
 
     #[test]
@@ -329,7 +351,10 @@ mod tests {
         let resumed = davi2.value_of(&probe).unwrap();
 
         assert_ne!(before, fresh, "fresh net unexpectedly equals trained net");
-        assert_eq!(before, resumed, "load_online did not reproduce the trained value function");
+        assert_eq!(
+            before, resumed,
+            "load_online did not reproduce the trained value function"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -339,7 +364,14 @@ mod tests {
         // fast; the best loss in the second half should drop well below the first
         // window (DAVI loss is sawtooth at each target sync, so compare the best).
         let mut davi = Davi::new(
-            &DaviConfig { k_max: 5, hidden: 96, blocks: 2, lr: 5e-4, target_sync_every: 100, residual: false },
+            &DaviConfig {
+                k_max: 5,
+                hidden: 96,
+                blocks: 2,
+                lr: 5e-4,
+                target_sync_every: 100,
+                residual: false,
+            },
             Device::Cpu,
         )
         .unwrap();

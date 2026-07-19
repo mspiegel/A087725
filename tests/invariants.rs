@@ -65,7 +65,10 @@ fn distance_histogram_matches_published() {
     let hist = t.histogram();
     assert_eq!(hist.len(), EXPECTED.len());
     for (d, (&got, &want)) in hist.iter().zip(EXPECTED.iter()).enumerate() {
-        assert_eq!(got, want, "histogram mismatch at d={d}: got {got}, want {want}");
+        assert_eq!(
+            got, want,
+            "histogram mismatch at d={d}: got {got}, want {want}"
+        );
     }
     let total: u32 = hist.iter().sum();
     assert_eq!(total, N_STATES);

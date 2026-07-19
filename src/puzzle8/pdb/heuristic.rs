@@ -82,7 +82,7 @@ mod tests {
     use super::*;
     use crate::puzzle8::bfs::DistanceTable;
     use crate::puzzle8::pdb::pattern::Pattern;
-    use crate::puzzle8::state::{GOAL, State};
+    use crate::puzzle8::state::{State, GOAL};
 
     #[test]
     fn pdb_heuristic_returns_zero_on_goal() {
@@ -124,7 +124,9 @@ mod tests {
             assert!(
                 est <= truth,
                 "additive PDB inadmissible at antipode {:?}: h={}, truth={}",
-                ap.0, est, truth
+                ap.0,
+                est,
+                truth
             );
         }
     }

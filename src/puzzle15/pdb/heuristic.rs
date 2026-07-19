@@ -203,9 +203,7 @@ impl<'a, const N: usize> IncHeuristic for KorfPdbInc<'a, N> {
         let rs = reflect(s);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
-            reflected: std::array::from_fn(|i| {
-                ProjectedState::from_state(&rs, self.patterns[i])
-            }),
+            reflected: std::array::from_fn(|i| ProjectedState::from_state(&rs, self.patterns[i])),
         };
         (self.value(&ctx), ctx)
     }
@@ -236,9 +234,7 @@ impl<'a, const N: usize> IncHeuristicMut for KorfPdbInc<'a, N> {
         let rs = reflect(s);
         let ctx = KorfCtx {
             normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.patterns[i])),
-            reflected: std::array::from_fn(|i| {
-                ProjectedState::from_state(&rs, self.patterns[i])
-            }),
+            reflected: std::array::from_fn(|i| ProjectedState::from_state(&rs, self.patterns[i])),
         };
         (self.value(&ctx), ctx)
     }
@@ -266,9 +262,9 @@ impl<'a, const N: usize> IncHeuristicMut for KorfPdbInc<'a, N> {
 mod tests {
     use super::*;
     use crate::puzzle15::pdb::pattern::Pattern;
-    use crate::puzzle15::search::ManhattanHeuristic;
     use crate::puzzle15::search::tests_util::bfs_distances;
-    use crate::puzzle15::state::{GOAL, State};
+    use crate::puzzle15::search::ManhattanHeuristic;
+    use crate::puzzle15::state::{State, GOAL};
 
     #[test]
     fn pdb_heuristic_returns_zero_on_goal() {
@@ -286,7 +282,9 @@ mod tests {
         // For GOAL, both components return 0.
         assert_eq!(h.h(&GOAL), 0);
         // For a non-goal state, sum equals individual.
-        let s = GOAL.apply(crate::puzzle15::state::Move::Up).apply(crate::puzzle15::state::Move::Left);
+        let s = GOAL
+            .apply(crate::puzzle15::state::Move::Up)
+            .apply(crate::puzzle15::state::Move::Left);
         let expected = dbs[0].h(&s) + dbs[1].h(&s);
         assert_eq!(h.h(&s), expected);
     }
@@ -322,7 +320,10 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = refl.h(&State(*raw));
-            assert!(est <= true_dist, "reflected h({est}) > true dist {true_dist}");
+            assert!(
+                est <= true_dist,
+                "reflected h({est}) > true dist {true_dist}"
+            );
         }
     }
 
@@ -342,7 +343,10 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = h_max.h(&State(*raw));
-            assert!(est <= true_dist, "max h {est} > true {true_dist} for {raw:?}");
+            assert!(
+                est <= true_dist,
+                "max h {est} > true {true_dist} for {raw:?}"
+            );
         }
     }
 
@@ -374,7 +378,10 @@ mod tests {
         let truth = bfs_distances(10);
         for (raw, &true_dist) in &truth {
             let est = h_korf.h(&State(*raw));
-            assert!(est <= true_dist, "korf h {est} > true {true_dist} for {raw:?}");
+            assert!(
+                est <= true_dist,
+                "korf h {est} > true {true_dist} for {raw:?}"
+            );
         }
     }
 
@@ -435,7 +442,10 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
             let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "advance diverged from reprojection at step {i}");
+            assert_eq!(
+                h_adv, h_fresh,
+                "advance diverged from reprojection at step {i}"
+            );
             s = ns;
             ctx = ctx_adv;
         }

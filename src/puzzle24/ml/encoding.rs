@@ -46,7 +46,11 @@ mod tests {
         // GOAL is [1,2,3,...,24,0]; cell `c` holds value `c+1` for c<24, blank at 24.
         for cell in 0..N_CELLS {
             let value = GOAL.0[cell] as usize;
-            assert_eq!(enc[cell * N_CELLS + value], 1.0, "cell {cell} value {value}");
+            assert_eq!(
+                enc[cell * N_CELLS + value],
+                1.0,
+                "cell {cell} value {value}"
+            );
         }
     }
 

@@ -25,10 +25,10 @@
 use std::cell::Cell;
 use std::time::Instant;
 
+use puzzle8::puzzle15::pdb::pattern::Pattern;
 use puzzle8::puzzle15::pdb::{
     AdditivePdbHeuristic, MaxHeuristic, PatternDb, PdbHeuristic, ReflectedHeuristic,
 };
-use puzzle8::puzzle15::pdb::pattern::Pattern;
 use puzzle8::puzzle15::search::{idastar, Heuristic, ManhattanHeuristic};
 use puzzle8::puzzle15::state::{Move, State, GOAL};
 
@@ -40,10 +40,17 @@ struct CountingHeuristic<'a, H: Heuristic> {
 
 impl<'a, H: Heuristic> CountingHeuristic<'a, H> {
     fn new(inner: &'a H) -> Self {
-        Self { inner, count: Cell::new(0) }
+        Self {
+            inner,
+            count: Cell::new(0),
+        }
     }
-    fn count(&self) -> u64 { self.count.get() }
-    fn reset(&self) { self.count.set(0); }
+    fn count(&self) -> u64 {
+        self.count.get()
+    }
+    fn reset(&self) {
+        self.count.set(0);
+    }
 }
 
 impl<'a, H: Heuristic> Heuristic for CountingHeuristic<'a, H> {
@@ -93,9 +100,13 @@ fn random_scramble(seed: u64, depth: u32) -> State {
     while steps < depth {
         let r = next(&mut rng);
         let m = Move::ALL[(r as usize) & 3];
-        if !s.legal_moves().contains(m) { continue; }
+        if !s.legal_moves().contains(m) {
+            continue;
+        }
         if let Some(p) = last {
-            if m == p.inverse() { continue; }
+            if m == p.inverse() {
+                continue;
+            }
         }
         s = s.apply(m);
         last = Some(m);
@@ -104,7 +115,13 @@ fn random_scramble(seed: u64, depth: u32) -> State {
     s
 }
 
-fn benchmark<H: Heuristic>(name: &str, bytes_stored: usize, h: &H, samples: &[State], truth: &[u8]) -> Report {
+fn benchmark<H: Heuristic>(
+    name: &str,
+    bytes_stored: usize,
+    h: &H,
+    samples: &[State],
+    truth: &[u8],
+) -> Report {
     let counting = CountingHeuristic::new(h);
     let mut total_ns: u64 = 0;
     let mut total_calls: u64 = 0;
@@ -117,7 +134,9 @@ fn benchmark<H: Heuristic>(name: &str, bytes_stored: usize, h: &H, samples: &[St
         total_calls += counting.count();
         let len = sol.len() as u8;
         let err = len.abs_diff(truth[idx]);
-        if err > max_err { max_err = err; }
+        if err > max_err {
+            max_err = err;
+        }
     }
     Report {
         name: name.to_string(),
@@ -139,12 +158,20 @@ fn main() {
         .map(|k| random_scramble(SEED_BASE.wrapping_add(k as u64), WALK_DEPTH))
         .collect();
 
-    println!("Computing ground-truth distances via IDA*+Manhattan (admissible) — depth ≤ {WALK_DEPTH}.");
+    println!(
+        "Computing ground-truth distances via IDA*+Manhattan (admissible) — depth ≤ {WALK_DEPTH}."
+    );
     let t = Instant::now();
-    let truth: Vec<u8> = samples.iter()
-        .map(|s| idastar(s, &ManhattanHeuristic).expect("manhattan solves").len() as u8)
+    let truth: Vec<u8> = samples
+        .iter()
+        .map(|s| {
+            idastar(s, &ManhattanHeuristic)
+                .expect("manhattan solves")
+                .len() as u8
+        })
         .collect();
-    println!("Ground truth done in {:.2?}. Depths: min={} max={} mean={:.1}",
+    println!(
+        "Ground truth done in {:.2?}. Depths: min={} max={} mean={:.1}",
         t.elapsed(),
         truth.iter().min().unwrap(),
         truth.iter().max().unwrap(),
@@ -155,7 +182,10 @@ fn main() {
 
     // --- Baselines ---
     let h_man = ManhattanHeuristic;
-    Report { ..benchmark("Manhattan", 0, &h_man, &samples, &truth) }.print();
+    Report {
+        ..benchmark("Manhattan", 0, &h_man, &samples, &truth)
+    }
+    .print();
 
     // --- Small additive partition (4+4+4+3 covering all 15 tiles) ---
     println!("\nBuilding small PDBs (will take a few seconds each)...");
@@ -166,25 +196,46 @@ fn main() {
     let p_d = PatternDb::build(Pattern::new(&[13, 14, 15]));
     println!("Built 4+4+4+3 partition in {:.2?}", t.elapsed());
 
-    let bytes_4443 = p_a.bytes_stored() + p_b.bytes_stored() + p_c.bytes_stored() + p_d.bytes_stored();
+    let bytes_4443 =
+        p_a.bytes_stored() + p_b.bytes_stored() + p_c.bytes_stored() + p_d.bytes_stored();
     let dbs_4443 = vec![p_a, p_b, p_c, p_d];
 
     // Single PDB (just the 4-tile one).
     let h_p4 = PdbHeuristic::new(&dbs_4443[0]);
-    benchmark("Single PDB (k=4 tiles 1..4)",
-              dbs_4443[0].bytes_stored(), &h_p4, &samples, &truth).print();
+    benchmark(
+        "Single PDB (k=4 tiles 1..4)",
+        dbs_4443[0].bytes_stored(),
+        &h_p4,
+        &samples,
+        &truth,
+    )
+    .print();
 
     // Additive partition over all 15 tiles.
     let h_add = AdditivePdbHeuristic::new(&dbs_4443);
-    benchmark("Additive 4+4+4+3 (covers all 15)",
-              bytes_4443, &h_add, &samples, &truth).print();
+    benchmark(
+        "Additive 4+4+4+3 (covers all 15)",
+        bytes_4443,
+        &h_add,
+        &samples,
+        &truth,
+    )
+    .print();
 
     // Korf-style max(additive, reflected).
     let h_refl_inner = AdditivePdbHeuristic::new(&dbs_4443);
     let h_refl = ReflectedHeuristic::new(h_refl_inner);
     let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
-    benchmark("Max(additive 4+4+4+3, reflected)",
-              bytes_4443, &h_korf, &samples, &truth).print();
+    benchmark(
+        "Max(additive 4+4+4+3, reflected)",
+        bytes_4443,
+        &h_korf,
+        &samples,
+        &truth,
+    )
+    .print();
 
-    println!("\n(Run with feature flags and built P7/P8 PDBs from data/ for the Korf 7-8 partition.)");
+    println!(
+        "\n(Run with feature flags and built P7/P8 PDBs from data/ for the Korf 7-8 partition.)"
+    );
 }

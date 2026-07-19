@@ -17,15 +17,15 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
-use puzzle8::puzzle15::state::DIAMETER;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
-use puzzle8::puzzle15::symmetry::reflect;
+#[cfg(feature = "verifier-stats")]
+use puzzle8::puzzle15::search::SearchStats;
 use puzzle8::puzzle15::search::{
     idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic,
 };
-#[cfg(feature = "verifier-stats")]
-use puzzle8::puzzle15::search::SearchStats;
+use puzzle8::puzzle15::state::DIAMETER;
+use puzzle8::puzzle15::symmetry::reflect;
 #[cfg(feature = "verifier-stats")]
 use std::sync::Mutex;
 
@@ -60,8 +60,14 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 1;
     while i < argv.len() {
         match argv[i].as_str() {
-            "--pdb-dir" => { i += 1; pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?); }
-            "--data-dir" => { i += 1; data_dir = PathBuf::from(argv.get(i).ok_or("--data-dir needs a value")?); }
+            "--pdb-dir" => {
+                i += 1;
+                pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?);
+            }
+            "--data-dir" => {
+                i += 1;
+                data_dir = PathBuf::from(argv.get(i).ok_or("--data-dir needs a value")?);
+            }
             "--mode" => {
                 i += 1;
                 mode_band = match argv.get(i).ok_or("--mode needs a value")?.as_str() {
@@ -70,14 +76,51 @@ fn parse_args() -> Result<Args, String> {
                     other => return Err(format!("unknown mode {other:?}")),
                 };
             }
-            "--down-to" => { i += 1; down_to = argv.get(i).ok_or("--down-to needs a value")?.parse().map_err(|e| format!("--down-to: {e}"))?; }
-            "--floor" => { i += 1; floor = Some(argv.get(i).ok_or("--floor needs a value")?.parse().map_err(|e| format!("--floor: {e}"))?); }
-            "--budget" => { i += 1; budget = argv.get(i).ok_or("--budget needs a value")?.parse().map_err(|e| format!("--budget: {e}"))?; }
-            "--cache" => { i += 1; cache = Some(PathBuf::from(argv.get(i).ok_or("--cache needs a value")?)); }
-            "--no-cache" => { no_cache = true; }
-            "--out" => { i += 1; out = PathBuf::from(argv.get(i).ok_or("--out needs a value")?); }
-            "--no-verify" => { no_verify = true; }
-            "--seed-ranks" => { i += 1; seed_ranks = Some(PathBuf::from(argv.get(i).ok_or("--seed-ranks needs a value")?)); }
+            "--down-to" => {
+                i += 1;
+                down_to = argv
+                    .get(i)
+                    .ok_or("--down-to needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--down-to: {e}"))?;
+            }
+            "--floor" => {
+                i += 1;
+                floor = Some(
+                    argv.get(i)
+                        .ok_or("--floor needs a value")?
+                        .parse()
+                        .map_err(|e| format!("--floor: {e}"))?,
+                );
+            }
+            "--budget" => {
+                i += 1;
+                budget = argv
+                    .get(i)
+                    .ok_or("--budget needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--budget: {e}"))?;
+            }
+            "--cache" => {
+                i += 1;
+                cache = Some(PathBuf::from(argv.get(i).ok_or("--cache needs a value")?));
+            }
+            "--no-cache" => {
+                no_cache = true;
+            }
+            "--out" => {
+                i += 1;
+                out = PathBuf::from(argv.get(i).ok_or("--out needs a value")?);
+            }
+            "--no-verify" => {
+                no_verify = true;
+            }
+            "--seed-ranks" => {
+                i += 1;
+                seed_ranks = Some(PathBuf::from(
+                    argv.get(i).ok_or("--seed-ranks needs a value")?,
+                ));
+            }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {other}")),
         }
@@ -89,7 +132,19 @@ fn parse_args() -> Result<Args, String> {
     if seed_ranks.is_some() && !mode_band {
         return Err("--seed-ranks requires --mode band".into());
     }
-    Ok(Args { pdb_dir, data_dir, mode_band, down_to, floor, budget, cache, no_cache, out, no_verify, seed_ranks })
+    Ok(Args {
+        pdb_dir,
+        data_dir,
+        mode_band,
+        down_to,
+        floor,
+        budget,
+        cache,
+        no_cache,
+        out,
+        no_verify,
+        seed_ranks,
+    })
 }
 
 fn load_zpdbs(dir: &Path) -> Result<[ZPatternDb; 2], String> {
@@ -140,7 +195,11 @@ fn run() -> Result<(), String> {
         let cache_path: Option<PathBuf> = if args.no_cache {
             None
         } else {
-            Some(args.cache.clone().unwrap_or_else(|| args.out.join("solve_cache.bin")))
+            Some(
+                args.cache
+                    .clone()
+                    .unwrap_or_else(|| args.out.join("solve_cache.bin")),
+            )
         };
         let mut cache = match &cache_path {
             Some(p) => cache::load(p).map_err(|e| format!("cache load {}: {}", p.display(), e))?,
@@ -148,9 +207,17 @@ fn run() -> Result<(), String> {
         };
         println!(
             "band mode: floor {}, target down-to {}, budget {}, cache {} ({} solved boards loaded)",
-            floor, args.down_to,
-            if args.budget == 0 { "unlimited".to_string() } else { args.budget.to_string() },
-            cache_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".into()),
+            floor,
+            args.down_to,
+            if args.budget == 0 {
+                "unlimited".to_string()
+            } else {
+                args.budget.to_string()
+            },
+            cache_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "disabled".into()),
             cache.len(),
         );
         // --seed-ranks: ensure the listed ranks are in the cache with their
@@ -198,12 +265,16 @@ fn run() -> Result<(), String> {
             let solved_n = solved.len() as u64;
             if solved_n > 0 {
                 if let Some(p) = cache_path.as_deref() {
-                    cache::save(p, &cache).map_err(|e| format!("cache save {}: {}", p.display(), e))?;
+                    cache::save(p, &cache)
+                        .map_err(|e| format!("cache save {}: {}", p.display(), e))?;
                 }
             }
             println!(
                 "seed-ranks {}: {} loaded, {} cache hits, {} solved",
-                seed_path.display(), ranks.len(), cache_hits, solved_n,
+                seed_path.display(),
+                ranks.len(),
+                cache_hits,
+                solved_n,
             );
         }
         // Auto-seed-from-cache: pre-populate the Store with every cached board
@@ -221,19 +292,44 @@ fn run() -> Result<(), String> {
         if cache_seeded > 0 {
             println!("seeded {cache_seeded} boards from cache at depths {floor}..={DIAMETER}");
         }
-        frontier::run_band(&mut store, &hist, args.down_to, floor, args.budget,
-                           &mut cache, cache_path.as_deref(), &args.out, verify, |l| println!("{l}"))?
+        frontier::run_band(
+            &mut store,
+            &hist,
+            args.down_to,
+            floor,
+            args.budget,
+            &mut cache,
+            cache_path.as_deref(),
+            &args.out,
+            verify,
+            |l| println!("{l}"),
+        )?
     } else {
-        let verifier_opt: Option<&dyn Fn(u64) -> u8> = if args.no_verify { None } else { Some(&verify) };
-        frontier::run(&mut store, &hist, args.down_to, &args.out, verifier_opt, |l| println!("{l}"))?
+        let verifier_opt: Option<&dyn Fn(u64) -> u8> =
+            if args.no_verify { None } else { Some(&verify) };
+        frontier::run(
+            &mut store,
+            &hist,
+            args.down_to,
+            &args.out,
+            verifier_opt,
+            |l| println!("{l}"),
+        )?
     };
 
-    let all_ok = reports.iter().filter(|r| r.depth >= args.down_to).all(|r| r.complete);
+    let all_ok = reports
+        .iter()
+        .filter(|r| r.depth >= args.down_to)
+        .all(|r| r.complete);
     println!(
         "\n{} boards stored, {:.1?} elapsed → {}",
         store.total(),
         t0.elapsed(),
-        if all_ok { "target layers complete" } else { "stopped: a target layer incomplete" },
+        if all_ok {
+            "target layers complete"
+        } else {
+            "stopped: a target layer incomplete"
+        },
     );
 
     // Per-component call totals across every verify solve in this run. The
@@ -258,16 +354,27 @@ fn run() -> Result<(), String> {
             } else {
                 format!("{:.1} ns/call @100% CPU", total_cpu_ns / calls as f64)
             };
-            println!("  {:<18} {:>16}  {:<28} {}", label, calls, per_call_at_100pct, hint);
+            println!(
+                "  {:<18} {:>16}  {:<28} {}",
+                label, calls, per_call_at_100pct, hint
+            );
         };
-        println!("\nverifier call totals  (wall {:.2}s × {} threads = {:.1}s CPU):",
-                 wall_ns / 1e9, threads as u32, total_cpu_ns / 1e9);
-        row("nodes",           st.nodes,           "(one search_inc per call)");
-        row("zpdb_advances",   st.zpdb_advances,   "");
-        row("lc_advances",     st.lc_advances,     "");
-        row("wd_advances",     st.wd_advances,     "");
-        row("proj_applies",    st.proj_applies,    "(= 2*N*zpdb_advances)");
-        row("zpdb_rank_calls", st.zpdb_rank_calls, "(only cost-1 projected edges)");
+        println!(
+            "\nverifier call totals  (wall {:.2}s × {} threads = {:.1}s CPU):",
+            wall_ns / 1e9,
+            threads as u32,
+            total_cpu_ns / 1e9
+        );
+        row("nodes", st.nodes, "(one search_inc per call)");
+        row("zpdb_advances", st.zpdb_advances, "");
+        row("lc_advances", st.lc_advances, "");
+        row("wd_advances", st.wd_advances, "");
+        row("proj_applies", st.proj_applies, "(= 2*N*zpdb_advances)");
+        row(
+            "zpdb_rank_calls",
+            st.zpdb_rank_calls,
+            "(only cost-1 projected edges)",
+        );
         println!("  {:<18} {:>16}", "iterations", st.iterations);
         println!("  (multiply ns/call by the component's samply self-time %% to get the real per-call cost)");
     }
@@ -285,6 +392,9 @@ fn main() -> ExitCode {
             eprintln!("usage: enumerate15 --pdb-dir DIR --data-dir DIR [--mode descent|band] --down-to T [--floor F] --out DIR [--no-verify] [--seed-ranks FILE]");
             ExitCode::SUCCESS
         }
-        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
     }
 }

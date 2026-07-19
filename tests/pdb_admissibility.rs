@@ -6,8 +6,8 @@
 //! state space so any inadmissibility (anywhere) fails this test.
 
 use puzzle8::puzzle8::bfs::DistanceTable;
-use puzzle8::puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
 use puzzle8::puzzle8::pdb::pattern::Pattern;
+use puzzle8::puzzle8::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
 use puzzle8::puzzle8::rank::unrank;
 use puzzle8::puzzle8::search::Heuristic;
 use puzzle8::puzzle8::state::N_STATES;

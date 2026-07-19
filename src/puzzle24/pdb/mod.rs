@@ -20,9 +20,9 @@ pub mod zdb;
 pub mod zheuristic;
 pub mod zpdb;
 
-pub use build::{build, UNVISITED};
 #[cfg(feature = "parallel")]
 pub use build::build_parallel;
+pub use build::{build, UNVISITED};
 pub use db::{file_size_for, LoadError, PatternDb};
 pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,

@@ -109,7 +109,10 @@ fn main() -> ExitCode {
     let entropy_beta: f32 = arg(&argv, "--entropy-beta", 0.01);
     let adv_lambda: f32 = arg(&argv, "--adv-lambda", 1.0);
     let curriculum = if argv.iter().any(|a| a == "--curriculum") {
-        Some(Curriculum { k_start: arg(&argv, "--k-start", 50), k_end: arg(&argv, "--k-end", 160) })
+        Some(Curriculum {
+            k_start: arg(&argv, "--k-start", 50),
+            k_end: arg(&argv, "--k-end", 160),
+        })
     } else {
         None
     };
@@ -123,7 +126,10 @@ fn main() -> ExitCode {
     let search_temp: f32 = arg(&argv, "--search-temp", 5.0);
     let source = if gen_source == "wdsearch" {
         let diversity = if search_random_slots > 0 {
-            Diversity::Stochastic { random_slots: search_random_slots, temperature: search_temp }
+            Diversity::Stochastic {
+                random_slots: search_random_slots,
+                temperature: search_temp,
+            }
         } else {
             Diversity::TopK
         };
@@ -189,13 +195,23 @@ fn main() -> ExitCode {
         blocks,
     );
 
-    let solver_bwas =
-        BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: solver_budget };
-    let beam = BeamConfig { width: beam_width, max_depth: 220, node_budget: beam_budget };
+    let solver_bwas = BwasConfig {
+        weight: solver_weight,
+        batch_size: solver_sbatch,
+        node_budget: solver_budget,
+    };
+    let beam = BeamConfig {
+        width: beam_width,
+        max_depth: 220,
+        node_budget: beam_budget,
+    };
     // High-budget eval, decoupled from the cheap generator-reward budget so the
     // metric reflects the value function, not the search budget.
-    let eval_bwas =
-        BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: eval_budget };
+    let eval_bwas = BwasConfig {
+        weight: solver_weight,
+        batch_size: solver_sbatch,
+        node_budget: eval_budget,
+    };
     let eval_spec = if eval_mode == "deep" {
         EvalSpec::Deep(DeepEvalConfig {
             bwas: eval_bwas,
@@ -297,7 +313,10 @@ fn main() -> ExitCode {
 
     match run(&cfg, device) {
         Ok(()) => {
-            println!("training complete; checkpoints + metrics in {}", cfg.checkpoint_dir.display());
+            println!(
+                "training complete; checkpoints + metrics in {}",
+                cfg.checkpoint_dir.display()
+            );
             if profile::is_enabled() {
                 print!("\n{}", profile::report());
             }

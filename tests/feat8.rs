@@ -72,8 +72,11 @@ fn distance_field_matches_table() {
     let t = DistanceTable::build();
     let records = build_records(&t);
     for r in 0..N_STATES {
-        assert_eq!(records[r as usize][10], t.dist_of_rank(r),
-            "rank {r}: feat8 distance doesn't match table");
+        assert_eq!(
+            records[r as usize][10],
+            t.dist_of_rank(r),
+            "rank {r}: feat8 distance doesn't match table"
+        );
     }
 }
 
@@ -83,8 +86,11 @@ fn board_field_matches_unrank() {
     let records = build_records(&t);
     for r in 0..N_STATES {
         let s = unrank(r);
-        assert_eq!(&records[r as usize][0..9], &s.0,
-            "rank {r}: feat8 board doesn't match unrank({r})");
+        assert_eq!(
+            &records[r as usize][0..9],
+            &s.0,
+            "rank {r}: feat8 board doesn't match unrank({r})"
+        );
     }
 }
 
@@ -95,9 +101,14 @@ fn blank_pos_matches_board() {
         let rec = &records[r as usize];
         let blank_pos = rec[9] as usize;
         assert!(blank_pos < 9);
-        assert_eq!(rec[blank_pos], 0,
+        assert_eq!(
+            rec[blank_pos],
+            0,
             "rank {}: blank_pos {} doesn't index a 0 in the board {:?}",
-            r, blank_pos, &rec[0..9]);
+            r,
+            blank_pos,
+            &rec[0..9]
+        );
     }
 }
 
@@ -107,8 +118,11 @@ fn manhattan_sum_equals_per_tile_sum() {
     for r in 0..N_STATES {
         let rec = &records[r as usize];
         let sum: u32 = (0..8).map(|i| rec[24 + i] as u32).sum();
-        assert_eq!(rec[11] as u32, sum,
-            "rank {}: manhattan_sum {} != sum of per-tile {}", r, rec[11], sum);
+        assert_eq!(
+            rec[11] as u32, sum,
+            "rank {}: manhattan_sum {} != sum of per-tile {}",
+            r, rec[11], sum
+        );
     }
 }
 
@@ -118,9 +132,11 @@ fn correct_tile_count_matches_mask_popcount() {
     for r in 0..N_STATES {
         let rec = &records[r as usize];
         let popcount = rec[14].count_ones() as u8;
-        assert_eq!(rec[13], popcount,
+        assert_eq!(
+            rec[13], popcount,
             "rank {}: correct_tile_count {} != popcount(correct_tile_mask 0b{:08b}) = {}",
-            r, rec[13], rec[14], popcount);
+            r, rec[13], rec[14], popcount
+        );
     }
 }
 
@@ -133,8 +149,11 @@ fn correct_tile_mask_matches_board_placements() {
         for t in 1u8..=8u8 {
             let bit = (rec[14] >> (t - 1)) & 1;
             let at_goal = board[(t - 1) as usize] == t;
-            assert_eq!(bit == 1, at_goal,
-                "rank {r}: tile {t} bit={bit} but at_goal={at_goal}");
+            assert_eq!(
+                bit == 1,
+                at_goal,
+                "rank {r}: tile {t} bit={bit} but at_goal={at_goal}"
+            );
         }
     }
 }
@@ -145,8 +164,11 @@ fn num_optimal_moves_matches_table() {
     let records = build_records(&t);
     for r in 0..N_STATES {
         let s = unrank(r);
-        assert_eq!(records[r as usize][15], t.optimal_moves(&s).len() as u8,
-            "rank {r}: num_optimal_moves disagrees with table");
+        assert_eq!(
+            records[r as usize][15],
+            t.optimal_moves(&s).len() as u8,
+            "rank {r}: num_optimal_moves disagrees with table"
+        );
     }
 }
 
@@ -156,8 +178,10 @@ fn reflected_canonical_rank_le_r() {
     for r in 0..N_STATES {
         let rec = &records[r as usize];
         let canonical = u32::from_le_bytes(rec[20..24].try_into().unwrap());
-        assert!(canonical <= r,
-            "rank {r}: reflected_canonical_rank {canonical} > r");
+        assert!(
+            canonical <= r,
+            "rank {r}: reflected_canonical_rank {canonical} > r"
+        );
     }
 }
 
@@ -169,9 +193,15 @@ fn self_symmetric_flag_iff_state_equals_its_reflection() {
         let s = unrank(r);
         let is_self = reflect(&s) == s;
         let flag = rec[16];
-        assert!(flag == 0 || flag == 1, "rank {r}: self_symmetric_flag must be 0 or 1");
-        assert_eq!(flag == 1, is_self,
-            "rank {r}: flag={flag} but reflect==self? {is_self}");
+        assert!(
+            flag == 0 || flag == 1,
+            "rank {r}: self_symmetric_flag must be 0 or 1"
+        );
+        assert_eq!(
+            flag == 1,
+            is_self,
+            "rank {r}: flag={flag} but reflect==self? {is_self}"
+        );
     }
 }
 
@@ -181,8 +211,11 @@ fn padding_bytes_are_zero() {
     for r in 0..N_STATES {
         let rec = &records[r as usize];
         for offset in 17..20 {
-            assert_eq!(rec[offset], 0,
-                "rank {}: padding byte at offset {} not zero ({})", r, offset, rec[offset]);
+            assert_eq!(
+                rec[offset], 0,
+                "rank {}: padding byte at offset {} not zero ({})",
+                r, offset, rec[offset]
+            );
         }
     }
 }
@@ -196,8 +229,11 @@ fn cross_consistency_with_pol8_optimal_move_count() {
     for r in 0..N_STATES {
         let s = unrank(r);
         let mask = t.optimal_moves(&s).0;
-        assert_eq!(records[r as usize][15], mask.count_ones() as u8,
-            "rank {r}: num_optimal_moves != popcount(pol8 mask)");
+        assert_eq!(
+            records[r as usize][15],
+            mask.count_ones() as u8,
+            "rank {r}: num_optimal_moves != popcount(pol8 mask)"
+        );
     }
 }
 

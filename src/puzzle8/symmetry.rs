@@ -102,7 +102,11 @@ mod tests {
         for r in 0..N_STATES {
             let s = unrank(r);
             assert!(s.is_solvable());
-            assert!(reflect(&s).is_solvable(), "reflect made unsolvable: {:?}", s.0);
+            assert!(
+                reflect(&s).is_solvable(),
+                "reflect made unsolvable: {:?}",
+                s.0
+            );
         }
     }
 

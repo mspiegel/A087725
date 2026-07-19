@@ -21,10 +21,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(blank_arg.parse()?)
     };
     let min_h: u8 = std::env::args().nth(2).ok_or("need MIN_H")?.parse()?;
-    let cache_path: PathBuf = std::env::args().nth(3)
+    let cache_path: PathBuf = std::env::args()
+        .nth(3)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
-    let depth: u8 = std::env::args().nth(4).and_then(|s| s.parse().ok()).unwrap_or(78);
+    let depth: u8 = std::env::args()
+        .nth(4)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(78);
 
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
     let p8 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p8.zbin"))?;
@@ -34,10 +38,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let c = cache::load(&cache_path)?;
     for (&r, &d) in &c {
-        if d != depth { continue; }
+        if d != depth {
+            continue;
+        }
         let s = unrank(r);
         if let Some(b) = blank {
-            if s.blank_pos() != b { continue; }
+            if s.blank_pos() != b {
+                continue;
+            }
         }
         let mut stats = SearchStats::default();
         let (hv, _) = h.root(&s, &mut stats);

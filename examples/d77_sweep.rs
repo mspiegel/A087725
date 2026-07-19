@@ -23,18 +23,24 @@ use puzzle8::puzzle15::enumerate::cache;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
 use puzzle8::puzzle15::search::{
-    idastar_inc_with_stats, IncHeuristic, LinearConflictInc, SearchStats,
-    WalkingDistanceHeuristic,
+    idastar_inc_with_stats, IncHeuristic, LinearConflictInc, SearchStats, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle15::state::State;
 use puzzle8::puzzle15::symmetry::reflect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let refs_path: PathBuf = std::env::args().nth(1)
+    let refs_path: PathBuf = std::env::args()
+        .nth(1)
         .ok_or("usage: d77_sweep REFS_FILE [K] [MIN_H] [CACHE]")?
         .into();
-    let max_k: usize = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(4);
-    let min_h: u8 = std::env::args().nth(3).and_then(|s| s.parse().ok()).unwrap_or(63);
+    let max_k: usize = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let min_h: u8 = std::env::args()
+        .nth(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(63);
     let cache_path: PathBuf = std::env::args()
         .nth(4)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
@@ -46,11 +52,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .lines()
         .filter_map(|l| {
             let s = l.trim();
-            if s.is_empty() || s.starts_with('#') { return None; }
+            if s.is_empty() || s.starts_with('#') {
+                return None;
+            }
             s.parse::<u64>().ok()
         })
         .collect();
-    println!("loaded {} references from {}", refs.len(), refs_path.display());
+    println!(
+        "loaded {} references from {}",
+        refs.len(),
+        refs_path.display()
+    );
 
     let cache = cache::load(&cache_path)?;
     println!("loaded cache: {} entries", cache.len());
@@ -78,12 +90,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .par_iter()
             .filter_map(|&arr| {
                 let s = State(arr);
-                if !s.is_solvable() { return None; }
+                if !s.is_solvable() {
+                    return None;
+                }
                 let mut stats = SearchStats::default();
                 let (hv, _) = h.root(&s, &mut stats);
-                if hv < min_h { return None; }
+                if hv < min_h {
+                    return None;
+                }
                 let r = rank(&s);
-                if cache.contains_key(&r) { return None; }
+                if cache.contains_key(&r) {
+                    return None;
+                }
                 Some(r)
             })
             .collect();
@@ -95,8 +113,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
 
         if candidates.is_empty() {
-            println!("ref {:>3}/{:<3} rank={:<14} cand=0 in {:.1?}",
-                     idx + 1, refs.len(), ref_rank, t_ref.elapsed());
+            println!(
+                "ref {:>3}/{:<3} rank={:<14} cand=0 in {:.1?}",
+                idx + 1,
+                refs.len(),
+                ref_rank,
+                t_ref.elapsed()
+            );
             continue;
         }
 
@@ -112,16 +135,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ref_new_d76 = 0;
         for &(r, d) in &results {
             *hist_total.entry(d).or_insert(0) += 1;
-            if d >= 76
-                && all_finds.insert(r, d).is_none() {
-                    // Also insert reflection partner.
-                    let refl_r = rank(&reflect(&unrank(r)));
-                    if refl_r != r && !cache.contains_key(&refl_r) {
-                        all_finds.insert(refl_r, d);
-                    }
-                    if d == 77 { ref_new_d77 += 1; }
-                    if d == 76 { ref_new_d76 += 1; }
+            if d >= 76 && all_finds.insert(r, d).is_none() {
+                // Also insert reflection partner.
+                let refl_r = rank(&reflect(&unrank(r)));
+                if refl_r != r && !cache.contains_key(&refl_r) {
+                    all_finds.insert(refl_r, d);
                 }
+                if d == 77 {
+                    ref_new_d77 += 1;
+                }
+                if d == 76 {
+                    ref_new_d76 += 1;
+                }
+            }
         }
         new_d77_total += ref_new_d77;
         new_d76_total += ref_new_d76;
@@ -145,17 +171,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Dump all unique d>=76 finds (including reflection partners we auto-added).
     let mut finds_sorted: Vec<(u64, u8)> = all_finds.into_iter().collect();
     finds_sorted.sort_by_key(|&(r, d)| (std::cmp::Reverse(d), r));
-    println!("\n=== ALL DEPTH>=76 FINDS (incl. reflection partners): {} ===", finds_sorted.len());
+    println!(
+        "\n=== ALL DEPTH>=76 FINDS (incl. reflection partners): {} ===",
+        finds_sorted.len()
+    );
     let mut by_depth: BTreeMap<u8, Vec<u64>> = BTreeMap::new();
-    for (r, d) in &finds_sorted { by_depth.entry(*d).or_default().push(*r); }
+    for (r, d) in &finds_sorted {
+        by_depth.entry(*d).or_default().push(*r);
+    }
     for (d, ranks) in by_depth.iter().rev() {
         println!("\n-- d={} : {} boards --", d, ranks.len());
         for &r in ranks {
             let s = unrank(r);
             print!("FIND d={} rank={:>14} blank@{:>2}: ", d, r, s.blank_pos());
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
-                if j % 4 == 3 { print!("  "); } else { print!(","); }
+                if t == 0 {
+                    print!("__");
+                } else {
+                    print!("{t:>2}");
+                }
+                if j % 4 == 3 {
+                    print!("  ");
+                } else {
+                    print!(",");
+                }
             }
             println!();
         }
@@ -183,9 +222,13 @@ fn enumerate_neighborhood(max_k: usize, reference: &[u8; 16]) -> Vec<[u8; 16]> {
                     }
                     out.push(arr);
                 }
-                if !next_permutation(&mut perm) { break; }
+                if !next_permutation(&mut perm) {
+                    break;
+                }
             }
-            if !next_combination(&mut combo, 16) { break; }
+            if !next_combination(&mut combo, 16) {
+                break;
+            }
         }
     }
     out
@@ -197,12 +240,20 @@ fn is_derangement(p: &[usize]) -> bool {
 
 fn next_permutation(arr: &mut [usize]) -> bool {
     let n = arr.len();
-    if n < 2 { return false; }
+    if n < 2 {
+        return false;
+    }
     let mut i = n - 1;
-    while i > 0 && arr[i - 1] >= arr[i] { i -= 1; }
-    if i == 0 { return false; }
+    while i > 0 && arr[i - 1] >= arr[i] {
+        i -= 1;
+    }
+    if i == 0 {
+        return false;
+    }
     let mut j = n - 1;
-    while arr[j] <= arr[i - 1] { j -= 1; }
+    while arr[j] <= arr[i - 1] {
+        j -= 1;
+    }
     arr.swap(i - 1, j);
     arr[i..].reverse();
     true
@@ -210,18 +261,26 @@ fn next_permutation(arr: &mut [usize]) -> bool {
 
 fn next_combination(combo: &mut [usize], n: usize) -> bool {
     let k = combo.len();
-    if k == 0 { return false; }
+    if k == 0 {
+        return false;
+    }
     let mut i = k - 1;
     loop {
         if combo[i] < n - k + i {
             combo[i] += 1;
-            for j in i + 1..k { combo[j] = combo[j - 1] + 1; }
+            for j in i + 1..k {
+                combo[j] = combo[j - 1] + 1;
+            }
             return true;
         }
-        if i == 0 { return false; }
+        if i == 0 {
+            return false;
+        }
         i -= 1;
     }
 }
 
 #[allow(dead_code)]
-fn _unused() -> Option<(HashMap<u64, u8>, HashSet<u64>)> { None }
+fn _unused() -> Option<(HashMap<u64, u8>, HashSet<u64>)> {
+    None
+}

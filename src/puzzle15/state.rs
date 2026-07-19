@@ -28,8 +28,7 @@ pub const N_TILES: usize = N_CELLS - 1;
 pub struct State(pub [u8; N_CELLS]);
 
 /// Solved configuration: `1 2 3 4 / 5 6 7 8 / 9 10 11 12 / 13 14 15 _`.
-pub const GOAL: State =
-    State([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]);
+pub const GOAL: State = State([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]);
 
 /// Number of solvable states: 16!/2.
 pub const N_STATES: u64 = 10_461_394_944_000;
@@ -66,7 +65,9 @@ impl Move {
 pub struct MoveSet(pub u8);
 
 impl MoveSet {
-    pub const fn empty() -> Self { MoveSet(0) }
+    pub const fn empty() -> Self {
+        MoveSet(0)
+    }
 
     pub fn contains(self, m: Move) -> bool {
         self.0 & (1 << m as u8) != 0
@@ -85,7 +86,10 @@ impl MoveSet {
     }
 
     pub fn iter(self) -> MoveSetIter {
-        MoveSetIter { bits: self.0, idx: 0 }
+        MoveSetIter {
+            bits: self.0,
+            idx: 0,
+        }
     }
 }
 
@@ -122,10 +126,18 @@ const LEGAL_MOVES: [MoveSet; N_CELLS] = {
         let row = b / W;
         let col = b % W;
         let mut bits = 0u8;
-        if row > 0 { bits |= 1 << (Move::Up as u8); }
-        if row < W - 1 { bits |= 1 << (Move::Down as u8); }
-        if col > 0 { bits |= 1 << (Move::Left as u8); }
-        if col < W - 1 { bits |= 1 << (Move::Right as u8); }
+        if row > 0 {
+            bits |= 1 << (Move::Up as u8);
+        }
+        if row < W - 1 {
+            bits |= 1 << (Move::Down as u8);
+        }
+        if col > 0 {
+            bits |= 1 << (Move::Left as u8);
+        }
+        if col < W - 1 {
+            bits |= 1 << (Move::Right as u8);
+        }
         table[b] = MoveSet(bits);
         b += 1;
     }
@@ -141,10 +153,18 @@ const NEIGHBOR: [[u8; 4]; N_CELLS] = {
     while b < N_CELLS {
         let row = b / W;
         let col = b % W;
-        if row > 0 { table[b][Move::Up as usize] = (b - W) as u8; }
-        if row < W - 1 { table[b][Move::Down as usize] = (b + W) as u8; }
-        if col > 0 { table[b][Move::Left as usize] = (b - 1) as u8; }
-        if col < W - 1 { table[b][Move::Right as usize] = (b + 1) as u8; }
+        if row > 0 {
+            table[b][Move::Up as usize] = (b - W) as u8;
+        }
+        if row < W - 1 {
+            table[b][Move::Down as usize] = (b + W) as u8;
+        }
+        if col > 0 {
+            table[b][Move::Left as usize] = (b - 1) as u8;
+        }
+        if col < W - 1 {
+            table[b][Move::Right as usize] = (b + 1) as u8;
+        }
         b += 1;
     }
     table
@@ -266,7 +286,13 @@ mod tests {
             if GOAL.legal_moves().contains(m) {
                 let after = GOAL.apply(m);
                 let back = after.apply(m.inverse());
-                assert_eq!(back, GOAL, "apply({:?}) then apply({:?}) should restore", m, m.inverse());
+                assert_eq!(
+                    back,
+                    GOAL,
+                    "apply({:?}) then apply({:?}) should restore",
+                    m,
+                    m.inverse()
+                );
             }
         }
     }
@@ -275,8 +301,16 @@ mod tests {
     fn apply_preserves_solvability() {
         let mut s = GOAL;
         let path = [
-            Move::Up, Move::Up, Move::Left, Move::Left, Move::Left,
-            Move::Down, Move::Right, Move::Up, Move::Right, Move::Down,
+            Move::Up,
+            Move::Up,
+            Move::Left,
+            Move::Left,
+            Move::Left,
+            Move::Down,
+            Move::Right,
+            Move::Up,
+            Move::Right,
+            Move::Down,
         ];
         for m in path {
             assert!(s.legal_moves().contains(m));
@@ -290,12 +324,15 @@ mod tests {
         // Walk a few hundred pseudo-random positions; every reached state has
         // 2..=4 legal moves.
         let mut s = GOAL;
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..500 {
             let n = s.legal_moves().len();
-            assert!((2..=4).contains(&n), "blank at {} has {} moves", s.blank_pos(), n);
+            assert!(
+                (2..=4).contains(&n),
+                "blank at {} has {} moves",
+                s.blank_pos(),
+                n
+            );
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {
@@ -371,9 +408,7 @@ mod tests {
     fn apply_at_matches_apply_and_tracks_blank() {
         // Along a walk, apply_at must return the same state as apply() and the
         // correct new blank position for every legal move at each step.
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         let mut blank = s.blank_pos();
         for i in 0u32..1000 {
@@ -415,9 +450,7 @@ mod tests {
         // Walk a long path and verify solvability holds at every step (the
         // whole point of the invariant).
         let mut s = GOAL;
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..1000 {
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));

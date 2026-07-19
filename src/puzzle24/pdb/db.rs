@@ -46,7 +46,10 @@ impl PatternDb {
     pub fn build(pattern: Pattern) -> Self {
         let dist = build::build(pattern);
         debug_assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     /// Build via multi-threaded BFS (`parallel` feature). Byte-identical output.
@@ -54,12 +57,18 @@ impl PatternDb {
     pub fn build_parallel(pattern: Pattern) -> Self {
         let dist = build::build_parallel(pattern);
         debug_assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     pub fn from_dist(pattern: Pattern, dist: Vec<u8>) -> Self {
         assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     pub fn pattern(&self) -> Pattern {
@@ -75,7 +84,10 @@ impl PatternDb {
     pub fn h(&self, s: &State) -> u8 {
         let proj = ProjectedState::from_state(s, self.pattern);
         let d = self.storage.dist()[proj.rank(self.pattern) as usize];
-        debug_assert!(d != build::UNVISITED, "PDB queried at unreachable projection");
+        debug_assert!(
+            d != build::UNVISITED,
+            "PDB queried at unreachable projection"
+        );
         d
     }
 
@@ -110,7 +122,10 @@ impl PatternDb {
         f.read_exact(&mut dist)?;
         let mut tail = [0u8; 1];
         match f.read(&mut tail)? {
-            0 => Ok(Self { pattern, storage: Storage::Owned(dist) }),
+            0 => Ok(Self {
+                pattern,
+                storage: Storage::Owned(dist),
+            }),
             _ => Err(LoadError::TrailingBytes),
         }
     }
@@ -127,9 +142,15 @@ impl PatternDb {
         let pattern = parse_header(&header)?;
         let expected = HEADER_BYTES as u64 + pattern.num_projected_states();
         if (map.len() as u64) != expected {
-            return Err(LoadError::SizeMismatch { got: map.len() as u64, expected });
+            return Err(LoadError::SizeMismatch {
+                got: map.len() as u64,
+                expected,
+            });
         }
-        Ok(Self { pattern, storage: Storage::Mmapped(map) })
+        Ok(Self {
+            pattern,
+            storage: Storage::Mmapped(map),
+        })
     }
 }
 
@@ -221,7 +242,10 @@ mod tests {
         let pdb = PatternDb::build(Pattern::new(&[1, 2]));
         let path = tmp_path("p24_pdb_filesize.bin");
         pdb.save(&path).unwrap();
-        assert_eq!(std::fs::metadata(&path).unwrap().len(), file_size_for(pdb.pattern()));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            file_size_for(pdb.pattern())
+        );
         std::fs::remove_file(&path).ok();
     }
 
@@ -236,7 +260,10 @@ mod tests {
         f.write_all(&0u32.to_le_bytes()).unwrap();
         f.write_all(pdb.raw()).unwrap();
         drop(f);
-        assert!(matches!(PatternDb::load(&path), Err(LoadError::BadMagic(_))));
+        assert!(matches!(
+            PatternDb::load(&path),
+            Err(LoadError::BadMagic(_))
+        ));
         std::fs::remove_file(&path).ok();
     }
 

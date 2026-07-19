@@ -153,8 +153,12 @@ impl Heuristic for WalkingDistanceHeuristic {
         let t = table();
         // Row and column abstractions share the same table by symmetry of the
         // 3×3 goal layout.
-        let h_row = *t.get(&pack(&m_row, br)).expect("row-WD state must be reachable");
-        let h_col = *t.get(&pack(&m_col, bc)).expect("col-WD state must be reachable");
+        let h_row = *t
+            .get(&pack(&m_row, br))
+            .expect("row-WD state must be reachable");
+        let h_col = *t
+            .get(&pack(&m_col, bc))
+            .expect("col-WD state must be reachable");
         h_row + h_col
     }
 }
@@ -162,7 +166,7 @@ impl Heuristic for WalkingDistanceHeuristic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle8::state::{GOAL, Move};
+    use crate::puzzle8::state::{Move, GOAL};
 
     #[test]
     fn wd_of_goal_is_zero() {
@@ -206,7 +210,14 @@ mod tests {
     fn wd_grows_along_a_walk() {
         // Take a few moves, WD never exceeds the depth.
         let mut s = GOAL;
-        let path = [Move::Up, Move::Left, Move::Down, Move::Right, Move::Up, Move::Up];
+        let path = [
+            Move::Up,
+            Move::Left,
+            Move::Down,
+            Move::Right,
+            Move::Up,
+            Move::Up,
+        ];
         let mut depth: u8 = 0;
         for m in path {
             if s.legal_moves().contains(m) {

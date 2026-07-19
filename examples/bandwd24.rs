@@ -81,7 +81,8 @@ fn pack_row(m: &Mat5, blank: u8) -> u64 {
 
 /// Row-WD of a 5×5 contingency with the given blank axis-index.
 fn wd_row(t: &WdTable, m: &Mat5, blank: u8) -> u8 {
-    *t.get(&pack_row(m, blank)).expect("row/col-WD state must be reachable")
+    *t.get(&pack_row(m, blank))
+        .expect("row/col-WD state must be reachable")
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +151,8 @@ fn build_bkt_table() -> WdTable {
 }
 
 fn wd_bkt(t: &WdTable, m: &MatB, blank: u8) -> u8 {
-    *t.get(&pack_bkt(m, blank)).expect("bucket-WD state must be reachable")
+    *t.get(&pack_bkt(m, blank))
+        .expect("bucket-WD state must be reachable")
 }
 
 // ---------------------------------------------------------------------------
@@ -301,21 +303,39 @@ fn band_wd(
             pops += 1;
 
             if key == goal_key {
-                return BandResult { exact: Some(g), lb: g, closed: best.len(), pops };
+                return BandResult {
+                    exact: Some(g),
+                    lb: g,
+                    closed: best.len(),
+                    pops,
+                };
             }
             if best.len() > cap {
                 // All f' < f exhausted, goal not among them ⇒ band-WD ≥ f.
-                return BandResult { exact: None, lb: f as u8, closed: best.len(), pops };
+                return BandResult {
+                    exact: None,
+                    lb: f as u8,
+                    closed: best.len(),
+                    pops,
+                };
             }
 
             let (m, blank_sc) = unpack_band(key);
             let br = blank_sc / NB;
             let bb = blank_sc % NB;
             let mut neigh: [Option<usize>; 4] = [None; 4];
-            if br > 0 { neigh[0] = Some((br - 1) * NB + bb); }
-            if br < W - 1 { neigh[1] = Some((br + 1) * NB + bb); }
-            if bb > 0 { neigh[2] = Some(br * NB + (bb - 1)); }
-            if bb < NB - 1 { neigh[3] = Some(br * NB + (bb + 1)); }
+            if br > 0 {
+                neigh[0] = Some((br - 1) * NB + bb);
+            }
+            if br < W - 1 {
+                neigh[1] = Some((br + 1) * NB + bb);
+            }
+            if bb > 0 {
+                neigh[2] = Some(br * NB + (bb - 1));
+            }
+            if bb < NB - 1 {
+                neigh[3] = Some(br * NB + (bb + 1));
+            }
 
             let g2 = g + 1;
             for nsc in neigh.into_iter().flatten() {
@@ -338,7 +358,12 @@ fn band_wd(
         }
     }
     // f-range exhausted without goal (should not happen: goal within 160).
-    BandResult { exact: None, lb: buckets.len() as u8, closed: best.len(), pops }
+    BandResult {
+        exact: None,
+        lb: buckets.len() as u8,
+        closed: best.len(),
+        pops,
+    }
 }
 
 /// WD_full = WD_row + WD_col, the current best admissible baseline.
@@ -444,23 +469,43 @@ fn main() {
             let s = random_board(&mut seed, len);
             let r = band_wd(&rowt, &bktt, &s, goal_key, 5_000_000);
             let v = r.exact.expect("shallow board should solve under cap");
-            assert!(v as usize <= len, "band-WD {v} > walk length {len} — INADMISSIBLE");
+            assert!(
+                v as usize <= len,
+                "band-WD {v} > walk length {len} — INADMISSIBLE"
+            );
             let (wr, _) = wd_full(&rowt, &s);
             let mb = project_bkts(&board_to_band(&s).0);
             let wbk = wd_bkt(&bktt, &mb, (board_to_band(&s).1 % NB) as u8);
-            assert!(v >= wr + wbk, "band-WD {} < WD_row+WD_bucket {} — bound violated", v, wr + wbk);
+            assert!(
+                v >= wr + wbk,
+                "band-WD {} < WD_row+WD_bucket {} — bound violated",
+                v,
+                wr + wbk
+            );
         }
-        println!("admissibility spot-check OK (40 shallow boards: band-WD ≤ dist, ≥ WD_row+WD_bkt)");
+        println!(
+            "admissibility spot-check OK (40 shallow boards: band-WD ≤ dist, ≥ WD_row+WD_bkt)"
+        );
     }
 
     // --- R ---
     let r = r_board();
     let (wr, wc) = wd_full(&rowt, &r);
     println!("\n== R (double antipode) ==");
-    println!("  WD_full(R)      = WD_row {} + WD_col {} = {}", wr, wc, wr + wc);
+    println!(
+        "  WD_full(R)      = WD_row {} + WD_col {} = {}",
+        wr,
+        wc,
+        wr + wc
+    );
     let mb = project_bkts(&board_to_band(&r).0);
     let wbk = wd_bkt(&bktt, &mb, 0);
-    println!("  WD_row+WD_bkt   = {} + {} = {}  (band-WD floor)", wr, wbk, wr + wbk);
+    println!(
+        "  WD_row+WD_bkt   = {} + {} = {}  (band-WD floor)",
+        wr,
+        wbk,
+        wr + wbk
+    );
     eprintln!("  running band-WD A* on R (cap 120M states)…");
     let tr = Instant::now();
     let res = band_wd(&rowt, &bktt, &r, goal_key, 120_000_000);
@@ -496,9 +541,15 @@ fn main() {
                 sum_band += v as i64;
                 sum_full += full as i64;
                 let margin = v as i32 - full as i32;
-                if margin > 0 { wins += 1; }
-                if margin == 0 { ties += 1; }
-                if margin > best_margin { best_margin = margin; }
+                if margin > 0 {
+                    wins += 1;
+                }
+                if margin == 0 {
+                    ties += 1;
+                }
+                if margin > best_margin {
+                    best_margin = margin;
+                }
                 if i < 8 || margin > 0 {
                     println!(
                         "  #{i:02}: band-WD {v}  WD_full {full} ({:+})   [{} closed]",
@@ -507,7 +558,10 @@ fn main() {
                 }
             }
             None => {
-                println!("  #{i:02}: band-WD ≥ {} (capped)  WD_full {full}   [{} closed]", res.lb, res.closed);
+                println!(
+                    "  #{i:02}: band-WD ≥ {} (capped)  WD_full {full}   [{} closed]",
+                    res.lb, res.closed
+                );
             }
         }
     }

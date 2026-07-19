@@ -176,8 +176,8 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::zpdb::{regions, OCCUPIED};
+    use super::*;
     use crate::puzzle15::pdb::build;
 
     /// Enumerate every placement of the `k` pattern tiles (ascending value) onto
@@ -253,7 +253,11 @@ mod tests {
         let (dist, layout) = build_zpdb(pattern);
         let projected = project_additive(pattern, &dist, &layout);
         let reference = build::build(pattern);
-        assert_eq!(projected.len(), reference.len(), "additive sizes differ for {pattern:?}");
+        assert_eq!(
+            projected.len(),
+            reference.len(),
+            "additive sizes differ for {pattern:?}"
+        );
         assert_eq!(
             projected, reference,
             "min-over-regions ZPDB != verified additive build for {pattern:?}"
@@ -328,7 +332,10 @@ mod tests {
                 assert!(z >= additive[arank as usize], "ZPDB < additive");
                 best = best.min(z);
             }
-            assert_eq!(best, additive[arank as usize], "min-region ZPDB != additive");
+            assert_eq!(
+                best, additive[arank as usize],
+                "min-region ZPDB != additive"
+            );
         });
     }
 
@@ -350,10 +357,18 @@ mod tests {
         let nbrs = |c: usize| -> Vec<usize> {
             let (r, col) = (c / W, c % W);
             let mut v = Vec::new();
-            if r > 0 { v.push(c - W); }
-            if r < W - 1 { v.push(c + W); }
-            if col > 0 { v.push(c - 1); }
-            if col < W - 1 { v.push(c + 1); }
+            if r > 0 {
+                v.push(c - W);
+            }
+            if r < W - 1 {
+                v.push(c + W);
+            }
+            if col > 0 {
+                v.push(c - 1);
+            }
+            if col < W - 1 {
+                v.push(c + 1);
+            }
             v
         };
         let is_free = |c: usize| proj.cells[c] == 0 || proj.cells[c] == ANON;
@@ -371,11 +386,15 @@ mod tests {
         }
         let mut base = [ANON; N_CELLS];
         for (c, &v) in proj.cells.iter().enumerate() {
-            if v != 0 && v != ANON { base[c] = v; }
+            if v != 0 && v != ANON {
+                base[c] = v;
+            }
         }
         let mut out = HashSet::new();
         for b in 0..N_CELLS {
-            if !reach[b] { continue; }
+            if !reach[b] {
+                continue;
+            }
             for c in nbrs(b) {
                 let t = proj.cells[c];
                 if t != 0 && t != ANON {
@@ -404,7 +423,9 @@ mod tests {
         };
         for _ in 0..500_000 {
             let mut perm = [0u8; N_CELLS];
-            for (i, p) in perm.iter_mut().enumerate() { *p = i as u8; }
+            for (i, p) in perm.iter_mut().enumerate() {
+                *p = i as u8;
+            }
             for i in (1..N_CELLS).rev() {
                 let j = (rng() % (i as u64 + 1)) as usize;
                 perm.swap(i, j);

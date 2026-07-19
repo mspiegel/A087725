@@ -99,7 +99,11 @@ fn scramble(rng: &mut Rng, steps: u32) -> State {
     let mut s = GOAL;
     let mut prev: Option<Move> = None;
     for _ in 0..steps {
-        let ms: Vec<Move> = s.legal_moves().iter().filter(|&m| Some(m.inverse()) != prev).collect();
+        let ms: Vec<Move> = s
+            .legal_moves()
+            .iter()
+            .filter(|&m| Some(m.inverse()) != prev)
+            .collect();
         let m = ms[(rng.next() as usize) % ms.len()];
         s = s.apply(m);
         prev = Some(m);
@@ -108,7 +112,10 @@ fn scramble(rng: &mut Rng, steps: u32) -> State {
 }
 
 fn main() {
-    let n: u32 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(100_000);
+    let n: u32 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100_000);
 
     // structural sanity: dual is an involution, GOAL and R are self-dual
     let r = r_board();
@@ -123,7 +130,11 @@ fn main() {
     // the 2-move witness: GOAL, then Left, then Up — dual is unsolvable
     let w = GOAL.apply(Move::Left).apply(Move::Up);
     let dw = dual(&w);
-    println!("witness (GOAL + L + U): solvable(s) = {}, solvable(dual(s)) = {}", solvable(&w), solvable(&dw));
+    println!(
+        "witness (GOAL + L + U): solvable(s) = {}, solvable(dual(s)) = {}",
+        solvable(&w),
+        solvable(&dw)
+    );
     assert!(solvable(&w));
     assert!(
         !solvable(&dw),

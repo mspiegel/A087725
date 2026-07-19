@@ -69,7 +69,10 @@ impl Davi {
 
         let opt = AdamW::new(
             online_varmap.all_vars(),
-            ParamsAdamW { lr: cfg.lr, ..Default::default() },
+            ParamsAdamW {
+                lr: cfg.lr,
+                ..Default::default()
+            },
         )?;
 
         let mut davi = Self {
@@ -162,7 +165,9 @@ impl Davi {
     pub fn sync_target(&mut self) -> Result<()> {
         let pairs: Vec<(String, Tensor)> = {
             let data = self.online_varmap.data().lock().unwrap();
-            data.iter().map(|(n, v)| (n.clone(), v.as_tensor().clone())).collect()
+            data.iter()
+                .map(|(n, v)| (n.clone(), v.as_tensor().clone()))
+                .collect()
         };
         for (name, tensor) in pairs {
             self.target_varmap.set_one(&name, &tensor)?;
@@ -197,12 +202,18 @@ impl Davi {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::scramble::{scramble, Rng};
+    use super::*;
 
     fn cpu_davi(k_max: u32) -> Davi {
         Davi::new(
-            &DaviConfig { k_max, hidden: 64, blocks: 2, lr: 1e-3, target_sync_every: 50 },
+            &DaviConfig {
+                k_max,
+                hidden: 64,
+                blocks: 2,
+                lr: 1e-3,
+                target_sync_every: 50,
+            },
             Device::Cpu,
         )
         .unwrap()
@@ -231,7 +242,8 @@ mod tests {
         let probe: Vec<State> = (0..16).map(|_| scramble(&mut rng, 5).0).collect();
         let before = davi.value_of(&probe).unwrap();
 
-        let path = std::env::temp_dir().join(format!("davi_resume_{}.safetensors", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("davi_resume_{}.safetensors", std::process::id()));
         davi.online_varmap().save(&path).unwrap();
 
         let mut davi2 = cpu_davi(5);
@@ -240,7 +252,10 @@ mod tests {
         let resumed = davi2.value_of(&probe).unwrap();
 
         assert_ne!(before, fresh, "fresh net unexpectedly equals trained net");
-        assert_eq!(before, resumed, "load_online did not reproduce the trained value function");
+        assert_eq!(
+            before, resumed,
+            "load_online did not reproduce the trained value function"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -254,7 +269,13 @@ mod tests {
         // target-net sync) — compare the *best* loss reached in the second half
         // against the initial window rather than a sync-sensitive end-window.
         let mut davi = Davi::new(
-            &DaviConfig { k_max: 5, hidden: 96, blocks: 2, lr: 5e-4, target_sync_every: 100 },
+            &DaviConfig {
+                k_max: 5,
+                hidden: 96,
+                blocks: 2,
+                lr: 5e-4,
+                target_sync_every: 100,
+            },
             Device::Cpu,
         )
         .unwrap();

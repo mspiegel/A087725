@@ -65,10 +65,19 @@ fn main() -> ExitCode {
             }
         }
     };
-    println!("device: {}, hidden: {}, blocks: {}", device_kind(&device), hidden, blocks);
+    println!(
+        "device: {}, hidden: {}, blocks: {}",
+        device_kind(&device),
+        hidden,
+        blocks
+    );
 
     let mut varmap = VarMap::new();
-    let net = match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
+    let net = match ValueNet::new(
+        VarBuilder::from_varmap(&varmap, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("error building net: {e}");
@@ -89,7 +98,11 @@ fn main() -> ExitCode {
     let value_of = |states: &[State]| net.values(states, &device).expect("value net forward");
 
     let cfg = EvalConfig {
-        bwas: BwasConfig { weight, batch_size: batch, node_budget: budget },
+        bwas: BwasConfig {
+            weight,
+            batch_size: batch,
+            node_budget: budget,
+        },
         antipodes_path: PathBuf::from(antipodes),
         holdout_n,
         holdout_k_max,

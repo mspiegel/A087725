@@ -55,16 +55,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Per-thread (depth, h) -> count, merged at the end.
     let hist: BTreeMap<(u8, u8), u64> = entries
         .par_iter()
-        .fold(
-            BTreeMap::<(u8, u8), u64>::new,
-            |mut acc, &(r, d)| {
-                let s = unrank(r);
-                let mut stats = SearchStats::default();
-                let (hv, _ctx) = h.root(&s, &mut stats);
-                *acc.entry((d, hv)).or_insert(0) += 1;
-                acc
-            },
-        )
+        .fold(BTreeMap::<(u8, u8), u64>::new, |mut acc, &(r, d)| {
+            let s = unrank(r);
+            let mut stats = SearchStats::default();
+            let (hv, _ctx) = h.root(&s, &mut stats);
+            *acc.entry((d, hv)).or_insert(0) += 1;
+            acc
+        })
         .reduce(BTreeMap::<(u8, u8), u64>::new, |mut a, b| {
             for (k, v) in b {
                 *a.entry(k).or_insert(0) += v;
@@ -79,8 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     depths.sort();
     depths.dedup();
 
-    println!("{:>5}  {:>12}  {:>5} {:>5} {:>7}  {:>8}  {:>8}",
-             "depth", "count", "min_h", "max_h", "mean_h", "mean_slk", "max_slk");
+    println!(
+        "{:>5}  {:>12}  {:>5} {:>5} {:>7}  {:>8}  {:>8}",
+        "depth", "count", "min_h", "max_h", "mean_h", "mean_slk", "max_slk"
+    );
     for &d in &depths {
         let row: Vec<(u8, u64)> = hist
             .iter()
@@ -119,12 +118,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     type DepthTier = (&'static str, Box<dyn Fn(u8) -> bool>);
     let depth_tiers: Vec<DepthTier> = vec![
         ("d>=80", Box::new(|d| d >= 80)),
-        ("d=79",  Box::new(|d| d == 79)),
-        ("d=78",  Box::new(|d| d == 78)),
-        ("d=77",  Box::new(|d| d == 77)),
-        ("d=76",  Box::new(|d| d == 76)),
-        ("d=75",  Box::new(|d| d == 75)),
-        ("d<75",  Box::new(|d| d < 75)),
+        ("d=79", Box::new(|d| d == 79)),
+        ("d=78", Box::new(|d| d == 78)),
+        ("d=77", Box::new(|d| d == 77)),
+        ("d=76", Box::new(|d| d == 76)),
+        ("d=75", Box::new(|d| d == 75)),
+        ("d<75", Box::new(|d| d < 75)),
     ];
     print!("{:>5}", "T");
     for (label, _) in &depth_tiers {

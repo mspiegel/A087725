@@ -25,9 +25,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle15::enumerate::antipodes::load_ranks;
-use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
-};
+use puzzle8::puzzle15::pdb::{AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic};
 use puzzle8::puzzle15::rank::unrank;
 use puzzle8::puzzle15::search::{
     idastar, Heuristic, LinearConflictHeuristic, WalkingDistanceHeuristic,
@@ -59,8 +57,16 @@ const CORNER_ANTI: [(u8, u8); 4] = [(0, 0), (1, 15), (4, 12), (13, 3)];
 /// anti-corner** (PLAN.md (b)): the anti-corner of the corner piece it borders
 /// in GOAL. Neighbors of 1 (cell 0) = {2,5}→15; of 4 (cell 3) = {3,8}→12; of
 /// 13 (cell 12) = {9,14}→3; of blank (cell 15) = {12,15}→0.
-const NBR_ANTI: [(u8, u8); 8] =
-    [(2, 15), (5, 15), (3, 12), (8, 12), (9, 3), (14, 3), (12, 0), (15, 0)];
+const NBR_ANTI: [(u8, u8); 8] = [
+    (2, 15),
+    (5, 15),
+    (3, 12),
+    (8, 12),
+    (9, 3),
+    (14, 3),
+    (12, 0),
+    (15, 0),
+];
 
 #[derive(Clone, Copy, Default)]
 struct FrameMetrics {
@@ -79,8 +85,10 @@ fn frame_metrics(s: &State) -> FrameMetrics {
     for (cell, &t) in s.0.iter().enumerate() {
         pos[t as usize] = cell as u8;
     }
-    let corners_anti =
-        CORNER_ANTI.iter().filter(|&&(t, anti)| pos[t as usize] == anti).count() as u8;
+    let corners_anti = CORNER_ANTI
+        .iter()
+        .filter(|&&(t, anti)| pos[t as usize] == anti)
+        .count() as u8;
     let mut nbr_cheb_sum = 0u8;
     let mut over1 = 0; // neighbors with cheb ≥ 2
     let mut over2 = 0; // neighbors with cheb ≥ 3 (hard fail)
@@ -95,7 +103,11 @@ fn frame_metrics(s: &State) -> FrameMetrics {
         }
     }
     let conformant = corners_anti == 4 && over1 <= 1 && over2 == 0;
-    FrameMetrics { corners_anti, nbr_cheb_sum, conformant }
+    FrameMetrics {
+        corners_anti,
+        nbr_cheb_sum,
+        conformant,
+    }
 }
 
 // ------------------------------------------------------------------ sampling
@@ -120,8 +132,10 @@ fn walk(rng: &mut Rng, len: usize) -> State {
     for _ in 0..len {
         let blank = s.blank_pos();
         let banned = last.map(|m| m.inverse());
-        let moves: Vec<Move> =
-            State::legal_moves_at(blank).iter().filter(|&m| Some(m) != banned).collect();
+        let moves: Vec<Move> = State::legal_moves_at(blank)
+            .iter()
+            .filter(|&m| Some(m) != banned)
+            .collect();
         let m = moves[(rng.next() % moves.len() as u64) as usize];
         s = s.apply(m);
         last = Some(m);
@@ -206,7 +220,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    eprintln!("{} antipodes loaded; solving optimally (korf-plus)...", ranks.len());
+    eprintln!(
+        "{} antipodes loaded; solving optimally (korf-plus)...",
+        ranks.len()
+    );
 
     // corridor[d] accumulates metrics of corridor states at remaining depth d.
     let mut corridor: Vec<Bucket> = vec![Bucket::default(); 81];
@@ -254,7 +271,11 @@ fn main() -> ExitCode {
             solved += 1;
         }
     }
-    eprintln!("control: {} boards solved in {:.0}s", solved, t.elapsed().as_secs_f64());
+    eprintln!(
+        "control: {} boards solved in {:.0}s",
+        solved,
+        t.elapsed().as_secs_f64()
+    );
 
     // ---- report: corridor vs depth-matched control, bands of 5.
     println!();
@@ -267,7 +288,10 @@ fn main() -> ExitCode {
         "{:>5} | {:>4} {:>8} {:>8} {:>8} | {:>4} {:>8} {:>8} {:>8}",
         "depth", "N", "corners", "cheb", "conf%", "N", "corners", "cheb", "conf%"
     );
-    println!("{:>5} | {:^32} | {:^32}", "", "CORRIDOR (optimal paths)", "CONTROL (random @ depth)");
+    println!(
+        "{:>5} | {:^32} | {:^32}",
+        "", "CORRIDOR (optimal paths)", "CONTROL (random @ depth)"
+    );
     for band in (0..=80).rev().step_by(5) {
         let mut c_row = Bucket::default();
         let mut r_row = Bucket::default();
@@ -284,7 +308,13 @@ fn main() -> ExitCode {
                 r_row.conform += kb.conform;
             }
         }
-        println!("{:>2}-{:<2} | {} | {}", band, (band + 4).min(80), c_row.row(), r_row.row());
+        println!(
+            "{:>2}-{:<2} | {} | {}",
+            band,
+            (band + 4).min(80),
+            c_row.row(),
+            r_row.row()
+        );
     }
     ExitCode::SUCCESS
 }

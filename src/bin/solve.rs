@@ -89,7 +89,10 @@ fn main() {
         );
         eprintln!("optimal length: {expected}");
     } else {
-        eprintln!("optimal length: {} (table not loaded; verifying via IDA* admissibility)", solution.len());
+        eprintln!(
+            "optimal length: {} (table not loaded; verifying via IDA* admissibility)",
+            solution.len()
+        );
     }
 
     let s_chars: String = solution.iter().map(|&m| move_char(m)).collect();

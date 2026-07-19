@@ -17,7 +17,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     BufReader::new(File::open(&path)?).read_to_end(&mut bytes)?;
     if bytes.len() % 6 != 0 {
-        return Err(format!("{}: not a u48-packed ranks file ({} bytes)", path.display(), bytes.len()).into());
+        return Err(format!(
+            "{}: not a u48-packed ranks file ({} bytes)",
+            path.display(),
+            bytes.len()
+        )
+        .into());
     }
     let n = bytes.len() / 6;
     println!("{}: {} board(s)\n", path.display(), n);

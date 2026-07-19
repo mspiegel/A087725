@@ -12,7 +12,13 @@ use puzzle8::puzzle24::symmetry::{reflect, transpose_move};
 #[test]
 fn goal_state_is_correct() {
     for i in 0..(N_CELLS - 1) {
-        assert_eq!(GOAL.0[i], (i + 1) as u8, "goal tile at {} should be {}", i, i + 1);
+        assert_eq!(
+            GOAL.0[i],
+            (i + 1) as u8,
+            "goal tile at {} should be {}",
+            i,
+            i + 1
+        );
     }
     assert_eq!(GOAL.0[N_CELLS - 1], 0, "blank should be last");
     assert_eq!(GOAL.blank_pos() as usize, N_CELLS - 1);
@@ -60,7 +66,10 @@ fn solvability_parity_is_odd_width_rule() {
     }
     // The walk should have driven the blank through every cell — confirms the
     // invariant was actually exercised across all blank positions.
-    assert!(blanks_seen.iter().all(|&b| b), "walk did not reach every blank cell");
+    assert!(
+        blanks_seen.iter().all(|&b| b),
+        "walk did not reach every blank cell"
+    );
 }
 
 /// Hand-traced 5-move sequence from GOAL: `Up, Left, Down, Right, Up`.
@@ -86,7 +95,10 @@ fn hand_traced_five_move_sequence() {
     let mut s = GOAL;
     let mut blank = s.blank_pos();
     for m in seq {
-        assert!(State::legal_moves_at(blank).contains(m), "illegal {m:?} at blank {blank}");
+        assert!(
+            State::legal_moves_at(blank).contains(m),
+            "illegal {m:?} at blank {blank}"
+        );
         let (next, nb) = s.apply_at(m, blank);
         s = next;
         blank = nb;

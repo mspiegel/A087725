@@ -179,7 +179,10 @@ fn swapped2(a: usize, b: usize, c: usize, d: usize) -> State {
 
 fn run_motifs(cwd: &Cwd) {
     println!("== motif scan: identical motif, varying line; blank at (4,4) ==");
-    println!("{:<28}{:>5}{:>5}{:>5}{:>7}{:>9}", "board", "d*", "MD", "cWD", "slack", "sec");
+    println!(
+        "{:<28}{:>5}{:>5}{:>5}{:>7}{:>9}",
+        "board", "d*", "MD", "cWD", "slack", "sec"
+    );
 
     let show = |label: &str, s: &State| {
         let (d, h0, secs) = solve_exact(cwd, s);
@@ -209,17 +212,32 @@ fn run_motifs(cwd: &Cwd) {
     // swap2 in row r: swap (cols 0,1) and (cols 2,3) — fits every row.
     for r in 0..W {
         let b = r * W;
-        show(&format!("swap2 row {r} (01)(23)"), &swapped2(b, b + 1, b + 2, b + 3));
+        show(
+            &format!("swap2 row {r} (01)(23)"),
+            &swapped2(b, b + 1, b + 2, b + 3),
+        );
     }
     // swap2 in col c: swap (rows 0,1) and (rows 2,3).
     for c in 0..W {
-        show(&format!("swap2 col {c} (01)(23)"), &swapped2(c, W + c, 2 * W + c, 3 * W + c));
+        show(
+            &format!("swap2 col {c} (01)(23)"),
+            &swapped2(c, W + c, 2 * W + c, 3 * W + c),
+        );
     }
     // Composite: rot3(cols 1-3) in TWO rows — center-adjacent pair vs edge pair.
     // Travel-cost predicts {1,3} cheaper than {0,4} (nearer the corner blank on
     // average is {1,3}... rows 1,3 vs 0,4: mean distance from row 4 is 2.5 vs 3);
     // center-congestion predicts {1,3} dearer. Opposing predictions.
-    for pair in [[0usize, 4], [1, 3], [0, 2], [2, 4], [0, 1], [3, 4], [1, 2], [2, 3]] {
+    for pair in [
+        [0usize, 4],
+        [1, 3],
+        [0, 2],
+        [2, 4],
+        [0, 1],
+        [3, 4],
+        [1, 2],
+        [2, 3],
+    ] {
         let [a, b] = pair;
         let mut s = cycled(&[a * W + 1, a * W + 2, a * W + 3]);
         let t = cycled(&[b * W + 1, b * W + 2, b * W + 3]);
@@ -242,19 +260,43 @@ fn run_pairjoint() {
     let fast = Cwd::new();
     eprintln!("loading reference (joint-vector A*) cWD…");
     let joint = Cwd::with_table_path(std::path::Path::new("data/wd24.bin"));
-    assert!(fast.has_overlay(), "need data/cwd_single.bin for the comparison");
+    assert!(
+        fast.has_overlay(),
+        "need data/cwd_single.bin for the comparison"
+    );
     assert!(!joint.has_overlay());
-    println!("{:<24}{:>10}{:>10}{:>6}", "board", "cWD_fast", "cWD_joint", "diff");
+    println!(
+        "{:<24}{:>10}{:>10}{:>6}",
+        "board", "cWD_fast", "cWD_joint", "diff"
+    );
     let show = |label: &str, s: &State| {
         let hf = fast.h(s);
         let hj = joint.h(s);
-        println!("{:<24}{:>10}{:>10}{:>6}", label, hf, hj, hj as i32 - hf as i32);
+        println!(
+            "{:<24}{:>10}{:>10}{:>6}",
+            label,
+            hf,
+            hj,
+            hj as i32 - hf as i32
+        );
     };
     for r in 0..W {
         let base = r * W;
-        show(&format!("rot3 row {r}"), &cycled(&[base + 1, base + 2, base + 3]));
+        show(
+            &format!("rot3 row {r}"),
+            &cycled(&[base + 1, base + 2, base + 3]),
+        );
     }
-    for pair in [[0usize, 4], [1, 3], [0, 2], [2, 4], [0, 1], [3, 4], [1, 2], [2, 3]] {
+    for pair in [
+        [0usize, 4],
+        [1, 3],
+        [0, 2],
+        [2, 4],
+        [0, 1],
+        [3, 4],
+        [1, 2],
+        [2, 3],
+    ] {
         let [a, b] = pair;
         let mut s = cycled(&[a * W + 1, a * W + 2, a * W + 3]);
         let t = cycled(&[b * W + 1, b * W + 2, b * W + 3]);
@@ -287,9 +329,18 @@ fn run_pairjoint() {
         show("R", &State(r));
     }
     const DEEP: [(&str, &str); 3] = [
-        ("B1 (g2)", "19 24 23 22 21 20 18 13 17 16 14 15 0 12 11 10 9 8 7 6 5 4 3 2 1"),
-        ("B2 (g3)", "20 24 23 22 21 19 0 18 17 16 15 13 14 12 11 10 9 8 7 6 5 3 4 2 1"),
-        ("B3 (g4)", "0 24 23 22 21 15 20 18 17 11 14 19 13 12 16 10 9 8 7 6 5 4 3 2 1"),
+        (
+            "B1 (g2)",
+            "19 24 23 22 21 20 18 13 17 16 14 15 0 12 11 10 9 8 7 6 5 4 3 2 1",
+        ),
+        (
+            "B2 (g3)",
+            "20 24 23 22 21 19 0 18 17 16 15 13 14 12 11 10 9 8 7 6 5 3 4 2 1",
+        ),
+        (
+            "B3 (g4)",
+            "0 24 23 22 21 15 20 18 17 11 14 19 13 12 16 10 9 8 7 6 5 4 3 2 1",
+        ),
     ];
     for (label, txt) in DEEP {
         let mut cells = [0u8; N_CELLS];
@@ -534,8 +585,11 @@ impl InteriorSampler<'_> {
                 self.reservoir[j] = (*s, g, h_fast);
             }
         }
-        let mut cands: Vec<Move> =
-            s.legal_moves().iter().filter(|&m| Some(m) != prev_inv).collect();
+        let mut cands: Vec<Move> = s
+            .legal_moves()
+            .iter()
+            .filter(|&m| Some(m) != prev_inv)
+            .collect();
         for k in (1..cands.len()).rev() {
             let j = (self.rng.next() as usize) % (k + 1);
             cands.swap(k, j);
@@ -758,15 +812,29 @@ fn run_ab(thr: u16) {
     let h0 = fast.h(&r) as u16;
     assert!(thr >= h0, "thr {thr} < root h {h0} — empty tree");
 
-    let mut a = AbRun { fast: &fast, pair: None, threshold: thr, nodes: 0 };
+    let mut a = AbRun {
+        fast: &fast,
+        pair: None,
+        threshold: thr,
+        nodes: 0,
+    };
     let t = Instant::now();
     a.dfs(&r, 0, None);
     let ta = t.elapsed().as_secs_f64();
-    println!("A (fast cWD)      thr {thr}: {} nodes in {:.1}s", a.nodes, ta);
+    println!(
+        "A (fast cWD)      thr {thr}: {} nodes in {:.1}s",
+        a.nodes, ta
+    );
 
     let mut b = AbRun {
         fast: &fast,
-        pair: Some(PairBonus { table: &table, goal, memo: HashMap::new(), misses: 0, hits: 0 }),
+        pair: Some(PairBonus {
+            table: &table,
+            goal,
+            memo: HashMap::new(),
+            misses: 0,
+            hits: 0,
+        }),
         threshold: thr,
         nodes: 0,
     };
@@ -774,7 +842,10 @@ fn run_ab(thr: u16) {
     b.dfs(&r, 0, None);
     let tb = t.elapsed().as_secs_f64();
     let pb = b.pair.as_ref().unwrap();
-    println!("B (fast+pairmemo) thr {thr}: {} nodes in {:.1}s", b.nodes, tb);
+    println!(
+        "B (fast+pairmemo) thr {thr}: {} nodes in {:.1}s",
+        b.nodes, tb
+    );
     println!(
         "node reduction {:.3}x | wall {:.2}x | memo: {} distinct (key,dem), {} misses, {:.2}% hit rate",
         a.nodes as f64 / b.nodes as f64,
@@ -821,13 +892,24 @@ fn run_walks(cwd: &Cwd, n: u64, len: u32, seed0: u64) {
         let (d, h0, secs) = solve_exact(cwd, &s);
         let (dr, dc) = escape_demands(&s);
         let dem_tot: u32 = dr.iter().chain(dc.iter()).map(|&x| x as u32).sum();
-        let dem_ctr_w: u32 =
-            (0..W).map(|g| line_wt(g) * (dr[g] as u32 + dc[g] as u32)).sum();
+        let dem_ctr_w: u32 = (0..W)
+            .map(|g| line_wt(g) * (dr[g] as u32 + dc[g] as u32))
+            .sum();
         let (mass, cnt) = misplaced_center_mass(&s);
         let (fr, fc) = boundary_flow(&s);
         let blank = s.0.iter().position(|&t| t == 0).unwrap();
-        let fmt = |v: &[u8]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-        let fmtu = |v: &[u32]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let fmt = |v: &[u8]| {
+            v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let fmtu = |v: &[u32]| {
+            v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}",
             i,
@@ -864,7 +946,10 @@ fn main() {
     }
     if mode == "interior" {
         let thr: u16 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(146);
-        let cap: u64 = args.get(3).and_then(|x| x.parse().ok()).unwrap_or(2_000_000);
+        let cap: u64 = args
+            .get(3)
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(2_000_000);
         let size: usize = args.get(4).and_then(|x| x.parse().ok()).unwrap_or(8_000);
         let seed: u64 = args.get(5).and_then(|x| x.parse().ok()).unwrap_or(1);
         return run_interior(thr, cap, size, seed);
@@ -872,7 +957,11 @@ fn main() {
     eprintln!("loading cWD tables…");
     let t = Instant::now();
     let cwd = Cwd::new();
-    eprintln!("cWD ready in {:.1}s (overlay: {})", t.elapsed().as_secs_f64(), cwd.has_overlay());
+    eprintln!(
+        "cWD ready in {:.1}s (overlay: {})",
+        t.elapsed().as_secs_f64(),
+        cwd.has_overlay()
+    );
     match mode {
         "motifs" => run_motifs(&cwd),
         "walks" => {

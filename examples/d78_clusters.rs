@@ -28,8 +28,14 @@ use puzzle8::puzzle15::state::State;
 use puzzle8::puzzle15::symmetry::reflect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let eps: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(6);
-    let depth: u8 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(78);
+    let eps: u8 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6);
+    let depth: u8 = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(78);
     let cache_path: PathBuf = std::env::args()
         .nth(3)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
@@ -49,7 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     LinearConflictInc::warm_up();
     let h = ZpdbPlusInc::new([&p7, &p8]);
 
-    let mut boards: Vec<u64> = cache.iter()
+    let mut boards: Vec<u64> = cache
+        .iter()
         .filter(|(_, &d)| d == depth)
         .map(|(&r, _)| r)
         .collect();
@@ -63,7 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let states: Vec<State> = boards.iter().map(|&r| unrank(r)).collect();
 
-    let h_values: Vec<u8> = states.par_iter()
+    let h_values: Vec<u8> = states
+        .par_iter()
         .map(|s| {
             let mut stats = SearchStats::default();
             let (hv, _) = h.root(s, &mut stats);
@@ -109,16 +117,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print top N largest clusters.
     println!("\n=== Top 10 largest clusters ===");
     for (i, (_, members)) in cluster_list.iter().take(10).enumerate() {
-        if members.len() < 2 { break; }
+        if members.len() < 2 {
+            break;
+        }
         print_cluster(i + 1, members, &states, &h_values, &boards);
     }
 
     // Print smallest non-singleton clusters (potential extreme outliers).
-    let small: Vec<&(usize, Vec<usize>)> = cluster_list.iter()
+    let small: Vec<&(usize, Vec<usize>)> = cluster_list
+        .iter()
         .filter(|(_, v)| v.len() >= 2 && v.len() <= 4)
         .collect();
-    println!("\n=== Smallest non-singleton clusters (size 2..=4): {} total ===",
-             small.len());
+    println!(
+        "\n=== Smallest non-singleton clusters (size 2..=4): {} total ===",
+        small.len()
+    );
     for (i, (_, members)) in small.iter().enumerate().take(20) {
         print_cluster(i + 1, members, &states, &h_values, &boards);
     }
@@ -126,48 +139,82 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Singleton dump: list every board with no neighbor within Hamming eps.
     // These are the geometric outliers of d=78 — the cleanest "extreme" set
     // for residue hunting.
-    let singletons: Vec<usize> = cluster_list.iter()
+    let singletons: Vec<usize> = cluster_list
+        .iter()
         .filter(|(_, v)| v.len() == 1)
         .map(|(_, v)| v[0])
         .collect();
     if !singletons.is_empty() {
-        println!("\n=== All {} singletons (no d={} neighbor within Hamming {}) ===",
-                 singletons.len(), depth, eps);
+        println!(
+            "\n=== All {} singletons (no d={} neighbor within Hamming {}) ===",
+            singletons.len(),
+            depth,
+            eps
+        );
         // For each singleton, find its nearest d=78 neighbor and Hamming to it.
         for (k, &i) in singletons.iter().enumerate() {
             let s = &states[i];
             let mut min_ham = u8::MAX;
             let mut nearest_idx = i;
             for j in 0..n {
-                if j == i { continue; }
+                if j == i {
+                    continue;
+                }
                 let d = hamming(s, &states[j]);
-                if d < min_ham { min_ham = d; nearest_idx = j; }
+                if d < min_ham {
+                    min_ham = d;
+                    nearest_idx = j;
+                }
             }
             let refl_r = rank(&reflect(s));
             let is_self_sym = refl_r == boards[i];
-            println!("\nSingleton #{:>2} (rank {}, h={}, blank@{}, nearest d=78 at Hamming {}):",
-                     k + 1, boards[i], h_values[i], s.blank_pos(), min_ham);
+            println!(
+                "\nSingleton #{:>2} (rank {}, h={}, blank@{}, nearest d=78 at Hamming {}):",
+                k + 1,
+                boards[i],
+                h_values[i],
+                s.blank_pos(),
+                min_ham
+            );
             println!("  grid:");
             for row in 0..4 {
                 print!("    ");
                 for col in 0..4 {
                     let t = s.0[row * 4 + col];
-                    if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+                    if t == 0 {
+                        print!(" __");
+                    } else {
+                        print!(" {t:>2}");
+                    }
                 }
                 println!();
             }
-            println!("  reflection: rank {} {}",
-                     refl_r,
-                     if is_self_sym { "(self-symmetric)" } else { "(distinct pair)" });
+            println!(
+                "  reflection: rank {} {}",
+                refl_r,
+                if is_self_sym {
+                    "(self-symmetric)"
+                } else {
+                    "(distinct pair)"
+                }
+            );
             // Show the nearest neighbor's grid for context.
             let nb = &states[nearest_idx];
-            println!("  nearest d=78 (rank {}, h={}, blank@{}):",
-                     boards[nearest_idx], h_values[nearest_idx], nb.blank_pos());
+            println!(
+                "  nearest d=78 (rank {}, h={}, blank@{}):",
+                boards[nearest_idx],
+                h_values[nearest_idx],
+                nb.blank_pos()
+            );
             for row in 0..4 {
                 print!("    ");
                 for col in 0..4 {
                     let t = nb.0[row * 4 + col];
-                    if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+                    if t == 0 {
+                        print!(" __");
+                    } else {
+                        print!(" {t:>2}");
+                    }
                 }
                 println!();
             }
@@ -176,7 +223,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Quick scan: clusters that pass a "compact + extreme-h" filter.
     println!("\n=== Compact + extreme-h clusters (size 2..=20, fixed_cells>=8, min_h<=64 or max_h>=68) ===");
-    let mut interesting: Vec<&(usize, Vec<usize>)> = cluster_list.iter()
+    let mut interesting: Vec<&(usize, Vec<usize>)> = cluster_list
+        .iter()
         .filter(|(_, v)| v.len() >= 2 && v.len() <= 20)
         .filter(|(_, v)| {
             let n_fixed = signature(v, &states).iter().filter(|s| s.is_some()).count();
@@ -200,7 +248,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn hamming(a: &State, b: &State) -> u8 {
     let mut d = 0;
-    for i in 0..16 { if a.0[i] != b.0[i] { d += 1; } }
+    for i in 0..16 {
+        if a.0[i] != b.0[i] {
+            d += 1;
+        }
+    }
     d
 }
 
@@ -234,7 +286,11 @@ fn dominant_signature(members: &[usize], states: &[State]) -> [Option<u8>; 16] {
     sig
 }
 
-fn reflection_structure(members: &[usize], states: &[State], boards: &[u64]) -> (usize, usize, usize) {
+fn reflection_structure(
+    members: &[usize],
+    states: &[State],
+    boards: &[u64],
+) -> (usize, usize, usize) {
     let member_ranks: HashSet<u64> = members.iter().map(|&i| boards[i]).collect();
     let mut self_sym = 0;
     let mut paired = 0;
@@ -254,7 +310,9 @@ fn reflection_structure(members: &[usize], states: &[State], boards: &[u64]) -> 
 
 fn mean_intra_hamming(members: &[usize], states: &[State]) -> f64 {
     let n = members.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let mut sum = 0u64;
     let mut count = 0u64;
     for i in 0..n {
@@ -272,8 +330,13 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
     // so callers can grep them out.
     if (2..=4).contains(&n_members) {
         for &i in members {
-            println!("MEMBER cluster#{} rank={} h={} blank@{}",
-                     idx, boards[i], h_values[i], states[i].blank_pos());
+            println!(
+                "MEMBER cluster#{} rank={} h={} blank@{}",
+                idx,
+                boards[i],
+                h_values[i],
+                states[i].blank_pos()
+            );
         }
     }
     let sig_u = signature(members, states);
@@ -284,9 +347,13 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
     let (self_sym, pairs, single) = reflection_structure(members, states, boards);
 
     let mut h_dist: BTreeMap<u8, u32> = BTreeMap::new();
-    for &i in members { *h_dist.entry(h_values[i]).or_insert(0) += 1; }
+    for &i in members {
+        *h_dist.entry(h_values[i]).or_insert(0) += 1;
+    }
     let mut blank_dist: BTreeMap<u8, u32> = BTreeMap::new();
-    for &i in members { *blank_dist.entry(states[i].blank_pos()).or_insert(0) += 1; }
+    for &i in members {
+        *blank_dist.entry(states[i].blank_pos()).or_insert(0) += 1;
+    }
 
     println!("\nCluster #{idx}: {n_members} boards, mean_ham={mean_ham:.2}, fixed(universal)={n_fixed_u}, fixed(dominant_80%)={n_fixed_d}");
     println!("  reflection: {self_sym} self-sym, {pairs} pair(s), {single} singletons");
@@ -317,10 +384,14 @@ fn print_cluster(idx: usize, members: &[usize], states: &[State], h_values: &[u8
         }
     }
     print!("  h: ");
-    for (hv, c) in &h_dist { print!("h{hv}={c} "); }
+    for (hv, c) in &h_dist {
+        print!("h{hv}={c} ");
+    }
     println!();
     print!("  blanks: ");
-    for (b, c) in &blank_dist { print!("@{b}={c} "); }
+    for (b, c) in &blank_dist {
+        print!("@{b}={c} ");
+    }
     println!();
 }
 
@@ -331,7 +402,10 @@ struct UnionFind {
 
 impl UnionFind {
     fn new(n: usize) -> Self {
-        Self { parents: (0..n).collect(), ranks: vec![0; n] }
+        Self {
+            parents: (0..n).collect(),
+            ranks: vec![0; n],
+        }
     }
 
     fn find(&mut self, mut i: usize) -> usize {
@@ -345,11 +419,16 @@ impl UnionFind {
     fn union(&mut self, a: usize, b: usize) {
         let ra = self.find(a);
         let rb = self.find(b);
-        if ra == rb { return; }
+        if ra == rb {
+            return;
+        }
         match self.ranks[ra].cmp(&self.ranks[rb]) {
             std::cmp::Ordering::Less => self.parents[ra] = rb,
             std::cmp::Ordering::Greater => self.parents[rb] = ra,
-            std::cmp::Ordering::Equal => { self.parents[rb] = ra; self.ranks[ra] += 1; }
+            std::cmp::Ordering::Equal => {
+                self.parents[rb] = ra;
+                self.ranks[ra] += 1;
+            }
         }
     }
 }

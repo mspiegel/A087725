@@ -366,7 +366,11 @@ fn build_raw(w: u8, dominated: &[HashSet<u32>], prefix: &[HashSet<u32>]) -> Move
         trans.push([INVALID; 4]);
         prune.push(0);
     }
-    MoveDfa { trans, prune, start }
+    MoveDfa {
+        trans,
+        prune,
+        start,
+    }
 }
 
 /// Moore partition-refinement minimization. Merges states with identical future
@@ -423,14 +427,22 @@ fn minimize(dfa: &MoveDfa) -> MoveDfa {
         prune[c] = dfa.prune[r];
         for mc in 0..4 {
             let t = dfa.trans[r][mc];
-            trans[c][mc] = if t == INVALID { INVALID } else { class[t as usize] };
+            trans[c][mc] = if t == INVALID {
+                INVALID
+            } else {
+                class[t as usize]
+            };
         }
     }
     let mut start = [INVALID; N];
     for b in 0..N {
         start[b] = class[dfa.start[b] as usize];
     }
-    MoveDfa { trans, prune, start }
+    MoveDfa {
+        trans,
+        prune,
+        start,
+    }
 }
 
 #[cfg(test)]
@@ -527,7 +539,10 @@ mod tests {
         let min = minimize(&raw);
         // minimization shrinks the table but preserves completeness
         assert!(min.states() < raw.states());
-        assert!(min.table_bytes() < 1_000_000, "minimized table should be < 1 MB");
+        assert!(
+            min.table_bytes() < 1_000_000,
+            "minimized table should be < 1 MB"
+        );
         let (rc, rt) = raw.count_caught(&dominated);
         let (mc, mt) = min.count_caught(&dominated);
         assert_eq!((rc, rt), (mc, mt));

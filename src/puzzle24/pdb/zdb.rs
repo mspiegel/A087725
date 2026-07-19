@@ -73,7 +73,11 @@ impl ZPatternDb {
             layout.total()
         );
         let packed = pack_bits(dist);
-        Self { pattern, layout, storage: Storage::Owned(packed) }
+        Self {
+            pattern,
+            layout,
+            storage: Storage::Owned(packed),
+        }
     }
 
     /// Wrap an already-packed 1-bit table (e.g. from the frontier-free
@@ -88,7 +92,11 @@ impl ZPatternDb {
             packed.len(),
             layout.total().div_ceil(8)
         );
-        Self { pattern, layout, storage: Storage::Owned(packed) }
+        Self {
+            pattern,
+            layout,
+            storage: Storage::Owned(packed),
+        }
     }
 
     /// Build the ZPDB end-to-end (single-threaded BFS, then pack).
@@ -150,8 +158,8 @@ impl ZPatternDb {
         let idx0 = self.layout.rank(proj, self.pattern);
         let par = self.parity(idx0);
         let bit1 = self.lookup_bit(idx0); // 0 or 2
-                                           // SEED ≡ 0 mod 4, large enough that descent never underflows for
-                                           // the 6-tile ZPDB (max h ≈ 75). 200 leaves ~125 headroom.
+                                          // SEED ≡ 0 mod 4, large enough that descent never underflows for
+                                          // the 6-tile ZPDB (max h ≈ 75). 200 leaves ~125 headroom.
         const SEED: u8 = 200;
         let h0: u8 = SEED + (bit1 | par);
         let mut h_cur = h0;
@@ -207,7 +215,11 @@ impl ZPatternDb {
         f.read_exact(&mut packed)?;
         let mut tail = [0u8; 1];
         match f.read(&mut tail)? {
-            0 => Ok(Self { pattern, layout, storage: Storage::Owned(packed) }),
+            0 => Ok(Self {
+                pattern,
+                layout,
+                storage: Storage::Owned(packed),
+            }),
             _ => Err(LoadError::TrailingBytes),
         }
     }
@@ -236,7 +248,11 @@ impl ZPatternDb {
                 expected,
             });
         }
-        Ok(Self { pattern, layout, storage: Storage::Mmapped(map) })
+        Ok(Self {
+            pattern,
+            layout,
+            storage: Storage::Mmapped(map),
+        })
     }
 }
 
@@ -289,7 +305,10 @@ impl std::fmt::Display for LoadError {
                 write!(f, "file size {got} != expected {expected}")
             }
             LoadError::TotalMismatch { in_file, expected } => {
-                write!(f, "entry total mismatch: file {in_file} vs layout {expected}")
+                write!(
+                    f,
+                    "entry total mismatch: file {in_file} vs layout {expected}"
+                )
             }
         }
     }
@@ -355,7 +374,10 @@ mod tests {
         f.write_all(&zdb.layout().total().to_le_bytes()).unwrap();
         f.write_all(zdb.packed()).unwrap();
         drop(f);
-        assert!(matches!(ZPatternDb::load(&path), Err(LoadError::BadMagic(_))));
+        assert!(matches!(
+            ZPatternDb::load(&path),
+            Err(LoadError::BadMagic(_))
+        ));
         std::fs::remove_file(&path).ok();
     }
 
@@ -389,7 +411,8 @@ mod tests {
         f.write_all(&VERSION.to_le_bytes()).unwrap();
         f.write_all(&zdb.pattern().0.to_le_bytes()).unwrap();
         f.write_all(&0u32.to_le_bytes()).unwrap();
-        f.write_all(&(zdb.layout().total() + 8).to_le_bytes()).unwrap();
+        f.write_all(&(zdb.layout().total() + 8).to_le_bytes())
+            .unwrap();
         f.write_all(zdb.packed()).unwrap();
         drop(f);
         assert!(matches!(
@@ -470,7 +493,11 @@ mod tests {
             );
             // Sanity: cold lookup matches the raw dist too.
             let zr = dist[layout.rank(proj, pattern) as usize];
-            assert_eq!(z, zr, "cold lookup {} != dist {} at {:?}", z, zr, proj.cells);
+            assert_eq!(
+                z, zr,
+                "cold lookup {} != dist {} at {:?}",
+                z, zr, proj.cells
+            );
         });
     }
 

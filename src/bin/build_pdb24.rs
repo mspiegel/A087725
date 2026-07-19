@@ -123,7 +123,10 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--tiles needs a value")?;
                 let mut v: Vec<u8> = Vec::new();
                 for token in s.split(',') {
-                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {token:?}: {e}"))?;
+                    let t = token
+                        .trim()
+                        .parse::<u8>()
+                        .map_err(|e| format!("bad tile {token:?}: {e}"))?;
                     if !(1..=24).contains(&t) {
                         return Err(format!("tile {t} out of range 1..=24"));
                     }
@@ -138,17 +141,23 @@ fn parse_args() -> Result<Args, String> {
             "--threads" => {
                 i += 1;
                 threads = Some(
-                    argv.get(i).ok_or("--threads needs a value")?
-                        .parse::<usize>().map_err(|e| format!("bad threads: {e}"))?,
+                    argv.get(i)
+                        .ok_or("--threads needs a value")?
+                        .parse::<usize>()
+                        .map_err(|e| format!("bad threads: {e}"))?,
                 );
             }
             "--verify-sha" => {
                 i += 1;
-                verify_sha = Some(PathBuf::from(argv.get(i).ok_or("--verify-sha needs a value")?));
+                verify_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--verify-sha needs a value")?,
+                ));
             }
             "--write-sha" => {
                 i += 1;
-                write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
+                write_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--write-sha needs a value")?,
+                ));
             }
             "--zero-aware" => {
                 zero_aware = true;
@@ -167,7 +176,14 @@ fn parse_args() -> Result<Args, String> {
         (None, None) => return Err("missing --part or --tiles".into()),
     };
     let out = out.ok_or("missing --out")?;
-    Ok(Args { tiles, out, threads, verify_sha, write_sha, zero_aware })
+    Ok(Args {
+        tiles,
+        out,
+        threads,
+        verify_sha,
+        write_sha,
+        zero_aware,
+    })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -183,7 +199,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn main() -> ExitCode {
-    let prog = std::env::args().next().unwrap_or_else(|| "build_pdb24".into());
+    let prog = std::env::args()
+        .next()
+        .unwrap_or_else(|| "build_pdb24".into());
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -234,7 +252,10 @@ fn main() -> ExitCode {
         // directly). k<=7: the fast, SHA-pinned frontier build.
         let zdb = if pattern.size() >= 8 {
             let (packed, layout, maxd) = build_zpdb_2bit_packed(pattern);
-            println!("ZPDB (frontier-free 2-bit) BFS complete in {:.2?}", t0.elapsed());
+            println!(
+                "ZPDB (frontier-free 2-bit) BFS complete in {:.2?}",
+                t0.elapsed()
+            );
             println!("  ZPDB entries : {}", layout.total());
             println!("  Packed bytes : {}", packed.len());
             println!("  Max depth    : {maxd}  (eccentricity — sum across a partition for the Σ-ecc bound)");
@@ -244,7 +265,12 @@ fn main() -> ExitCode {
             println!("ZPDB BFS complete in {:.2?}", t0.elapsed());
             println!("  ZPDB entries : {}", layout.total());
             let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
-            let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
+            let maxd = dist
+                .iter()
+                .filter(|&&d| d != u8::MAX)
+                .copied()
+                .max()
+                .unwrap_or(0);
             println!("  Max depth    : {maxd}");
             if unvisited != 0 {
                 eprintln!("error: ZPDB build left {unvisited} unvisited entries");

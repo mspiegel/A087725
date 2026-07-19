@@ -42,7 +42,11 @@ const TAU: [u8; N_CELLS] = {
     let mut k = 1;
     while k < N_CELLS {
         let sigma_img = SIGMA[k - 1] as usize; // σ(goal position of tile k)
-        t[k] = if sigma_img == N_CELLS - 1 { 0 } else { (sigma_img + 1) as u8 };
+        t[k] = if sigma_img == N_CELLS - 1 {
+            0
+        } else {
+            (sigma_img + 1) as u8
+        };
         k += 1;
     }
     t
@@ -183,7 +187,11 @@ mod tests {
         let mut s = GOAL;
         for i in 0u32..2000 {
             assert!(s.is_solvable());
-            assert!(reflect(&s).is_solvable(), "reflect made unsolvable: {:?}", s.0);
+            assert!(
+                reflect(&s).is_solvable(),
+                "reflect made unsolvable: {:?}",
+                s.0
+            );
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {
@@ -305,9 +313,8 @@ mod tests {
 
         // Interior σ-fixed board (blank on the main diagonal at cell 18): 4 legal
         // moves {U,D,L,R} form 2 orbits -> keep 2. Fixture found by BFS from GOAL.
-        let interior = parse_test_board(
-            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 _ 24 21 22 23 20 19",
-        );
+        let interior =
+            parse_test_board("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 _ 24 21 22 23 20 19");
         assert!(is_symmetric(&interior), "fixture must be σ-symmetric");
         assert_eq!(interior.blank_pos(), 18, "fixture blank on the diagonal");
         let interior_kept = interior

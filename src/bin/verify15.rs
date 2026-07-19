@@ -25,9 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
-};
+use puzzle8::puzzle15::pdb::{AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic};
 use puzzle8::puzzle15::search::{idastar, Heuristic, ManhattanHeuristic};
 use puzzle8::puzzle15::state::{Move, State, DIAMETER, GOAL, N_CELLS};
 
@@ -59,37 +57,86 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 1;
     while i < argv.len() {
         match argv[i].as_str() {
-            "--pdb-dir" => { i += 1; pdb_dir = Some(PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?)); }
-            "--antipodes" => { i += 1; antipodes = Some(PathBuf::from(argv.get(i).ok_or("--antipodes needs a value")?)); }
-            "--samples" => { i += 1; samples = argv.get(i).ok_or("--samples needs a value")?.parse().map_err(|e: std::num::ParseIntError| e.to_string())?; }
-            "--depth" => { i += 1; depth = argv.get(i).ok_or("--depth needs a value")?.parse().map_err(|e: std::num::ParseIntError| e.to_string())?; }
-            "--seed" => { i += 1; seed = argv.get(i).ok_or("--seed needs a value")?.parse().map_err(|e: std::num::ParseIntError| e.to_string())?; }
-            "--cross-check" => { cross_check = true; }
+            "--pdb-dir" => {
+                i += 1;
+                pdb_dir = Some(PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?));
+            }
+            "--antipodes" => {
+                i += 1;
+                antipodes = Some(PathBuf::from(
+                    argv.get(i).ok_or("--antipodes needs a value")?,
+                ));
+            }
+            "--samples" => {
+                i += 1;
+                samples = argv
+                    .get(i)
+                    .ok_or("--samples needs a value")?
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
+            }
+            "--depth" => {
+                i += 1;
+                depth = argv
+                    .get(i)
+                    .ok_or("--depth needs a value")?
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
+            }
+            "--seed" => {
+                i += 1;
+                seed = argv
+                    .get(i)
+                    .ok_or("--seed needs a value")?
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| e.to_string())?;
+            }
+            "--cross-check" => {
+                cross_check = true;
+            }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
     let pdb_dir = pdb_dir.ok_or("missing --pdb-dir")?;
-    Ok(Args { pdb_dir, antipodes, samples, depth, seed, cross_check })
+    Ok(Args {
+        pdb_dir,
+        antipodes,
+        samples,
+        depth,
+        seed,
+        cross_check,
+    })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
     let mut cells = [0u8; N_CELLS];
     let mut count = 0usize;
     for tok in s.split_whitespace() {
-        if count >= N_CELLS { return Err(format!("more than {N_CELLS} tokens")); }
-        let v = if tok == "_" || tok == "." { 0 } else {
-            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
+        if count >= N_CELLS {
+            return Err(format!("more than {N_CELLS} tokens"));
+        }
+        let v = if tok == "_" || tok == "." {
+            0
+        } else {
+            tok.parse::<u8>()
+                .map_err(|e| format!("token {tok:?}: {e}"))?
         };
-        if v > 15 { return Err(format!("value {v} out of range")); }
+        if v > 15 {
+            return Err(format!("value {v} out of range"));
+        }
         cells[count] = v;
         count += 1;
     }
-    if count != N_CELLS { return Err(format!("expected {N_CELLS} tokens, got {count}")); }
+    if count != N_CELLS {
+        return Err(format!("expected {N_CELLS} tokens, got {count}"));
+    }
     let mut seen = [false; N_CELLS];
     for &v in &cells {
-        if seen[v as usize] { return Err(format!("duplicate {v}")); }
+        if seen[v as usize] {
+            return Err(format!("duplicate {v}"));
+        }
         seen[v as usize] = true;
     }
     Ok(State(cells))
@@ -120,9 +167,13 @@ fn random_scramble(seed: u64, depth: u32) -> State {
     while steps < depth {
         let r = next(&mut rng);
         let candidate = Move::ALL[(r as usize) & 3];
-        if !s.legal_moves().contains(candidate) { continue; }
+        if !s.legal_moves().contains(candidate) {
+            continue;
+        }
         if let Some(p) = last {
-            if candidate == p.inverse() { continue; }
+            if candidate == p.inverse() {
+                continue;
+            }
         }
         s = s.apply(candidate);
         last = Some(candidate);
@@ -138,14 +189,20 @@ fn verify_antipodes(pdb_dir: &Path, antipodes_path: &Path) -> Result<(), String>
     let mut positions: Vec<State> = Vec::new();
     for (lineno, line) in text.lines().enumerate() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
         let s = parse_position(trimmed).map_err(|e| format!("line {}: {}", lineno + 1, e))?;
-        if !s.is_solvable() { return Err(format!("line {}: unsolvable position", lineno + 1)); }
+        if !s.is_solvable() {
+            return Err(format!("line {}: unsolvable position", lineno + 1));
+        }
         positions.push(s);
     }
 
     if positions.is_empty() {
-        return Err("antipodes file contains no positions — fill it in from a verified source".into());
+        return Err(
+            "antipodes file contains no positions — fill it in from a verified source".into(),
+        );
     }
 
     if positions.len() != 17 {
@@ -166,19 +223,31 @@ fn verify_antipodes(pdb_dir: &Path, antipodes_path: &Path) -> Result<(), String>
         let elapsed = t0.elapsed();
         let len = sol.len() as u8;
         let ok = len == DIAMETER;
-        if !ok { all_pass = false; }
-        println!("antipode {:>2}/{}: depth={} (expected {}) in {:.2?} -- {}",
-            i + 1, positions.len(), len, DIAMETER, elapsed,
-            if ok { "OK" } else { "FAIL" });
+        if !ok {
+            all_pass = false;
+        }
+        println!(
+            "antipode {:>2}/{}: depth={} (expected {}) in {:.2?} -- {}",
+            i + 1,
+            positions.len(),
+            len,
+            DIAMETER,
+            elapsed,
+            if ok { "OK" } else { "FAIL" }
+        );
         // Sanity: applying solution must reach goal.
         let mut cur = *s;
-        for m in &sol { cur = cur.apply(*m); }
+        for m in &sol {
+            cur = cur.apply(*m);
+        }
         if cur != GOAL {
             println!("  WARNING: solution does not reach GOAL from this antipode");
             all_pass = false;
         }
     }
-    if !all_pass { return Err("one or more antipodes failed verification".into()); }
+    if !all_pass {
+        return Err("one or more antipodes failed verification".into());
+    }
     Ok(())
 }
 
@@ -190,8 +259,10 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
     let h_refl = ReflectedHeuristic::new(h_refl_inner);
     let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
 
-    println!("Verifying {} random scrambles of depth {} (seed={}, cross_check={})",
-        args.samples, args.depth, args.seed, args.cross_check);
+    println!(
+        "Verifying {} random scrambles of depth {} (seed={}, cross_check={})",
+        args.samples, args.depth, args.seed, args.cross_check
+    );
 
     let mut all_pass = true;
     let mut max_len = 0u8;
@@ -205,7 +276,10 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
         let elapsed = t0.elapsed();
         let len = sol.len() as u8;
         if (len as u32) > args.depth {
-            println!("sample {:>4}: depth={} > walk depth {} — FAIL", k, len, args.depth);
+            println!(
+                "sample {:>4}: depth={} > walk depth {} — FAIL",
+                k, len, args.depth
+            );
             all_pass = false;
             continue;
         }
@@ -213,7 +287,9 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
 
         // Apply solution.
         let mut cur = s;
-        for m in &sol { cur = cur.apply(*m); }
+        for m in &sol {
+            cur = cur.apply(*m);
+        }
         if cur != GOAL {
             println!("sample {k:>4}: solution does not reach GOAL — FAIL");
             all_pass = false;
@@ -225,19 +301,30 @@ fn verify_random_samples(args: &Args) -> Result<(), String> {
             let m_sol = idastar(&s, &ManhattanHeuristic)
                 .ok_or_else(|| format!("sample {k} unsolved by Manhattan"))?;
             if (m_sol.len() as u8) != len {
-                println!("sample {:>4}: PDB={} != Manhattan={} — FAIL", k, len, m_sol.len());
+                println!(
+                    "sample {:>4}: PDB={} != Manhattan={} — FAIL",
+                    k,
+                    len,
+                    m_sol.len()
+                );
                 all_pass = false;
                 continue;
             }
         }
 
         if k % 10 == 0 || k == args.samples - 1 {
-            println!("sample {:>4}/{}: depth={} in {:.2?}", k, args.samples, len, elapsed);
+            println!(
+                "sample {:>4}/{}: depth={} in {:.2?}",
+                k, args.samples, len, elapsed
+            );
         }
     }
 
     if all_pass {
-        println!("\nAll {} samples passed. Max observed optimal depth: {}", args.samples, max_len);
+        println!(
+            "\nAll {} samples passed. Max observed optimal depth: {}",
+            args.samples, max_len
+        );
         Ok(())
     } else {
         Err("one or more samples failed".into())
@@ -249,7 +336,10 @@ fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            if e == "help" { print_usage(&prog); return ExitCode::SUCCESS; }
+            if e == "help" {
+                print_usage(&prog);
+                return ExitCode::SUCCESS;
+            }
             eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
@@ -263,7 +353,13 @@ fn main() -> ExitCode {
     };
 
     match result {
-        Ok(()) => { println!("\nverification: PASS"); ExitCode::SUCCESS }
-        Err(e) => { eprintln!("\nverification: FAIL — {e}"); ExitCode::FAILURE }
+        Ok(()) => {
+            println!("\nverification: PASS");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("\nverification: FAIL — {e}");
+            ExitCode::FAILURE
+        }
     }
 }

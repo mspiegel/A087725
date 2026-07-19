@@ -33,7 +33,11 @@ pub struct EvalConfig {
 impl Default for EvalConfig {
     fn default() -> Self {
         Self {
-            bwas: BwasConfig { weight: 2.0, batch_size: 1000, node_budget: 1_000_000 },
+            bwas: BwasConfig {
+                weight: 2.0,
+                batch_size: 1000,
+                node_budget: 1_000_000,
+            },
             antipodes_path: PathBuf::from("data/pdb15_antipodes.txt"),
             holdout_n: 100,
             holdout_k_max: 60,
@@ -63,13 +67,17 @@ impl EvalReport {
             self.holdout_solved,
             self.holdout_n,
             self.holdout_fail_rate * 100.0,
-            self.holdout_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+            self.holdout_mean_len
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
         );
         println!(
             "  antipodes(80): solved {}/{}, mean len {}, mean excess over 80 {} (DeepCubeA: +2.8)",
             self.antipode_solved,
             self.antipode_n,
-            self.antipode_mean_len.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into()),
+            self.antipode_mean_len
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
             self.antipode_mean_excess
                 .map(|v| format!("{v:+.2}"))
                 .unwrap_or_else(|| "-".into()),
@@ -86,8 +94,9 @@ where
 {
     // Fixed holdout set.
     let mut rng = Rng::new(cfg.holdout_seed);
-    let holdout: Vec<State> =
-        (0..cfg.holdout_n).map(|_| scramble(&mut rng, cfg.holdout_k_max).0).collect();
+    let holdout: Vec<State> = (0..cfg.holdout_n)
+        .map(|_| scramble(&mut rng, cfg.holdout_k_max).0)
+        .collect();
 
     let mut holdout_solved = 0usize;
     let mut holdout_len_sum = 0u64;
@@ -109,7 +118,11 @@ where
     let antipodes: Vec<State> = match load_ranks(&cfg.antipodes_path) {
         Ok(ranks) => ranks.into_iter().map(unrank).collect(),
         Err(e) => {
-            eprintln!("warning: could not load antipodes {}: {}", cfg.antipodes_path.display(), e);
+            eprintln!(
+                "warning: could not load antipodes {}: {}",
+                cfg.antipodes_path.display(),
+                e
+            );
             Vec::new()
         }
     };
@@ -143,7 +156,10 @@ mod tests {
     use crate::puzzle15::search::{Heuristic, ManhattanHeuristic};
 
     fn manhattan_batch(states: &[State]) -> Vec<f32> {
-        states.iter().map(|s| ManhattanHeuristic.h(s) as f32).collect()
+        states
+            .iter()
+            .map(|s| ManhattanHeuristic.h(s) as f32)
+            .collect()
     }
 
     #[test]
@@ -152,7 +168,11 @@ mod tests {
         // NOT solve under this small budget with Manhattan — that's fine, this
         // test validates the I/O + reporting path, not solver quality.
         let cfg = EvalConfig {
-            bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: 200_000 },
+            bwas: BwasConfig {
+                weight: 1.0,
+                batch_size: 8,
+                node_budget: 200_000,
+            },
             antipodes_path: PathBuf::from("data/pdb15_antipodes.txt"),
             holdout_n: 12,
             holdout_k_max: 8,
@@ -162,7 +182,11 @@ mod tests {
         // Antipodes file must load and contain the 17 known boards.
         assert_eq!(rep.antipode_n, 17, "expected 17 antipodes loaded");
         // Shallow holdout should mostly solve.
-        assert!(rep.holdout_solved >= 10, "holdout solved too few: {}", rep.holdout_solved);
+        assert!(
+            rep.holdout_solved >= 10,
+            "holdout solved too few: {}",
+            rep.holdout_solved
+        );
         assert!(rep.holdout_mean_len.is_some());
     }
 }

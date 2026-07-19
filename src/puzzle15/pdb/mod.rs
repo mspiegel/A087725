@@ -22,21 +22,21 @@
 //! At 15-puzzle scale the PDB engine is the *only* path to optimal solutions
 //! within reasonable resources: the full distance table is ~5 TB.
 
-pub mod pattern;
 pub mod build;
 pub mod db;
 pub mod heuristic;
+pub mod pattern;
 pub mod zbuild;
 pub mod zdb;
 pub mod zheuristic;
 pub mod zpdb;
 
-pub use pattern::{Pattern, ProjectedState, ANON};
 pub use build::{build, UNVISITED};
 pub use db::{LoadError, PatternDb};
 pub use heuristic::{
     AdditivePdbHeuristic, KorfCtx, KorfPdbInc, MaxHeuristic, PdbHeuristic, ReflectedHeuristic,
 };
+pub use pattern::{Pattern, ProjectedState, ANON};
 pub use zdb::ZPatternDb;
 pub use zheuristic::{AdditiveZpdbHeuristic, ZpdbCtx, ZpdbHeuristic, ZpdbInc, ZpdbPlusInc};
 pub use zpdb::ZpdbLayout;

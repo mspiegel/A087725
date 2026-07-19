@@ -129,7 +129,14 @@ fn build_line(g: usize) -> HashMap<u64, [u8; K + 1], WdBuild> {
     dist
 }
 
-fn cwd_axis_single(table: &WdTable, m: &Matrix, blank: u8, goal: u64, g: usize, dem: u8) -> Option<u8> {
+fn cwd_axis_single(
+    table: &WdTable,
+    m: &Matrix,
+    blank: u8,
+    goal: u64,
+    g: usize,
+    dem: u8,
+) -> Option<u8> {
     if dem == 0 {
         return Some(*table.get(&pack(m, blank)).expect("start reachable"));
     }
@@ -199,7 +206,11 @@ fn main() {
     } else {
         build_full_table()
     };
-    eprintln!("WD table: {} entries in {:.1}s", wd.len(), t0.elapsed().as_secs_f64());
+    eprintln!(
+        "WD table: {} entries in {:.1}s",
+        wd.len(),
+        t0.elapsed().as_secs_f64()
+    );
     let goal = goal_key();
 
     // overlay[σ] = [packed surcharge curve per line g]; nibble (d-1) of line g =
@@ -222,7 +233,11 @@ fn main() {
     for g in 0..W {
         let tb = Instant::now();
         let dist = build_line(g);
-        assert_eq!(dist.len(), wd.len(), "line {g}: reachable set size mismatch");
+        assert_eq!(
+            dist.len(),
+            wd.len(),
+            "line {g}: reachable set size mismatch"
+        );
         // invariant 1: r=0 layer == WD, per contingency; and pack the surcharge.
         for (&k, d) in dist.iter() {
             let wdv = wd[&k];
@@ -249,7 +264,10 @@ fn main() {
             let surch = 2 * (((overlay[&sk][g] >> (4 * (dm - 1))) & 0xF) as u8);
             let tv = wd[&sk] + surch;
             if let Some(reference) = cwd_axis_single(&wd, &m, br, goal, g, dm) {
-                assert_eq!(tv, reference, "line {g} σ={sk:#x} d={dm}: {tv} vs A* {reference}");
+                assert_eq!(
+                    tv, reference,
+                    "line {g} σ={sk:#x} d={dm}: {tv} vs A* {reference}"
+                );
                 ok += 1;
             }
         }

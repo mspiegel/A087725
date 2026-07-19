@@ -19,7 +19,8 @@ fn parse_board(line: &str) -> Result<State, String> {
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
+            tok.parse::<u8>()
+                .map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v as usize >= N_CELLS {
             return Err(format!("value {v} out of range in {line:?}"));
@@ -32,7 +33,9 @@ fn parse_board(line: &str) -> Result<State, String> {
         count += 1;
     }
     if count != N_CELLS {
-        return Err(format!("expected {N_CELLS} tokens, got {count} in {line:?}"));
+        return Err(format!(
+            "expected {N_CELLS} tokens, got {count} in {line:?}"
+        ));
     }
     Ok(State(cells))
 }

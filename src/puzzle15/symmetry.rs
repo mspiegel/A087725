@@ -21,28 +21,23 @@ use crate::puzzle15::state::{Move, State, N_CELLS};
 ///
 /// Derivation: for position `p = r*W + c` (row-major), the transpose sends
 /// `(r,c) → (c,r)`, giving `σ(p) = c*W + r`.
-const SIGMA: [u8; N_CELLS] = [
-    0, 4, 8, 12,
-    1, 5, 9, 13,
-    2, 6, 10, 14,
-    3, 7, 11, 15,
-];
+const SIGMA: [u8; N_CELLS] = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
 
 /// Tile relabeling: `TAU[t]` is the new label for tile `t` under the
 /// reflection. Derived so that goal tiles are permuted onto their σ-images:
 /// tile `k` (at goal position `k-1`) is renamed to whichever tile sits at
 /// position `σ(k-1)` in the goal.
 const TAU: [u8; N_CELLS] = [
-    0,           // blank fixed
-    1,           // diagonal tile (goal pos 0 → 0)
-    5,  9,  13,  // tile 2 → 5, 3 → 9, 4 → 13
-    2,           // 5 → 2
-    6,           // diagonal (goal pos 5 → 5)
-    10, 14,      // 7 → 10, 8 → 14
-    3,  7,       // 9 → 3, 10 → 7
-    11,          // diagonal (goal pos 10 → 10)
-    15,          // 12 → 15
-    4,  8,  12,  // 13 → 4, 14 → 8, 15 → 12
+    0, // blank fixed
+    1, // diagonal tile (goal pos 0 → 0)
+    5, 9, 13, // tile 2 → 5, 3 → 9, 4 → 13
+    2,  // 5 → 2
+    6,  // diagonal (goal pos 5 → 5)
+    10, 14, // 7 → 10, 8 → 14
+    3, 7,  // 9 → 3, 10 → 7
+    11, // diagonal (goal pos 10 → 10)
+    15, // 12 → 15
+    4, 8, 12, // 13 → 4, 14 → 8, 15 → 12
 ];
 
 /// Reflect `s` through the main diagonal (the one passing through the goal's
@@ -87,7 +82,7 @@ pub fn canonical(s: &State) -> (State, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::state::{GOAL, Move, W};
+    use crate::puzzle15::state::{Move, GOAL, W};
 
     #[test]
     fn sigma_is_self_inverse() {
@@ -147,9 +142,7 @@ mod tests {
     #[test]
     fn reflect_is_involution_on_random_walks() {
         // Walk pseudo-randomly from GOAL and verify reflect² = id at each step.
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..2000 {
             let r2 = reflect(&reflect(&s));
@@ -166,13 +159,15 @@ mod tests {
 
     #[test]
     fn reflect_preserves_solvability() {
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..2000 {
             assert!(s.is_solvable());
-            assert!(reflect(&s).is_solvable(), "reflect made unsolvable: {:?}", s.0);
+            assert!(
+                reflect(&s).is_solvable(),
+                "reflect made unsolvable: {:?}",
+                s.0
+            );
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {
@@ -185,9 +180,7 @@ mod tests {
 
     #[test]
     fn canonical_is_idempotent() {
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..1000 {
             let (c1, _) = canonical(&s);
@@ -205,9 +198,7 @@ mod tests {
 
     #[test]
     fn canonical_picks_lex_smaller() {
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..1000 {
             let (c, _) = canonical(&s);
@@ -236,15 +227,17 @@ mod tests {
     fn transpose_move_commutes_reflection_on_random_walks() {
         // The defining identity: reflect(s.apply(m)) == reflect(s).apply(tm)
         // for every legal move m along a pseudo-random walk.
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..2000 {
             for m in s.legal_moves().iter() {
                 let lhs = reflect(&s.apply(m));
                 let rhs = reflect(&s).apply(transpose_move(m));
-                assert_eq!(lhs, rhs, "transpose_move broke commutation for {:?} at {:?}", m, s.0);
+                assert_eq!(
+                    lhs, rhs,
+                    "transpose_move broke commutation for {:?} at {:?}",
+                    m, s.0
+                );
             }
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));

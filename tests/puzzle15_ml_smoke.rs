@@ -21,14 +21,24 @@ fn end_to_end_tiny_cotraining_run() {
     let dir = std::env::temp_dir().join(format!("ml15_smoke_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
-    let bwas = BwasConfig { weight: 2.0, batch_size: 16, node_budget: 15_000 };
+    let bwas = BwasConfig {
+        weight: 2.0,
+        batch_size: 16,
+        node_budget: 15_000,
+    };
     let cfg = AlternationConfig {
         rounds: 2,
         solver_steps_per_round: 4,
         generator_steps_per_round: 4,
         solver_batch: 32,
         generator_frac: 0.5,
-        davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 8 },
+        davi: DaviConfig {
+            k_max: 8,
+            hidden: 32,
+            blocks: 1,
+            lr: 1e-3,
+            target_sync_every: 8,
+        },
         generator: GeneratorConfig {
             k_max: 8,
             hidden: 32,
@@ -53,7 +63,10 @@ fn end_to_end_tiny_cotraining_run() {
 
     // Runs on CPU for determinism/portability in CI.
     run(&cfg, Device::Cpu).expect("co-training loop failed");
-    assert!(checkpoint::value_latest_path(&dir).exists(), "no checkpoint written");
+    assert!(
+        checkpoint::value_latest_path(&dir).exists(),
+        "no checkpoint written"
+    );
     assert!(dir.join("metrics.tsv").exists(), "no metrics written");
 
     let _ = std::fs::remove_dir_all(&dir);

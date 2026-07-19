@@ -32,8 +32,16 @@ fn print_grid(prefix: &str, r: u64) {
     let s: State = unrank(r);
     print!("{prefix} rank={r:>14} blank@{:>2}: ", s.blank_pos());
     for (j, &t) in s.0.iter().enumerate() {
-        if t == 0 { print!("__"); } else { print!("{t:>2}"); }
-        if j % 4 == 3 { print!("  "); } else { print!(","); }
+        if t == 0 {
+            print!("__");
+        } else {
+            print!("{t:>2}");
+        }
+        if j % 4 == 3 {
+            print!("  ");
+        } else {
+            print!(",");
+        }
     }
     println!();
 }
@@ -50,10 +58,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let t0 = Instant::now();
     let cache = cache::load(&cache_path)?;
-    println!("loaded cache: {} entries from {}", cache.len(), cache_path.display());
+    println!(
+        "loaded cache: {} entries from {}",
+        cache.len(),
+        cache_path.display()
+    );
 
     // Collect the target layer.
-    let layer: Vec<u64> = cache.iter()
+    let layer: Vec<u64> = cache
+        .iter()
         .filter(|(_, &d)| d == depth)
         .map(|(&r, _)| r)
         .collect();
@@ -64,13 +77,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut orphans: Vec<(u64, u64)> = Vec::new(); // (cached board, its absent reflection)
     for &r in &layer {
         let rr = rank(&reflect(&unrank(r)));
-        if rr == r { fixed += 1; continue; }
+        if rr == r {
+            fixed += 1;
+            continue;
+        }
         if !cache.contains_key(&rr) {
             orphans.push((r, rr));
         }
     }
     println!("self-symmetric (fixed-point) boards: {fixed}");
-    println!("cached boards whose reflection is ABSENT: {}", orphans.len());
+    println!(
+        "cached boards whose reflection is ABSENT: {}",
+        orphans.len()
+    );
 
     if orphans.is_empty() {
         println!("\n==> Layer is reflection-closed.");
@@ -83,7 +102,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Dedup absent reflections (each missing board may appear once).
     let missing: HashSet<u64> = orphans.iter().map(|&(_, rr)| rr).collect();
-    println!("\n==> {} distinct missing board(s) recovered as reflections!\n", missing.len());
+    println!(
+        "\n==> {} distinct missing board(s) recovered as reflections!\n",
+        missing.len()
+    );
 
     // Verify each with admissible IDA* (cheap; should all come back == depth).
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
@@ -97,13 +119,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (sol, _) = idastar_inc_with_stats(&unrank(r), &h);
         let d = sol.map(|v| v.len() as u8).unwrap_or(u8::MAX);
         print_grid(&format!("[d={d}]"), r);
-        if d == depth { verified.push(r); }
+        if d == depth {
+            verified.push(r);
+        }
     }
 
     println!("\n=== RANKS (one per line, for cache_insert) ===");
     let mut out: Vec<u64> = verified.clone();
     out.sort();
-    for r in &out { println!("{r}"); }
+    for r in &out {
+        println!("{r}");
+    }
 
     println!("\ntotal elapsed {:.1?}", t0.elapsed());
     Ok(())

@@ -22,7 +22,10 @@ use puzzle8::puzzle15::search::idastar_inc_with_stats;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("data"));
+    let dir = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("data"));
     let n_solves: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(3);
 
     let antipode_ranks =
@@ -43,16 +46,26 @@ fn main() {
         let t0 = Instant::now();
         let (sol, st) = idastar_inc_with_stats(&s, &zpdb);
         let dt = t0.elapsed().as_secs_f64();
-        assert_eq!(sol.as_ref().map(|v| v.len()), Some(80), "zero-aware returned non-optimal!");
+        assert_eq!(
+            sol.as_ref().map(|v| v.len()),
+            Some(80),
+            "zero-aware returned non-optimal!"
+        );
         total_nodes += st.nodes;
         total_t += dt;
         eprintln!(
             "  {:>2}/{}  {:>13} nodes  {:>7.2}s  {:>5.2} Mnodes/s",
-            i + 1, k, st.nodes, dt, st.nodes as f64 / dt / 1e6,
+            i + 1,
+            k,
+            st.nodes,
+            dt,
+            st.nodes as f64 / dt / 1e6,
         );
     }
     eprintln!(
         "  total  {:>13} nodes  {:>7.2}s  {:>5.2} Mnodes/s",
-        total_nodes, total_t, total_nodes as f64 / total_t / 1e6,
+        total_nodes,
+        total_t,
+        total_nodes as f64 / total_t / 1e6,
     );
 }

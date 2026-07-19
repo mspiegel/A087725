@@ -115,7 +115,7 @@ fn lc_removals(arr: &[u8]) -> usize {
 mod tests {
     use super::*;
     use crate::puzzle8::search::ManhattanHeuristic;
-    use crate::puzzle8::state::{GOAL, State};
+    use crate::puzzle8::state::{State, GOAL};
 
     #[test]
     fn lc_of_goal_is_zero() {

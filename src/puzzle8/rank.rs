@@ -35,7 +35,11 @@ const EVEN_BLOCK: u32 = 20_160; // 8! / 2
 ///
 /// Debug-asserts that `s` is solvable.
 pub fn rank(s: &State) -> u32 {
-    debug_assert!(s.is_solvable(), "rank() called on unsolvable state: {:?}", s.0);
+    debug_assert!(
+        s.is_solvable(),
+        "rank() called on unsolvable state: {:?}",
+        s.0
+    );
 
     let blank_pos = s.blank_pos() as u32;
 

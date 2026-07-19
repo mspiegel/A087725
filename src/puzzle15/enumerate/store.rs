@@ -84,7 +84,11 @@ impl Store {
         if bytes.len() % 6 != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("{}: length {} not a multiple of 6", path.display(), bytes.len()),
+                format!(
+                    "{}: length {} not a multiple of 6",
+                    path.display(),
+                    bytes.len()
+                ),
             ));
         }
         let mut ranks = Vec::with_capacity(bytes.len() / 6);

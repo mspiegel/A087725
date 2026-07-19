@@ -60,7 +60,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // above-neighbor check at d=79 sees them.
     let antipode_path = Path::new("data/enum15/depth80.ranks");
     let antipodes: HashSet<u64> = load_u48_ranks(antipode_path)?;
-    println!("loaded {} antipodes from {}", antipodes.len(), antipode_path.display());
+    println!(
+        "loaded {} antipodes from {}",
+        antipodes.len(),
+        antipode_path.display()
+    );
 
     // Restrict analysis to deep boards: d >= 75. The rest is noise.
     let deep: Vec<(u64, u8)> = cache
@@ -87,22 +91,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for m in lm.iter() {
                 let (ns, _) = s.apply_at(m, blank);
                 let nr = rank(&ns);
-                let nd = cache.get(&nr).copied()
-                    .or_else(|| if antipodes.contains(&nr) { Some(80) } else { None });
+                let nd = cache.get(&nr).copied().or_else(|| {
+                    if antipodes.contains(&nr) {
+                        Some(80)
+                    } else {
+                        None
+                    }
+                });
                 if let Some(nd) = nd {
-                    if nd == d + 1 { above += 1; }
-                    else if d > 0 && nd == d - 1 { below += 1; }
+                    if nd == d + 1 {
+                        above += 1;
+                    } else if d > 0 && nd == d - 1 {
+                        below += 1;
+                    }
                 }
             }
-            Feature { rank: r, depth: d, blank, degree, h: hv, above, below }
+            Feature {
+                rank: r,
+                depth: d,
+                blank,
+                degree,
+                h: hv,
+                above,
+                below,
+            }
         })
         .collect();
     println!("computed features in {:.1?}\n", t2.elapsed());
 
     // Per-depth summary.
     println!("Per-depth summary:");
-    println!("{:>5}  {:>9}  {:>5}  {:>5}  {:>6}  {:>10}  {:>10}",
-             "depth", "count", "min_h", "max_h", "mean_h", "above=0", "above>=1");
+    println!(
+        "{:>5}  {:>9}  {:>5}  {:>5}  {:>6}  {:>10}  {:>10}",
+        "depth", "count", "min_h", "max_h", "mean_h", "above=0", "above>=1"
+    );
     let by_depth: HashMap<u8, Vec<&Feature>> = group_by(&features, |f| f.depth);
     let mut depths: Vec<u8> = by_depth.keys().copied().collect();
     depths.sort();
@@ -127,8 +149,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut bmax = [0u32; 16];
         let mut other = [0u32; 16];
         for f in fs {
-            if f.above == 0 { bmax[f.blank as usize] += 1; }
-            else { other[f.blank as usize] += 1; }
+            if f.above == 0 {
+                bmax[f.blank as usize] += 1;
+            } else {
+                other[f.blank as usize] += 1;
+            }
         }
         let nb: u32 = bmax.iter().sum();
         let no: u32 = other.iter().sum();
@@ -159,8 +184,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("           above=0 above=1 above=2 above=3 above=4");
         for deg in 2..=4 {
             let row = &tab[deg];
-            println!("    deg={}  {:>6} {:>6} {:>6} {:>6} {:>6}",
-                     deg, row[0], row[1], row[2], row[3], row[4]);
+            println!(
+                "    deg={}  {:>6} {:>6} {:>6} {:>6} {:>6}",
+                deg, row[0], row[1], row[2], row[3], row[4]
+            );
         }
     }
 
@@ -168,7 +195,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nh-distribution of Bellman-max candidates (above==0) per depth:");
     for d in &depths {
         let bmaxes: Vec<&&Feature> = by_depth[d].iter().filter(|f| f.above == 0).collect();
-        if bmaxes.is_empty() { continue; }
+        if bmaxes.is_empty() {
+            continue;
+        }
         let mut h_hist: HashMap<u8, u32> = HashMap::new();
         for f in &bmaxes {
             *h_hist.entry(f.h).or_insert(0) += 1;
@@ -185,14 +214,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Targeted: list a handful of d=79 Bellman maxima as concrete examples to
     // eyeball later (we have all 70 d=79 boards in the cache).
     println!("\nFirst 20 d=79 Bellman-max candidates (cell layout):");
-    let d79_bmax: Vec<&Feature> = features.iter().filter(|f| f.depth == 79 && f.above == 0).collect();
+    let d79_bmax: Vec<&Feature> = features
+        .iter()
+        .filter(|f| f.depth == 79 && f.above == 0)
+        .collect();
     for f in d79_bmax.iter().take(20) {
         let s = unrank(f.rank);
-        print!("  rank {} blank@{} deg={} h={} above={} below={}: ",
-               f.rank, f.blank, f.degree, f.h, f.above, f.below);
+        print!(
+            "  rank {} blank@{} deg={} h={} above={} below={}: ",
+            f.rank, f.blank, f.degree, f.h, f.above, f.below
+        );
         for (i, &t) in s.0.iter().enumerate() {
-            if t == 0 { print!("__"); } else { print!("{t:>2}"); }
-            if i % 4 == 3 { print!(" "); } else { print!(","); }
+            if t == 0 {
+                print!("__");
+            } else {
+                print!("{t:>2}");
+            }
+            if i % 4 == 3 {
+                print!(" ");
+            } else {
+                print!(",");
+            }
         }
         println!();
     }
@@ -218,8 +260,12 @@ fn load_u48_ranks(path: &Path) -> Result<HashSet<u64>, Box<dyn std::error::Error
     let mut bytes = Vec::new();
     BufReader::new(File::open(path)?).read_to_end(&mut bytes)?;
     if bytes.len() % 6 != 0 {
-        return Err(format!("{}: not a u48-packed ranks file ({} bytes)",
-                           path.display(), bytes.len()).into());
+        return Err(format!(
+            "{}: not a u48-packed ranks file ({} bytes)",
+            path.display(),
+            bytes.len()
+        )
+        .into());
     }
     let mut out = HashSet::with_capacity(bytes.len() / 6);
     for chunk in bytes.chunks_exact(6) {

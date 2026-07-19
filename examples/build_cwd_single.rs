@@ -81,7 +81,14 @@ fn r_row_key() -> u64 {
 
 // ---- reference: single-line vector-constrained A* (the validated cwd_axis) ----
 
-fn cwd_axis_single(table: &WdTable, m: &Matrix, blank: u8, goal: u64, g: usize, dem: u8) -> Option<u8> {
+fn cwd_axis_single(
+    table: &WdTable,
+    m: &Matrix,
+    blank: u8,
+    goal: u64,
+    g: usize,
+    dem: u8,
+) -> Option<u8> {
     if dem == 0 {
         return Some(*table.get(&pack(m, blank)).expect("start reachable"));
     }
@@ -206,7 +213,10 @@ fn build_line(g: usize) -> HashMap<u64, [u8; K + 1], WdBuild> {
 }
 
 fn main() {
-    let g: usize = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(2);
+    let g: usize = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
     assert!(g < W, "line g must be 0..4");
     let t0 = Instant::now();
     let path = Path::new("data/wd24.bin");
@@ -215,7 +225,11 @@ fn main() {
     } else {
         build_full_table()
     };
-    eprintln!("WD table: {} entries in {:.1}s", wd.len(), t0.elapsed().as_secs_f64());
+    eprintln!(
+        "WD table: {} entries in {:.1}s",
+        wd.len(),
+        t0.elapsed().as_secs_f64()
+    );
 
     let tb = Instant::now();
     let dist = build_line(g);
@@ -226,7 +240,11 @@ fn main() {
     );
 
     // ---- invariant 1: r=0 layer == WD table, and coverage matches ----
-    assert_eq!(dist.len(), wd.len(), "reachable set size mismatch vs WD table");
+    assert_eq!(
+        dist.len(),
+        wd.len(),
+        "reachable set size mismatch vs WD table"
+    );
     let mut r0_ok = 0u64;
     for (k, v) in wd.iter() {
         let d = dist.get(k).expect("σ missing from product table");
@@ -261,7 +279,7 @@ fn main() {
         let (m, br) = unpack(sk);
         let d = (next() % (K as u64 + 1)) as u8; // demand 0..4
         let table_val = wd[&sk] + (dist[&sk][d as usize] - dist[&sk][0]); // WD + surcharge
-        // reference (cap the A* budget; skip if it bails)
+                                                                          // reference (cap the A* budget; skip if it bails)
         if let Some(reference) = cwd_axis_single(&wd, &m, br, goal, g, d) {
             assert_eq!(
                 table_val, reference,
@@ -273,7 +291,9 @@ fn main() {
             }
         }
     }
-    eprintln!("invariant 3 OK: {checked} random σ×d matched the reference A* ({nonzero} had surcharge>0)");
+    eprintln!(
+        "invariant 3 OK: {checked} random σ×d matched the reference A* ({nonzero} had surcharge>0)"
+    );
 
     // ---- surcharge stats ----
     let mut hist = [0u64; 9];

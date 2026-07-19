@@ -122,9 +122,7 @@ fn sweep(label_prefix: &str, data: &[u8]) -> Vec<Result> {
                 });
             }
             None => {
-                eprintln!(
-                    "  (skipping {cmd}: command unavailable or returned non-zero)"
-                );
+                eprintln!("  (skipping {cmd}: command unavailable or returned non-zero)");
             }
         }
     }
@@ -135,7 +133,10 @@ fn sweep(label_prefix: &str, data: &[u8]) -> Vec<Result> {
 fn print_results(results: &[Result], baseline: usize) {
     for r in results {
         let ratio = baseline as f64 / r.bytes as f64;
-        println!("  {:<46} {:>10} bytes  ({:.2}× vs raw)", r.label, r.bytes, ratio);
+        println!(
+            "  {:<46} {:>10} bytes  ({:.2}× vs raw)",
+            r.label, r.bytes, ratio
+        );
     }
 }
 
@@ -197,7 +198,8 @@ fn main() {
         .iter()
         .filter(|r| !r.label.ends_with("raw") && !r.label.contains("Shannon"))
         .collect();
-    let shannon_results: Vec<&Result> = all.iter().filter(|r| r.label.contains("Shannon")).collect();
+    let shannon_results: Vec<&Result> =
+        all.iter().filter(|r| r.label.contains("Shannon")).collect();
     let best = real_compressors.iter().min_by_key(|r| r.bytes).unwrap();
     let best_shannon = shannon_results.iter().min_by_key(|r| r.bytes).unwrap();
 
@@ -215,8 +217,14 @@ fn main() {
     );
     println!();
     println!("Interpretation:");
-    println!("  - {} bytes is the tightest upper bound on K(dist8.bin) from this sweep.", best.bytes);
-    println!("    Any solver direction storing fewer than {} bytes is doing genuine", best.bytes);
+    println!(
+        "  - {} bytes is the tightest upper bound on K(dist8.bin) from this sweep.",
+        best.bytes
+    );
+    println!(
+        "    Any solver direction storing fewer than {} bytes is doing genuine",
+        best.bytes
+    );
     println!("    algorithmic work beyond what generic LZ + entropy coding finds.");
     println!();
     println!("  - The Shannon floor treats bytes as independent. LZ-based compressors");

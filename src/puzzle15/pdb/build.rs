@@ -154,10 +154,8 @@ mod tests {
             let pdb = build(p);
             // For each reached state, get its pattern-only rank and compare.
             for (raw, &true_dist) in &truth {
-                let proj = crate::puzzle15::pdb::pattern::ProjectedState::from_state(
-                    &State(*raw),
-                    p,
-                );
+                let proj =
+                    crate::puzzle15::pdb::pattern::ProjectedState::from_state(&State(*raw), p);
                 let h = pdb[proj.rank(p) as usize];
                 assert_ne!(h, UNVISITED, "PDB has gap for {raw:?} pattern {k}");
                 assert!(
@@ -171,16 +169,15 @@ mod tests {
     #[test]
     fn pdb_at_goal_pattern_is_zero() {
         // For any pattern, the goal projection's PDB entry must be 0.
-        for tiles in [
-            &[1u8][..],
-            &[1, 5, 10],
-            &[2, 3, 4, 5],
-        ] {
+        for tiles in [&[1u8][..], &[1, 5, 10], &[2, 3, 4, 5]] {
             let p = Pattern::new(tiles);
             let pdb = build(p);
             let goal_proj = ProjectedState::goal(p);
             let r = goal_proj.rank(p) as usize;
-            assert_eq!(pdb[r], 0, "goal projection should have distance 0 for {tiles:?}");
+            assert_eq!(
+                pdb[r], 0,
+                "goal projection should have distance 0 for {tiles:?}"
+            );
         }
     }
 

@@ -72,7 +72,10 @@ impl Pattern {
 
     /// Iterate the pattern's tile values in ascending order.
     pub fn iter(self) -> PatternIter {
-        PatternIter { bits: self.0 & !1, idx: 1 }
+        PatternIter {
+            bits: self.0 & !1,
+            idx: 1,
+        }
     }
 
     /// Total number of projected states for this pattern: `9! / (8 - k)!`
@@ -119,7 +122,11 @@ impl ProjectedState {
         let mut out = [0u8; 9];
         for i in 0..9 {
             let v = s.0[i];
-            out[i] = if v == 0 || pattern.contains(v) { v } else { ANON };
+            out[i] = if v == 0 || pattern.contains(v) {
+                v
+            } else {
+                ANON
+            };
         }
         ProjectedState(out)
     }
@@ -211,7 +218,12 @@ impl ProjectedState {
                     break;
                 }
             }
-            debug_assert!(pos != 0xFF, "tile {} not found in projected state {:?}", tile, self.0);
+            debug_assert!(
+                pos != 0xFF,
+                "tile {} not found in projected state {:?}",
+                tile,
+                self.0
+            );
             let lo = (1u16 << pos) - 1;
             let d = (available & lo).count_ones();
             rank = rank * radix + d;
@@ -281,9 +293,15 @@ mod tests {
     fn num_projected_states_known_values() {
         assert_eq!(Pattern::new(&[1]).num_projected_states(), 9 * 8);
         assert_eq!(Pattern::new(&[1, 2]).num_projected_states(), 9 * 8 * 7);
-        assert_eq!(Pattern::new(&[1, 2, 3, 4]).num_projected_states(), 9 * 8 * 7 * 6 * 5);
+        assert_eq!(
+            Pattern::new(&[1, 2, 3, 4]).num_projected_states(),
+            9 * 8 * 7 * 6 * 5
+        );
         // For k=8: 9!/0! = 9! = 362880.
-        assert_eq!(Pattern::new(&[1, 2, 3, 4, 5, 6, 7, 8]).num_projected_states(), 362_880);
+        assert_eq!(
+            Pattern::new(&[1, 2, 3, 4, 5, 6, 7, 8]).num_projected_states(),
+            362_880
+        );
     }
 
     #[test]
@@ -312,7 +330,13 @@ mod tests {
             let p = Pattern::new(tiles);
             let goal_proj = ProjectedState::goal(p);
             let r = goal_proj.rank(p);
-            assert!(r < p.num_projected_states(), "goal rank {} >= {} for {:?}", r, p.num_projected_states(), tiles);
+            assert!(
+                r < p.num_projected_states(),
+                "goal rank {} >= {} for {:?}",
+                r,
+                p.num_projected_states(),
+                tiles
+            );
         }
     }
 
@@ -326,7 +350,10 @@ mod tests {
         // tile 6 is in pattern → cost 1; tile 8 not in pattern → cost 0.
         let (_, c_up) = proj.apply(Move::Up);
         let (_, c_left) = proj.apply(Move::Left);
-        assert_eq!(c_left, 0, "swapping blank with non-pattern tile 8 must be free");
+        assert_eq!(
+            c_left, 0,
+            "swapping blank with non-pattern tile 8 must be free"
+        );
         assert_eq!(c_up, 1, "swapping blank with pattern tile 6 must cost 1");
     }
 
@@ -363,7 +390,12 @@ mod tests {
                     continue;
                 }
                 let r = n.rank(p);
-                assert!(r < p.num_projected_states(), "rank {} >= {}", r, p.num_projected_states());
+                assert!(
+                    r < p.num_projected_states(),
+                    "rank {} >= {}",
+                    r,
+                    p.num_projected_states()
+                );
                 assert!(ranks.insert(r), "duplicate rank {r} for distinct states");
                 seen.insert(n.0, r);
                 q.push_back(n);

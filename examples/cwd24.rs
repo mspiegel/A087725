@@ -234,7 +234,12 @@ fn probe(
         }
     }
 
-    ProbeResult { dist, truncated_at, pops, states: best.len() }
+    ProbeResult {
+        dist,
+        truncated_at,
+        pops,
+        states: best.len(),
+    }
 }
 
 /// D_k = min cost with ≥ k escapes = suffix-min of `dist` (a plan with more
@@ -271,16 +276,27 @@ fn main() {
         eprintln!("data/wd24.bin missing — building WD table via BFS (~25 s) …");
         build_full_table()
     };
-    eprintln!("WD table ready: {} entries in {:.1}s", table.len(), t0.elapsed().as_secs_f64());
+    eprintln!(
+        "WD table ready: {} entries in {:.1}s",
+        table.len(),
+        t0.elapsed().as_secs_f64()
+    );
 
     let (gm, gb) = goal_state();
     let goal_key = pack(&gm, gb);
     let (rm, rb) = r_state();
     let r_key = pack(&rm, rb);
 
-    assert_eq!(table.get(&goal_key), Some(&0), "goal contingency must be at distance 0");
+    assert_eq!(
+        table.get(&goal_key),
+        Some(&0),
+        "goal contingency must be at distance 0"
+    );
     let wd_r = *table.get(&r_key).expect("R row-state must be reachable");
-    println!("WD_row(R) = {wd_r}  (expect 70; WD(R) = {} total)", 2 * wd_r);
+    println!(
+        "WD_row(R) = {wd_r}  (expect 70; WD(R) = {} total)",
+        2 * wd_r
+    );
     assert_eq!(wd_r, 70, "R row-WD drifted from the known 70");
 
     // pack/unpack round-trip sanity on both endpoint states.
@@ -298,11 +314,23 @@ fn main() {
     for t in 1..25usize {
         m_col[(25 - t) % W][(t - 1) % W] += 1;
     }
-    assert_eq!((m_col, 0u8), (rm, rb), "R column contingency must equal its row contingency");
+    assert_eq!(
+        (m_col, 0u8),
+        (rm, rb),
+        "R column contingency must equal its row contingency"
+    );
 
     // Run A — the sound demand on R: four type-2 tiles must exit row 2.
     println!("\n== A: sharp escapes (type-2 exits from row 2), cap 4 ==");
-    let a = probe(&table, (rm, rb), goal_key, |from, t| from == 2 && t == 2, 4, 2_000_000_000, "A");
+    let a = probe(
+        &table,
+        (rm, rb),
+        goal_key,
+        |from, t| from == 2 && t == 2,
+        4,
+        2_000_000_000,
+        "A",
+    );
     for line in demand_curve(&a, 4) {
         println!("  {line}");
     }
@@ -311,7 +339,15 @@ fn main() {
     // Run B — aggregate escapes (any goal row): the cheap generalization a
     // per-node table would use. Weaker constraint ⇒ D_k ≤ run A's D_k.
     println!("\n== B: aggregate escapes (any type-g exit from row g), cap 4 ==");
-    let b = probe(&table, (rm, rb), goal_key, |from, t| from == t, 4, 2_000_000_000, "B");
+    let b = probe(
+        &table,
+        (rm, rb),
+        goal_key,
+        |from, t| from == t,
+        4,
+        2_000_000_000,
+        "B",
+    );
     for line in demand_curve(&b, 4) {
         println!("  {line}");
     }
@@ -319,7 +355,15 @@ fn main() {
 
     // Run C — marginal-cost curve past the sound demand (diagnostic only).
     println!("\n== C: sharp escapes, cap 8 (diagnostic curve; only k ≤ 4 sound on R) ==");
-    let c = probe(&table, (rm, rb), goal_key, |from, t| from == 2 && t == 2, 8, 3_000_000_000, "C");
+    let c = probe(
+        &table,
+        (rm, rb),
+        goal_key,
+        |from, t| from == 2 && t == 2,
+        8,
+        3_000_000_000,
+        "C",
+    );
     for line in demand_curve(&c, 8) {
         println!("  {line}");
     }

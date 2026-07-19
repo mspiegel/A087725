@@ -17,9 +17,7 @@ use std::process::ExitCode;
 
 use puzzle8::puzzle15::pdb::{AdditiveZpdbHeuristic, ZPatternDb};
 use puzzle8::puzzle15::rank::unrank;
-use puzzle8::puzzle15::search::{
-    Heuristic, LinearConflictHeuristic, WalkingDistanceHeuristic,
-};
+use puzzle8::puzzle15::search::{Heuristic, LinearConflictHeuristic, WalkingDistanceHeuristic};
 use puzzle8::puzzle15::symmetry::reflect;
 
 struct Args {
@@ -36,15 +34,32 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 1;
     while i < argv.len() {
         match argv[i].as_str() {
-            "--pdb-dir" => { i += 1; pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?); }
-            "--min-h" => { i += 1; min_h = argv.get(i).ok_or("--min-h needs a value")?.parse().map_err(|e: std::num::ParseIntError| format!("--min-h: {e}"))?; }
-            "--in" => { i += 1; in_path = Some(PathBuf::from(argv.get(i).ok_or("--in needs a value")?)); }
+            "--pdb-dir" => {
+                i += 1;
+                pdb_dir = PathBuf::from(argv.get(i).ok_or("--pdb-dir needs a value")?);
+            }
+            "--min-h" => {
+                i += 1;
+                min_h = argv
+                    .get(i)
+                    .ok_or("--min-h needs a value")?
+                    .parse()
+                    .map_err(|e: std::num::ParseIntError| format!("--min-h: {e}"))?;
+            }
+            "--in" => {
+                i += 1;
+                in_path = Some(PathBuf::from(argv.get(i).ok_or("--in needs a value")?));
+            }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {other}")),
         }
         i += 1;
     }
-    Ok(Args { pdb_dir, min_h, in_path })
+    Ok(Args {
+        pdb_dir,
+        min_h,
+        in_path,
+    })
 }
 
 fn run() -> Result<(), String> {
@@ -64,11 +79,15 @@ fn run() -> Result<(), String> {
     let mut input = Vec::new();
     match args.in_path.as_deref() {
         Some(p) => {
-            std::fs::File::open(p).map_err(|e| format!("{}: {}", p.display(), e))?
-                .read_to_end(&mut input).map_err(|e| format!("{}: {}", p.display(), e))?;
+            std::fs::File::open(p)
+                .map_err(|e| format!("{}: {}", p.display(), e))?
+                .read_to_end(&mut input)
+                .map_err(|e| format!("{}: {}", p.display(), e))?;
         }
         None => {
-            io::stdin().read_to_end(&mut input).map_err(|e| format!("stdin: {e}"))?;
+            io::stdin()
+                .read_to_end(&mut input)
+                .map_err(|e| format!("stdin: {e}"))?;
         }
     }
     if input.len() % 6 != 0 {
@@ -112,6 +131,9 @@ fn main() -> ExitCode {
             eprintln!("usage: h_filter15 --pdb-dir DIR [--min-h N] [--in PATH] (stdin/stdout)");
             ExitCode::SUCCESS
         }
-        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
     }
 }

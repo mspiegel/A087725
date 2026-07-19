@@ -35,9 +35,11 @@ fn sentinel_iff_move_illegal() {
         for (slot, &m) in Move::ALL.iter().enumerate() {
             let is_legal = legal.contains(m);
             let is_sentinel = rec[slot] == u32::MAX;
-            assert_eq!(is_legal, !is_sentinel,
+            assert_eq!(
+                is_legal, !is_sentinel,
                 "rank {}: move {:?} legal={} but neighbor={} (sentinel={})",
-                r, m, is_legal, rec[slot], is_sentinel);
+                r, m, is_legal, rec[slot], is_sentinel
+            );
         }
     }
 }
@@ -54,8 +56,11 @@ fn non_sentinel_slots_match_apply() {
                 continue;
             }
             let s_next = s.apply(m);
-            assert_eq!(unrank(neighbor), s_next,
-                "rank {r}: move {m:?} -> rank {neighbor} but state mismatch");
+            assert_eq!(
+                unrank(neighbor),
+                s_next,
+                "rank {r}: move {m:?} -> rank {neighbor} but state mismatch"
+            );
         }
     }
 }
@@ -66,9 +71,14 @@ fn legal_count_matches_move_set() {
     for r in 0..N_STATES {
         let s = unrank(r);
         let legal_count = s.legal_moves().len() as usize;
-        let non_sentinel_count = records[r as usize].iter().filter(|&&n| n != u32::MAX).count();
-        assert_eq!(non_sentinel_count, legal_count,
-            "rank {r}: {non_sentinel_count} non-sentinel slots vs {legal_count} legal moves");
+        let non_sentinel_count = records[r as usize]
+            .iter()
+            .filter(|&&n| n != u32::MAX)
+            .count();
+        assert_eq!(
+            non_sentinel_count, legal_count,
+            "rank {r}: {non_sentinel_count} non-sentinel slots vs {legal_count} legal moves"
+        );
     }
 }
 
@@ -85,9 +95,17 @@ fn move_inverse_involution() {
                 continue;
             }
             let back = records[r_next as usize][m.inverse() as usize];
-            assert_eq!(back, r,
+            assert_eq!(
+                back,
+                r,
                 "rank {}: forward {:?} -> {}, reverse {:?} -> {} (expected {})",
-                r, m, r_next, m.inverse(), back, r);
+                r,
+                m,
+                r_next,
+                m.inverse(),
+                back,
+                r
+            );
         }
     }
 }
@@ -103,8 +121,10 @@ fn pol8_optimal_moves_are_subset_of_adj8_legal_moves() {
         let opt_mask = t.optimal_moves(&s).0;
         for (slot, &m) in Move::ALL.iter().enumerate() {
             if opt_mask & (1 << (m as u8)) != 0 {
-                assert!(records[r as usize][slot] != u32::MAX,
-                    "rank {r}: pol8 marks {m:?} optimal but adj8 says illegal");
+                assert!(
+                    records[r as usize][slot] != u32::MAX,
+                    "rank {r}: pol8 marks {m:?} optimal but adj8 says illegal"
+                );
             }
         }
     }

@@ -178,7 +178,9 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             let (np, n_cost) = parent.normal[i].apply(m);
             if n_cost != 0 {
                 #[cfg(feature = "verifier-stats")]
-                { _stats.zpdb_rank_calls += 1; }
+                {
+                    _stats.zpdb_rank_calls += 1;
+                }
                 let n_idx = db.layout().rank(&np, db.pattern());
                 ctx.n_h[i] = db.diff_lookup(n_idx, parent.n_h[i]);
             }
@@ -188,7 +190,9 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             let (rp, r_cost) = parent.reflected[i].apply(tm);
             if r_cost != 0 {
                 #[cfg(feature = "verifier-stats")]
-                { _stats.zpdb_rank_calls += 1; }
+                {
+                    _stats.zpdb_rank_calls += 1;
+                }
                 let r_idx = db.layout().rank(&rp, db.pattern());
                 ctx.r_h[i] = db.diff_lookup(r_idx, parent.r_h[i]);
             }
@@ -232,7 +236,11 @@ pub struct ZpdbPlusCtx<const N: usize> {
 impl<'a, const N: usize> ZpdbPlusInc<'a, N> {
     /// Build from `N` pairwise-disjoint ZPDBs (same contract as [`ZpdbInc::new`]).
     pub fn new(dbs: [&'a ZPatternDb; N]) -> Self {
-        Self { zpdb: ZpdbInc::new(dbs), lc: LinearConflictInc, wd: WalkingDistanceInc }
+        Self {
+            zpdb: ZpdbInc::new(dbs),
+            lc: LinearConflictInc,
+            wd: WalkingDistanceInc,
+        }
     }
 }
 
@@ -245,7 +253,14 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
         let (h_lc, lctx) = self.lc.root(s, stats);
         let (h_wd, wctx) = self.wd.root(s, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
-        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
+        (
+            h,
+            ZpdbPlusCtx {
+                zpdb: zctx,
+                lc: lctx,
+                wd: wctx,
+            },
+        )
     }
 
     #[inline]
@@ -260,7 +275,14 @@ impl<'a, const N: usize> IncHeuristic for ZpdbPlusInc<'a, N> {
         let (h_lc, lctx) = self.lc.advance(&parent.lc, child, m, stats);
         let (h_wd, wctx) = self.wd.advance(&parent.wd, child, m, stats);
         let h = h_zpdb.max(h_lc).max(h_wd);
-        (h, ZpdbPlusCtx { zpdb: zctx, lc: lctx, wd: wctx })
+        (
+            h,
+            ZpdbPlusCtx {
+                zpdb: zctx,
+                lc: lctx,
+                wd: wctx,
+            },
+        )
     }
 }
 
@@ -359,7 +381,11 @@ mod tests {
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = inc.advance(&ctx, &ns, m, &mut stats);
             let (h_fresh, _) = IncHeuristic::root(&inc, &ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "advance diverged at step {} (state {:?})", i, ns.0);
+            assert_eq!(
+                h_adv, h_fresh,
+                "advance diverged at step {} (state {:?})",
+                i, ns.0
+            );
             s = ns;
             ctx = ctx_adv;
         }
@@ -401,7 +427,12 @@ mod tests {
                         cost == 0,
                         cidx == pidx,
                         "cost {} but {}->{} for pattern {:?}, move {:?}, state {:?}",
-                        cost, pidx, cidx, pattern, m, s.0,
+                        cost,
+                        pidx,
+                        cidx,
+                        pattern,
+                        m,
+                        s.0,
                     );
                 }
                 let opts: Vec<Move> = s.legal_moves().iter().collect();
@@ -428,7 +459,11 @@ mod tests {
             .collect();
         samples.sort_by_key(|(s, _)| s.0);
         samples.truncate(20);
-        assert!(samples.len() >= 10, "not enough deep samples ({})", samples.len());
+        assert!(
+            samples.len() >= 10,
+            "not enough deep samples ({})",
+            samples.len()
+        );
         for (s, true_d) in &samples {
             let (sol, _) = idastar_inc_with_stats(s, &inc);
             let sol = sol.expect("ZPDB IDA* found no solution");
@@ -468,8 +503,14 @@ mod tests {
                 .max(refl.h(&s))
                 .max(LinearConflictHeuristic.h(&s))
                 .max(WalkingDistanceHeuristic.h(&s));
-            assert!(hz >= korf_plus, "zpdb-plus {hz} < korf-plus {korf_plus} at {raw:?}");
-            assert!(hz <= td, "zpdb-plus {hz} inadmissible (true {td}) at {raw:?}");
+            assert!(
+                hz >= korf_plus,
+                "zpdb-plus {hz} < korf-plus {korf_plus} at {raw:?}"
+            );
+            assert!(
+                hz <= td,
+                "zpdb-plus {hz} inadmissible (true {td}) at {raw:?}"
+            );
         }
     }
 }

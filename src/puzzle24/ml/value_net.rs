@@ -96,7 +96,10 @@ pub struct ValueNet {
 /// `WD(s)` per state as an `[n,1]` f32 tensor — the residual parameterization's
 /// admissible base, added to the raw forward when computing the training loss.
 pub fn wd_base(states: &[State], device: &Device) -> Result<Tensor> {
-    let wd: Vec<f32> = states.iter().map(|s| WalkingDistanceHeuristic.h(s) as f32).collect();
+    let wd: Vec<f32> = states
+        .iter()
+        .map(|s| WalkingDistanceHeuristic.h(s) as f32)
+        .collect();
     Tensor::from_vec(wd, (states.len(), 1), device)
 }
 
@@ -122,7 +125,14 @@ impl ValueNet {
             body.push(ResBlock::new(hidden, vb.pp(format!("block{i}")))?);
         }
         let out = linear(hidden, 1, vb.pp("out"))?;
-        Ok(Self { in_proj, in_norm, blocks: body, out, residual: false, b_embed: None })
+        Ok(Self {
+            in_proj,
+            in_norm,
+            blocks: body,
+            out,
+            residual: false,
+            b_embed: None,
+        })
     }
 
     /// Build a **target-conditioned** net: adds a zero-init `[25, hidden]` target
@@ -243,8 +253,10 @@ mod tests {
         let net = ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &dev), 48, 3).unwrap();
         let states = [GOAL, GOAL.apply(crate::puzzle24::state::Move::Up)];
         let batched = net.values(&states, &dev).unwrap();
-        let one_by_one: Vec<f32> =
-            states.iter().flat_map(|s| net.values(std::slice::from_ref(s), &dev).unwrap()).collect();
+        let one_by_one: Vec<f32> = states
+            .iter()
+            .flat_map(|s| net.values(std::slice::from_ref(s), &dev).unwrap())
+            .collect();
         for (a, b) in batched.iter().zip(one_by_one.iter()) {
             assert!((a - b).abs() < 1e-4, "batch vs single differ: {a} vs {b}");
         }
@@ -257,8 +269,8 @@ mod tests {
         // target class — so a forward checkpoint loads and reproduces exactly.
         let dev = Device::Cpu;
         let vm = VarMap::new();
-        let net =
-            ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &dev), 48, 3).unwrap();
+        let net = ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &dev), 48, 3)
+            .unwrap();
         let states = [GOAL, GOAL.apply(crate::puzzle24::state::Move::Up)];
         let fwd = net.values(&states, &dev).unwrap();
         for b in [0usize, 12, 24] {
@@ -287,8 +299,14 @@ mod tests {
         vm_b.load(&path).unwrap();
         let out_b_after = net_b.values(&states, &dev).unwrap();
 
-        assert_ne!(out_a, out_b_before, "distinct random inits unexpectedly equal");
-        assert_eq!(out_a, out_b_after, "loaded weights did not reproduce A's output");
+        assert_ne!(
+            out_a, out_b_before,
+            "distinct random inits unexpectedly equal"
+        );
+        assert_eq!(
+            out_a, out_b_after,
+            "loaded weights did not reproduce A's output"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

@@ -84,14 +84,24 @@ fn main() -> ExitCode {
         blocks,
     );
 
-    let solver_bwas = BwasConfig { weight: solver_weight, batch_size: solver_sbatch, node_budget: solver_budget };
+    let solver_bwas = BwasConfig {
+        weight: solver_weight,
+        batch_size: solver_sbatch,
+        node_budget: solver_budget,
+    };
     let cfg = AlternationConfig {
         rounds,
         solver_steps_per_round: solver_steps,
         generator_steps_per_round: gen_steps,
         solver_batch: batch,
         generator_frac: gen_frac,
-        davi: DaviConfig { k_max: solver_k, hidden, blocks, lr: 1e-3, target_sync_every: 1000 },
+        davi: DaviConfig {
+            k_max: solver_k,
+            hidden,
+            blocks,
+            lr: 1e-3,
+            target_sync_every: 1000,
+        },
         generator: GeneratorConfig {
             k_max: gen_k,
             hidden,
@@ -116,7 +126,10 @@ fn main() -> ExitCode {
 
     match run(&cfg, device) {
         Ok(()) => {
-            println!("training complete; checkpoints + metrics in {}", cfg.checkpoint_dir.display());
+            println!(
+                "training complete; checkpoints + metrics in {}",
+                cfg.checkpoint_dir.display()
+            );
             if profile::is_enabled() {
                 print!("\n{}", profile::report());
             }

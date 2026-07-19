@@ -258,7 +258,13 @@ fn cwd(table: &WdTable, goal: u64, s: &State, nanos: &mut u128, evals: &mut u64)
 /// ONLY line g constrained (the buildable-table approximation). Also returns the
 /// number of demanded lines (≥2 ⇒ multi-line coupling, where single-line-max can
 /// undershoot full). Falls back to WD if any A\* exhausts its budget.
-fn cwd_axis_singlemax(table: &WdTable, m: &Matrix, blank: u8, goal: u64, dem: &[u8; W]) -> (u8, u8) {
+fn cwd_axis_singlemax(
+    table: &WdTable,
+    m: &Matrix,
+    blank: u8,
+    goal: u64,
+    dem: &[u8; W],
+) -> (u8, u8) {
     let wd0 = *table.get(&pack(m, blank)).expect("start reachable");
     let mut best = wd0;
     let mut ndem = 0u8;
@@ -274,7 +280,13 @@ fn cwd_axis_singlemax(table: &WdTable, m: &Matrix, blank: u8, goal: u64, dem: &[
 }
 
 /// (wd, full sharp cWD, single-line-max cWD, max demanded-line count over axes).
-fn cwd_ext(table: &WdTable, goal: u64, s: &State, nanos: &mut u128, evals: &mut u64) -> (u8, u8, u8, u8) {
+fn cwd_ext(
+    table: &WdTable,
+    goal: u64,
+    s: &State,
+    nanos: &mut u128,
+    evals: &mut u64,
+) -> (u8, u8, u8, u8) {
     let (mr, br, dr, mc, bc, dc) = project(s);
     let wd_row = *table.get(&pack(&mr, br)).expect("row reachable");
     let wd_col = *table.get(&pack(&mc, bc)).expect("col reachable");
@@ -338,11 +350,17 @@ impl Sampler {
         self.seen += 1;
         // reservoir sampling
         if self.reservoir.len() < self.reservoir_size {
-            self.reservoir.push(Node { state: *state, depth });
+            self.reservoir.push(Node {
+                state: *state,
+                depth,
+            });
         } else {
             let j = (self.rng.next() % self.seen) as usize;
             if j < self.reservoir_size {
-                self.reservoir[j] = Node { state: *state, depth };
+                self.reservoir[j] = Node {
+                    state: *state,
+                    depth,
+                };
             }
         }
     }
@@ -395,7 +413,11 @@ fn parse_moves(s: &str) -> Vec<Move> {
 /// reverse from GOAL.
 fn path_mode(table: &WdTable, goal: u64, file: &str) {
     let text = std::fs::read_to_string(file).expect("read move file");
-    let non_comment: String = text.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join(" ");
+    let non_comment: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
     let moves = parse_moves(&non_comment);
     eprintln!("path: {} moves from {file}", moves.len());
 
@@ -427,14 +449,22 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
         traj.reverse();
     }
     let end = traj.last().unwrap();
-    let reaches_goal = *end == puzzle8::puzzle24::state::GOAL || traj[0] == puzzle8::puzzle24::state::GOAL;
+    let reaches_goal =
+        *end == puzzle8::puzzle24::state::GOAL || traj[0] == puzzle8::puzzle24::state::GOAL;
     eprintln!(
         "  replayed {} states; endpoint {} GOAL",
         traj.len(),
-        if reaches_goal { "reaches" } else { "does NOT reach" }
+        if reaches_goal {
+            "reaches"
+        } else {
+            "does NOT reach"
+        }
     );
 
-    println!("=== δ along R's {}-move solution (depth = moves from R) ===", moves.len());
+    println!(
+        "=== δ along R's {}-move solution (depth = moves from R) ===",
+        moves.len()
+    );
     println!("depth   WD  cWD   δ   demand(row/col nonzero)");
     let mut nanos = 0u128;
     let mut evals = 0u64;
@@ -442,7 +472,12 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
     for (d, st) in traj.iter().enumerate() {
         let (wdv, cwdv) = cwd(table, goal, st, &mut nanos, &mut evals);
         let (_, _, dr, _, _, dc) = project(st);
-        let nz: Vec<u8> = dr.iter().chain(dc.iter()).copied().filter(|&x| x > 0).collect();
+        let nz: Vec<u8> = dr
+            .iter()
+            .chain(dc.iter())
+            .copied()
+            .filter(|&x| x > 0)
+            .collect();
         let delta = cwdv as i16 - wdv as i16;
         band.push((wdv, delta));
         if d % 4 == 0 || d + 1 == traj.len() {
@@ -451,8 +486,20 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
     }
     // δ̄ by WD band along the path
     println!("\n=== δ̄ by WD band along the path (deep = low WD) ===");
-    for &(lo, hi) in &[(0u8, 20), (21, 40), (41, 60), (61, 80), (81, 100), (101, 120), (121, 140)] {
-        let sub: Vec<i16> = band.iter().filter(|(w, _)| *w >= lo && *w <= hi).map(|(_, d)| *d).collect();
+    for &(lo, hi) in &[
+        (0u8, 20),
+        (21, 40),
+        (41, 60),
+        (61, 80),
+        (81, 100),
+        (101, 120),
+        (121, 140),
+    ] {
+        let sub: Vec<i16> = band
+            .iter()
+            .filter(|(w, _)| *w >= lo && *w <= hi)
+            .map(|(_, d)| *d)
+            .collect();
         if sub.is_empty() {
             println!("WD {lo}-{hi}: n=0");
             continue;
@@ -465,15 +512,29 @@ fn path_mode(table: &WdTable, goal: u64, file: &str) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(|s| s.as_str()) == Some("path") {
-        let file = args.get(2).map(|s| s.as_str()).unwrap_or("data/r156_ours_solution.txt");
+        let file = args
+            .get(2)
+            .map(|s| s.as_str())
+            .unwrap_or("data/r156_ours_solution.txt");
         let t0 = Instant::now();
-        let table = load_dist_table(Path::new("data/wd24.bin"), WD_KIND_FULL, Some(FULL_WD_ENTRIES))
-            .expect("wd24.bin load");
-        eprintln!("WD table: {} entries in {:.1}s", table.len(), t0.elapsed().as_secs_f64());
+        let table = load_dist_table(
+            Path::new("data/wd24.bin"),
+            WD_KIND_FULL,
+            Some(FULL_WD_ENTRIES),
+        )
+        .expect("wd24.bin load");
+        eprintln!(
+            "WD table: {} entries in {:.1}s",
+            table.len(),
+            t0.elapsed().as_secs_f64()
+        );
         path_mode(&table, goal_key(), file);
         return;
     }
-    let cap: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(20_000_000);
+    let cap: u64 = args
+        .get(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000_000);
     let threshold: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(144);
     let reservoir_size: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(12_000);
 
@@ -498,7 +559,11 @@ fn main() {
             "sanity R: WD={wdv} (exp 140), demand row={dr:?} col={dc:?}, cWD={cwdv} (exp 144), δ={}",
             cwdv as i16 - wdv as i16
         );
-        assert_eq!((wdv, cwdv), (140, 144), "R sanity failed — cWD wiring is wrong");
+        assert_eq!(
+            (wdv, cwdv),
+            (140, 144),
+            "R sanity failed — cWD wiring is wrong"
+        );
     }
 
     // ---- sample the tree ----
@@ -527,7 +592,12 @@ fn main() {
     eprint!("expanded-node depth histogram: ");
     let hb = &sampler.depth_hist;
     for &(lo, hi) in &[(0usize, 39), (40, 79), (80, 109), (110, 129), (130, 200)] {
-        let c: u64 = hb.iter().enumerate().filter(|(d, _)| *d >= lo && *d <= hi).map(|(_, &v)| v).sum();
+        let c: u64 = hb
+            .iter()
+            .enumerate()
+            .filter(|(d, _)| *d >= lo && *d <= hi)
+            .map(|(_, &v)| v)
+            .sum();
         eprint!("[{lo}-{hi}]={c} ");
     }
     eprintln!();
@@ -578,7 +648,11 @@ fn main() {
             num += hb[d] as f64 * mean;
             den += hb[d] as f64;
         }
-        if den > 0.0 { num / den } else { 0.0 }
+        if den > 0.0 {
+            num / den
+        } else {
+            0.0
+        }
     };
 
     let report = |label: &str, sel: &dyn Fn(&Row) -> bool, fld: &dyn Fn(&Row) -> i16| {
@@ -606,7 +680,11 @@ fn main() {
 
     println!("=== FULL sharp cWD: δ = cWD − WD by depth ===");
     for &(lo, hi) in &[(0u16, 39), (40, 79), (80, 109), (110, 129), (130, 250)] {
-        report(&format!("depth {lo}-{hi}"), &|r| r.depth >= lo && r.depth <= hi, &full);
+        report(
+            &format!("depth {lo}-{hi}"),
+            &|r| r.depth >= lo && r.depth <= hi,
+            &full,
+        );
     }
     println!("\n=== headline (full) ===");
     report("ALL full", &|_| true, &full);
@@ -614,7 +692,11 @@ fn main() {
 
     println!("\n=== SINGLE-LINE-MAX (the buildable-table approximation) ===");
     for &(lo, hi) in &[(0u16, 39), (40, 79), (80, 109), (110, 129), (130, 250)] {
-        report(&format!("depth {lo}-{hi}"), &|r| r.depth >= lo && r.depth <= hi, &single);
+        report(
+            &format!("depth {lo}-{hi}"),
+            &|r| r.depth >= lo && r.depth <= hi,
+            &single,
+        );
     }
     report("ALL single", &|_| true, &single);
 
@@ -664,11 +746,18 @@ fn main() {
         29f64.powf(nw_single / 2.0),
         if nw_full > 0.0 { nw_single / nw_full * 100.0 } else { 0.0 }
     );
-    println!("(reservoir covers {:.0}% of expanded depths)", den_cov / total_expanded * 100.0);
+    println!(
+        "(reservoir covers {:.0}% of expanded depths)",
+        den_cov / total_expanded * 100.0
+    );
     let uncapped = sampler.expansions < cap;
     println!(
         "DFS {} (expansions {} vs cap {}) — weighting is {}",
-        if uncapped { "FULLY EXHAUSTED" } else { "CAPPED (depth dist is DFS-biased)" },
+        if uncapped {
+            "FULLY EXHAUSTED"
+        } else {
+            "CAPPED (depth dist is DFS-biased)"
+        },
         sampler.expansions,
         cap,
         if uncapped { "exact" } else { "approximate" }

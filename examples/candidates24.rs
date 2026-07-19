@@ -159,8 +159,10 @@ fn perturb(rng: &mut Rng, s: &State, k: u32) -> State {
     let mut last: Option<Move> = None;
     for _ in 0..k {
         let legal = cur.legal_moves();
-        let choices: Vec<Move> =
-            legal.iter().filter(|&m| last.is_none_or(|l| m != l.inverse())).collect();
+        let choices: Vec<Move> = legal
+            .iter()
+            .filter(|&m| last.is_none_or(|l| m != l.inverse()))
+            .collect();
         if choices.is_empty() {
             break;
         }
@@ -212,7 +214,13 @@ fn climb(seed: &State, sc: &Scorer, iters: u32, sideways_cap: u32, rng: &mut Rng
     let mut cur = *seed;
     let mut cur_score = sc.score(&cur);
     let (mut ops3, mut opsd, mut accepts) = (0u32, 0u32, 0u32);
-    let mut best = Peak { s: cur, score: cur_score, ops3: 0, opsd: 0, accepts: 0 };
+    let mut best = Peak {
+        s: cur,
+        score: cur_score,
+        ops3: 0,
+        opsd: 0,
+        accepts: 0,
+    };
     let mut sideways = 0u32;
     for _ in 0..iters {
         let (cand, kind) = mutate(rng, &cur, &cells);
@@ -237,7 +245,13 @@ fn climb(seed: &State, sc: &Scorer, iters: u32, sideways_cap: u32, rng: &mut Rng
                 MutKind::DoubleSwap => opsd += 1,
             }
             if cur_score > best.score {
-                best = Peak { s: cur, score: cur_score, ops3, opsd, accepts };
+                best = Peak {
+                    s: cur,
+                    score: cur_score,
+                    ops3,
+                    opsd,
+                    accepts,
+                };
             }
         }
     }
@@ -271,7 +285,10 @@ fn parse_board_line(line: &str) -> Option<State> {
 }
 
 fn board_tokens(s: &State) -> String {
-    s.0.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")
+    s.0.iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ---------------------------------------------------------------------- main
@@ -299,7 +316,11 @@ fn main() -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    let out = match argv.iter().position(|a| a == "--out").and_then(|i| argv.get(i + 1)) {
+    let out = match argv
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| argv.get(i + 1))
+    {
         Some(p) => p.clone(),
         None => {
             eprintln!("--out FILE required");
@@ -324,14 +345,21 @@ fn main() -> ExitCode {
     eprint!("warming up Walking Distance table... ");
     WalkingDistanceHeuristic::warm_up();
     eprintln!("ready");
-    let sc = Scorer { wd: WalkingDistanceHeuristic, lc: LinearConflictHeuristic, kind };
+    let sc = Scorer {
+        wd: WalkingDistanceHeuristic,
+        lc: LinearConflictHeuristic,
+        kind,
+    };
 
     let mut rng = Rng::new(seed);
 
     // ---- build seed list: (label, board) ----
     let mut seeds: Vec<(String, State)> = Vec::new();
     seeds.push(("R".into(), r_board()));
-    seeds.push(("reflect(R)".into(), puzzle8::puzzle24::symmetry::reflect(&r_board())));
+    seeds.push((
+        "reflect(R)".into(),
+        puzzle8::puzzle24::symmetry::reflect(&r_board()),
+    ));
     // frame-conformant seeds (keep only WD >= min_seed_wd)
     {
         let mut made = 0usize;
@@ -373,7 +401,11 @@ fn main() -> ExitCode {
     for (label, board) in &seeds {
         for r in 0..restarts {
             // restart 0 climbs from the seed itself; later restarts perturb first.
-            let start = if r == 0 { *board } else { perturb(&mut rng, board, perturb_k) };
+            let start = if r == 0 {
+                *board
+            } else {
+                perturb(&mut rng, board, perturb_k)
+            };
             let pk_used = if r == 0 { 0 } else { perturb_k };
             let peak = climb(&start, &sc, iters, sideways, &mut rng);
             let wd = sc.wd.h(&peak.s);
@@ -391,7 +423,12 @@ fn main() -> ExitCode {
                 cheap,
                 is_frame_conformant(&peak.s) as u8
             );
-            candidates.push(Candidate { board: peak.s, canon, score: peak.score, lineage });
+            candidates.push(Candidate {
+                board: peak.s,
+                canon,
+                score: peak.score,
+                lineage,
+            });
         }
     }
 
@@ -410,7 +447,12 @@ fn main() -> ExitCode {
             continue; // duplicate under reflection
         }
         // per-seed cap keyed on the seed label prefix
-        let seed_key = c.lineage.split_whitespace().next().unwrap_or("").to_string();
+        let seed_key = c
+            .lineage
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
         let cnt = per_seed_count.entry(seed_key.clone()).or_insert(0);
         if *cnt >= per_seed {
             continue;
@@ -423,7 +465,10 @@ fn main() -> ExitCode {
             continue;
         }
         *cnt += 1;
-        emitted.push(Emitted { canon: c.canon, score: c.score });
+        emitted.push(Emitted {
+            canon: c.canon,
+            score: c.score,
+        });
         chosen.push(c);
     }
 
@@ -468,12 +513,19 @@ fn main() -> ExitCode {
             dcnt += 1;
         }
     }
-    let mean_pair = if dcnt > 0 { dsum as f64 / dcnt as f64 } else { 0.0 };
+    let mean_pair = if dcnt > 0 {
+        dsum as f64 / dcnt as f64
+    } else {
+        0.0
+    };
     eprintln!(
         "emitted {} boards -> {}\n  score: min {} mean {:.1} max {}  (proven-LB floors)\n  mean pairwise Hamming {:.1} (min-dist {})",
         n, out, scores[0], mean, scores[n - 1], mean_pair, min_dist
     );
-    let frame_cnt = chosen.iter().filter(|c| c.lineage.contains("frame=1")).count();
+    let frame_cnt = chosen
+        .iter()
+        .filter(|c| c.lineage.contains("frame=1"))
+        .count();
     eprintln!("  frame-conformant emitted: {frame_cnt}/{n}");
     ExitCode::SUCCESS
 }
@@ -531,7 +583,9 @@ mod tests {
             fn score(&self, s: &State) -> u8 {
                 // count tiles NOT in their goal cell, capped to u8 — admissible-ish
                 // monotone target for the climb loop's accept logic.
-                (0..N_CELLS).filter(|&i| s.0[i] != 0 && s.0[i] as usize != i + 1).count() as u8
+                (0..N_CELLS)
+                    .filter(|&i| s.0[i] != 0 && s.0[i] as usize != i + 1)
+                    .count() as u8
             }
         }
         // Re-run the climb loop inline with the proxy (mirrors `climb`).
@@ -578,7 +632,13 @@ mod tests {
     #[test]
     fn parse_rejects_bad_lines() {
         assert!(parse_board_line("1 2 3").is_none()); // too few
-        assert!(parse_board_line("0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 25").is_none()); // 25 > 24
-        assert!(parse_board_line("_ 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1").is_some()); // _ blank
+        assert!(parse_board_line(
+            "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 25"
+        )
+        .is_none()); // 25 > 24
+        assert!(parse_board_line(
+            "_ 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
+        )
+        .is_some()); // _ blank
     }
 }

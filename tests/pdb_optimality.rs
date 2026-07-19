@@ -27,34 +27,44 @@ fn assert_optimal_on_full_space<H: Heuristic>(h: &H, table: &DistanceTable, labe
         let sol = idastar(&s, h).expect("solvable state must have a solution");
         let len = sol.len() as u8;
         let truth = table.dist(&s);
-        assert_eq!(len, truth, "{}: IDA* gave {} for {:?}, truth = {}", label, len, s.0, truth);
+        assert_eq!(
+            len, truth,
+            "{}: IDA* gave {} for {:?}, truth = {}",
+            label, len, s.0, truth
+        );
         // Spot-replay every 5000 states.
         if r % 5000 == 0 {
             let mut cur = s;
             for &m in &sol {
                 cur = cur.apply(m);
             }
-            assert_eq!(cur, GOAL, "{}: solution did not reach GOAL from {:?}", label, s.0);
+            assert_eq!(
+                cur, GOAL,
+                "{}: solution did not reach GOAL from {:?}",
+                label, s.0
+            );
         }
     }
 }
 
-fn assert_optimal_on_sample<H: Heuristic>(
-    h: &H,
-    table: &DistanceTable,
-    label: &str,
-    stride: u32,
-) {
+fn assert_optimal_on_sample<H: Heuristic>(h: &H, table: &DistanceTable, label: &str, stride: u32) {
     let mut checked = 0u32;
     for r in (0..N_STATES).step_by(stride as usize) {
         let s = unrank(r);
         let sol = idastar(&s, h).expect("solvable state must have a solution");
         let len = sol.len() as u8;
         let truth = table.dist(&s);
-        assert_eq!(len, truth, "{}: IDA* gave {} for {:?}, truth = {}", label, len, s.0, truth);
+        assert_eq!(
+            len, truth,
+            "{}: IDA* gave {} for {:?}, truth = {}",
+            label, len, s.0, truth
+        );
         checked += 1;
     }
-    assert!(checked > 100, "sample too small for {label}: {checked} states");
+    assert!(
+        checked > 100,
+        "sample too small for {label}: {checked} states"
+    );
 }
 
 #[test]

@@ -215,7 +215,17 @@ impl IncHeuristic for WalkingDistanceInc {
         let h_col = *t
             .get(&pack(&m_col, bc))
             .expect("col-WD state must be reachable from goal");
-        (h_row + h_col, WdCtx { m_row, m_col, br, bc, h_row, h_col })
+        (
+            h_row + h_col,
+            WdCtx {
+                m_row,
+                m_col,
+                br,
+                bc,
+                h_row,
+                h_col,
+            },
+        )
     }
 
     fn advance(
@@ -226,7 +236,9 @@ impl IncHeuristic for WalkingDistanceInc {
         _stats: &mut SearchStats,
     ) -> (u8, WdCtx) {
         #[cfg(feature = "verifier-stats")]
-        { _stats.wd_advances += 1; }
+        {
+            _stats.wd_advances += 1;
+        }
         // The moved tile's (from, to) cells (see LinearConflictInc for the
         // identity): from = blank_new, to = blank_old. The parent carries the
         // blank's old (br, bc), so blank_old is reconstructed without rescanning.
@@ -296,9 +308,9 @@ impl IncHeuristic for WalkingDistanceInc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::search::ManhattanHeuristic;
     use crate::puzzle15::search::tests_util::bfs_distances;
-    use crate::puzzle15::state::{GOAL, Move, State};
+    use crate::puzzle15::search::ManhattanHeuristic;
+    use crate::puzzle15::state::{Move, State, GOAL};
 
     #[test]
     fn wd_of_goal_is_zero() {

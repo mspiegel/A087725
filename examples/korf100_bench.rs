@@ -132,7 +132,15 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    Ok(Args { pdb_dir, instances, heuristic, limit, quiet, scratch, mut_ctx })
+    Ok(Args {
+        pdb_dir,
+        instances,
+        heuristic,
+        limit,
+        quiet,
+        scratch,
+        mut_ctx,
+    })
 }
 
 /// Convert a Korf-convention board (blank top-left, value == cell index in the
@@ -152,8 +160,8 @@ fn to_repo_goal(korf: &[u8; N_CELLS]) -> State {
 }
 
 fn parse_instances(path: &Path) -> Result<Vec<Instance>, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("reading {}: {}", path.display(), e))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("reading {}: {}", path.display(), e))?;
     let mut out = Vec::new();
     for (lineno, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -188,7 +196,11 @@ fn parse_instances(path: &Path) -> Result<Vec<Instance>, String> {
                 .parse()
                 .map_err(|e| format!("line {}: tile {:?}: {}", lineno + 1, tok, e))?;
             if v > 15 {
-                return Err(format!("line {}: tile {} out of range 0..=15", lineno + 1, v));
+                return Err(format!(
+                    "line {}: tile {} out of range 0..=15",
+                    lineno + 1,
+                    v
+                ));
             }
             cells[count] = v;
             count += 1;
@@ -218,7 +230,11 @@ fn parse_instances(path: &Path) -> Result<Vec<Instance>, String> {
                 index
             ));
         }
-        out.push(Instance { index, optimal, state });
+        out.push(Instance {
+            index,
+            optimal,
+            state,
+        });
     }
     Ok(out)
 }
@@ -226,8 +242,10 @@ fn parse_instances(path: &Path) -> Result<Vec<Instance>, String> {
 fn load_pdbs(dir: &Path) -> Result<(PatternDb, PatternDb), String> {
     let p7 = dir.join(P7_PATH);
     let p8 = dir.join(P8_PATH);
-    let p7_db = PatternDb::load_mmap(&p7).map_err(|e| format!("loading {}: {}", p7.display(), e))?;
-    let p8_db = PatternDb::load_mmap(&p8).map_err(|e| format!("loading {}: {}", p8.display(), e))?;
+    let p7_db =
+        PatternDb::load_mmap(&p7).map_err(|e| format!("loading {}: {}", p7.display(), e))?;
+    let p8_db =
+        PatternDb::load_mmap(&p8).map_err(|e| format!("loading {}: {}", p8.display(), e))?;
     Ok((p7_db, p8_db))
 }
 
@@ -263,7 +281,11 @@ where
         for m in &sol {
             cur = cur.apply(*m);
         }
-        assert_eq!(cur, GOAL, "instance {}: solution does not reach GOAL", inst.index);
+        assert_eq!(
+            cur, GOAL,
+            "instance {}: solution does not reach GOAL",
+            inst.index
+        );
 
         let found = sol.len() as u8;
         if found != inst.optimal {
@@ -271,7 +293,11 @@ where
         }
 
         if !quiet {
-            let flag = if found == inst.optimal { "" } else { "  <-- MISMATCH" };
+            let flag = if found == inst.optimal {
+                ""
+            } else {
+                "  <-- MISMATCH"
+            };
             println!(
                 "{:>4}  {:>3}  {:>5}  {:>15}  {:>5}  {:>10}{}",
                 inst.index,
@@ -307,24 +333,35 @@ fn print_summary(name: &str, rows: &[Row], mismatches: &[(u32, u8, u8)]) {
     let total_time: Duration = rows.iter().map(|r| r.elapsed).sum();
     let total_optimal: u64 = rows.iter().map(|r| r.optimal as u64).sum();
     let secs = total_time.as_secs_f64();
-    let nps = if secs > 0.0 { total_nodes as f64 / secs } else { 0.0 };
+    let nps = if secs > 0.0 {
+        total_nodes as f64 / secs
+    } else {
+        0.0
+    };
 
     let slowest = rows.iter().max_by_key(|r| r.elapsed).unwrap();
     let heaviest = rows.iter().max_by_key(|r| r.nodes).unwrap();
 
     println!("\n=== Korf-100 summary ({name}, n={n}) ===");
-    println!("total optimal moves : {}  (mean {:.2}; Korf 1985 ~52-53)",
-        total_optimal, total_optimal as f64 / n as f64);
+    println!(
+        "total optimal moves : {}  (mean {:.2}; Korf 1985 ~52-53)",
+        total_optimal,
+        total_optimal as f64 / n as f64
+    );
     println!("total nodes         : {total_nodes}");
     println!("mean nodes/instance : {}", total_nodes / n);
     println!("mean iterations     : {:.1}", total_iters as f64 / n as f64);
     println!("total wall-clock    : {total_time:.2?}");
     println!("mean wall-clock     : {:.2?}", total_time / n as u32);
     println!("throughput          : {:.3} Mnodes/s", nps / 1.0e6);
-    println!("heaviest (nodes)    : #{} -> {} nodes, {:.2?}",
-        heaviest.index, heaviest.nodes, heaviest.elapsed);
-    println!("slowest (time)      : #{} -> {:.2?}, {} nodes",
-        slowest.index, slowest.elapsed, slowest.nodes);
+    println!(
+        "heaviest (nodes)    : #{} -> {} nodes, {:.2?}",
+        heaviest.index, heaviest.nodes, heaviest.elapsed
+    );
+    println!(
+        "slowest (time)      : #{} -> {:.2?}, {} nodes",
+        slowest.index, slowest.elapsed, slowest.nodes
+    );
 
     if mismatches.is_empty() {
         println!("optimality          : OK — all {n} match Korf 1985 Table 1");
@@ -360,10 +397,18 @@ fn main() -> ExitCode {
     if let Some(limit) = args.limit {
         instances.truncate(limit);
     }
-    println!("Loaded {} instances from {}", instances.len(), args.instances.display());
+    println!(
+        "Loaded {} instances from {}",
+        instances.len(),
+        args.instances.display()
+    );
 
     let (rows, mismatches, name) = if args.heuristic == HeuristicChoice::Manhattan {
-        let (rows, mm) = run(|s| idastar_with_stats(s, &ManhattanHeuristic), &instances, args.quiet);
+        let (rows, mm) = run(
+            |s| idastar_with_stats(s, &ManhattanHeuristic),
+            &instances,
+            args.quiet,
+        );
         (rows, mm, "manhattan".to_string())
     } else {
         let (p7_db, p8_db) = match load_pdbs(&args.pdb_dir) {
@@ -384,8 +429,11 @@ fn main() -> ExitCode {
                 // Default: incremental evaluator (OPTIMIZATION.md #1).
                 let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
                 if args.mut_ctx {
-                    let (rows, mm) =
-                        run(|s| idastar_inc_mut_with_stats(s, &inc), &instances, args.quiet);
+                    let (rows, mm) = run(
+                        |s| idastar_inc_mut_with_stats(s, &inc),
+                        &instances,
+                        args.quiet,
+                    );
                     (rows, mm, "korf incremental (mutable ctx)".to_string())
                 } else {
                     let (rows, mm) =
@@ -398,7 +446,11 @@ fn main() -> ExitCode {
                 let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
                 let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
                 let (rows, mm) = run(|s| idastar_with_stats(s, &h_korf), &instances, args.quiet);
-                (rows, mm, "korf scratch max(additive, reflected)".to_string())
+                (
+                    rows,
+                    mm,
+                    "korf scratch max(additive, reflected)".to_string(),
+                )
             }
             HeuristicChoice::KorfPlus => {
                 let h_refl = ReflectedHeuristic::new(AdditivePdbHeuristic::new(&dbs));
@@ -408,10 +460,8 @@ fn main() -> ExitCode {
                     &LinearConflictHeuristic as &dyn Heuristic,
                     &WalkingDistanceHeuristic as &dyn Heuristic,
                 );
-                let h_plus = MaxHeuristic::new(
-                    &h_korf as &dyn Heuristic,
-                    &h_classical as &dyn Heuristic,
-                );
+                let h_plus =
+                    MaxHeuristic::new(&h_korf as &dyn Heuristic, &h_classical as &dyn Heuristic);
                 let (rows, mm) = run(|s| idastar_with_stats(s, &h_plus), &instances, args.quiet);
                 (rows, mm, "korf-plus".to_string())
             }

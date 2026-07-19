@@ -8,13 +8,8 @@ pub mod move_dfa;
 pub mod walking_distance;
 
 pub use cwd::{load_cwd_overlay, Cwd, CwdOverlay, CwdScratch};
-pub use heuristic::{Heuristic, IncManhattan, LazyMaxInc, ManhattanMutCtx, ManhattanHeuristic, MaxInc};
-pub use linear_conflict::{LcCtx, LcMutCtx, LinearConflictHeuristic, LinearConflictInc};
-pub use walking_distance::{
-    build_full_table, load_dist_table, save_dist_table, WalkingDistanceHeuristic,
-    WalkingDistanceInc, WalkingDistanceTo, WdBuild, WdCtx, WdLoadError, WdMutCtx, WdTable,
-    WdTableSource,
-    FULL_WD_ENTRIES, WD_KIND_FULL, WD_TABLE_MAGIC, WD_TABLE_VERSION,
+pub use heuristic::{
+    Heuristic, IncManhattan, LazyMaxInc, ManhattanHeuristic, ManhattanMutCtx, MaxInc,
 };
 pub use idastar::{
     idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,
@@ -23,7 +18,13 @@ pub use idastar::{
 };
 #[cfg(feature = "parallel")]
 pub use idastar::{idastar_inc_bounded_parallel, Par};
+pub use linear_conflict::{LcCtx, LcMutCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use move_dfa::{MoveDfa, MovePruner, NullPruner};
+pub use walking_distance::{
+    build_full_table, load_dist_table, save_dist_table, WalkingDistanceHeuristic,
+    WalkingDistanceInc, WalkingDistanceTo, WdBuild, WdCtx, WdLoadError, WdMutCtx, WdTable,
+    WdTableSource, FULL_WD_ENTRIES, WD_KIND_FULL, WD_TABLE_MAGIC, WD_TABLE_VERSION,
+};
 
 /// Test-only helpers shared across the search tests.
 #[cfg(test)]

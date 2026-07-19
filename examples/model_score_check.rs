@@ -11,7 +11,10 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let model_path: PathBuf = std::env::args().nth(1).ok_or("usage: model_score_check MODEL VAL")?.into();
+    let model_path: PathBuf = std::env::args()
+        .nth(1)
+        .ok_or("usage: model_score_check MODEL VAL")?
+        .into();
     let val_path: PathBuf = std::env::args().nth(2).ok_or("need VAL")?.into();
 
     let m = tree_model::TreeModel::load(&model_path)?;
@@ -23,12 +26,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut n = 0u64;
     for line in text.lines() {
         let toks: Vec<&str> = line.split_whitespace().collect();
-        if toks.len() != m.nfeat + 1 { continue; }
+        if toks.len() != m.nfeat + 1 {
+            continue;
+        }
         let x: Vec<f64> = toks[..m.nfeat].iter().map(|t| t.parse().unwrap()).collect();
         let expected: f64 = toks[m.nfeat].parse().unwrap();
         let got = m.score(&x);
         let d = (got - expected).abs();
-        if d > max_diff { max_diff = d; }
+        if d > max_diff {
+            max_diff = d;
+        }
         sum_diff += d;
         n += 1;
     }

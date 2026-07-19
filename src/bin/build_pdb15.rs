@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use puzzle8::puzzle15::pdb::PatternDb;
 use puzzle8::puzzle15::pdb::pattern::Pattern;
+use puzzle8::puzzle15::pdb::PatternDb;
 
 use sha2::{Digest, Sha256};
 
@@ -54,7 +54,10 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--tiles needs a value")?;
                 let mut v: Vec<u8> = Vec::new();
                 for token in s.split(',') {
-                    let t = token.trim().parse::<u8>().map_err(|e| format!("bad tile {token:?}: {e}"))?;
+                    let t = token
+                        .trim()
+                        .parse::<u8>()
+                        .map_err(|e| format!("bad tile {token:?}: {e}"))?;
                     if !(1..=15).contains(&t) {
                         return Err(format!("tile {t} out of range 1..=15"));
                     }
@@ -68,17 +71,24 @@ fn parse_args() -> Result<Args, String> {
             }
             "--threads" => {
                 i += 1;
-                let n = argv.get(i).ok_or("--threads needs a value")?
-                    .parse::<usize>().map_err(|e| format!("bad threads: {e}"))?;
+                let n = argv
+                    .get(i)
+                    .ok_or("--threads needs a value")?
+                    .parse::<usize>()
+                    .map_err(|e| format!("bad threads: {e}"))?;
                 threads = Some(n);
             }
             "--verify-sha" => {
                 i += 1;
-                verify_sha = Some(PathBuf::from(argv.get(i).ok_or("--verify-sha needs a value")?));
+                verify_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--verify-sha needs a value")?,
+                ));
             }
             "--write-sha" => {
                 i += 1;
-                write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
+                write_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--write-sha needs a value")?,
+                ));
             }
             "-h" | "--help" => {
                 return Err(String::from("help"));
@@ -90,7 +100,13 @@ fn parse_args() -> Result<Args, String> {
 
     let tiles = tiles.ok_or("missing --tiles")?;
     let out = out.ok_or("missing --out")?;
-    Ok(Args { tiles, out, threads, verify_sha, write_sha })
+    Ok(Args {
+        tiles,
+        out,
+        threads,
+        verify_sha,
+        write_sha,
+    })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -106,7 +122,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn main() -> ExitCode {
-    let prog = std::env::args().next().unwrap_or_else(|| "build_pdb15".into());
+    let prog = std::env::args()
+        .next()
+        .unwrap_or_else(|| "build_pdb15".into());
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -128,7 +146,11 @@ fn main() -> ExitCode {
     }
 
     let pattern = Pattern::new(&args.tiles);
-    println!("Building PDB for pattern {:?} ({} tiles)", args.tiles, pattern.size());
+    println!(
+        "Building PDB for pattern {:?} ({} tiles)",
+        args.tiles,
+        pattern.size()
+    );
     println!("  PDB entries  : {}", pattern.num_projected_states());
     println!("  BFS visited  : {}", pattern.num_bfs_states());
     println!("  Output file  : {}", args.out.display());
@@ -158,7 +180,10 @@ fn main() -> ExitCode {
     if let Some(verify_path) = &args.verify_sha {
         let expected = std::fs::read_to_string(verify_path)
             .map(|s| s.split_whitespace().next().unwrap_or("").to_string())
-            .unwrap_or_else(|e| { eprintln!("error reading {}: {}", verify_path.display(), e); std::process::exit(1); });
+            .unwrap_or_else(|e| {
+                eprintln!("error reading {}: {}", verify_path.display(), e);
+                std::process::exit(1);
+            });
         if expected != sha {
             eprintln!("error: SHA-256 mismatch");
             eprintln!("  expected: {expected}");
@@ -169,8 +194,7 @@ fn main() -> ExitCode {
     }
 
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{sha}\n"))
-            .expect("writing SHA file");
+        std::fs::write(write_path, format!("{sha}\n")).expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }
 

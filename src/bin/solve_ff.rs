@@ -20,10 +20,10 @@ use candle_nn::{VarBuilder, VarMap};
 
 use puzzle8::puzzle24::ml::bidirectional::{bidir_search_ff, manhattan_to, FfConfig};
 use puzzle8::puzzle24::ml::bwas::{anytime_search, BwasOutcome};
-use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
 use puzzle8::puzzle24::ml::corridor::relabel_to_ib;
 use puzzle8::puzzle24::ml::device::{device_kind, pick_device};
 use puzzle8::puzzle24::ml::value_net::{ValueNet, DEFAULT_BLOCKS, DEFAULT_HIDDEN};
+use puzzle8::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
 use puzzle8::puzzle24::state::{State, GOAL, N_CELLS};
 
 fn arg<T: std::str::FromStr>(argv: &[String], flag: &str, default: T) -> T {
@@ -50,7 +50,11 @@ fn parse_position(s: &str) -> Option<State> {
         if n >= N_CELLS {
             return None;
         }
-        c[n] = if tok == "_" || tok == "." { 0 } else { tok.parse().ok()? };
+        c[n] = if tok == "_" || tok == "." {
+            0
+        } else {
+            tok.parse().ok()?
+        };
         n += 1;
     }
     if n == N_CELLS {
@@ -62,7 +66,11 @@ fn parse_position(s: &str) -> Option<State> {
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().collect();
-    let checkpoint = match argv.iter().position(|a| a == "--checkpoint").and_then(|i| argv.get(i + 1)) {
+    let checkpoint = match argv
+        .iter()
+        .position(|a| a == "--checkpoint")
+        .and_then(|i| argv.get(i + 1))
+    {
         Some(p) => PathBuf::from(p),
         None => {
             eprintln!("--checkpoint (conditioned pair net) required");
@@ -71,7 +79,11 @@ fn main() -> ExitCode {
     };
     let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
     let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
-    let start = match argv.iter().position(|a| a == "--position").and_then(|i| argv.get(i + 1)) {
+    let start = match argv
+        .iter()
+        .position(|a| a == "--position")
+        .and_then(|i| argv.get(i + 1))
+    {
         Some(p) => match parse_position(p) {
             Some(s) => s,
             None => {
@@ -101,7 +113,11 @@ fn main() -> ExitCode {
         pick_device().unwrap_or(candle_core::Device::Cpu)
     };
     let mut vm = VarMap::new();
-    let net = match ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
+    let net = match ValueNet::new_conditioned(
+        VarBuilder::from_varmap(&vm, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("build net: {e}");
@@ -115,11 +131,19 @@ fn main() -> ExitCode {
     // Optional SEPARATE forward net (e.g. ml24_frame2) — avoids the confound of
     // using the pair net's (accurate-but-poor-for-search) forward slice. Backward
     // still uses the conditioned pair net.
-    let fwd_net = match argv.iter().position(|a| a == "--fwd-checkpoint").and_then(|i| argv.get(i + 1)) {
+    let fwd_net = match argv
+        .iter()
+        .position(|a| a == "--fwd-checkpoint")
+        .and_then(|i| argv.get(i + 1))
+    {
         Some(fc) => {
             let mut fvm = VarMap::new();
-            let fnet = ValueNet::new(VarBuilder::from_varmap(&fvm, DType::F32, &device), hidden, blocks)
-                .expect("build fwd net");
+            let fnet = ValueNet::new(
+                VarBuilder::from_varmap(&fvm, DType::F32, &device),
+                hidden,
+                blocks,
+            )
+            .expect("build fwd net");
             fvm.load(fc).expect("load fwd checkpoint");
             Some(fnet)
         }
@@ -130,24 +154,40 @@ fn main() -> ExitCode {
         "device: {}, target-blank {}, fwd {}, bwd {}, w_base {}, w_ff {}",
         device_kind(&device),
         b_start,
-        if fwd_net.is_some() { "separate-net" } else { "pair-net(b=24)" },
-        if bwd_manhattan { "manhattan" } else { "pair-net" },
+        if fwd_net.is_some() {
+            "separate-net"
+        } else {
+            "pair-net(b=24)"
+        },
+        if bwd_manhattan {
+            "manhattan"
+        } else {
+            "pair-net"
+        },
         cfg.w_base,
         cfg.w_ff
     );
 
     let fwd = |ss: &[State]| match &fwd_net {
         Some(fnet) => fnet.values(ss, &device).expect("fwd"),
-        None => net.values_cond(ss, &vec![24usize; ss.len()], &device).expect("fwd"),
+        None => net
+            .values_cond(ss, &vec![24usize; ss.len()], &device)
+            .expect("fwd"),
     };
     let start_for_bwd = start;
     let bwd = |ss: &[State]| -> Vec<f32> {
         if bwd_manhattan {
-            ss.iter().map(|s| manhattan_to(s, &start_for_bwd) as f32).collect()
+            ss.iter()
+                .map(|s| manhattan_to(s, &start_for_bwd) as f32)
+                .collect()
         } else {
             // dist(x, start) = V(relabel_start(x) | b_start).
-            let rel: Vec<State> = ss.iter().map(|s| relabel_to_ib(s, &start_for_bwd).0).collect();
-            net.values_cond(&rel, &vec![b_start; ss.len()], &device).expect("bwd")
+            let rel: Vec<State> = ss
+                .iter()
+                .map(|s| relabel_to_ib(s, &start_for_bwd).0)
+                .collect();
+            net.values_cond(&rel, &vec![b_start; ss.len()], &device)
+                .expect("bwd")
         }
     };
 
@@ -164,7 +204,10 @@ fn main() -> ExitCode {
         });
         let secs = t.elapsed().as_secs_f64();
         match out {
-            BwasOutcome::Solved { moves, nodes_expanded } => {
+            BwasOutcome::Solved {
+                moves,
+                nodes_expanded,
+            } => {
                 let mut s = start;
                 for &m in &moves {
                     s = s.apply(m);

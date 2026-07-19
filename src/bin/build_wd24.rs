@@ -48,11 +48,15 @@ fn parse_args() -> Result<Args, String> {
             }
             "--verify-sha" => {
                 i += 1;
-                verify_sha = Some(PathBuf::from(argv.get(i).ok_or("--verify-sha needs a value")?));
+                verify_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--verify-sha needs a value")?,
+                ));
             }
             "--write-sha" => {
                 i += 1;
-                write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
+                write_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--write-sha needs a value")?,
+                ));
             }
             "-h" | "--help" => return Err("help".into()),
             other => return Err(format!("unknown flag: {other}")),
@@ -83,7 +87,11 @@ fn main() -> ExitCode {
                 "usage: build_wd24 --out data/wd24.bin \
                  [--verify-sha PATH] [--write-sha PATH]"
             );
-            return if msg == "help" { ExitCode::SUCCESS } else { ExitCode::FAILURE };
+            return if msg == "help" {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
         }
     };
 

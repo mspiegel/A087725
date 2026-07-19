@@ -131,8 +131,7 @@ fn build_table_from(goal_m: &WdMatrix, blank_idx: u8) -> WdTable {
 
     // Reserve for the full reachable set (65,650,495) up front so the BFS never
     // pays for an incremental rehash.
-    let mut table: WdTable =
-        HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
+    let mut table: WdTable = HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
     table.insert(goal_key, 0);
 
     let mut frontier: Vec<(WdMatrix, u8)> = vec![(*goal_m, blank_idx)];
@@ -231,10 +230,19 @@ pub enum WdLoadError {
     Io(io::Error),
     BadMagic([u8; 4]),
     UnsupportedVersion(u32),
-    KindMismatch { in_file: u32, expected: u32 },
+    KindMismatch {
+        in_file: u32,
+        expected: u32,
+    },
     ReservedNonZero,
-    EntryMismatch { in_file: u64, expected: u64 },
-    SizeMismatch { got: u64, expected: u64 },
+    EntryMismatch {
+        in_file: u64,
+        expected: u64,
+    },
+    SizeMismatch {
+        got: u64,
+        expected: u64,
+    },
     /// [`warm_up_from`] was called after the table was already initialized.
     AlreadyInitialized,
 }
@@ -258,13 +266,19 @@ impl std::fmt::Display for WdLoadError {
             }
             WdLoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             WdLoadError::EntryMismatch { in_file, expected } => {
-                write!(f, "entry count mismatch: file {in_file} vs expected {expected}")
+                write!(
+                    f,
+                    "entry count mismatch: file {in_file} vs expected {expected}"
+                )
             }
             WdLoadError::SizeMismatch { got, expected } => {
                 write!(f, "file size {got} != expected {expected}")
             }
             WdLoadError::AlreadyInitialized => {
-                write!(f, "WD table already initialized; warm_up_from must be called first")
+                write!(
+                    f,
+                    "WD table already initialized; warm_up_from must be called first"
+                )
             }
         }
     }
@@ -324,7 +338,10 @@ pub fn load_dist_table(
     }
     let kind = u32::from_le_bytes(header[8..12].try_into().unwrap());
     if kind != expected_kind {
-        return Err(WdLoadError::KindMismatch { in_file: kind, expected: expected_kind });
+        return Err(WdLoadError::KindMismatch {
+            in_file: kind,
+            expected: expected_kind,
+        });
     }
     let reserved = u32::from_le_bytes(header[12..16].try_into().unwrap());
     if reserved != 0 {
@@ -333,7 +350,10 @@ pub fn load_dist_table(
     let n = u64::from_le_bytes(header[16..24].try_into().unwrap());
     if let Some(exp) = expected_entries {
         if n != exp {
-            return Err(WdLoadError::EntryMismatch { in_file: n, expected: exp });
+            return Err(WdLoadError::EntryMismatch {
+                in_file: n,
+                expected: exp,
+            });
         }
     }
 
@@ -342,7 +362,10 @@ pub fn load_dist_table(
     let file_len = f.metadata()?.len();
     let expected_len = WD_TABLE_HEADER_BYTES as u64 + n * 8 + n;
     if file_len != expected_len {
-        return Err(WdLoadError::SizeMismatch { got: file_len, expected: expected_len });
+        return Err(WdLoadError::SizeMismatch {
+            got: file_len,
+            expected: expected_len,
+        });
     }
 
     let n = n as usize;
@@ -399,7 +422,13 @@ fn load_or_build() -> (WdTable, WdTableSource) {
         match load_dist_table(&default, WD_KIND_FULL, Some(FULL_WD_ENTRIES)) {
             Ok(m) => {
                 let entries = m.len();
-                return (m, WdTableSource::Loaded { path: default, entries });
+                return (
+                    m,
+                    WdTableSource::Loaded {
+                        path: default,
+                        entries,
+                    },
+                );
             }
             Err(e) => eprintln!(
                 "warning: {} exists but failed to load ({}); rebuilding via BFS. \
@@ -466,7 +495,10 @@ impl WalkingDistanceHeuristic {
         let m = load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES))?;
         let entries = m.len();
         T.set(m).map_err(|_| WdLoadError::AlreadyInitialized)?;
-        let _ = SOURCE.set(WdTableSource::Loaded { path: path.to_path_buf(), entries });
+        let _ = SOURCE.set(WdTableSource::Loaded {
+            path: path.to_path_buf(),
+            entries,
+        });
         Ok(())
     }
 
@@ -690,7 +722,17 @@ impl IncHeuristic for WalkingDistanceInc {
         let h_col = *t
             .get(&pack(&m_col, bc))
             .expect("col-WD state must be reachable from goal");
-        (h_row + h_col, WdCtx { m_row, m_col, br, bc, h_row, h_col })
+        (
+            h_row + h_col,
+            WdCtx {
+                m_row,
+                m_col,
+                br,
+                bc,
+                h_row,
+                h_col,
+            },
+        )
     }
 
     fn advance(
@@ -701,7 +743,9 @@ impl IncHeuristic for WalkingDistanceInc {
         _stats: &mut SearchStats,
     ) -> (u8, WdCtx) {
         #[cfg(feature = "verifier-stats")]
-        { _stats.wd_advances += 1; }
+        {
+            _stats.wd_advances += 1;
+        }
         // The moved tile's (from, to) cells (see LinearConflictInc for the
         // identity): from = blank_new, to = blank_old. The parent carries the
         // blank's old (br, bc), so blank_old is reconstructed without rescanning.
@@ -798,7 +842,13 @@ impl IncHeuristicMut for WalkingDistanceInc {
     fn root(&self, s: &State) -> (u8, WdMutCtx) {
         let mut stats = SearchStats::default();
         let (h, cur) = <Self as IncHeuristic>::root(self, s, &mut stats);
-        (h, WdMutCtx { cur, undo: Vec::with_capacity(220) })
+        (
+            h,
+            WdMutCtx {
+                cur,
+                undo: Vec::with_capacity(220),
+            },
+        )
     }
 
     fn make(&self, ctx: &mut WdMutCtx, child: &State, m: Move) -> u8 {
@@ -1006,7 +1056,10 @@ mod tests {
     fn table_size_matches_measured() {
         const WD24_STATES: usize = 65_650_495;
         let n = WalkingDistanceHeuristic::table_size();
-        assert_eq!(n, WD24_STATES, "WD table size drifted from the measured value");
+        assert_eq!(
+            n, WD24_STATES,
+            "WD table size drifted from the measured value"
+        );
         println!("24-puzzle WD table size: {n} states");
     }
 
@@ -1091,7 +1144,10 @@ mod tests {
         let path = tmp_path("wd_kind.bin");
         save_dist_table(&path, TEST_KIND, &synthetic_table()).unwrap();
         let err = load_dist_table(&path, WD_KIND_FULL, None).unwrap_err();
-        assert!(matches!(err, WdLoadError::KindMismatch { .. }), "got {err:?}");
+        assert!(
+            matches!(err, WdLoadError::KindMismatch { .. }),
+            "got {err:?}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1102,7 +1158,10 @@ mod tests {
         save_dist_table(&path, TEST_KIND, &table).unwrap();
         let wrong = table.len() as u64 + 1;
         let err = load_dist_table(&path, TEST_KIND, Some(wrong)).unwrap_err();
-        assert!(matches!(err, WdLoadError::EntryMismatch { .. }), "got {err:?}");
+        assert!(
+            matches!(err, WdLoadError::EntryMismatch { .. }),
+            "got {err:?}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1128,7 +1187,10 @@ mod tests {
         bytes.pop();
         std::fs::write(&path, &bytes).unwrap();
         let err = load_dist_table(&path, TEST_KIND, None).unwrap_err();
-        assert!(matches!(err, WdLoadError::SizeMismatch { .. }), "got {err:?}");
+        assert!(
+            matches!(err, WdLoadError::SizeMismatch { .. }),
+            "got {err:?}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1181,7 +1243,11 @@ mod tests {
             let (s, _k) = crate::puzzle24::ml::scramble::scramble(&mut rng, 200);
             let reference = WalkingDistanceHeuristic.h(&s);
             let got = wd_to_goal.h(&s);
-            assert_eq!(got, reference, "WD-to-GOAL != GOAL WD on board {} {:?}", i, s.0);
+            assert_eq!(
+                got, reference,
+                "WD-to-GOAL != GOAL WD on board {} {:?}",
+                i, s.0
+            );
         }
     }
 
@@ -1192,10 +1258,18 @@ mod tests {
                 (puzzle15::search::walking_distance)"]
     #[test]
     fn wd_to_target_of_target_is_zero() {
-        assert_eq!(WalkingDistanceTo::new(&GOAL).h(&GOAL), 0, "WD-to-GOAL(GOAL)");
+        assert_eq!(
+            WalkingDistanceTo::new(&GOAL).h(&GOAL),
+            0,
+            "WD-to-GOAL(GOAL)"
+        );
         let r = r_board();
         let wd_to_r = WalkingDistanceTo::new(&r);
-        assert_eq!(wd_to_r.target_blank(), (0, 0), "R blank should be row 0, col 0");
+        assert_eq!(
+            wd_to_r.target_blank(),
+            (0, 0),
+            "R blank should be row 0, col 0"
+        );
         assert_eq!(wd_to_r.h(&r), 0, "WD-to-R(R)");
     }
 
@@ -1226,8 +1300,14 @@ mod tests {
         let wd_to_r = WalkingDistanceTo::new(&r_board());
         let elapsed = t.elapsed();
         // The col table must be shared (blank at row 0 == col 0).
-        assert!(wd_to_r.col_table.is_none(), "R should reuse one table for both axes");
+        assert!(
+            wd_to_r.col_table.is_none(),
+            "R should reuse one table for both axes"
+        );
         println!("WalkingDistanceTo::new(&R) built in {elapsed:?}");
-        assert!(elapsed.as_secs() < 60, "R WD build took too long: {elapsed:?}");
+        assert!(
+            elapsed.as_secs() < 60,
+            "R WD build took too long: {elapsed:?}"
+        );
     }
 }

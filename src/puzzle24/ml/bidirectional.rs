@@ -103,7 +103,12 @@ where
     let mut children: Vec<BNode> = child_states
         .iter()
         .enumerate()
-        .map(|(i, &s)| BNode { state: s, g: child_meta[i].1, h: hs[i], last: Some(child_meta[i].0) })
+        .map(|(i, &s)| BNode {
+            state: s,
+            g: child_meta[i].1,
+            h: hs[i],
+            last: Some(child_meta[i].0),
+        })
         .collect();
     children.sort_by(|a, b| {
         (a.g as f32 + weight * a.h)
@@ -151,14 +156,29 @@ where
     BH: Fn(&[State]) -> Vec<f32>,
 {
     if *start == GOAL {
-        return Some(MitmResult { len: 0, g_fwd: 0, g_bwd: 0, moves: Vec::new() });
+        return Some(MitmResult {
+            len: 0,
+            g_fwd: 0,
+            g_bwd: 0,
+            moves: Vec::new(),
+        });
     }
     let mut fwd_visited: Visited = HashMap::new();
     let mut bwd_visited: Visited = HashMap::new();
     fwd_visited.insert(*start, (0, *start, Move::Up)); // self-sentinel; reconstruct stops here
     bwd_visited.insert(GOAL, (0, GOAL, Move::Up));
-    let mut fwd_layer = vec![BNode { state: *start, g: 0, h: 0.0, last: None }];
-    let mut bwd_layer = vec![BNode { state: GOAL, g: 0, h: 0.0, last: None }];
+    let mut fwd_layer = vec![BNode {
+        state: *start,
+        g: 0,
+        h: 0.0,
+        last: None,
+    }];
+    let mut bwd_layer = vec![BNode {
+        state: GOAL,
+        g: 0,
+        h: 0.0,
+        last: None,
+    }];
 
     let mut best: Option<(u32, u32, u32, State)> = None; // (total, g_fwd, g_bwd, meet)
     let mut expanded: u64 = 0;
@@ -215,7 +235,12 @@ where
     let back = reconstruct(&bwd_visited, meet, GOAL);
     let mut moves = fwd;
     moves.extend(back.iter().map(|m| m.inverse()));
-    Some(MitmResult { len: moves.len() as u32, g_fwd, g_bwd, moves })
+    Some(MitmResult {
+        len: moves.len() as u32,
+        g_fwd,
+        g_bwd,
+        moves,
+    })
 }
 
 // ===================== front-to-front meet-in-the-middle =====================
@@ -245,7 +270,12 @@ fn ff_anchors(layer: &[FfNode], k: usize) -> Vec<(State, u32)> {
         return Vec::new();
     }
     let stride = (layer.len() / k).max(1);
-    layer.iter().step_by(stride).take(k).map(|&(s, g, _)| (s, g)).collect()
+    layer
+        .iter()
+        .step_by(stride)
+        .take(k)
+        .map(|&(s, g, _)| (s, g))
+        .collect()
 }
 
 /// Front-to-front cost-to-other-side estimate: the cheapest `Manhattan(child, a) +
@@ -311,7 +341,11 @@ where
         return Vec::new();
     }
     // Base heuristic (V / WD-to-R) batched; front-to-front proximity per child.
-    let base = if w_base != 0.0 { base_batch(&cs) } else { vec![0.0; cs.len()] };
+    let base = if w_base != 0.0 {
+        base_batch(&cs)
+    } else {
+        vec![0.0; cs.len()]
+    };
     let mut scored: Vec<(f32, usize)> = (0..cs.len())
         .map(|i| {
             let f = meta[i].0 as f32 + w_base * base[i] + w_ff * ff_h(&cs[i], opp_anchors);
@@ -356,7 +390,12 @@ where
     BB: Fn(&[State]) -> Vec<f32>,
 {
     if *start == GOAL {
-        return Some(MitmResult { len: 0, g_fwd: 0, g_bwd: 0, moves: Vec::new() });
+        return Some(MitmResult {
+            len: 0,
+            g_fwd: 0,
+            g_bwd: 0,
+            moves: Vec::new(),
+        });
     }
     let mut fwd_s: Visited = HashMap::new();
     let mut bwd_s: Visited = HashMap::new();
@@ -373,8 +412,16 @@ where
         let bwd_anchors = ff_anchors(&bwd_layer, cfg.n_anchors);
         meetings.clear();
         fwd_layer = expand_ff(
-            &fwd_layer, &mut fwd_s, &bwd_s, &bwd_anchors, cfg.width, &fwd_base, cfg.w_base,
-            cfg.w_ff, &mut meetings, &mut expanded,
+            &fwd_layer,
+            &mut fwd_s,
+            &bwd_s,
+            &bwd_anchors,
+            cfg.width,
+            &fwd_base,
+            cfg.w_base,
+            cfg.w_ff,
+            &mut meetings,
+            &mut expanded,
         );
         for &(s, gf, gb) in &meetings {
             if best.is_none_or(|(b, ..)| gf + gb < b) {
@@ -385,8 +432,16 @@ where
         let fwd_anchors = ff_anchors(&fwd_layer, cfg.n_anchors);
         meetings.clear();
         bwd_layer = expand_ff(
-            &bwd_layer, &mut bwd_s, &fwd_s, &fwd_anchors, cfg.width, &bwd_base, cfg.w_base,
-            cfg.w_ff, &mut meetings, &mut expanded,
+            &bwd_layer,
+            &mut bwd_s,
+            &fwd_s,
+            &fwd_anchors,
+            cfg.width,
+            &bwd_base,
+            cfg.w_base,
+            cfg.w_ff,
+            &mut meetings,
+            &mut expanded,
         );
         for &(s, gb, gf) in &meetings {
             if best.is_none_or(|(b, ..)| gf + gb < b) {
@@ -408,7 +463,12 @@ where
     let back = reconstruct(&bwd_s, meet, GOAL);
     let mut moves = fwd;
     moves.extend(back.iter().map(|m| m.inverse()));
-    Some(MitmResult { len: moves.len() as u32, g_fwd, g_bwd, moves })
+    Some(MitmResult {
+        len: moves.len() as u32,
+        g_fwd,
+        g_bwd,
+        moves,
+    })
 }
 
 #[cfg(test)]
@@ -451,7 +511,10 @@ mod tests {
                 s = s.apply(m);
             }
             assert_eq!(s, GOAL, "MITM solution does not reach GOAL");
-            assert!(len <= 60, "MITM solution {len} implausibly long for a depth-24 board");
+            assert!(
+                len <= 60,
+                "MITM solution {len} implausibly long for a depth-24 board"
+            );
             checked += 1;
         }
         assert!(checked >= 8, "too few boards checked: {checked}");
@@ -485,13 +548,21 @@ mod tests {
             )
             .expect("FF-MITM found no solution");
             assert_eq!(res.len as usize, res.moves.len());
-            assert_eq!(res.g_fwd + res.g_bwd, res.len, "FF meet split must sum to length");
+            assert_eq!(
+                res.g_fwd + res.g_bwd,
+                res.len,
+                "FF meet split must sum to length"
+            );
             let mut s = start;
             for &m in &res.moves {
                 s = s.apply(m);
             }
             assert_eq!(s, GOAL, "FF-MITM solution does not reach GOAL");
-            assert!(res.len <= 60, "FF-MITM solution {} implausibly long", res.len);
+            assert!(
+                res.len <= 60,
+                "FF-MITM solution {} implausibly long",
+                res.len
+            );
             checked += 1;
         }
         assert!(checked >= 8, "too few boards checked: {checked}");

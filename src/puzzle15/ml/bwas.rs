@@ -26,8 +26,13 @@ pub struct BwasConfig {
 
 #[derive(Debug)]
 pub enum BwasOutcome {
-    Solved { moves: Vec<Move>, nodes_expanded: u64 },
-    BudgetExceeded { nodes_expanded: u64 },
+    Solved {
+        moves: Vec<Move>,
+        nodes_expanded: u64,
+    },
+    BudgetExceeded {
+        nodes_expanded: u64,
+    },
 }
 
 impl BwasOutcome {
@@ -91,7 +96,10 @@ where
     let batch_size = cfg.batch_size.max(1);
 
     if *start == GOAL {
-        return BwasOutcome::Solved { moves: Vec::new(), nodes_expanded: 0 };
+        return BwasOutcome::Solved {
+            moves: Vec::new(),
+            nodes_expanded: 0,
+        };
     }
 
     let mut g_score: HashMap<State, u32> = HashMap::new();
@@ -102,7 +110,11 @@ where
     let h0 = heuristic_batch(std::slice::from_ref(start))[0];
     profile::record_if("bwas/heuristic", t);
     g_score.insert(*start, 0);
-    open.push(Reverse(Node { f: OrdF32(cfg.weight * h0), g: 0, state: *start }));
+    open.push(Reverse(Node {
+        f: OrdF32(cfg.weight * h0),
+        g: 0,
+        state: *start,
+    }));
 
     let mut nodes_expanded: u64 = 0;
 
@@ -179,7 +191,11 @@ where
             g_score.insert(ns, g_child);
             came_from.insert(ns, (parent, m));
             let f = g_child as f32 + cfg.weight * hs[i];
-            open.push(Reverse(Node { f: OrdF32(f), g: g_child, state: ns }));
+            open.push(Reverse(Node {
+                f: OrdF32(f),
+                g: g_child,
+                state: ns,
+            }));
         }
         profile::record_if("bwas/push", t);
     }
@@ -200,12 +216,15 @@ fn reconstruct(came_from: &HashMap<State, (State, Move)>, goal: State) -> Vec<Mo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::search::ManhattanHeuristic;
     use crate::puzzle15::search::tests_util::bfs_distances;
     use crate::puzzle15::search::Heuristic;
+    use crate::puzzle15::search::ManhattanHeuristic;
 
     fn manhattan_batch(states: &[State]) -> Vec<f32> {
-        states.iter().map(|s| ManhattanHeuristic.h(s) as f32).collect()
+        states
+            .iter()
+            .map(|s| ManhattanHeuristic.h(s) as f32)
+            .collect()
     }
 
     /// Replaying the returned moves from `start` must reach GOAL, and the move
@@ -223,7 +242,11 @@ mod tests {
         // With batch_size=1, weight=1, admissible Manhattan and goal-check-on-pop,
         // BWAS is exact A* — solution length must equal the true BFS distance.
         let truth = bfs_distances(12);
-        let cfg = BwasConfig { weight: 1.0, batch_size: 1, node_budget: 0 };
+        let cfg = BwasConfig {
+            weight: 1.0,
+            batch_size: 1,
+            node_budget: 0,
+        };
         let mut checked = 0;
         for (raw, &dist) in truth.iter() {
             // Only test a sample to keep it quick, across the depth range.
@@ -248,7 +271,11 @@ mod tests {
         // batch_size>1, weight>1: no optimality claim, but must still return a
         // valid solution that actually solves the board.
         let truth = bfs_distances(12);
-        let cfg = BwasConfig { weight: 2.5, batch_size: 32, node_budget: 5_000_000 };
+        let cfg = BwasConfig {
+            weight: 2.5,
+            batch_size: 32,
+            node_budget: 5_000_000,
+        };
         for (raw, _) in truth.iter().take(40) {
             let start = State(*raw);
             match search(&start, &cfg, manhattan_batch) {
@@ -262,12 +289,23 @@ mod tests {
     fn tiny_budget_reports_budget_exceeded() {
         // A deep-ish board with a tiny budget must report BudgetExceeded, not loop.
         let mut s = GOAL;
-        for m in [Move::Up, Move::Left, Move::Up, Move::Left, Move::Down, Move::Right] {
+        for m in [
+            Move::Up,
+            Move::Left,
+            Move::Up,
+            Move::Left,
+            Move::Down,
+            Move::Right,
+        ] {
             if State::legal_moves_at(s.blank_pos()).contains(m) {
                 s = s.apply(m);
             }
         }
-        let cfg = BwasConfig { weight: 1.0, batch_size: 1, node_budget: 2 };
+        let cfg = BwasConfig {
+            weight: 1.0,
+            batch_size: 1,
+            node_budget: 2,
+        };
         match search(&s, &cfg, manhattan_batch) {
             BwasOutcome::BudgetExceeded { nodes_expanded } => assert!(nodes_expanded >= 2),
             BwasOutcome::Solved { .. } => { /* also acceptable if solved within 2 expansions */ }

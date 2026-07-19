@@ -105,17 +105,25 @@ fn main() -> ExitCode {
             }
         }
     };
-    println!("device: {}, hidden: {}, blocks: {}", device_kind(&device), hidden, blocks);
+    println!(
+        "device: {}, hidden: {}, blocks: {}",
+        device_kind(&device),
+        hidden,
+        blocks
+    );
 
     let mut varmap = VarMap::new();
-    let mut net =
-        match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!("error building net: {e}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let mut net = match ValueNet::new(
+        VarBuilder::from_varmap(&varmap, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("error building net: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     match &checkpoint {
         Some(path) => match varmap.load(path) {
             Ok(()) => println!("loaded checkpoint: {}", path.display()),
@@ -135,8 +143,16 @@ fn main() -> ExitCode {
 
     if mode == "deep" {
         let cfg = DeepEvalConfig {
-            bwas: BwasConfig { weight, batch_size: batch, node_budget: budget },
-            beam: BeamConfig { width: beam_width, max_depth: 220, node_budget: beam_budget },
+            bwas: BwasConfig {
+                weight,
+                batch_size: batch,
+                node_budget: budget,
+            },
+            beam: BeamConfig {
+                width: beam_width,
+                max_depth: 220,
+                node_budget: beam_budget,
+            },
             baseline,
             holdout_n,
             depth_min,
@@ -148,7 +164,11 @@ fn main() -> ExitCode {
         run_deep(value_of, &cfg).print();
     } else {
         let cfg = EvalConfig {
-            bwas: BwasConfig { weight, batch_size: batch, node_budget: budget },
+            bwas: BwasConfig {
+                weight,
+                batch_size: batch,
+                node_budget: budget,
+            },
             holdout_n,
             depth_min,
             depth_max,

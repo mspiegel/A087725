@@ -64,8 +64,10 @@ pub fn sample_move(
 
     let legal = State::legal_moves_at(blank);
     let allowed = |m: Move| legal.contains(m) && Some(m) != banned;
-    let mask_vec: Vec<f32> =
-        Move::ALL.iter().map(|&m| if allowed(m) { 0.0 } else { MASK_NEG }).collect();
+    let mask_vec: Vec<f32> = Move::ALL
+        .iter()
+        .map(|&m| if allowed(m) { 0.0 } else { MASK_NEG })
+        .collect();
     let mask = Tensor::from_vec(mask_vec, (4,), device)?;
     let masked = logits.add(&mask)?;
     let log_probs = ops::log_softmax(&masked, 0)?; // [4], in the autograd graph
@@ -163,8 +165,10 @@ mod tests {
         let x = encode_batch(&[GOAL], &dev).unwrap();
         let logits = net.forward(&x).unwrap().reshape((4,)).unwrap();
         let legal = State::legal_moves_at(GOAL.blank_pos());
-        let mask_vec: Vec<f32> =
-            Move::ALL.iter().map(|&m| if legal.contains(m) { 0.0 } else { MASK_NEG }).collect();
+        let mask_vec: Vec<f32> = Move::ALL
+            .iter()
+            .map(|&m| if legal.contains(m) { 0.0 } else { MASK_NEG })
+            .collect();
         let mask = Tensor::from_vec(mask_vec, (4,), &dev).unwrap();
         let probs = ops::log_softmax(&logits.add(&mask).unwrap(), 0)
             .unwrap()
@@ -174,7 +178,12 @@ mod tests {
             .unwrap();
         for (i, &m) in Move::ALL.iter().enumerate() {
             if !legal.contains(m) {
-                assert!(probs[i] < 1e-6, "illegal move {:?} had prob {}", m, probs[i]);
+                assert!(
+                    probs[i] < 1e-6,
+                    "illegal move {:?} had prob {}",
+                    m,
+                    probs[i]
+                );
             }
         }
         let total: f32 = probs.iter().sum();

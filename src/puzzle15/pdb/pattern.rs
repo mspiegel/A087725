@@ -83,7 +83,10 @@ impl Pattern {
 
     /// Iterate the pattern's tile values in ascending order.
     pub fn iter(self) -> PatternIter {
-        PatternIter { bits: self.0 & !1, idx: 1 }
+        PatternIter {
+            bits: self.0 & !1,
+            idx: 1,
+        }
     }
 
     /// PDB storage size: `P(16, k) = 16 · 15 · … · (16-k+1)` where `k` is the
@@ -418,7 +421,10 @@ mod tests {
     fn num_projected_states_small_cases() {
         assert_eq!(Pattern::new(&[1]).num_projected_states(), 16);
         assert_eq!(Pattern::new(&[1, 2]).num_projected_states(), 16 * 15);
-        assert_eq!(Pattern::new(&[1, 2, 3, 4]).num_projected_states(), 16 * 15 * 14 * 13);
+        assert_eq!(
+            Pattern::new(&[1, 2, 3, 4]).num_projected_states(),
+            16 * 15 * 14 * 13
+        );
     }
 
     #[test]
@@ -462,12 +468,21 @@ mod tests {
             let p = Pattern::new(tiles);
             let goal_proj = ProjectedState::goal(p);
             let r = goal_proj.rank(p);
-            assert!(r < p.num_projected_states(),
-                "rank {} >= {} for {:?}", r, p.num_projected_states(), tiles);
+            assert!(
+                r < p.num_projected_states(),
+                "rank {} >= {} for {:?}",
+                r,
+                p.num_projected_states(),
+                tiles
+            );
             let r_full = goal_proj.rank_with_blank(p);
-            assert!(r_full < p.num_bfs_states(),
+            assert!(
+                r_full < p.num_bfs_states(),
                 "rank_with_blank {} >= {} for {:?}",
-                r_full, p.num_bfs_states(), tiles);
+                r_full,
+                p.num_bfs_states(),
+                tiles
+            );
         }
     }
 
@@ -493,7 +508,7 @@ mod tests {
         assert_eq!(p3.pos_of[5], 5);
         assert_eq!(p3.pos_of[10], 10);
         assert_ne!(p1.pos_of[0], p3.pos_of[0]); // different blank positions
-        assert_eq!(p1.rank(p), p3.rank(p));     // same PDB index
+        assert_eq!(p1.rank(p), p3.rank(p)); // same PDB index
         assert_ne!(p1.rank_with_blank(p), p3.rank_with_blank(p));
         let _ = (p1, p3, s2);
     }
@@ -503,7 +518,7 @@ mod tests {
         // Pattern {1..11, 13, 15}: tile 12 is ANON, tile 15 is pattern.
         let p = Pattern::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15]);
         let proj = ProjectedState::from_state(&GOAL, p);
-        let (_, c_up) = proj.apply(Move::Up);    // swap with pos 11 = tile 12 (ANON)
+        let (_, c_up) = proj.apply(Move::Up); // swap with pos 11 = tile 12 (ANON)
         let (_, c_left) = proj.apply(Move::Left); // swap with pos 14 = tile 15 (pattern)
         assert_eq!(c_up, 0, "swap with ANON must be free");
         assert_eq!(c_left, 1, "swap with pattern tile must cost 1");
@@ -527,9 +542,7 @@ mod tests {
     fn pos_of_is_consistent_after_apply() {
         let p = Pattern::new(&[1, 6, 11]);
         let mut proj = ProjectedState::from_state(&GOAL, p);
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..500 {
             assert_eq!(proj.cells[proj.pos_of[0] as usize], 0);
             for t in p.iter() {
@@ -566,8 +579,12 @@ mod tests {
                     continue;
                 }
                 let r = n.rank_with_blank(p);
-                assert!(r < p.num_bfs_states(),
-                    "rank_with_blank {} >= {}", r, p.num_bfs_states());
+                assert!(
+                    r < p.num_bfs_states(),
+                    "rank_with_blank {} >= {}",
+                    r,
+                    p.num_bfs_states()
+                );
                 assert!(ranks.insert(r), "duplicate rank_with_blank {r}");
                 seen_cells.insert(key);
                 q.push_back(n);
@@ -581,9 +598,7 @@ mod tests {
         // Incremental rank (via pos_of) must match a fresh projection from
         // the full state.
         let p = Pattern::new(&[3, 7, 11, 15]);
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         let mut proj = ProjectedState::from_state(&s, p);
         for i in 0u32..500 {

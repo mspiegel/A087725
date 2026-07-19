@@ -69,8 +69,14 @@ fn zpdb_plus_admissible_and_dominates_korf_plus() {
             .max(refl.h(&s))
             .max(LinearConflictHeuristic.h(&s))
             .max(WalkingDistanceHeuristic.h(&s));
-        assert!(hz >= korf_plus, "zpdb-plus {hz} < korf-plus {korf_plus} for {raw:?}");
-        assert!(hz <= d, "zpdb-plus {hz} inadmissible (truth {d}) for {raw:?}");
+        assert!(
+            hz >= korf_plus,
+            "zpdb-plus {hz} < korf-plus {korf_plus} for {raw:?}"
+        );
+        assert!(
+            hz <= d,
+            "zpdb-plus {hz} inadmissible (truth {d}) for {raw:?}"
+        );
     }
 }
 
@@ -115,6 +121,10 @@ fn zpdb_plus_solver_optimal_on_shallow_states() {
         }
         let (sol, _) = idastar_inc_with_stats(&s, &zplus);
         let sol = sol.expect("solvable");
-        assert!(reaches_goal(&s, &sol), "deep scramble solution missed GOAL: {:?}", s.0);
+        assert!(
+            reaches_goal(&s, &sol),
+            "deep scramble solution missed GOAL: {:?}",
+            s.0
+        );
     }
 }

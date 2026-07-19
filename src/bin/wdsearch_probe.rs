@@ -18,7 +18,10 @@ fn main() {
     WalkingDistanceHeuristic::warm_up();
     println!("ready in {:.1}s\n", t.elapsed().as_secs_f64());
 
-    println!("{:>7}  {:>6}  {:>7}  {:>8}  {:>9}", "width", "depth", "max_wd", "mean_wd", "ms");
+    println!(
+        "{:>7}  {:>6}  {:>7}  {:>8}  {:>9}",
+        "width", "depth", "max_wd", "mean_wd", "ms"
+    );
     for &width in &[2000usize, 8000, 20000] {
         for &depth in &[160usize, 200, 260, 320] {
             let cfg = WdSearchConfig {

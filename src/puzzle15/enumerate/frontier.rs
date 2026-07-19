@@ -201,14 +201,20 @@ where
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {}", out_dir.display(), e))?;
     let seeded = store.count(80) as u64;
     if seeded != hist[80] {
-        return Err(format!("seeded {} antipodes, expected N(80)={}", seeded, hist[80]));
+        return Err(format!(
+            "seeded {} antipodes, expected N(80)={}",
+            seeded, hist[80]
+        ));
     }
 
     use std::io::Write;
     use std::time::Instant;
     // Time-based heartbeat: rounds can run many minutes, so check the clock
     // between sub-batches. Default 10 min; override with ENUM_STATUS_SECS.
-    let status_secs = std::env::var("ENUM_STATUS_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(600u64);
+    let status_secs = std::env::var("ENUM_STATUS_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(600u64);
     const CHUNK: usize = 2048;
     let start = Instant::now();
     let mut last_status = Instant::now();
@@ -216,7 +222,11 @@ where
         let secs = start.elapsed().as_secs_f64().max(1.0);
         let mut line = format!(
             "[STATUS {:>5.1}m] round {}, {} solves ({:.1}/s), stored {} |",
-            secs / 60.0, round, solves, solves as f64 / secs, store.total(),
+            secs / 60.0,
+            round,
+            solves,
+            solves as f64 / secs,
+            store.total(),
         );
         for d in (floor..=80).rev() {
             line.push_str(&format!(" d{} {}/{}", d, store.count(d), hist[d as usize]));
@@ -285,7 +295,9 @@ where
                 }
             }
             for r in deferred {
-                let d = *cache.get(&r).expect("canonical solve should have populated r");
+                let d = *cache
+                    .get(&r)
+                    .expect("canonical solve should have populated r");
                 results.push((r, d));
             }
             for (r, d) in results {
@@ -306,7 +318,12 @@ where
         }
         log(&format!(
             "round {:>3}: {:>9} cands, kept {:>9} (≥{}), stored {:>9}, solves {:>10}",
-            round, cands.len(), next.len(), floor, store.total(), solves,
+            round,
+            cands.len(),
+            next.len(),
+            floor,
+            store.total(),
+            solves,
         ));
         let _ = std::io::stdout().flush();
         frontier = next;
@@ -332,8 +349,16 @@ where
     }
     log(&format!(
         "{} after {} solves, {:.1?} ({} cached)",
-        if capped { "BUDGET-CAPPED" } else if done { "TARGET COMPLETE" } else { "component EXHAUSTED" },
-        solves, start.elapsed(), cache.len(),
+        if capped {
+            "BUDGET-CAPPED"
+        } else if done {
+            "TARGET COMPLETE"
+        } else {
+            "component EXHAUSTED"
+        },
+        solves,
+        start.elapsed(),
+        cache.len(),
     ));
 
     // Validate and write the requested layers.
@@ -345,7 +370,10 @@ where
         all_ok &= complete;
         log(&format!(
             "depth {:>2}: {:>15} boards  N={}  {}",
-            d, total, hist[d as usize], if complete { "OK" } else { "MISMATCH" },
+            d,
+            total,
+            hist[d as usize],
+            if complete { "OK" } else { "MISMATCH" },
         ));
         reports.push(LayerReport {
             depth: d,
@@ -358,7 +386,9 @@ where
         });
         if complete {
             let path = out_dir.join(format!("depth{d}.ranks"));
-            store.write_layer(d, &path).map_err(|e| format!("{}: {}", path.display(), e))?;
+            store
+                .write_layer(d, &path)
+                .map_err(|e| format!("{}: {}", path.display(), e))?;
         }
     }
     if !all_ok {
@@ -383,10 +413,15 @@ pub fn run(
     // Seed layer 80 must match N(80).
     let seeded = store.count(80) as u64;
     if seeded != hist[80] {
-        return Err(format!("seeded {} antipodes, expected N(80)={}", seeded, hist[80]));
+        return Err(format!(
+            "seeded {} antipodes, expected N(80)={}",
+            seeded, hist[80]
+        ));
     }
     let p80 = out_dir.join("depth80.ranks");
-    store.write_layer(80, &p80).map_err(|e| format!("{}: {}", p80.display(), e))?;
+    store
+        .write_layer(80, &p80)
+        .map_err(|e| format!("{}: {}", p80.display(), e))?;
     log(&format!("depth 80: {seeded:>15} boards (seeded, = N)"));
 
     let mut reports = Vec::new();
@@ -414,7 +449,9 @@ pub fn run(
             break;
         }
         let path = out_dir.join(format!("depth{d}.ranks"));
-        store.write_layer(d, &path).map_err(|e| format!("{}: {}", path.display(), e))?;
+        store
+            .write_layer(d, &path)
+            .map_err(|e| format!("{}: {}", path.display(), e))?;
     }
     Ok(reports)
 }

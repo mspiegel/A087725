@@ -17,13 +17,7 @@ fn lc_is_admissible_on_full_state_space() {
         let s = unrank(r);
         let est = h.h(&s);
         let truth = table.dist(&s);
-        assert!(
-            est <= truth,
-            "LC({:?}) = {} > truth = {}",
-            s.0,
-            est,
-            truth
-        );
+        assert!(est <= truth, "LC({:?}) = {} > truth = {}", s.0, est, truth);
     }
 }
 

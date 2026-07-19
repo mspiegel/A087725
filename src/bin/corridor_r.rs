@@ -184,15 +184,15 @@ fn main() -> ExitCode {
     assert_eq!(r156.len(), 156);
     assert_eq!(replay(&r, &r156), GOAL, "156 replay failed");
     println!("156-move solution to R constructed and replay-verified (R -> W -> GOAL).");
-    let compact: String =
-        r156.iter()
-            .map(|m| match m {
-                Move::Up => "U ",
-                Move::Down => "D ",
-                Move::Left => "L ",
-                Move::Right => "R ",
-            })
-            .collect();
+    let compact: String = r156
+        .iter()
+        .map(|m| match m {
+            Move::Up => "U ",
+            Move::Down => "D ",
+            Move::Left => "L ",
+            Move::Right => "R ",
+        })
+        .collect();
     println!("moves: {}", compact.trim());
 
     // ---- value net (optional; without --checkpoint only WD is profiled).
@@ -223,7 +223,11 @@ fn main() -> ExitCode {
             if argv.iter().any(|a| a == "--residual") {
                 net.set_residual(true);
             }
-            println!("device: {}, checkpoint: {}", device_kind(&device), path.display());
+            println!(
+                "device: {}, checkpoint: {}",
+                device_kind(&device),
+                path.display()
+            );
             net.values(&states_156, &device).expect("value net forward")
         }
         None => vec![0.0; states_156.len()],
@@ -231,7 +235,11 @@ fn main() -> ExitCode {
     profile("published-156 corridor", &states_156, &values_156);
 
     // ---- optional: our own solution for comparison.
-    if let Some(p) = argv.iter().position(|a| a == "--our-moves").and_then(|i| argv.get(i + 1)) {
+    if let Some(p) = argv
+        .iter()
+        .position(|a| a == "--our-moves")
+        .and_then(|i| argv.get(i + 1))
+    {
         let text = std::fs::read_to_string(p).expect("read --our-moves");
         let ours = parse_moves(&text);
         assert_eq!(replay(&r, &ours), GOAL, "--our-moves does not solve R");
@@ -249,11 +257,16 @@ fn main() -> ExitCode {
                 if argv.iter().any(|a| a == "--residual") {
                     net.set_residual(true);
                 }
-                net.values(&states_ours, &device).expect("value net forward")
+                net.values(&states_ours, &device)
+                    .expect("value net forward")
             }
             None => vec![0.0; states_ours.len()],
         };
-        profile(&format!("our-{} solution", ours.len()), &states_ours, &values_ours);
+        profile(
+            &format!("our-{} solution", ours.len()),
+            &states_ours,
+            &values_ours,
+        );
 
         // Shared states between the two paths (beyond the endpoints).
         let set: std::collections::HashSet<State> = states_156.iter().copied().collect();

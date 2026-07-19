@@ -75,7 +75,10 @@ pub fn load_cwd_overlay(path: &Path) -> std::io::Result<CwdOverlay> {
     let mut magic = [0u8; 4];
     f.read_exact(&mut magic)?;
     if &magic != b"CWDS" {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad cwd_single magic"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "bad cwd_single magic",
+        ));
     }
     let mut u4 = [0u8; 4];
     f.read_exact(&mut u4)?; // version
@@ -385,10 +388,18 @@ impl Cwd {
                     let curves = overlay.get(&k).copied().unwrap_or([0u16; W]);
                     // `nbr_wd` is filled lazily by `with_neighbor_prune(true)` — an
                     // opt-in, so a plain cWD run pays neither the pass nor the RAM.
-                    merged.insert(k, CwdCell { wd, curves, nbr_wd: [255; 2 * W] });
+                    merged.insert(
+                        k,
+                        CwdCell {
+                            wd,
+                            curves,
+                            nbr_wd: [255; 2 * W],
+                        },
+                    );
                 }
                 c.merged = Some(merged);
-                c.table = HashMap::with_capacity_and_hasher(0, WdBuild::default()); // free WD copy
+                c.table = HashMap::with_capacity_and_hasher(0, WdBuild::default());
+                // free WD copy
             }
         }
         c
@@ -397,16 +408,27 @@ impl Cwd {
     /// Load the WD table from `path`, falling back to a fresh BFS build. No merge.
     pub fn with_table_path(path: &Path) -> Self {
         let table = if path.exists() {
-            load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)).unwrap_or_else(|_| build_full_table())
+            load_dist_table(path, WD_KIND_FULL, Some(FULL_WD_ENTRIES))
+                .unwrap_or_else(|_| build_full_table())
         } else {
             build_full_table()
         };
-        Cwd { table, goal: goal_key(), merged: None, neighbor_prune: false }
+        Cwd {
+            table,
+            goal: goal_key(),
+            merged: None,
+            neighbor_prune: false,
+        }
     }
 
     /// Build from an already-loaded WD table (shares the codec). No merge.
     pub fn from_table(table: WdTable) -> Self {
-        Cwd { table, goal: goal_key(), merged: None, neighbor_prune: false }
+        Cwd {
+            table,
+            goal: goal_key(),
+            merged: None,
+            neighbor_prune: false,
+        }
     }
 
     /// Enable/disable the prune-child-before-probe optimization (needs the merged
@@ -425,7 +447,9 @@ impl Cwd {
     /// derived purely from the (now complete) merged table — no on-disk artifact.
     /// Idempotent; a no-op when the merged table is absent.
     fn fill_neighbor_wd(&mut self) {
-        let Some(merged) = self.merged.as_mut() else { return };
+        let Some(merged) = self.merged.as_mut() else {
+            return;
+        };
         let keys: Vec<u64> = merged.keys().copied().collect();
         for k in keys {
             let mut nbr = [255u8; 2 * W];
@@ -456,13 +480,17 @@ impl Cwd {
         if let Some(mg) = &self.merged {
             let r = mg.get(&kr).expect("row reachable");
             let c = mg.get(&kc).expect("col reachable");
-            return r.wd + surcharge_from_curves(&r.curves, &dem_row)
-                + c.wd + surcharge_from_curves(&c.curves, &dem_col);
+            return r.wd
+                + surcharge_from_curves(&r.curves, &dem_row)
+                + c.wd
+                + surcharge_from_curves(&c.curves, &dem_col);
         }
         let wd_row = *self.table.get(&kr).expect("row reachable");
         let wd_col = *self.table.get(&kc).expect("col reachable");
-        let c_row = cwd_axis(&self.table, &m_row, br, self.goal, &dem_row, scratch).unwrap_or(wd_row);
-        let c_col = cwd_axis(&self.table, &m_col, bc, self.goal, &dem_col, scratch).unwrap_or(wd_col);
+        let c_row =
+            cwd_axis(&self.table, &m_row, br, self.goal, &dem_row, scratch).unwrap_or(wd_row);
+        let c_col =
+            cwd_axis(&self.table, &m_col, bc, self.goal, &dem_col, scratch).unwrap_or(wd_col);
         c_row.max(wd_row) + c_col.max(wd_col)
     }
 }
@@ -631,7 +659,14 @@ impl IncHeuristicMut for Cwd {
         let mut scratch = CwdScratch::new();
         if self.merged.is_some() {
             let state = self.root_state(s);
-            (state.h(), CwdMutCtx { state, undo: Vec::with_capacity(220), scratch })
+            (
+                state.h(),
+                CwdMutCtx {
+                    state,
+                    undo: Vec::with_capacity(220),
+                    scratch,
+                },
+            )
         } else {
             let h = self.eval(s, &mut scratch);
             // dummy state (unused on the A* path)
@@ -651,7 +686,14 @@ impl IncHeuristicMut for Cwd {
                 nbr_wd_row: [255; 2 * W],
                 nbr_wd_col: [255; 2 * W],
             };
-            (h, CwdMutCtx { state, undo: Vec::new(), scratch })
+            (
+                h,
+                CwdMutCtx {
+                    state,
+                    undo: Vec::new(),
+                    scratch,
+                },
+            )
         }
     }
 
@@ -796,7 +838,11 @@ impl IncHeuristicMut for Cwd {
                 (&st.nbr_wd_row, dir, gr, st.wd_col, st.surch_col)
             }
             Move::Left | Move::Right => {
-                let from = if matches!(m, Move::Left) { b - 1 } else { b + 1 };
+                let from = if matches!(m, Move::Left) {
+                    b - 1
+                } else {
+                    b + 1
+                };
                 let gc = (s.0[from] as usize - 1) % W; // moved tile's goal column
                 let dir = if matches!(m, Move::Left) { 0 } else { 1 };
                 (&st.nbr_wd_col, dir, gc, st.wd_row, st.surch_row)
@@ -864,7 +910,9 @@ mod tests {
     #[test]
     fn incremental_matches_full_on_random_walk() {
         use crate::puzzle24::search::idastar::IncHeuristicMut;
-        let Some(cwd) = cwd_merged_or_skip() else { return };
+        let Some(cwd) = cwd_merged_or_skip() else {
+            return;
+        };
         let mut scratch = CwdScratch::new();
         let start = r_board();
         let (h0, mut ctx) = IncHeuristicMut::root(&cwd, &start);
@@ -886,7 +934,10 @@ mod tests {
                 let child = s.apply(m);
                 let h_inc = IncHeuristicMut::make(&cwd, &mut ctx, &child, m);
                 let h_full = cwd.eval(&child, &mut scratch);
-                assert_eq!(h_inc, h_full, "incremental {h_inc} != full {h_full} on move {m:?}");
+                assert_eq!(
+                    h_inc, h_full,
+                    "incremental {h_inc} != full {h_full} on move {m:?}"
+                );
                 s = child;
                 path.push(m);
             } else {
@@ -907,7 +958,9 @@ mod tests {
     #[test]
     fn child_h_lb_matches_probe_on_random_walk() {
         use crate::puzzle24::search::idastar::IncHeuristicMut;
-        let Some(cwd) = cwd_merged_or_skip() else { return };
+        let Some(cwd) = cwd_merged_or_skip() else {
+            return;
+        };
         let cwd = cwd.with_neighbor_prune(true);
         let start = r_board();
         let (_h0, mut ctx) = IncHeuristicMut::root(&cwd, &start);
@@ -940,7 +993,11 @@ mod tests {
                     ctx.state.surch_col
                 };
                 assert!(lb <= h_child, "lb {lb} > child h {h_child} (inadmissible)");
-                assert_eq!(lb, h_child - changed_surch, "lb term != probed WD on move {m:?}");
+                assert_eq!(
+                    lb,
+                    h_child - changed_surch,
+                    "lb term != probed WD on move {m:?}"
+                );
                 s = child;
                 path.push(m);
                 checked += 1;
@@ -950,7 +1007,10 @@ mod tests {
                 s = s.apply(m.inverse());
             }
         }
-        assert!(checked > 1000, "walk too shallow to be meaningful ({checked})");
+        assert!(
+            checked > 1000,
+            "walk too shallow to be meaningful ({checked})"
+        );
     }
 
     #[ignore = "loads the 563 MB 24-puzzle WD table + expands a BFS ball (~30s); run with --ignored. \
@@ -968,7 +1028,13 @@ mod tests {
             let s = State(*state);
             let h = cwd.eval(&s, &mut scratch);
             assert!(h <= d, "cWD {h} over-estimates true {d} at {state:?}");
-            assert!(h >= wd.h(&s), "cWD {} below WD {} at {:?}", h, wd.h(&s), state);
+            assert!(
+                h >= wd.h(&s),
+                "cWD {} below WD {} at {:?}",
+                h,
+                wd.h(&s),
+                state
+            );
         }
     }
 }

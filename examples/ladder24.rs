@@ -36,16 +36,21 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use puzzle8::puzzle24::pdb::{ZPatternDb, ZpdbInc, ZpdbPlusInc};
+use puzzle8::puzzle24::search::Heuristic;
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_parallel, idastar_inc_ladder, IncHeuristic, IncManhattan, LadderOutcome,
-    LinearConflictInc, MaxInc, ManhattanHeuristic, SearchStats, WalkingDistanceHeuristic,
+    LinearConflictInc, ManhattanHeuristic, MaxInc, SearchStats, WalkingDistanceHeuristic,
     WalkingDistanceInc,
 };
-use puzzle8::puzzle24::search::Heuristic;
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 use puzzle8::puzzle24::symmetry::reflect;
 
-const ZPDB_FILES_K6: [&str; 4] = ["pdb24_a.zbin", "pdb24_b.zbin", "pdb24_c.zbin", "pdb24_d.zbin"];
+const ZPDB_FILES_K6: [&str; 4] = [
+    "pdb24_a.zbin",
+    "pdb24_b.zbin",
+    "pdb24_c.zbin",
+    "pdb24_d.zbin",
+];
 const ZPDB_FILES_K7: [&str; 4] = [
     "pdb24_k7_a.zbin",
     "pdb24_k7_b.zbin",
@@ -163,7 +168,10 @@ struct Row {
 
 /// Space-joined 25-token board (blank as `0`) for the TSV `board` field.
 fn board_field(s: &State) -> String {
-    s.0.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")
+    s.0.iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -210,28 +218,52 @@ fn parse_args() -> Result<Args, String> {
                 let s = argv.get(i).ok_or("--walk-lengths needs a value")?;
                 walk_lengths = s
                     .split(',')
-                    .map(|t| t.trim().parse::<u16>().map_err(|e| format!("walk len {t:?}: {e}")))
+                    .map(|t| {
+                        t.trim()
+                            .parse::<u16>()
+                            .map_err(|e| format!("walk len {t:?}: {e}"))
+                    })
                     .collect::<Result<_, _>>()?;
             }
             "--reps" => {
                 i += 1;
-                reps = argv.get(i).ok_or("--reps needs a value")?.parse().map_err(|e| format!("--reps: {e}"))?;
+                reps = argv
+                    .get(i)
+                    .ok_or("--reps needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--reps: {e}"))?;
             }
             "--seed" => {
                 i += 1;
-                seed = argv.get(i).ok_or("--seed needs a value")?.parse().map_err(|e| format!("--seed: {e}"))?;
+                seed = argv
+                    .get(i)
+                    .ok_or("--seed needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--seed: {e}"))?;
             }
             "--budget-secs" => {
                 i += 1;
-                budget_secs = argv.get(i).ok_or("--budget-secs needs a value")?.parse().map_err(|e| format!("--budget-secs: {e}"))?;
+                budget_secs = argv
+                    .get(i)
+                    .ok_or("--budget-secs needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--budget-secs: {e}"))?;
             }
             "--bound-budget-secs" => {
                 i += 1;
-                bound_budget_secs = argv.get(i).ok_or("--bound-budget-secs needs a value")?.parse().map_err(|e| format!("--bound-budget-secs: {e}"))?;
+                bound_budget_secs = argv
+                    .get(i)
+                    .ok_or("--bound-budget-secs needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--bound-budget-secs: {e}"))?;
             }
             "--max-bound" => {
                 i += 1;
-                max_bound = argv.get(i).ok_or("--max-bound needs a value")?.parse().map_err(|e| format!("--max-bound: {e}"))?;
+                max_bound = argv
+                    .get(i)
+                    .ok_or("--max-bound needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--max-bound: {e}"))?;
             }
             "--from" => {
                 i += 1;
@@ -239,11 +271,20 @@ fn parse_args() -> Result<Args, String> {
             }
             "--top-n" => {
                 i += 1;
-                top_n = Some(argv.get(i).ok_or("--top-n needs a value")?.parse().map_err(|e| format!("--top-n: {e}"))?);
+                top_n = Some(
+                    argv.get(i)
+                        .ok_or("--top-n needs a value")?
+                        .parse()
+                        .map_err(|e| format!("--top-n: {e}"))?,
+                );
             }
             "--combine-slack" => {
                 i += 1;
-                combine_slack = argv.get(i).ok_or("--combine-slack needs a value")?.parse().map_err(|e| format!("--combine-slack: {e}"))?;
+                combine_slack = argv
+                    .get(i)
+                    .ok_or("--combine-slack needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--combine-slack: {e}"))?;
             }
             "--parallel" => parallel = true,
             "--quiet" => quiet = true,
@@ -257,8 +298,21 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
     Ok(Args {
-        pdb_dir, heuristics, mode, walk_lengths, reps, seed, budget_secs, bound_budget_secs,
-        max_bound, from, top_n, combine_slack, parallel, quiet, out_tsv,
+        pdb_dir,
+        heuristics,
+        mode,
+        walk_lengths,
+        reps,
+        seed,
+        budget_secs,
+        bound_budget_secs,
+        max_bound,
+        from,
+        top_n,
+        combine_slack,
+        parallel,
+        quiet,
+        out_tsv,
     })
 }
 
@@ -266,7 +320,8 @@ fn load_zpdbs(dir: &Path, files: &[&str; 4]) -> Result<Vec<ZPatternDb>, String> 
     let mut dbs = Vec::with_capacity(4);
     for name in files {
         let path = dir.join(name);
-        let db = ZPatternDb::load_mmap(&path).map_err(|e| format!("loading {}: {}", path.display(), e))?;
+        let db = ZPatternDb::load_mmap(&path)
+            .map_err(|e| format!("loading {}: {}", path.display(), e))?;
         dbs.push(db);
     }
     Ok(dbs)
@@ -318,7 +373,11 @@ fn parse_board_line(line: &str) -> Option<State> {
         if n >= N_CELLS {
             return None;
         }
-        let v = if tok == "_" || tok == "." { 0 } else { tok.parse::<u8>().ok()? };
+        let v = if tok == "_" || tok == "." {
+            0
+        } else {
+            tok.parse::<u8>().ok()?
+        };
         if v > 24 {
             return None;
         }
@@ -374,7 +433,18 @@ where
         LadderOutcome::TimedOut(k) => (None, k, format!("timeout LB>={k}")),
         LadderOutcome::Unsolvable => (None, 0, "unsolvable".to_string()),
     };
-    Row { label, board: board_field(s), root_h: rh, nodes: stats.nodes, iters: stats.iterations, elapsed, solved_depth, lower_bound, pick: None, outcome: outcome_str }
+    Row {
+        label,
+        board: board_field(s),
+        root_h: rh,
+        nodes: stats.nodes,
+        iters: stats.iterations,
+        elapsed,
+        solved_depth,
+        lower_bound,
+        pick: None,
+        outcome: outcome_str,
+    }
 }
 
 fn print_table(rows: &[Row]) {
@@ -384,20 +454,42 @@ fn print_table(rows: &[Row]) {
     );
     for r in rows {
         let secs = r.elapsed.as_secs_f64();
-        let nps = if secs > 0.0 { r.nodes as f64 / secs } else { 0.0 };
+        let nps = if secs > 0.0 {
+            r.nodes as f64 / secs
+        } else {
+            0.0
+        };
         println!(
             "  {:<14} {:>5} {:>16} {:>5} {:>11} {:>13.0}  {}",
-            r.label, r.root_h, r.nodes, r.iters, format!("{:.2?}", r.elapsed), nps, r.outcome
+            r.label,
+            r.root_h,
+            r.nodes,
+            r.iters,
+            format!("{:.2?}", r.elapsed),
+            nps,
+            r.outcome
         );
     }
 }
 
 /// Run the optimal-solve regime (random walks) for one heuristic.
-fn run_optimal<E: IncHeuristic + Sync>(hname: &str, e: &E, boards: &[(String, State)], budget: Duration, parallel: bool, quiet: bool) -> Vec<Row>
+fn run_optimal<E: IncHeuristic + Sync>(
+    hname: &str,
+    e: &E,
+    boards: &[(String, State)],
+    budget: Duration,
+    parallel: bool,
+    quiet: bool,
+) -> Vec<Row>
 where
     E::Ctx: Send + Sync,
 {
-    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}{}) ---", hname, budget, if parallel { ", parallel" } else { "" });
+    println!(
+        "\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}{}) ---",
+        hname,
+        budget,
+        if parallel { ", parallel" } else { "" }
+    );
     let mut rows = Vec::new();
     for (label, s) in boards {
         rows.push(run_board(e, label.clone(), s, u8::MAX, budget, parallel));
@@ -408,20 +500,45 @@ where
     let deepest = rows.iter().filter_map(|r| r.solved_depth).max();
     let total_nodes: u64 = rows.iter().map(|r| r.nodes).sum();
     let total_time: f64 = rows.iter().map(|r| r.elapsed.as_secs_f64()).sum();
-    let nps = if total_time > 0.0 { total_nodes as f64 / total_time } else { 0.0 };
+    let nps = if total_time > 0.0 {
+        total_nodes as f64 / total_time
+    } else {
+        0.0
+    };
     match deepest {
-        Some(d) => println!("  => deepest optimally solved within budget: d={}  ({:.2} Mnodes/s agg)", d, nps / 1e6),
-        None => println!("  => no board solved within budget  ({:.2} Mnodes/s agg)", nps / 1e6),
+        Some(d) => println!(
+            "  => deepest optimally solved within budget: d={}  ({:.2} Mnodes/s agg)",
+            d,
+            nps / 1e6
+        ),
+        None => println!(
+            "  => no board solved within budget  ({:.2} Mnodes/s agg)",
+            nps / 1e6
+        ),
     }
     rows
 }
 
 /// Run the bounded lower-bound regime (structured boards) for one heuristic.
-fn run_bounded<E: IncHeuristic + Sync>(hname: &str, e: &E, boards: &[(String, State)], max_bound: u8, budget: Duration, parallel: bool, quiet: bool) -> Vec<Row>
+fn run_bounded<E: IncHeuristic + Sync>(
+    hname: &str,
+    e: &E,
+    boards: &[(String, State)],
+    max_bound: u8,
+    budget: Duration,
+    parallel: bool,
+    quiet: bool,
+) -> Vec<Row>
 where
     E::Ctx: Send + Sync,
 {
-    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}{}) ---", hname, max_bound, budget, if parallel { ", parallel" } else { "" });
+    println!(
+        "\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}{}) ---",
+        hname,
+        max_bound,
+        budget,
+        if parallel { ", parallel" } else { "" }
+    );
     let mut rows = Vec::new();
     for (label, s) in boards {
         rows.push(run_board(e, label.clone(), s, max_bound, budget, parallel));
@@ -429,8 +546,14 @@ where
     if !quiet {
         print_table(&rows);
     }
-    if let Some(r) = rows.iter().find(|r| r.label.starts_with('R') && r.label != "reflect(R)") {
-        println!("  => best proven lower bound on R: depth >= {}", r.lower_bound);
+    if let Some(r) = rows
+        .iter()
+        .find(|r| r.label.starts_with('R') && r.label != "reflect(R)")
+    {
+        println!(
+            "  => best proven lower bound on R: depth >= {}",
+            r.lower_bound
+        );
     }
     let best = rows.iter().map(|r| r.lower_bound).max().unwrap_or(0);
     println!("  => highest lower bound across structured boards: {best}");
@@ -512,7 +635,9 @@ where
         (Pick::ZpdbPlus, false) => idastar_inc_ladder(s, zpdb_plus, max_bound, Some(deadline)),
         (Pick::Cheap, true) => idastar_inc_bounded_parallel(s, cheap, max_bound, Some(deadline)),
         (Pick::Zpdb, true) => idastar_inc_bounded_parallel(s, zpdb, max_bound, Some(deadline)),
-        (Pick::ZpdbPlus, true) => idastar_inc_bounded_parallel(s, zpdb_plus, max_bound, Some(deadline)),
+        (Pick::ZpdbPlus, true) => {
+            idastar_inc_bounded_parallel(s, zpdb_plus, max_bound, Some(deadline))
+        }
     };
     let elapsed = t.elapsed();
     let tag = pick.tag();
@@ -554,7 +679,15 @@ fn pick_counts(picks: &[Pick]) -> String {
 
 #[allow(clippy::too_many_arguments)]
 fn run_optimal_select<C, Z, X>(
-    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], budget: Duration, parallel: bool, quiet: bool,
+    hname: &str,
+    cheap: &C,
+    zpdb: &Z,
+    zpdb_plus: &X,
+    slack: u8,
+    boards: &[(String, State)],
+    budget: Duration,
+    parallel: bool,
+    quiet: bool,
 ) -> Vec<Row>
 where
     C: IncHeuristic + Sync,
@@ -564,11 +697,27 @@ where
     Z::Ctx: Send + Sync,
     X::Ctx: Send + Sync,
 {
-    println!("\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}, combine-slack {}{}) ---", hname, budget, slack, if parallel { ", parallel" } else { "" });
+    println!(
+        "\n--- OPTIMAL-SOLVE  [{}]  (per-board budget {:?}, combine-slack {}{}) ---",
+        hname,
+        budget,
+        slack,
+        if parallel { ", parallel" } else { "" }
+    );
     let mut rows = Vec::new();
     let mut picks = Vec::new();
     for (label, s) in boards {
-        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, u8::MAX, budget, parallel);
+        let (row, pick) = run_board_select(
+            cheap,
+            zpdb,
+            zpdb_plus,
+            slack,
+            label.clone(),
+            s,
+            u8::MAX,
+            budget,
+            parallel,
+        );
         picks.push(pick);
         rows.push(row);
     }
@@ -578,17 +727,38 @@ where
     let deepest = rows.iter().filter_map(|r| r.solved_depth).max();
     let total_nodes: u64 = rows.iter().map(|r| r.nodes).sum();
     let total_time: f64 = rows.iter().map(|r| r.elapsed.as_secs_f64()).sum();
-    let nps = if total_time > 0.0 { total_nodes as f64 / total_time } else { 0.0 };
+    let nps = if total_time > 0.0 {
+        total_nodes as f64 / total_time
+    } else {
+        0.0
+    };
     match deepest {
-        Some(d) => println!("  => deepest optimally solved within budget: d={}  ({:.2} Mnodes/s agg); {}", d, nps / 1e6, pick_counts(&picks)),
-        None => println!("  => no board solved within budget; {}", pick_counts(&picks)),
+        Some(d) => println!(
+            "  => deepest optimally solved within budget: d={}  ({:.2} Mnodes/s agg); {}",
+            d,
+            nps / 1e6,
+            pick_counts(&picks)
+        ),
+        None => println!(
+            "  => no board solved within budget; {}",
+            pick_counts(&picks)
+        ),
     }
     rows
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run_bounded_select<C, Z, X>(
-    hname: &str, cheap: &C, zpdb: &Z, zpdb_plus: &X, slack: u8, boards: &[(String, State)], max_bound: u8, budget: Duration, parallel: bool, quiet: bool,
+    hname: &str,
+    cheap: &C,
+    zpdb: &Z,
+    zpdb_plus: &X,
+    slack: u8,
+    boards: &[(String, State)],
+    max_bound: u8,
+    budget: Duration,
+    parallel: bool,
+    quiet: bool,
 ) -> Vec<Row>
 where
     C: IncHeuristic + Sync,
@@ -598,22 +768,49 @@ where
     Z::Ctx: Send + Sync,
     X::Ctx: Send + Sync,
 {
-    println!("\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}, combine-slack {}{}) ---", hname, max_bound, budget, slack, if parallel { ", parallel" } else { "" });
+    println!(
+        "\n--- BOUNDED-LB  [{}]  (max-bound {}, per-board budget {:?}, combine-slack {}{}) ---",
+        hname,
+        max_bound,
+        budget,
+        slack,
+        if parallel { ", parallel" } else { "" }
+    );
     let mut rows = Vec::new();
     let mut picks = Vec::new();
     for (label, s) in boards {
-        let (row, pick) = run_board_select(cheap, zpdb, zpdb_plus, slack, label.clone(), s, max_bound, budget, parallel);
+        let (row, pick) = run_board_select(
+            cheap,
+            zpdb,
+            zpdb_plus,
+            slack,
+            label.clone(),
+            s,
+            max_bound,
+            budget,
+            parallel,
+        );
         picks.push(pick);
         rows.push(row);
     }
     if !quiet {
         print_table(&rows);
     }
-    if let Some(r) = rows.iter().find(|r| r.label.starts_with('R') && r.label != "reflect(R)") {
-        println!("  => best proven lower bound on R: depth >= {}", r.lower_bound);
+    if let Some(r) = rows
+        .iter()
+        .find(|r| r.label.starts_with('R') && r.label != "reflect(R)")
+    {
+        println!(
+            "  => best proven lower bound on R: depth >= {}",
+            r.lower_bound
+        );
     }
     let best = rows.iter().map(|r| r.lower_bound).max().unwrap_or(0);
-    println!("  => highest lower bound across structured boards: {}; {}", best, pick_counts(&picks));
+    println!(
+        "  => highest lower bound across structured boards: {}; {}",
+        best,
+        pick_counts(&picks)
+    );
     rows
 }
 
@@ -627,17 +824,31 @@ fn cheap_score(s: &State) -> u8 {
 
 /// Catalog triage (#2): score every board cheaply, print the ranking, and keep
 /// only the `top_n` hardest for the (expensive) solve.
-fn screen_top_n(set_name: &str, boards: Vec<(String, State)>, top_n: usize) -> Vec<(String, State)> {
-    let mut scored: Vec<(u8, String, State)> =
-        boards.into_iter().map(|(l, s)| (cheap_score(&s), l, s)).collect();
+fn screen_top_n(
+    set_name: &str,
+    boards: Vec<(String, State)>,
+    top_n: usize,
+) -> Vec<(String, State)> {
+    let mut scored: Vec<(u8, String, State)> = boards
+        .into_iter()
+        .map(|(l, s)| (cheap_score(&s), l, s))
+        .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0));
-    println!("\n=== SCREEN [{}] — cheap max(LC,WD) root over all {} candidates ===", set_name, scored.len());
+    println!(
+        "\n=== SCREEN [{}] — cheap max(LC,WD) root over all {} candidates ===",
+        set_name,
+        scored.len()
+    );
     for (h, l, _) in &scored {
         println!("  {l:<14} cheap-h={h}");
     }
     let keep = top_n.min(scored.len());
     println!("  => keeping top {keep} hardest for the (selective) solve");
-    scored.into_iter().take(keep).map(|(_, l, s)| (l, s)).collect()
+    scored
+        .into_iter()
+        .take(keep)
+        .map(|(_, l, s)| (l, s))
+        .collect()
 }
 
 /// One TSV record: `(mode, heuristic, row)`.
@@ -665,12 +876,26 @@ fn dispatch(
         ($e:expr) => {{
             let e = $e;
             if matches!(mode, Mode::Optimal | Mode::Both) {
-                recs.extend(run_optimal(h.name(), &e, walks, opt_budget, parallel, quiet)
-                    .into_iter().map(|r| ("optimal", h.name(), r)));
+                recs.extend(
+                    run_optimal(h.name(), &e, walks, opt_budget, parallel, quiet)
+                        .into_iter()
+                        .map(|r| ("optimal", h.name(), r)),
+                );
             }
             if matches!(mode, Mode::Bounded | Mode::Both) {
-                recs.extend(run_bounded(h.name(), &e, structured, max_bound, bnd_budget, parallel, quiet)
-                    .into_iter().map(|r| ("bounded", h.name(), r)));
+                recs.extend(
+                    run_bounded(
+                        h.name(),
+                        &e,
+                        structured,
+                        max_bound,
+                        bnd_budget,
+                        parallel,
+                        quiet,
+                    )
+                    .into_iter()
+                    .map(|r| ("bounded", h.name(), r)),
+                );
             }
         }};
     }
@@ -695,17 +920,48 @@ fn dispatch(
             run_modes!(ZpdbPlusInc::new([&d[0], &d[1], &d[2], &d[3]]));
         }
         Heur::SelectK6 | Heur::SelectK7 => {
-            let d = if matches!(h, Heur::SelectK6) { k6.as_ref().unwrap() } else { k7.as_ref().unwrap() };
+            let d = if matches!(h, Heur::SelectK6) {
+                k6.as_ref().unwrap()
+            } else {
+                k7.as_ref().unwrap()
+            };
             let cheap = MaxInc::new(LinearConflictInc, WalkingDistanceInc);
             let zpdb = ZpdbInc::new([&d[0], &d[1], &d[2], &d[3]]);
             let zpdb_plus = ZpdbPlusInc::new([&d[0], &d[1], &d[2], &d[3]]);
             if matches!(mode, Mode::Optimal | Mode::Both) {
-                recs.extend(run_optimal_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, walks, opt_budget, parallel, quiet)
-                    .into_iter().map(|r| ("optimal", h.name(), r)));
+                recs.extend(
+                    run_optimal_select(
+                        h.name(),
+                        &cheap,
+                        &zpdb,
+                        &zpdb_plus,
+                        combine_slack,
+                        walks,
+                        opt_budget,
+                        parallel,
+                        quiet,
+                    )
+                    .into_iter()
+                    .map(|r| ("optimal", h.name(), r)),
+                );
             }
             if matches!(mode, Mode::Bounded | Mode::Both) {
-                recs.extend(run_bounded_select(h.name(), &cheap, &zpdb, &zpdb_plus, combine_slack, structured, max_bound, bnd_budget, parallel, quiet)
-                    .into_iter().map(|r| ("bounded", h.name(), r)));
+                recs.extend(
+                    run_bounded_select(
+                        h.name(),
+                        &cheap,
+                        &zpdb,
+                        &zpdb_plus,
+                        combine_slack,
+                        structured,
+                        max_bound,
+                        bnd_budget,
+                        parallel,
+                        quiet,
+                    )
+                    .into_iter()
+                    .map(|r| ("bounded", h.name(), r)),
+                );
             }
         }
     }
@@ -718,13 +974,21 @@ fn dispatch(
 /// no parity `+2` is applied — the value is exactly what the driver proved.
 fn write_tsv(path: &std::path::Path, header_note: &str, recs: &[Rec]) -> std::io::Result<()> {
     use std::io::Write as _;
-    let fresh = std::fs::metadata(path).map(|m| m.len() == 0).unwrap_or(true);
+    let fresh = std::fs::metadata(path)
+        .map(|m| m.len() == 0)
+        .unwrap_or(true);
     let mut f = std::io::BufWriter::new(
-        std::fs::OpenOptions::new().create(true).append(true).open(path)?,
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?,
     );
     if fresh {
         writeln!(f, "# ladder24 {header_note}")?;
-        writeln!(f, "label\tboard\tmode\theur\tpick\th0\tlb\tsolved_depth\tnodes\titers\tsecs\toutcome")?;
+        writeln!(
+            f,
+            "label\tboard\tmode\theur\tpick\th0\tlb\tsolved_depth\tnodes\titers\tsecs\toutcome"
+        )?;
     }
     for (mode, heur, r) in recs {
         writeln!(
@@ -737,7 +1001,9 @@ fn write_tsv(path: &std::path::Path, header_note: &str, recs: &[Rec]) -> std::io
             r.pick.unwrap_or("-"),
             r.root_h,
             r.lower_bound,
-            r.solved_depth.map(|d| d.to_string()).unwrap_or_else(|| "-".into()),
+            r.solved_depth
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| "-".into()),
             r.nodes,
             r.iters,
             r.elapsed.as_secs_f64(),
@@ -770,7 +1036,10 @@ fn main() -> ExitCode {
     let mut walks: Vec<(String, State)> = Vec::new();
     for &len in &args.walk_lengths {
         for rep in 0..args.reps {
-            let seed = args.seed.wrapping_add((len as u64) << 32).wrapping_add(rep as u64 * 0x9E3779B97F4A7C15);
+            let seed = args
+                .seed
+                .wrapping_add((len as u64) << 32)
+                .wrapping_add(rep as u64 * 0x9E3779B97F4A7C15);
             walks.push((format!("walk{len}#{rep}"), random_walk(seed, len)));
         }
     }
@@ -805,15 +1074,25 @@ fn main() -> ExitCode {
     let k6 = if need_k6 {
         match load_zpdbs(&args.pdb_dir, &ZPDB_FILES_K6) {
             Ok(d) => Some(d),
-            Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::FAILURE;
+            }
         }
-    } else { None };
+    } else {
+        None
+    };
     let k7 = if need_k7 {
         match load_zpdbs(&args.pdb_dir, &ZPDB_FILES_K7) {
             Ok(d) => Some(d),
-            Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::FAILURE;
+            }
         }
-    } else { None };
+    } else {
+        None
+    };
     // WD table is needed by any WD/zpdb-plus/select heuristic and by `--top-n`
     // screening (the cheap catalog score is max(LC,WD)).
     if need_wd || args.top_n.is_some() {
@@ -827,24 +1106,49 @@ fn main() -> ExitCode {
 
     println!(
         "ladder24: {} heuristics, {} walk boards, {} structured boards",
-        args.heuristics.len(), walks.len(), structured.len()
+        args.heuristics.len(),
+        walks.len(),
+        structured.len()
     );
     // Sanity: root h of R under plain Manhattan (the documented 112 baseline).
-    println!("  root h(R) Manhattan = {}", ManhattanHeuristic.h(&r_board()));
+    println!(
+        "  root h(R) Manhattan = {}",
+        ManhattanHeuristic.h(&r_board())
+    );
 
     let opt_budget = Duration::from_secs(args.budget_secs);
     let bnd_budget = Duration::from_secs(args.bound_budget_secs);
     let mut all_recs: Vec<Rec> = Vec::new();
     for &h in &args.heuristics {
-        let recs = dispatch(h, &k6, &k7, &walks, &structured, args.mode, args.max_bound, opt_budget, bnd_budget, args.combine_slack, args.parallel, args.quiet);
+        let recs = dispatch(
+            h,
+            &k6,
+            &k7,
+            &walks,
+            &structured,
+            args.mode,
+            args.max_bound,
+            opt_budget,
+            bnd_budget,
+            args.combine_slack,
+            args.parallel,
+            args.quiet,
+        );
         all_recs.extend(recs);
     }
 
     if let Some(path) = &args.out_tsv {
         let note = format!(
             "mode={:?} max_bound={} bound_budget_secs={} parallel={} heuristics={}",
-            args.mode, args.max_bound, args.bound_budget_secs, args.parallel,
-            args.heuristics.iter().map(|h| h.name()).collect::<Vec<_>>().join(","),
+            args.mode,
+            args.max_bound,
+            args.bound_budget_secs,
+            args.parallel,
+            args.heuristics
+                .iter()
+                .map(|h| h.name())
+                .collect::<Vec<_>>()
+                .join(","),
         );
         match write_tsv(path, &note, &all_recs) {
             Ok(()) => eprintln!("wrote {} rows -> {}", all_recs.len(), path.display()),

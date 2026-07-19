@@ -84,10 +84,7 @@ pub fn idastar<H: Heuristic>(start: &State, h: &H) -> Option<Vec<Move>> {
 /// The node counter adds one `u64` increment per node — negligible against the
 /// per-node heuristic evaluation and successor generation — so callers that
 /// don't need stats can use [`idastar`] without measurable cost.
-pub fn idastar_with_stats<H: Heuristic>(
-    start: &State,
-    h: &H,
-) -> (Option<Vec<Move>>, SearchStats) {
+pub fn idastar_with_stats<H: Heuristic>(start: &State, h: &H) -> (Option<Vec<Move>>, SearchStats) {
     let mut stats = SearchStats::default();
 
     if start == &GOAL {
@@ -212,7 +209,9 @@ pub fn idastar_inc_with_stats<E: IncHeuristic>(
 
     loop {
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, &mut path, None, e, &mut stats) {
+        match search_inc(
+            start, blank, ctx0, h0, 0, bound, &mut path, None, e, &mut stats,
+        ) {
             Step::Found => return (Some(path), stats),
             Step::Bound(next) => {
                 if next == u8::MAX {
@@ -256,7 +255,18 @@ fn search_inc<E: IncHeuristic>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let (child_h, child_ctx) = e.advance(&ctx, &s_next, m, stats);
         path.push(m);
-        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
+        match search_inc(
+            &s_next,
+            next_blank,
+            child_ctx,
+            child_h,
+            g + 1,
+            bound,
+            path,
+            Some(m),
+            e,
+            stats,
+        ) {
             Step::Found => return Step::Found,
             Step::Bound(n) => {
                 if n < min_next {
@@ -303,7 +313,9 @@ pub fn idastar_inc_mut_with_stats<E: IncHeuristicMut>(
         stats.iterations += 1;
         // `ctx` is restored to the root projection after each iteration because
         // `search_inc_mut` unmakes every move it makes.
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, &mut path, None, e, &mut stats) {
+        match search_inc_mut(
+            start, blank, &mut ctx, h0, 0, bound, &mut path, None, e, &mut stats,
+        ) {
             Step::Found => return (Some(path), stats),
             Step::Bound(next) => {
                 if next == u8::MAX {
@@ -347,7 +359,18 @@ fn search_inc_mut<E: IncHeuristicMut>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let child_h = e.make(ctx, m);
         path.push(m);
-        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, path, Some(m), e, stats) {
+        match search_inc_mut(
+            &s_next,
+            next_blank,
+            ctx,
+            child_h,
+            g + 1,
+            bound,
+            path,
+            Some(m),
+            e,
+            stats,
+        ) {
             // On Found, keep the accumulated path and return; the whole search
             // terminates so `ctx` is discarded (no need to unmake).
             Step::Found => return Step::Found,
@@ -440,9 +463,7 @@ mod tests {
     fn random_walk_of_depth_25_solvable_optimally() {
         // A random walk gives an upper bound; IDA* must return ≤ walk length
         // and applying the solution must reach GOAL.
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         // Construct a position by walking 25 random steps from GOAL.
         let mut s = GOAL;
         let mut walk_len = 0u8;

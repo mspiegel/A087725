@@ -15,16 +15,20 @@ use puzzle8::puzzle15::pdb::{
 };
 use puzzle8::puzzle15::rank::unrank;
 use puzzle8::puzzle15::search::{
-    idastar_inc_with_stats, idastar_with_stats, Heuristic, IncHeuristic,
-    LinearConflictHeuristic, SearchStats, WalkingDistanceHeuristic,
+    idastar_inc_with_stats, idastar_with_stats, Heuristic, IncHeuristic, LinearConflictHeuristic,
+    SearchStats, WalkingDistanceHeuristic,
 };
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("data"));
+    let dir = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("data"));
     let n_solves: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
 
-    let antipode_ranks = antipodes::load_ranks(&dir.join("pdb15_antipodes.txt")).expect("antipodes");
+    let antipode_ranks =
+        antipodes::load_ranks(&dir.join("pdb15_antipodes.txt")).expect("antipodes");
 
     // Blank-agnostic korf-plus (current heuristic).
     let dbs = [
@@ -69,9 +73,25 @@ fn main() {
         let k8 = dbs[1].h(&s);
         let z8 = zdbs[1].cold_lookup(&s);
         let viol = z7 < k7 || z8 < k8;
-        println!("  {:>2}  {:>3} {:>3}  {:>3} {:>3}  | {:>4} {:>4}    {}",
-                 i + 1, k7, z7, k8, z8, k7 as u32 + k8 as u32, z7 as u32 + z8 as u32,
-                 if viol { format!("YES  p7:{} p8:{}", if z7<k7{"<"}else{"ok"}, if z8<k8{"<"}else{"ok"}) } else { "no".into() });
+        println!(
+            "  {:>2}  {:>3} {:>3}  {:>3} {:>3}  | {:>4} {:>4}    {}",
+            i + 1,
+            k7,
+            z7,
+            k8,
+            z8,
+            k7 as u32 + k8 as u32,
+            z7 as u32 + z8 as u32,
+            if viol {
+                format!(
+                    "YES  p7:{} p8:{}",
+                    if z7 < k7 { "<" } else { "ok" },
+                    if z8 < k8 { "<" } else { "ok" }
+                )
+            } else {
+                "no".into()
+            }
+        );
     }
     println!();
 
@@ -90,17 +110,33 @@ fn main() {
         kp_sum += kp as u32;
         za_sum += mz as u32;
         zp_sum += zp as u32;
-        println!("  {:>2}     {:>3}    {:>3}    {:>3}  {:>3} |  {:>3}    {:>3} |   {:>3}    {:>3}",
-                 i + 1, ak, az, lc, wd, kp, zp, kp, mz);
+        println!(
+            "  {:>2}     {:>3}    {:>3}    {:>3}  {:>3} |  {:>3}    {:>3} |   {:>3}    {:>3}",
+            i + 1,
+            ak,
+            az,
+            lc,
+            wd,
+            kp,
+            zp,
+            kp,
+            mz
+        );
     }
-    println!("  zpdb-plus mean = {:.1} (gap {:.1}) vs korf-plus mean = {:.1} (gap {:.1})",
-             zp_sum as f64 / antipode_ranks.len() as f64, 80.0 - zp_sum as f64 / antipode_ranks.len() as f64,
-             kp_sum as f64 / antipode_ranks.len() as f64, 80.0 - kp_sum as f64 / antipode_ranks.len() as f64);
+    println!(
+        "  zpdb-plus mean = {:.1} (gap {:.1}) vs korf-plus mean = {:.1} (gap {:.1})",
+        zp_sum as f64 / antipode_ranks.len() as f64,
+        80.0 - zp_sum as f64 / antipode_ranks.len() as f64,
+        kp_sum as f64 / antipode_ranks.len() as f64,
+        80.0 - kp_sum as f64 / antipode_ranks.len() as f64
+    );
     let n = antipode_ranks.len() as f64;
     println!(
         "  mean  {:>5.1}      {:>5.1}      gap {:.1} → {:.1}",
-        kp_sum as f64 / n, za_sum as f64 / n,
-        80.0 - kp_sum as f64 / n, 80.0 - za_sum as f64 / n,
+        kp_sum as f64 / n,
+        za_sum as f64 / n,
+        80.0 - kp_sum as f64 / n,
+        80.0 - za_sum as f64 / n,
     );
 
     let k = n_solves.min(antipode_ranks.len());
@@ -116,18 +152,32 @@ fn main() {
         let (sol_za, st_za) = idastar_inc_with_stats(&s, &zpdb);
         let dt_za = t1.elapsed().as_secs_f64();
         assert_eq!(sol_kp.as_ref().map(|v| v.len()), Some(80));
-        assert_eq!(sol_za.as_ref().map(|v| v.len()), Some(80), "zero-aware returned non-optimal!");
-        kp_nodes += st_kp.nodes; za_nodes += st_za.nodes; kp_t += dt_kp; za_t += dt_za;
+        assert_eq!(
+            sol_za.as_ref().map(|v| v.len()),
+            Some(80),
+            "zero-aware returned non-optimal!"
+        );
+        kp_nodes += st_kp.nodes;
+        za_nodes += st_za.nodes;
+        kp_t += dt_kp;
+        za_t += dt_za;
         println!(
             "        {:>13} {:>7.2}s   {:>13} {:>7.2}s    {:>4.1}x nodes, {:>4.1}x time",
-            st_kp.nodes, dt_kp, st_za.nodes, dt_za,
+            st_kp.nodes,
+            dt_kp,
+            st_za.nodes,
+            dt_za,
             st_kp.nodes as f64 / st_za.nodes.max(1) as f64,
             dt_kp / dt_za.max(1e-9),
         );
     }
     println!(
         "  total  {:>12} {:>7.2}s   {:>13} {:>7.2}s    {:>4.1}x nodes, {:>4.1}x time",
-        kp_nodes, kp_t, za_nodes, za_t,
-        kp_nodes as f64 / za_nodes.max(1) as f64, kp_t / za_t.max(1e-9),
+        kp_nodes,
+        kp_t,
+        za_nodes,
+        za_t,
+        kp_nodes as f64 / za_nodes.max(1) as f64,
+        kp_t / za_t.max(1e-9),
     );
 }

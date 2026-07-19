@@ -26,7 +26,9 @@ use rayon::prelude::*;
 use puzzle8::puzzle15::enumerate::cache;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
-use puzzle8::puzzle15::search::{idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic};
+use puzzle8::puzzle15::search::{
+    idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic,
+};
 use puzzle8::puzzle15::symmetry::reflect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,13 +52,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(2);
         }
         let f = std::fs::File::open(&args[1])?;
-        let p: Vec<(u64, u8)> = std::io::BufReader::new(f).lines().filter_map(|l| {
-            let l = l.ok()?;
-            let mut it = l.split_whitespace();
-            let r = it.next()?.parse::<u64>().ok()?;
-            let d = it.next()?.parse::<u8>().ok()?;
-            Some((r, d))
-        }).collect();
+        let p: Vec<(u64, u8)> = std::io::BufReader::new(f)
+            .lines()
+            .filter_map(|l| {
+                let l = l.ok()?;
+                let mut it = l.split_whitespace();
+                let r = it.next()?.parse::<u64>().ok()?;
+                let d = it.next()?.parse::<u8>().ok()?;
+                Some((r, d))
+            })
+            .collect();
         println!("parsed {} (rank, depth) pairs from {}", p.len(), args[1]);
         p
     } else if args.first().map(|s| s == "--from-log").unwrap_or(false) {
@@ -112,17 +117,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 good.push((r, d));
             } else {
                 rejected += 1;
-                let td = if true_d == u8::MAX { "UNSOLVABLE".to_string() } else { true_d.to_string() };
+                let td = if true_d == u8::MAX {
+                    "UNSOLVABLE".to_string()
+                } else {
+                    true_d.to_string()
+                };
                 eprintln!("  REJECT rank {r}: claimed d={d}, true depth={td} — NOT inserting");
             }
         }
         if rejected > 0 {
             eprintln!("\n*** {rejected} pair(s) FAILED verification and were dropped ***");
         }
-        println!("verified OK: {} / {} pairs", good.len(), good.len() as u32 + rejected);
+        println!(
+            "verified OK: {} / {} pairs",
+            good.len(),
+            good.len() as u32 + rejected
+        );
         good
     } else {
-        eprintln!("WARNING: --no-verify set; inserting {} pair(s) without checking depths", pairs.len());
+        eprintln!(
+            "WARNING: --no-verify set; inserting {} pair(s) without checking depths",
+            pairs.len()
+        );
         pairs
     };
 
@@ -153,8 +169,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 conflicts += 1;
                 continue;
             }
-            Some(_) => { already_present += 1; }
-            None => { c.insert(r, d); new_inserts += 1; }
+            Some(_) => {
+                already_present += 1;
+            }
+            None => {
+                c.insert(r, d);
+                new_inserts += 1;
+            }
         }
         let r_refl = rank(&reflect(&unrank(r)));
         if r_refl != r {
@@ -164,7 +185,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     conflicts += 1;
                 }
                 Some(_) => {}
-                None => { c.insert(r_refl, d); mirror_inserts += 1; }
+                None => {
+                    c.insert(r_refl, d);
+                    mirror_inserts += 1;
+                }
             }
         }
     }
@@ -177,8 +201,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  conflicts (skipped):{conflicts}");
 
     if new_inserts + mirror_inserts > 0 {
-        println!("\nsaving {} (was {}, now {}) ...",
-                 cache_path.display(), n_before, c.len());
+        println!(
+            "\nsaving {} (was {}, now {}) ...",
+            cache_path.display(),
+            n_before,
+            c.len()
+        );
         cache::save(&cache_path, &c)?;
         println!("done in {:.1?}", t.elapsed());
     } else {
@@ -190,7 +218,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Parse a `reverse_neighborhood` example's log file and extract (rank, depth)
 /// pairs from every `=== NEW d=NN BOARDS ===` section.
-fn parse_reverse_neighborhood_log(path: &str) -> Result<Vec<(u64, u8)>, Box<dyn std::error::Error>> {
+fn parse_reverse_neighborhood_log(
+    path: &str,
+) -> Result<Vec<(u64, u8)>, Box<dyn std::error::Error>> {
     let f = std::fs::File::open(path)?;
     let r = std::io::BufReader::new(f);
     let mut depth: Option<u8> = None;
@@ -199,7 +229,8 @@ fn parse_reverse_neighborhood_log(path: &str) -> Result<Vec<(u64, u8)>, Box<dyn 
         let line = line?;
         // Section header: "=== NEW d=NN BOARDS: M ===" (reverse_neighborhood)
         // or              "=== d=NN finds: M ==="          (residue_pocket)
-        let rest_opt = line.strip_prefix("=== NEW d=")
+        let rest_opt = line
+            .strip_prefix("=== NEW d=")
             .or_else(|| line.strip_prefix("=== d="));
         if let Some(rest) = rest_opt {
             let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();

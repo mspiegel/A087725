@@ -65,14 +65,17 @@ fn main() -> ExitCode {
     };
 
     let mut varmap = VarMap::new();
-    let mut net =
-        match ValueNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), hidden, blocks) {
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!("error building net: {e}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let mut net = match ValueNet::new(
+        VarBuilder::from_varmap(&varmap, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("error building net: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     match &checkpoint {
         Some(path) => match varmap.load(path) {
             Ok(()) => println!("loaded checkpoint: {}", path.display()),
@@ -242,7 +245,11 @@ fn main() -> ExitCode {
             cfg.node_budget,
             cfg.fwd_weight,
             cfg.bwd_weight,
-            if wd_to_r.is_some() { "WD-to-R" } else { "manhattan" }
+            if wd_to_r.is_some() {
+                "WD-to-R"
+            } else {
+                "manhattan"
+            }
         );
         let result = bidir_search(
             &r,
@@ -280,7 +287,10 @@ fn main() -> ExitCode {
     let secs = t.elapsed().as_secs_f64();
 
     match outcome {
-        BwasOutcome::Solved { moves, nodes_expanded } => {
+        BwasOutcome::Solved {
+            moves,
+            nodes_expanded,
+        } => {
             // Self-certify: replay reaches GOAL.
             let mut s = r;
             for &m in &moves {

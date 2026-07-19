@@ -35,7 +35,7 @@ pub fn encode_batch(states: &[State], device: &Device) -> Result<Tensor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::state::{GOAL, Move};
+    use crate::puzzle15::state::{Move, GOAL};
 
     #[test]
     fn goal_has_sixteen_ones_at_expected_positions() {
@@ -46,7 +46,11 @@ mod tests {
         // GOAL is [1,2,3,4,...,15,0]; cell `c` holds value `c+1` for c<15, blank at 15.
         for cell in 0..N_CELLS {
             let value = GOAL.0[cell] as usize;
-            assert_eq!(enc[cell * N_CELLS + value], 1.0, "cell {cell} value {value}");
+            assert_eq!(
+                enc[cell * N_CELLS + value],
+                1.0,
+                "cell {cell} value {value}"
+            );
         }
     }
 

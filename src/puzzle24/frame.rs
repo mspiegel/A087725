@@ -20,8 +20,16 @@ pub const CORNER_ANTI: [(u8, u8); 4] = [(0, 0), (1, 24), (5, 20), (21, 4)];
 /// The 8 corner-neighbor tiles and each one's assigned anti-corner
 /// (goal-neighbors of tile 1 = {2,6}→24; of 5 = {4,10}→20; of 21 = {16,22}→4;
 /// of the blank = {20,24}→0).
-pub const NBR_ANTI: [(u8, u8); 8] =
-    [(2, 24), (6, 24), (4, 20), (10, 20), (16, 4), (22, 4), (20, 0), (24, 0)];
+pub const NBR_ANTI: [(u8, u8); 8] = [
+    (2, 24),
+    (6, 24),
+    (4, 20),
+    (10, 20),
+    (16, 4),
+    (22, 4),
+    (20, 0),
+    (24, 0),
+];
 
 /// Cells within Chebyshev ≤ 1 of `c` on the 5×5 grid.
 pub fn cheb1(c: u8) -> Vec<u8> {
@@ -63,8 +71,10 @@ pub fn construct_frame_with(below: &mut dyn FnMut(usize) -> usize) -> Option<Sta
     }
     for &i in &order {
         let (t, anti) = NBR_ANTI[i];
-        let free: Vec<u8> =
-            cheb1(anti).into_iter().filter(|&c| cells[c as usize] == u8::MAX).collect();
+        let free: Vec<u8> = cheb1(anti)
+            .into_iter()
+            .filter(|&c| cells[c as usize] == u8::MAX)
+            .collect();
         if free.is_empty() {
             return None; // contention (rare) — caller retries
         }
@@ -141,7 +151,10 @@ mod tests {
                 made += 1;
             }
         }
-        assert!(made > 4000, "contention too high: only {made} of 5000 succeeded");
+        assert!(
+            made > 4000,
+            "contention too high: only {made} of 5000 succeeded"
+        );
     }
 
     #[test]

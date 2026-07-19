@@ -23,7 +23,11 @@ fn build_payload(table: &DistanceTable) -> Vec<u8> {
 fn goal_has_zero_mask() {
     let t = DistanceTable::build();
     let payload = build_payload(&t);
-    assert_eq!(payload[rank(&GOAL) as usize], 0, "GOAL must have empty optimal-move mask");
+    assert_eq!(
+        payload[rank(&GOAL) as usize],
+        0,
+        "GOAL must have empty optimal-move mask"
+    );
 }
 
 #[test]
@@ -35,8 +39,12 @@ fn every_non_goal_has_at_least_one_optimal_move() {
         if r == goal_rank {
             continue;
         }
-        assert!(payload[r as usize] != 0,
-            "rank {} (state {:?}) has empty optimal-move mask", r, unrank(r).0);
+        assert!(
+            payload[r as usize] != 0,
+            "rank {} (state {:?}) has empty optimal-move mask",
+            r,
+            unrank(r).0
+        );
     }
 }
 
@@ -48,11 +56,21 @@ fn no_illegal_bits_set() {
         let s = unrank(r);
         let legal_mask = s.legal_moves().0;
         let mask = payload[r as usize];
-        assert_eq!(mask & !legal_mask, 0,
+        assert_eq!(
+            mask & !legal_mask,
+            0,
             "rank {} (state {:?}): mask 0b{:04b} has illegal bits beyond legal 0b{:04b}",
-            r, s.0, mask, legal_mask);
+            r,
+            s.0,
+            mask,
+            legal_mask
+        );
         // Also: high 4 bits always zero (MoveSet layout uses only low 4 bits).
-        assert_eq!(mask & 0xF0, 0, "rank {r}: high 4 bits should be zero (got 0b{mask:08b})");
+        assert_eq!(
+            mask & 0xF0,
+            0,
+            "rank {r}: high 4 bits should be zero (got 0b{mask:08b})"
+        );
     }
 }
 
@@ -73,9 +91,16 @@ fn every_set_bit_strictly_decreases_distance() {
                 continue;
             }
             let d_next = t.dist(&s.apply(m));
-            assert_eq!(d_next, d - 1,
+            assert_eq!(
+                d_next,
+                d - 1,
                 "rank {} (state {:?}, d={}): optimal move {:?} -> d_next={}",
-                r, s.0, d, m, d_next);
+                r,
+                s.0,
+                d,
+                m,
+                d_next
+            );
         }
     }
 }

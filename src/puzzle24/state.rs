@@ -35,8 +35,7 @@ pub struct State(pub [u8; N_CELLS]);
 
 /// Solved configuration: `1..5 / 6..10 / 11..15 / 16..20 / 21..24 _`.
 pub const GOAL: State = State([
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-    22, 23, 24, 0,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 0,
 ]);
 
 /// Number of solvable states: `25! / 2 ≈ 7.76 × 10²⁴`. Exceeds `u64`, so this
@@ -108,7 +107,10 @@ impl MoveSet {
     }
 
     pub fn iter(self) -> MoveSetIter {
-        MoveSetIter { bits: self.0, idx: 0 }
+        MoveSetIter {
+            bits: self.0,
+            idx: 0,
+        }
     }
 }
 
@@ -302,7 +304,13 @@ mod tests {
             if GOAL.legal_moves().contains(m) {
                 let after = GOAL.apply(m);
                 let back = after.apply(m.inverse());
-                assert_eq!(back, GOAL, "apply({:?}) then apply({:?}) should restore", m, m.inverse());
+                assert_eq!(
+                    back,
+                    GOAL,
+                    "apply({:?}) then apply({:?}) should restore",
+                    m,
+                    m.inverse()
+                );
             }
         }
     }
@@ -311,8 +319,17 @@ mod tests {
     fn apply_preserves_solvability() {
         let mut s = GOAL;
         let path = [
-            Move::Up, Move::Up, Move::Left, Move::Left, Move::Left, Move::Left,
-            Move::Down, Move::Right, Move::Up, Move::Right, Move::Down,
+            Move::Up,
+            Move::Up,
+            Move::Left,
+            Move::Left,
+            Move::Left,
+            Move::Left,
+            Move::Down,
+            Move::Right,
+            Move::Up,
+            Move::Right,
+            Move::Down,
         ];
         for m in path {
             assert!(s.legal_moves().contains(m));
@@ -327,7 +344,12 @@ mod tests {
         let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..500 {
             let n = s.legal_moves().len();
-            assert!((2..=4).contains(&n), "blank at {} has {} moves", s.blank_pos(), n);
+            assert!(
+                (2..=4).contains(&n),
+                "blank at {} has {} moves",
+                s.blank_pos(),
+                n
+            );
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));
                 if s.legal_moves().contains(m) {

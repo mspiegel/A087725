@@ -54,9 +54,9 @@ fn is_sampled(k: u128, mask: u64) -> bool {
 }
 
 struct Counts {
-    expansions: u64,     // sampled expansions
-    boundary: u64,       // all boundary leaves
-    total_exp: u64,      // all expansions (for the true node count)
+    expansions: u64, // sampled expansions
+    boundary: u64,   // all boundary leaves
+    total_exp: u64,  // all expansions (for the true node count)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -112,7 +112,11 @@ fn main() {
     let blank = r.blank_pos();
 
     let mut seen: HashSet<u128> = HashSet::new();
-    let mut c = Counts { expansions: 0, boundary: 0, total_exp: 0 };
+    let mut c = Counts {
+        expansions: 0,
+        boundary: 0,
+        total_exp: 0,
+    };
     let t = Instant::now();
     dfs(&r, blank, 0, bound, None, mask, &mut seen, &mut c);
     let el = t.elapsed();
@@ -120,7 +124,11 @@ fn main() {
     let distinct = seen.len() as u64; // sampled distinct
     let dup = c.expansions.saturating_sub(distinct);
     println!("board R, f-bound    : {bound}");
-    println!("sampling            : 1/{} (shift {})", 1u64 << shift, shift);
+    println!(
+        "sampling            : 1/{} (shift {})",
+        1u64 << shift,
+        shift
+    );
     println!("total expansions    : {}", c.total_exp);
     println!("boundary leaves     : {}", c.boundary);
     println!("sampled expansions  : {}", c.expansions);

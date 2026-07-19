@@ -47,7 +47,11 @@ const EVEN_BLOCK: u64 = 653_837_184_000;
 ///
 /// Debug-asserts that `s` is solvable.
 pub fn rank(s: &State) -> u64 {
-    debug_assert!(s.is_solvable(), "rank() called on unsolvable state: {:?}", s.0);
+    debug_assert!(
+        s.is_solvable(),
+        "rank() called on unsolvable state: {:?}",
+        s.0
+    );
 
     let blank_pos = s.blank_pos() as u64;
 
@@ -107,8 +111,7 @@ pub fn unrank(r: u64) -> State {
     // digits[N_TILES - 1] stays 0.
 
     // Reconstruct the 15-permutation from the Lehmer digits.
-    let mut available: [u8; N_TILES] =
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let mut available: [u8; N_TILES] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     let mut n_available = N_TILES;
     let mut tiles = [0u8; N_TILES];
     for i in 0..N_TILES {
@@ -139,7 +142,7 @@ pub fn unrank(r: u64) -> State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::state::{GOAL, Move};
+    use crate::puzzle15::state::{Move, GOAL};
 
     #[test]
     fn even_block_value() {
@@ -195,9 +198,7 @@ mod tests {
         // Walk a thousand pseudo-random legal moves from GOAL; every reached
         // state must rank into [0, N_STATES), unrank back exactly, and remain
         // solvable.
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut s = GOAL;
         for i in 0u32..1000 {
             assert!(s.is_solvable());
@@ -254,9 +255,7 @@ mod tests {
         // Visit 5000 states via random walks restarting periodically; the
         // ranks must be pairwise distinct iff the states are.
         use std::collections::HashMap;
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         let mut state_to_rank: HashMap<[u8; N_CELLS], u64> = HashMap::with_capacity(5000);
         let mut s = GOAL;
         for i in 0u32..5000 {

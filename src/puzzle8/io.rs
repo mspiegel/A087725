@@ -150,7 +150,10 @@ mod tests {
         let t = DistanceTable::build();
         save(&t, &path).unwrap();
         // Append a byte.
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&[0u8]).unwrap();
         drop(f);
         match load(&path) {

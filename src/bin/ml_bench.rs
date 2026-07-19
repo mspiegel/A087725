@@ -120,8 +120,16 @@ fn run(dev: &Device, h: usize, b: usize, iters: usize, peak_tflops: f64) -> Resu
     let t_rn = bench(dev, iters, || manual_rmsnorm(&x, &rms_w, 1e-5))?;
     let t_relu = bench(dev, iters, || x.relu())?;
     println!("  linear(h->h)         {t_lin:>7.3}");
-    println!("  layer_norm_no_bias   {:>7.3}   ({:.2}x a linear)", t_ln, t_ln / t_lin);
-    println!("  manual_rmsnorm       {:>7.3}   ({:.2}x a linear)", t_rn, t_rn / t_lin);
+    println!(
+        "  layer_norm_no_bias   {:>7.3}   ({:.2}x a linear)",
+        t_ln,
+        t_ln / t_lin
+    );
+    println!(
+        "  manual_rmsnorm       {:>7.3}   ({:.2}x a linear)",
+        t_rn,
+        t_rn / t_lin
+    );
     println!("  relu                 {t_relu:>7.3}");
 
     // ---- 3. Residual-block A/B (the real block shape: 2 linears + 2 norms) ----

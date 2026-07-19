@@ -44,13 +44,24 @@ fn load_pairs(path: &Path) -> Result<Vec<(usize, f32, State)>, String> {
         }
         let tok: Vec<&str> = line.split_whitespace().collect();
         if tok.len() != 2 + N_CELLS {
-            return Err(format!("{}:{}: {} tokens", path.display(), ln + 1, tok.len()));
+            return Err(format!(
+                "{}:{}: {} tokens",
+                path.display(),
+                ln + 1,
+                tok.len()
+            ));
         }
-        let b: usize = tok[0].parse().map_err(|e| format!("{}:{} b: {}", path.display(), ln + 1, e))?;
-        let label: f32 = tok[1].parse().map_err(|e| format!("{}:{} label: {}", path.display(), ln + 1, e))?;
+        let b: usize = tok[0]
+            .parse()
+            .map_err(|e| format!("{}:{} b: {}", path.display(), ln + 1, e))?;
+        let label: f32 = tok[1]
+            .parse()
+            .map_err(|e| format!("{}:{} label: {}", path.display(), ln + 1, e))?;
         let mut c = [0u8; N_CELLS];
         for (i, t) in tok[2..].iter().enumerate() {
-            c[i] = t.parse().map_err(|e| format!("{}:{} tile: {}", path.display(), ln + 1, e))?;
+            c[i] = t
+                .parse()
+                .map_err(|e| format!("{}:{} tile: {}", path.display(), ln + 1, e))?;
         }
         out.push((b, label, State(c)));
     }
@@ -84,8 +95,11 @@ fn main() -> ExitCode {
         eprintln!("--pairs required");
         return ExitCode::FAILURE;
     }
-    let warm: Option<PathBuf> =
-        argv.iter().position(|a| a == "--warm").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
+    let warm: Option<PathBuf> = argv
+        .iter()
+        .position(|a| a == "--warm")
+        .and_then(|i| argv.get(i + 1))
+        .map(PathBuf::from);
     let out = PathBuf::from(arg(&argv, "--out", "data/ml24_pair".to_string()));
     let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
     let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
@@ -128,11 +142,20 @@ fn main() -> ExitCode {
     }
     let n_hold = (all.len() / 20).max(200).min(all.len() / 2);
     let (hold, train) = all.split_at(n_hold);
-    eprintln!("train {} / held-out {} pairs; device {}", train.len(), hold.len(), device_kind(&device));
+    eprintln!(
+        "train {} / held-out {} pairs; device {}",
+        train.len(),
+        hold.len(),
+        device_kind(&device)
+    );
 
     // ---- net (conditioned) + warm start
     let vm = VarMap::new();
-    let net = match ValueNet::new_conditioned(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
+    let net = match ValueNet::new_conditioned(
+        VarBuilder::from_varmap(&vm, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("build net: {e}");
@@ -141,14 +164,24 @@ fn main() -> ExitCode {
     };
     if let Some(w) = &warm {
         match warm_start(&vm, w, &device) {
-            Ok(c) => eprintln!("warm-started {} trunk tensors from {} (b_embed fresh)", c, w.display()),
+            Ok(c) => eprintln!(
+                "warm-started {} trunk tensors from {} (b_embed fresh)",
+                c,
+                w.display()
+            ),
             Err(e) => {
                 eprintln!("warm-start {}: {}", w.display(), e);
                 return ExitCode::FAILURE;
             }
         }
     }
-    let mut opt = match AdamW::new(vm.all_vars(), ParamsAdamW { lr, ..Default::default() }) {
+    let mut opt = match AdamW::new(
+        vm.all_vars(),
+        ParamsAdamW {
+            lr,
+            ..Default::default()
+        },
+    ) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("optimizer: {e}");
@@ -165,9 +198,14 @@ fn main() -> ExitCode {
         for chunk in hold.chunks(4096) {
             let states: Vec<State> = chunk.iter().map(|&(_, _, s)| s).collect();
             let bs: Vec<usize> = chunk.iter().map(|&(b, _, _)| b).collect();
-            let preds = net.values_cond(&states, &bs, &device).expect("cond forward");
+            let preds = net
+                .values_cond(&states, &bs, &device)
+                .expect("cond forward");
             for ((_, label, _), p) in chunk.iter().zip(preds.iter()) {
-                let bi = bands.iter().position(|&(lo, hi)| *label as u32 >= lo && *label as u32 <= hi).unwrap_or(2);
+                let bi = bands
+                    .iter()
+                    .position(|&(lo, hi)| *label as u32 >= lo && *label as u32 <= hi)
+                    .unwrap_or(2);
                 sse[bi] += ((p - label) as f64).powi(2);
                 n[bi] += 1;
             }
@@ -206,7 +244,8 @@ fn main() -> ExitCode {
         if step % eval_every == 0 || step == steps {
             let (r0, r1, r2) = eval_hold(&net);
             let (od, om, ol) = r156_verr(&|s: &[State]| {
-                net.values_cond(s, &vec![24usize; s.len()], &device).expect("cond")
+                net.values_cond(s, &vec![24usize; s.len()], &device)
+                    .expect("cond")
             });
             eprintln!(
                 "step {:>6}  train_mse {:.3}  heldout_rmse [<80 {:.1} | 80-119 {:.1} | 120+ {:.1}]  R156-OOD(b24) [{:+.1} {:+.1} {:+.1}]  {:.0}s",

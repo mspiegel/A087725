@@ -312,7 +312,17 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
-        Self { k, kfact, slot_of, tiles, cohort_base, counts, labels, shape_parity, total: acc }
+        Self {
+            k,
+            kfact,
+            slot_of,
+            tiles,
+            cohort_base,
+            counts,
+            labels,
+            shape_parity,
+            total: acc,
+        }
     }
 
     /// Cached `(region_count, region_labels)` for an occupancy mask — an array
@@ -559,7 +569,11 @@ mod tests {
                 }
             }
         });
-        assert_eq!(seen.len() as u64, layout.total(), "rank not surjective onto [0,total)");
+        assert_eq!(
+            seen.len() as u64,
+            layout.total(),
+            "rank not surjective onto [0,total)"
+        );
     }
 
     #[test]
@@ -680,7 +694,7 @@ mod tests {
         let (n, label) = regions(occ);
         assert_eq!(n, 2);
         assert_eq!(label[0], 0); // singleton corner is region 0 (smallest cell)
-        // Region 0 must be exactly {0}.
+                                 // Region 0 must be exactly {0}.
         assert_eq!(label.iter().filter(|&&l| l == 0).count(), 1);
     }
 
@@ -702,8 +716,14 @@ mod tests {
             }
         });
         assert_eq!(shapes, 177_100, "C(25,6)");
-        assert_eq!(total_regions, 251_400, "sum of regions over all 6-tile shapes");
-        assert_eq!(max_regions, 5, "max zero-tile regions for k=6 (paper Table 1)");
+        assert_eq!(
+            total_regions, 251_400,
+            "sum of regions over all 6-tile shapes"
+        );
+        assert_eq!(
+            max_regions, 5,
+            "max zero-tile regions for k=6 (paper Table 1)"
+        );
         // 6! · 251_400 == 181_008_000 (the paper's ZPDB entry count).
         assert_eq!(720 * total_regions, 181_008_000);
         // Average 1.42 (paper).
@@ -732,11 +752,17 @@ mod tests {
             }
         });
         assert_eq!(shapes, 480_700, "C(25,7)");
-        assert_eq!(total_regions, 806_876, "sum of regions over all 7-tile shapes");
+        assert_eq!(
+            total_regions, 806_876,
+            "sum of regions over all 7-tile shapes"
+        );
         // 7! · 806_876 == 4,066,655,040 — fits u32 (< 4,294,967,296) and matches
         // the corrected docs/zpdb-codec-spec.md Table 1 entry.
         assert_eq!(5040 * total_regions, 4_066_655_040);
-        assert!(max_regions <= 8, "max zero-tile regions {max_regions} implausible for k=7");
+        assert!(
+            max_regions <= 8,
+            "max zero-tile regions {max_regions} implausible for k=7"
+        );
         let avg = total_regions as f64 / shapes as f64;
         assert!((avg - 1.68).abs() < 0.01, "avg regions {avg} not ≈ 1.68");
     }
@@ -808,7 +834,13 @@ mod tests {
             let layout = ZpdbLayout::new(pattern);
             for x in 0..layout.total() {
                 let proj = layout.unrank_representative(x);
-                assert_eq!(layout.rank(&proj, pattern), x, "round-trip failed at {} (k={})", x, layout.k());
+                assert_eq!(
+                    layout.rank(&proj, pattern),
+                    x,
+                    "round-trip failed at {} (k={})",
+                    x,
+                    layout.k()
+                );
             }
         }
         // k=7 (production size): sample ~200k entries spread across the range,
@@ -820,7 +852,11 @@ mod tests {
         let mut x = 0u64;
         while x < total {
             let proj = layout.unrank_representative(x);
-            assert_eq!(layout.rank(&proj, pattern), x, "k=7 round-trip failed at {x}");
+            assert_eq!(
+                layout.rank(&proj, pattern),
+                x,
+                "k=7 round-trip failed at {x}"
+            );
             x += step;
         }
         for x in [total - 1, total - 2, total - 3] {

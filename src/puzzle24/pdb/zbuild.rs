@@ -185,7 +185,8 @@ pub fn build_zpdb_parallel(pattern: Pattern) -> (Vec<u8>, ZpdbLayout) {
                     gen_moves(&layout, &s, &mut succ);
                     for ns in succ.drain(..) {
                         let idx = layout.rank(&ns, pattern);
-                        if dist[idx as usize].fetch_min(next_depth, Ordering::Relaxed) == UNVISITED {
+                        if dist[idx as usize].fetch_min(next_depth, Ordering::Relaxed) == UNVISITED
+                        {
                             local.push(idx as u32);
                         }
                     }
@@ -299,7 +300,11 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
                     return 0u64; // wrong-parity cohort: no depth-d frontier here
                 }
                 let start = cb[sr];
-                let end = if sr + 1 < num_shapes { cb[sr + 1] } else { total };
+                let end = if sr + 1 < num_shapes {
+                    cb[sr + 1]
+                } else {
+                    total
+                };
                 let count = counts[sr] as u64;
                 let mut local: u64 = 0;
                 let mut succ: Vec<ProjectedState> = Vec::new();
@@ -341,8 +346,8 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::zpdb::{regions, OCCUPIED};
+    use super::*;
     use crate::puzzle24::pdb::build;
 
     /// Enumerate every placement of the `k` pattern tiles (ascending value) onto
@@ -460,10 +465,16 @@ mod tests {
             let (packed, _, ecc) = build_zpdb_2bit_packed(p);
             let dist = build_zpdb(p).0;
             let reference = pack_bits(&dist);
-            assert_eq!(packed, reference, "2-bit packed != pack_bits(build_zpdb) for {tiles:?}");
+            assert_eq!(
+                packed, reference,
+                "2-bit packed != pack_bits(build_zpdb) for {tiles:?}"
+            );
             // The exposed eccentricity must equal the true max distance (oracle).
             let true_ecc = *dist.iter().max().unwrap();
-            assert_eq!(ecc, true_ecc, "eccentricity {ecc} != oracle max {true_ecc} for {tiles:?}");
+            assert_eq!(
+                ecc, true_ecc,
+                "eccentricity {ecc} != oracle max {true_ecc} for {tiles:?}"
+            );
         }
     }
 
@@ -525,8 +536,16 @@ mod tests {
         let total = layout.total();
         let gib = |b: u64| b as f64 / (1u64 << 30) as f64;
         println!("k8 total()          = {total}");
-        println!("2-bit working bytes = {} ({:.2} GiB)", total.div_ceil(4), gib(total.div_ceil(4)));
-        println!("1-bit packed bytes  = {} ({:.2} GiB)", total.div_ceil(8), gib(total.div_ceil(8)));
+        println!(
+            "2-bit working bytes = {} ({:.2} GiB)",
+            total.div_ceil(4),
+            gib(total.div_ceil(4))
+        );
+        println!(
+            "1-bit packed bytes  = {} ({:.2} GiB)",
+            total.div_ceil(8),
+            gib(total.div_ceil(8))
+        );
     }
 
     /// Full k=6 equivalence to the fast frontier builder (the k≤7 shipped path).
@@ -562,7 +581,12 @@ mod tests {
         assert_eq!(layout.total(), 181_008_000);
         assert_eq!(dist.len(), 181_008_000);
         let unvisited = dist.iter().filter(|&&d| d == UNVISITED).count();
-        let maxd = dist.iter().filter(|&&d| d != UNVISITED).copied().max().unwrap();
+        let maxd = dist
+            .iter()
+            .filter(|&&d| d != UNVISITED)
+            .copied()
+            .max()
+            .unwrap();
         println!(
             "6-tile ZPDB: {} entries, {} unvisited, max depth {}, built in {:?}",
             layout.total(),
@@ -628,7 +652,10 @@ mod tests {
             "k=6 part a [1,2,3,6,7,8]: {} / {} configs violate (min_r ZPDB == additive); max deficit {}",
             violations, projected.len(), max_deficit,
         );
-        assert_eq!(violations, 0, "ZPDB build is NOT dominance-correct at k=6 ({violations} violations)");
+        assert_eq!(
+            violations, 0,
+            "ZPDB build is NOT dominance-correct at k=6 ({violations} violations)"
+        );
     }
 
     #[test]
@@ -666,7 +693,10 @@ mod tests {
                 assert!(z >= additive[arank as usize], "ZPDB < additive");
                 best = best.min(z);
             }
-            assert_eq!(best, additive[arank as usize], "min-region ZPDB != additive");
+            assert_eq!(
+                best, additive[arank as usize],
+                "min-region ZPDB != additive"
+            );
         });
     }
 }

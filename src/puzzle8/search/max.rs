@@ -33,7 +33,7 @@ impl<A: Heuristic, B: Heuristic> Heuristic for MaxHeuristic<A, B> {
 mod tests {
     use super::*;
     use crate::puzzle8::search::ManhattanHeuristic;
-    use crate::puzzle8::state::{GOAL, Move};
+    use crate::puzzle8::state::{Move, GOAL};
 
     #[test]
     fn max_of_goal_is_zero() {
@@ -45,7 +45,9 @@ mod tests {
     fn max_picks_larger_of_two() {
         struct Zero;
         impl Heuristic for Zero {
-            fn h(&self, _: &State) -> u8 { 0 }
+            fn h(&self, _: &State) -> u8 {
+                0
+            }
         }
         // After one move, Manhattan > 0; max(Manhattan, Zero) == Manhattan.
         let s = GOAL.apply(Move::Up);

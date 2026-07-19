@@ -5,16 +5,14 @@
 //! baseline is IDA\* + additive pattern databases per Korf (1997). Modules are
 //! grown out incrementally per Milestone 3 of `DESIGN.md`.
 
-pub mod state;
-pub mod rank;
-pub mod symmetry;
-pub mod search;
-pub mod pdb;
 pub mod enumerate;
 #[cfg(feature = "ml")]
 pub mod ml;
+pub mod pdb;
+pub mod rank;
+pub mod search;
+pub mod state;
+pub mod symmetry;
 
-pub use state::{
-    GOAL, N_STATES, N_CELLS, N_TILES, W, DIAMETER, Move, MoveSet, State,
-};
 pub use rank::{rank, unrank};
+pub use state::{Move, MoveSet, State, DIAMETER, GOAL, N_CELLS, N_STATES, N_TILES, W};

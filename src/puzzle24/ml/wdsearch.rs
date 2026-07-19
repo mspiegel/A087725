@@ -37,7 +37,10 @@ pub enum Diversity {
     /// Keep `width − random_slots` deterministically, fill the rest by WD-weighted
     /// sampling from the remaining children (frontier diversity for DAVI; helps
     /// escape a single deep basin).
-    Stochastic { random_slots: usize, temperature: f32 },
+    Stochastic {
+        random_slots: usize,
+        temperature: f32,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -67,8 +70,13 @@ fn run_beam(
     let mut stats = SearchStats::default();
 
     let (wd0, ctx0) = wd_inc.root(&GOAL, &mut stats);
-    let mut layer: Vec<Node> =
-        vec![Node { state: GOAL, blank: GOAL.blank_pos(), last: None, ctx: ctx0, wd: wd0 }];
+    let mut layer: Vec<Node> = vec![Node {
+        state: GOAL,
+        blank: GOAL.blank_pos(),
+        last: None,
+        ctx: ctx0,
+        wd: wd0,
+    }];
     let mut visited: HashSet<State> = HashSet::new();
     visited.insert(GOAL);
     let mut expanded: u64 = 0;
@@ -92,7 +100,13 @@ fn run_beam(
                     continue;
                 }
                 let (wd, ctx) = wd_inc.advance(&node.ctx, &ns, m, &mut stats);
-                children.push(Node { state: ns, blank: nb, last: Some(m), ctx, wd });
+                children.push(Node {
+                    state: ns,
+                    blank: nb,
+                    last: Some(m),
+                    ctx,
+                    wd,
+                });
             }
         }
         if children.is_empty() {
@@ -167,7 +181,10 @@ fn select_survivors(
                 }
             }
         }
-        Diversity::Stochastic { random_slots, temperature } => {
+        Diversity::Stochastic {
+            random_slots,
+            temperature,
+        } => {
             // Deterministic top slots.
             let det = width.saturating_sub(random_slots);
             let mut i = 0;
@@ -182,8 +199,10 @@ fn select_survivors(
             if !rest.is_empty() {
                 let temp = temperature.max(1e-3);
                 let mx = rest.iter().map(|nd| nd.wd).max().unwrap() as f32;
-                let weights: Vec<f32> =
-                    rest.iter().map(|nd| ((nd.wd as f32 - mx) / temp).exp()).collect();
+                let weights: Vec<f32> = rest
+                    .iter()
+                    .map(|nd| ((nd.wd as f32 - mx) / temp).exp())
+                    .collect();
                 let sum: f32 = weights.iter().sum::<f32>().max(1e-9);
                 let mut slots = width.saturating_sub(next.len());
                 let mut attempts = 0usize;
@@ -238,7 +257,11 @@ mod tests {
             diversity: Diversity::TopK,
         };
         let out = construct_deep_boards(2000, &cfg, &mut rng);
-        assert!(max_wd(&out) > 100, "beam only reached WD {} (expected >>90)", max_wd(&out));
+        assert!(
+            max_wd(&out) > 100,
+            "beam only reached WD {} (expected >>90)",
+            max_wd(&out)
+        );
     }
 
     #[test]
@@ -258,7 +281,10 @@ mod tests {
             max_wd(&construct_deep_boards(width, &cfg, &mut rng))
         };
         let (a, b, c) = (mx(50, 1), mx(500, 2), mx(2000, 3));
-        assert!(a <= b && b <= c, "WD not non-decreasing in width: {a} {b} {c}");
+        assert!(
+            a <= b && b <= c,
+            "WD not non-decreasing in width: {a} {b} {c}"
+        );
     }
 
     #[test]
@@ -298,7 +324,12 @@ mod tests {
         assert!(!out.is_empty());
         for &(s, wd) in &out {
             assert!(s.is_solvable(), "unsolvable board {:?}", s.0);
-            assert_eq!(wd, WalkingDistanceHeuristic.h(&s), "incremental WD != oracle on {:?}", s.0);
+            assert_eq!(
+                wd,
+                WalkingDistanceHeuristic.h(&s),
+                "incremental WD != oracle on {:?}",
+                s.0
+            );
         }
     }
 
@@ -350,11 +381,18 @@ mod tests {
         assert!(!ladder.is_empty());
         let min_d = ladder.iter().map(|&(_, d)| d).min().unwrap();
         let max_d = ladder.iter().map(|&(_, d)| d).max().unwrap();
-        assert!(min_d < 40 && max_d > 100, "ladder depth span {min_d}..{max_d}");
+        assert!(
+            min_d < 40 && max_d > 100,
+            "ladder depth span {min_d}..{max_d}"
+        );
         // Each label upper-bounds optimal: WD(board) ≤ walk_depth, board solvable.
         for &(s, d) in &ladder {
             assert!(s.is_solvable(), "unsolvable ladder board {:?}", s.0);
-            assert!(WalkingDistanceHeuristic.h(&s) <= d, "WD > walk-depth label on {:?}", s.0);
+            assert!(
+                WalkingDistanceHeuristic.h(&s) <= d,
+                "WD > walk-depth label on {:?}",
+                s.0
+            );
         }
     }
 
@@ -369,11 +407,18 @@ mod tests {
             width: 1000,
             target_depth: 120,
             node_budget: 0,
-            diversity: Diversity::Stochastic { random_slots: 300, temperature: 5.0 },
+            diversity: Diversity::Stochastic {
+                random_slots: 300,
+                temperature: 5.0,
+            },
         };
         let out = construct_deep_boards(1000, &cfg, &mut rng);
         let distinct: HashSet<_> = out.iter().map(|&(s, _)| s.0).collect();
         assert!(distinct.len() > 1, "frontier collapsed to one board");
-        assert!(max_wd(&out) > 90, "stochastic reached only WD {}", max_wd(&out));
+        assert!(
+            max_wd(&out) > 90,
+            "stochastic reached only WD {}",
+            max_wd(&out)
+        );
     }
 }

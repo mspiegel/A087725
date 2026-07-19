@@ -16,7 +16,11 @@ impl Rng {
     /// Seed the RNG. A zero seed is remapped to a fixed nonzero constant so the
     /// generator never degenerates to always returning 0.
     pub fn new(seed: u64) -> Self {
-        Rng(if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed })
+        Rng(if seed == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            seed
+        })
     }
 
     #[inline]
@@ -124,7 +128,11 @@ mod tests {
         for _ in 0..500 {
             let (s, k) = scramble(&mut rng, 30);
             assert!((1..=30).contains(&k));
-            assert!(s.is_solvable(), "scramble produced unsolvable state: {:?}", s.0);
+            assert!(
+                s.is_solvable(),
+                "scramble produced unsolvable state: {:?}",
+                s.0
+            );
         }
     }
 
@@ -143,7 +151,10 @@ mod tests {
                 returned_to_goal += 1;
             }
         }
-        assert_eq!(returned_to_goal, 0, "undo pruning failed: walk returned to GOAL");
+        assert_eq!(
+            returned_to_goal, 0,
+            "undo pruning failed: walk returned to GOAL"
+        );
     }
 
     #[test]

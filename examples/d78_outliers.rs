@@ -32,7 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
     let cache = cache::load(&cache_path)?;
-    println!("loaded {} cache entries from {}", cache.len(), cache_path.display());
+    println!(
+        "loaded {} cache entries from {}",
+        cache.len(),
+        cache_path.display()
+    );
 
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
     let p8 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p8.zbin"))?;
@@ -41,19 +45,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let h = ZpdbPlusInc::new([&p7, &p8]);
 
     // Pull all d=78 boards.
-    let d78: Vec<u64> = cache.iter()
+    let d78: Vec<u64> = cache
+        .iter()
         .filter(|(_, &d)| d == 78)
         .map(|(&r, _)| r)
         .collect();
     println!("{} d=78 boards total\n", d78.len());
 
     // Compute h + blank for each.
-    let entries: Vec<Entry> = d78.par_iter()
+    let entries: Vec<Entry> = d78
+        .par_iter()
         .map(|&r| {
             let s = unrank(r);
             let mut stats = SearchStats::default();
             let (hv, _) = h.root(&s, &mut stats);
-            Entry { rank: r, state: s, h: hv, blank: s.blank_pos() }
+            Entry {
+                rank: r,
+                state: s,
+                h: hv,
+                blank: s.blank_pos(),
+            }
         })
         .collect();
 
@@ -86,7 +97,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  cell {cell:>2}: {n} boards");
     }
     let rare_blank: Vec<&Entry> = entries.iter().filter(|e| e.blank == rarest_blank).collect();
-    println!("\n{} d=78 boards with blank at rarest cell {}:", rare_blank.len(), rarest_blank);
+    println!(
+        "\n{} d=78 boards with blank at rarest cell {}:",
+        rare_blank.len(),
+        rarest_blank
+    );
     let rare_show: Vec<&Entry> = rare_blank.iter().take(10).copied().collect();
     print_grids(&rare_show);
 
@@ -97,7 +112,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // === Cross-group: do low_h boards overlap with rare_blank boards? ===
     let mut overlap = 0;
     for e in &low_h {
-        if e.blank == rarest_blank { overlap += 1; }
+        if e.blank == rarest_blank {
+            overlap += 1;
+        }
     }
     println!("\nOverlap (h={min_h} AND blank={rarest_blank}): {overlap} boards");
 
@@ -107,7 +124,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hamming_base = pairwise_hamming(&baseline);
     let intra_base = mean_off_diagonal(&hamming_base);
     println!("\nBaseline mean intra-group Hamming (20 arbitrary d=78 boards): {intra_base:.2}");
-    println!("\n→ Low intra-group Hamming relative to baseline means outliers cluster structurally.");
+    println!(
+        "\n→ Low intra-group Hamming relative to baseline means outliers cluster structurally."
+    );
 
     // === Cross-group distances ===
     let cross_low_rare = mean_cross(&low_h, &rare_blank);
@@ -127,13 +146,23 @@ struct Entry {
 
 fn print_grids(group: &[&Entry]) {
     for (i, e) in group.iter().enumerate() {
-        println!("#{:>2} rank {:>14} h={} blank@{}:", i + 1, e.rank, e.h, e.blank);
+        println!(
+            "#{:>2} rank {:>14} h={} blank@{}:",
+            i + 1,
+            e.rank,
+            e.h,
+            e.blank
+        );
         let s = &e.state;
         for row in 0..4 {
             print!("    ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+                if t == 0 {
+                    print!(" __");
+                } else {
+                    print!(" {t:>2}");
+                }
             }
             println!();
         }
@@ -143,7 +172,9 @@ fn print_grids(group: &[&Entry]) {
 fn hamming(a: &State, b: &State) -> u8 {
     let mut d = 0u8;
     for i in 0..16 {
-        if a.0[i] != b.0[i] { d += 1; }
+        if a.0[i] != b.0[i] {
+            d += 1;
+        }
     }
     d
 }
@@ -162,11 +193,15 @@ fn pairwise_hamming(group: &[&Entry]) -> Vec<Vec<u8>> {
 fn print_matrix(m: &[Vec<u8>]) {
     let n = m.len();
     print!("       ");
-    for j in 0..n { print!(" {:>3}", j + 1); }
+    for j in 0..n {
+        print!(" {:>3}", j + 1);
+    }
     println!();
     for i in 0..n {
         print!("  #{:>2}: ", i + 1);
-        for j in 0..n { print!(" {:>3}", m[i][j]); }
+        for j in 0..n {
+            print!(" {:>3}", m[i][j]);
+        }
         println!();
     }
 }
@@ -181,7 +216,11 @@ fn mean_off_diagonal(m: &[Vec<u8>]) -> f64 {
             count += 1;
         }
     }
-    if count == 0 { 0.0 } else { sum as f64 / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        sum as f64 / count as f64
+    }
 }
 
 fn mean_cross(a: &[&Entry], b: &[&Entry]) -> f64 {
@@ -189,10 +228,16 @@ fn mean_cross(a: &[&Entry], b: &[&Entry]) -> f64 {
     let mut count = 0u64;
     for x in a {
         for y in b {
-            if x.rank == y.rank { continue; }
+            if x.rank == y.rank {
+                continue;
+            }
             sum += hamming(&x.state, &y.state) as u64;
             count += 1;
         }
     }
-    if count == 0 { 0.0 } else { sum as f64 / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        sum as f64 / count as f64
+    }
 }

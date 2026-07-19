@@ -99,11 +99,15 @@ fn parse_args() -> Result<Args, String> {
             }
             "--verify-sha" => {
                 i += 1;
-                verify_sha = Some(PathBuf::from(argv.get(i).ok_or("--verify-sha needs a value")?));
+                verify_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--verify-sha needs a value")?,
+                ));
             }
             "--write-sha" => {
                 i += 1;
-                write_sha = Some(PathBuf::from(argv.get(i).ok_or("--write-sha needs a value")?));
+                write_sha = Some(PathBuf::from(
+                    argv.get(i).ok_or("--write-sha needs a value")?,
+                ));
             }
             "-h" | "--help" => return Err(String::from("help")),
             other => return Err(format!("unknown flag: {other}")),
@@ -113,7 +117,12 @@ fn parse_args() -> Result<Args, String> {
 
     let dist8 = dist8.ok_or("missing --dist8")?;
     let out = out.ok_or("missing --out")?;
-    Ok(Args { dist8, out, verify_sha, write_sha })
+    Ok(Args {
+        dist8,
+        out,
+        verify_sha,
+        write_sha,
+    })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -142,7 +151,9 @@ fn tile_manhattan(t: u8, p: usize) -> u8 {
 }
 
 fn main() -> ExitCode {
-    let prog = std::env::args().next().unwrap_or_else(|| "build_feat8".into());
+    let prog = std::env::args()
+        .next()
+        .unwrap_or_else(|| "build_feat8".into());
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -268,8 +279,7 @@ fn main() -> ExitCode {
     }
 
     if let Some(write_path) = &args.write_sha {
-        std::fs::write(write_path, format!("{sha}\n"))
-            .expect("writing SHA file");
+        std::fs::write(write_path, format!("{sha}\n")).expect("writing SHA file");
         println!("Wrote SHA-256 → {}", write_path.display());
     }
 

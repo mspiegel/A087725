@@ -102,7 +102,7 @@ mod tests {
     use crate::puzzle8::bfs::DistanceTable;
     use crate::puzzle8::pdb::pattern::Pattern;
     use crate::puzzle8::rank::unrank;
-    use crate::puzzle8::state::{N_STATES, State};
+    use crate::puzzle8::state::{State, N_STATES};
 
     #[test]
     fn empty_pattern_distance_is_zero_everywhere_reachable() {
@@ -117,7 +117,10 @@ mod tests {
         // All reachable projected states should be at distance 0 (blank can
         // reach every cell in the 3x3 grid through 0-cost moves).
         let reachable: u32 = dist.iter().filter(|&&d| d != UNVISITED).count() as u32;
-        assert_eq!(reachable, 9, "blank reaches every position via 0-cost moves");
+        assert_eq!(
+            reachable, 9,
+            "blank reaches every position via 0-cost moves"
+        );
     }
 
     #[test]
@@ -140,9 +143,20 @@ mod tests {
                 let proj = ProjectedState::from_state(&s, p);
                 let pr = proj.rank(p) as usize;
                 let h = pdb[pr];
-                assert!(h != UNVISITED, "projection of solvable state {:?} is unreachable", s.0);
+                assert!(
+                    h != UNVISITED,
+                    "projection of solvable state {:?} is unreachable",
+                    s.0
+                );
                 let truth = table.dist(&s);
-                assert!(h <= truth, "PDB({:?}) inadmissible for {:?}: h={}, truth={}", tiles, s.0, h, truth);
+                assert!(
+                    h <= truth,
+                    "PDB({:?}) inadmissible for {:?}: h={}, truth={}",
+                    tiles,
+                    s.0,
+                    h,
+                    truth
+                );
             }
         }
     }
@@ -202,7 +216,11 @@ mod tests {
                 }
             }
             if d_s > 0 {
-                assert!(found_better, "no neighbor saturates distance at projected state {:?}", s.0);
+                assert!(
+                    found_better,
+                    "no neighbor saturates distance at projected state {:?}",
+                    s.0
+                );
             }
         }
         // Sanity: we explored more than just the goal.

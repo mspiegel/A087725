@@ -44,7 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print!("  ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+                if t == 0 {
+                    print!(" __");
+                } else {
+                    print!(" {t:>2}");
+                }
             }
             println!();
         }

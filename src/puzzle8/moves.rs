@@ -52,7 +52,12 @@ mod tests {
                 continue;
             }
             let opt = t.optimal_moves(&s);
-            assert!(!opt.is_empty(), "no optimal move from {:?} (dist={})", s.0, t.dist(&s));
+            assert!(
+                !opt.is_empty(),
+                "no optimal move from {:?} (dist={})",
+                s.0,
+                t.dist(&s)
+            );
             checked += 1;
         }
         assert_eq!(checked, N_STATES - 1);
@@ -67,9 +72,13 @@ mod tests {
             for m in t.optimal_moves(&s).iter() {
                 let after = t.dist(&s.apply(m));
                 assert_eq!(
-                    after, d - 1,
+                    after,
+                    d - 1,
                     "optimal move {:?} from {:?} (d={}) gave d_next={}",
-                    m, s.0, d, after
+                    m,
+                    s.0,
+                    d,
+                    after
                 );
             }
         }
@@ -93,7 +102,10 @@ mod tests {
                 assert!(
                     after >= d,
                     "non-optimal move {:?} from {:?} (d={}) gave d_next={} < d",
-                    m, s.0, d, after
+                    m,
+                    s.0,
+                    d,
+                    after
                 );
             }
         }
@@ -107,7 +119,11 @@ mod tests {
         for s in t.antipodes() {
             let opt = t.optimal_moves(&s);
             let legal = s.legal_moves();
-            assert_eq!(opt, legal, "antipode {:?} should have all legal moves optimal", s.0);
+            assert_eq!(
+                opt, legal,
+                "antipode {:?} should have all legal moves optimal",
+                s.0
+            );
             // Sanity: at least 2 (no 3x3 cell has fewer than 2 neighbors).
             assert!(opt.len() >= 2);
         }

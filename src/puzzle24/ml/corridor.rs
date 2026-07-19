@@ -84,7 +84,11 @@ pub fn w_board() -> State {
     for row in 0..5u8 {
         for col in 0..5u8 {
             let cell = (row * 5 + col) as usize;
-            c[cell] = if (row, col) == (4, 0) { 0 } else { 21 + row - 5 * col };
+            c[cell] = if (row, col) == (4, 0) {
+                0
+            } else {
+                21 + row - 5 * col
+            };
         }
     }
     State(c)
@@ -171,12 +175,22 @@ pub fn load_file(path: &std::path::Path) -> Result<Vec<(State, f32)>, String> {
         }
         let toks: Vec<&str> = line.split_whitespace().collect();
         if toks.len() != 2 + N_CELLS {
-            return Err(format!("{}:{}: expected {} tokens, got {}", path.display(), ln + 1, 2 + N_CELLS, toks.len()));
+            return Err(format!(
+                "{}:{}: expected {} tokens, got {}",
+                path.display(),
+                ln + 1,
+                2 + N_CELLS,
+                toks.len()
+            ));
         }
-        let rem: f32 = toks[0].parse().map_err(|e| format!("{}:{}: rem: {}", path.display(), ln + 1, e))?;
+        let rem: f32 = toks[0]
+            .parse()
+            .map_err(|e| format!("{}:{}: rem: {}", path.display(), ln + 1, e))?;
         let mut cells = [0u8; N_CELLS];
         for (i, t) in toks[2..].iter().enumerate() {
-            cells[i] = t.parse().map_err(|e| format!("{}:{}: tile: {}", path.display(), ln + 1, e))?;
+            cells[i] = t
+                .parse()
+                .map_err(|e| format!("{}:{}: tile: {}", path.display(), ln + 1, e))?;
         }
         let s = State(cells);
         if !s.is_solvable() {

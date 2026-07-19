@@ -69,8 +69,14 @@ fn main() {
         let moved_tile = cur.0[nxt.blank_pos() as usize];
         step += 1;
         let alts: Vec<&str> = optimal_moves.iter().map(|&x| move_name(x)).collect();
-        println!("{:>4}  {:<6}  cell {:>2}     tile {:>2}     [{}]",
-            step, move_name(m), b, moved_tile, alts.join(", "));
+        println!(
+            "{:>4}  {:<6}  cell {:>2}     tile {:>2}     [{}]",
+            step,
+            move_name(m),
+            b,
+            moved_tile,
+            alts.join(", ")
+        );
         cur = nxt;
         print!("{}", render(&cur));
         println!("    dist={}", table.dist(&cur));

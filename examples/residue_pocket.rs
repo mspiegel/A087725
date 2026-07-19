@@ -38,14 +38,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("need at least one seed rank");
         std::process::exit(2);
     }
-    println!("config: K={}, {} seed ranks, cache={}", k, seeds.len(), cache_path.display());
+    println!(
+        "config: K={}, {} seed ranks, cache={}",
+        k,
+        seeds.len(),
+        cache_path.display()
+    );
 
     let t0 = Instant::now();
     let cache = cache::load(&cache_path)?;
     println!("loaded cache: {} entries", cache.len());
 
-    let antipodes: HashSet<u64> =
-        load_u48_ranks(Path::new("data/enum15/depth80.ranks"))?;
+    let antipodes: HashSet<u64> = load_u48_ranks(Path::new("data/enum15/depth80.ranks"))?;
     println!("loaded {} antipodes", antipodes.len());
 
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
@@ -59,8 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &r in &seeds {
         k_step_expand(r, k, &cache, &antipodes, &seeds, &mut candidates);
     }
-    println!("collected {} cache-miss candidates from K={} expansion",
-             candidates.len(), k);
+    println!(
+        "collected {} cache-miss candidates from K={} expansion",
+        candidates.len(),
+        k
+    );
 
     let cands: Vec<u64> = candidates.into_iter().collect();
     if cands.is_empty() {
@@ -70,13 +77,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parallel IDA*-verify.
     let t_verify = Instant::now();
-    let results: Vec<(u64, u8)> = cands.par_iter().map(|&r| {
-        let (sol, _) = idastar_inc_with_stats(&unrank(r), &h);
-        (r, sol.map(|v| v.len() as u8).unwrap_or(u8::MAX))
-    }).collect();
-    println!("verified {} cands in {:.1?} ({:.1}/s)",
-             cands.len(), t_verify.elapsed(),
-             cands.len() as f64 / t_verify.elapsed().as_secs_f64());
+    let results: Vec<(u64, u8)> = cands
+        .par_iter()
+        .map(|&r| {
+            let (sol, _) = idastar_inc_with_stats(&unrank(r), &h);
+            (r, sol.map(|v| v.len() as u8).unwrap_or(u8::MAX))
+        })
+        .collect();
+    println!(
+        "verified {} cands in {:.1?} ({:.1}/s)",
+        cands.len(),
+        t_verify.elapsed(),
+        cands.len() as f64 / t_verify.elapsed().as_secs_f64()
+    );
 
     // Depth histogram.
     let mut hist: BTreeMap<u8, u32> = BTreeMap::new();
@@ -91,18 +104,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Dump deep finds with cell grids.
     for target_d in (76..=80).rev() {
-        let finds: Vec<u64> = results.iter()
+        let finds: Vec<u64> = results
+            .iter()
             .filter(|&&(_, d)| d == target_d)
             .map(|&(r, _)| r)
             .collect();
-        if finds.is_empty() { continue; }
+        if finds.is_empty() {
+            continue;
+        }
         println!("\n=== d={} finds: {} ===", target_d, finds.len());
         for (i, &r) in finds.iter().enumerate() {
             let s = unrank(r);
-            print!("  #{:>3} rank {:>14} blank@{:>2}: ", i + 1, r, s.blank_pos());
+            print!(
+                "  #{:>3} rank {:>14} blank@{:>2}: ",
+                i + 1,
+                r,
+                s.blank_pos()
+            );
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
-                if j % 4 == 3 { print!("  "); } else { print!(","); }
+                if t == 0 {
+                    print!("__");
+                } else {
+                    print!("{t:>2}");
+                }
+                if j % 4 == 3 {
+                    print!("  ");
+                } else {
+                    print!(",");
+                }
             }
             println!();
         }
@@ -117,7 +146,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut w = std::io::BufWriter::new(std::fs::File::create(&out)?);
         let mut n = 0u64;
         for &(r, d) in &results {
-            if d != u8::MAX { writeln!(w, "{r} {d}")?; n += 1; }
+            if d != u8::MAX {
+                writeln!(w, "{r} {d}")?;
+                n += 1;
+            }
         }
         w.flush()?;
         println!("wrote {n} (rank depth) pairs -> {out}");
@@ -135,17 +167,23 @@ fn k_step_expand(
     seed_set: &[u64],
     out: &mut HashSet<u64>,
 ) {
-    if k == 0 { return; }
+    if k == 0 {
+        return;
+    }
     let s = unrank(r);
     let mut seen: HashSet<u64> = HashSet::from([r]);
-    for &s_other in seed_set { seen.insert(s_other); }
+    for &s_other in seed_set {
+        seen.insert(s_other);
+    }
     let mut frontier: Vec<(State, Option<Move>)> = vec![(s, None)];
     for _ in 0..k {
         let mut next = Vec::with_capacity(frontier.len() * 3);
         for &(ref x, last) in &frontier {
             let blank = x.blank_pos();
             for m in State::legal_moves_at(blank).iter() {
-                if last.is_some_and(|lm| m == lm.inverse()) { continue; }
+                if last.is_some_and(|lm| m == lm.inverse()) {
+                    continue;
+                }
                 let (ns, _) = x.apply_at(m, blank);
                 let nr = rank(&ns);
                 if seen.insert(nr) {

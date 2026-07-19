@@ -73,7 +73,11 @@ fn main() {
     eprintln!(
         "cWD(R) = {} (overlay: {})",
         h0,
-        if cwd.has_overlay() { "fast table" } else { "reference" }
+        if cwd.has_overlay() {
+            "fast table"
+        } else {
+            "reference"
+        }
     );
 
     let mut instr = Instr {
@@ -101,7 +105,10 @@ fn main() {
     let total: u64 = instr.expanded.iter().sum();
     println!(
         "\nProved R >= {} | expanded nodes = {} | total visited = {} | {:.1}s",
-        bound, total, instr.nodes, elapsed.as_secs_f64()
+        bound,
+        total,
+        instr.nodes,
+        elapsed.as_secs_f64()
     );
 
     // Per-g histogram (nonzero rows).

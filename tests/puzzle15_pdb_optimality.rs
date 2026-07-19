@@ -8,8 +8,8 @@
 //! - For every such state, run IDA\* and assert the solution length matches
 //!   the BFS-known true distance, and that applying the solution restores `GOAL`.
 
-use puzzle8::puzzle15::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
 use puzzle8::puzzle15::pdb::pattern::Pattern;
+use puzzle8::puzzle15::pdb::{AdditivePdbHeuristic, PatternDb, PdbHeuristic};
 use puzzle8::puzzle15::search::{idastar, Heuristic, ManhattanHeuristic};
 use puzzle8::puzzle15::state::{State, GOAL, N_CELLS};
 
@@ -53,7 +53,10 @@ fn assert_idastar_optimal_for_each<H: Heuristic>(h: &H, truth: &HashMap<[u8; N_C
         for m in &sol {
             cur = cur.apply(*m);
         }
-        assert_eq!(cur, GOAL, "applying solution doesn't reach GOAL from {raw:?}");
+        assert_eq!(
+            cur, GOAL,
+            "applying solution doesn't reach GOAL from {raw:?}"
+        );
         count += 1;
     }
     assert!(count > 0, "no states were tested");

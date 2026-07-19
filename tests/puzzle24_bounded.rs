@@ -9,10 +9,10 @@
 
 use std::collections::HashMap;
 
+use puzzle8::puzzle24::search::Heuristic;
 use puzzle8::puzzle24::search::{
     idastar_inc_bounded_with_stats, BoundedOutcome, IncManhattan, ManhattanHeuristic,
 };
-use puzzle8::puzzle24::search::Heuristic;
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
 fn bfs(depth_limit: u8) -> HashMap<[u8; N_CELLS], u8> {
@@ -55,7 +55,10 @@ fn bound_equal_to_depth_solves_optimally() {
         match outcome {
             BoundedOutcome::Solved(sol) => {
                 assert_eq!(sol.len() as u8, d, "non-optimal for {raw:?}");
-                assert!(reaches_goal(&s, &sol), "path doesn't reach GOAL for {raw:?}");
+                assert!(
+                    reaches_goal(&s, &sol),
+                    "path doesn't reach GOAL for {raw:?}"
+                );
             }
             other => panic!("expected Solved for {raw:?}, got {other:?}"),
         }
@@ -90,6 +93,9 @@ fn bound_below_root_h_proves_without_search() {
         }
         let (outcome, stats) = idastar_inc_bounded_with_stats(&s, &IncManhattan, h0 - 1);
         assert_eq!(outcome, BoundedOutcome::ProvedAtLeast(h0), "for {raw:?}");
-        assert_eq!(stats.nodes, 0, "no nodes should expand below root h for {raw:?}");
+        assert_eq!(
+            stats.nodes, 0,
+            "no nodes should expand below root h for {raw:?}"
+        );
     }
 }

@@ -98,7 +98,11 @@ fn class_name(b: usize) -> &'static str {
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().collect();
-    let checkpoint = match argv.iter().position(|a| a == "--checkpoint").and_then(|i| argv.get(i + 1)) {
+    let checkpoint = match argv
+        .iter()
+        .position(|a| a == "--checkpoint")
+        .and_then(|i| argv.get(i + 1))
+    {
         Some(p) => p.clone(),
         None => {
             eprintln!("--checkpoint required");
@@ -108,7 +112,11 @@ fn main() -> ExitCode {
     let hidden: usize = arg(&argv, "--hidden", DEFAULT_HIDDEN);
     let blocks: usize = arg(&argv, "--blocks", DEFAULT_BLOCKS);
 
-    assert_eq!(identity_b(24), GOAL, "identity_b(24) must equal GOAL (convention check)");
+    assert_eq!(
+        identity_b(24),
+        GOAL,
+        "identity_b(24) must equal GOAL (convention check)"
+    );
     assert_eq!(rot180(&GOAL), r(), "rot180(GOAL) must equal R");
 
     let device = if argv.iter().any(|a| a == "--cpu") {
@@ -117,7 +125,11 @@ fn main() -> ExitCode {
         pick_device().unwrap_or(candle_core::Device::Cpu)
     };
     let mut vm = VarMap::new();
-    let net = match ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &device), hidden, blocks) {
+    let net = match ValueNet::new(
+        VarBuilder::from_varmap(&vm, DType::F32, &device),
+        hidden,
+        blocks,
+    ) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("build net: {e}");
@@ -129,7 +141,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let value_of = |s: &[State]| net.values(s, &device).expect("forward");
-    println!("device: {}, checkpoint: {}", device_kind(&device), checkpoint);
+    println!(
+        "device: {}, checkpoint: {}",
+        device_kind(&device),
+        checkpoint
+    );
 
     // ---- Measurement A: rotation reduction along R's corridor.
     // corridor[i] = (s_i, rem-to-GOAL = 156-i); dist(s_i, R) = i; the reduction
@@ -147,7 +163,10 @@ fn main() -> ExitCode {
             println!("{:>4} {:>10.1} {:>+8.1}", i, v, v - true_d);
         }
     }
-    println!("mean |V(rot180(s_i)) - i| = {:.1}  (small ⇒ reduction valid + net calibrated on R-frame)", abserr / vrot.len() as f32);
+    println!(
+        "mean |V(rot180(s_i)) - i| = {:.1}  (small ⇒ reduction valid + net calibrated on R-frame)",
+        abserr / vrot.len() as f32
+    );
 
     // ---- Measurement B: per-class self-distance offset V(I_b).
     // For a perfect pair-net conditioned on b, dist(I_b, I_b)=0. The b=24 net

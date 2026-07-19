@@ -113,7 +113,12 @@ fn korf_and_manhattan_agree_on_optimal_length() {
         }
         let sol_m = idastar(&s, &ManhattanHeuristic).expect("solvable");
         let sol_k = idastar_inc(&s, &inc).expect("solvable");
-        assert_eq!(sol_m.len(), sol_k.len(), "heuristics disagree on optimal length for {:?}", s.0);
+        assert_eq!(
+            sol_m.len(),
+            sol_k.len(),
+            "heuristics disagree on optimal length for {:?}",
+            s.0
+        );
         assert!(reaches_goal(&s, &sol_m) && reaches_goal(&s, &sol_k));
     }
 }

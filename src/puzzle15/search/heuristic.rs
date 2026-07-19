@@ -52,7 +52,7 @@ impl Heuristic for ManhattanHeuristic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::state::{GOAL, Move};
+    use crate::puzzle15::state::{Move, GOAL};
 
     #[test]
     fn manhattan_of_goal_is_zero() {
@@ -64,9 +64,7 @@ mod tests {
         // Single move: the moved tile shifts by exactly 1 cell. Its Manhattan
         // term changes by ±1; everything else is fixed. So |Δh| = 1.
         let mut s = GOAL;
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..500 {
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));

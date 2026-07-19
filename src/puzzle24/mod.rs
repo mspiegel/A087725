@@ -9,17 +9,17 @@
 //! Unlike the even-width 15-puzzle, the 24-puzzle is **odd-width**, so it shares
 //! the 8-puzzle's blank-independent solvability rule.
 
-pub mod state;
-pub mod rank;
-pub mod symmetry;
 pub mod frame;
-pub mod search;
 pub mod pdb;
+pub mod rank;
+pub mod search;
+pub mod state;
+pub mod symmetry;
 
 #[cfg(feature = "ml")]
 pub mod ml;
 
 pub use rank::{rank, unrank};
 pub use state::{
-    DIAMETER_LOWER, DIAMETER_UPPER, Move, MoveSet, State, GOAL, N_CELLS, N_STATES, N_TILES, W,
+    Move, MoveSet, State, DIAMETER_LOWER, DIAMETER_UPPER, GOAL, N_CELLS, N_STATES, N_TILES, W,
 };

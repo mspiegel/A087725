@@ -24,7 +24,11 @@ pub fn load(path: &Path) -> io::Result<Cache> {
     if buf.len() % 7 != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("cache {} length {} not a multiple of 7", path.display(), buf.len()),
+            format!(
+                "cache {} length {} not a multiple of 7",
+                path.display(),
+                buf.len()
+            ),
         ));
     }
     let mut cache = Cache::with_capacity(buf.len() / 7);

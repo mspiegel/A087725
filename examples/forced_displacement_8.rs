@@ -35,7 +35,9 @@ fn main() {
 
     let max_d = (by_dist.len() - 1) as u8;
     for d in 1..=max_d {
-        if by_dist[d as usize].is_empty() { continue; }
+        if by_dist[d as usize].is_empty() {
+            continue;
+        }
         for &r in &by_dist[d as usize] {
             let s = unrank(r);
             let mut mask: u8 = 0;
@@ -43,15 +45,21 @@ fn main() {
             // at least one optimal-and-non-displacing successor that keeps it?
             for m in s.legal_moves().iter() {
                 let s_next = s.apply(m);
-                if table.dist(&s_next) != d - 1 { continue; }
+                if table.dist(&s_next) != d - 1 {
+                    continue;
+                }
                 // The tile that just slid into the old blank cell is the one
                 // sitting at the *new* blank cell in s.
                 let b_new = s_next.blank_pos() as usize;
                 let moved_tile = s.0[b_new];
                 let keep_next = keep[rank(&s_next) as usize];
                 for t in 1..=8u8 {
-                    if s.0[t as usize - 1] != t { continue; }
-                    if moved_tile == t { continue; }
+                    if s.0[t as usize - 1] != t {
+                        continue;
+                    }
+                    if moved_tile == t {
+                        continue;
+                    }
                     if keep_next & (1 << (t - 1)) != 0 {
                         mask |= 1 << (t - 1);
                     }
@@ -68,14 +76,18 @@ fn main() {
     // For c = 1: which tile is the lone correct-and-forced one?
     let mut c1_per_tile = [0u64; 9];
     for r in 0..N_STATES {
-        if r == goal_rank { continue; }
+        if r == goal_rank {
+            continue;
+        }
         let s = unrank(r);
         let k = keep[r as usize];
         let mut correct_count: u8 = 0;
         let mut forced_in_state: u8 = 0;
         let mut lone_forced_tile: u8 = 0;
         for t in 1..=8u8 {
-            if s.0[t as usize - 1] != t { continue; }
+            if s.0[t as usize - 1] != t {
+                continue;
+            }
             correct_count += 1;
             if k & (1 << (t - 1)) == 0 {
                 forced_in_state += 1;
@@ -101,8 +113,10 @@ fn main() {
     println!("  correct-tile count c | forced-pairs | distinct states with ≥1 forced");
     println!("  ---------------------+--------------+--------------------------------");
     for c in 0..=8 {
-        println!("                    {} | {:>12} | {:>30}",
-            c, hist_by_correct_count[c], states_by_correct_count[c]);
+        println!(
+            "                    {} | {:>12} | {:>30}",
+            c, hist_by_correct_count[c], states_by_correct_count[c]
+        );
     }
     println!();
     println!("c = 1: identity of the lone correct-and-forced tile");
@@ -114,15 +128,25 @@ fn main() {
     // Find the shallowest state where tile 1 is the lone correct-and-forced tile.
     let mut best: Option<(u8, u32)> = None;
     for r in 0..N_STATES {
-        if r == goal_rank { continue; }
+        if r == goal_rank {
+            continue;
+        }
         let s = unrank(r);
-        if s.0[0] != 1 { continue; }
+        if s.0[0] != 1 {
+            continue;
+        }
         let mut correct = 0u8;
         for t in 1..=8u8 {
-            if s.0[t as usize - 1] == t { correct += 1; }
+            if s.0[t as usize - 1] == t {
+                correct += 1;
+            }
         }
-        if correct != 1 { continue; }
-        if keep[r as usize] & 1 != 0 { continue; } // tile 1 not forced
+        if correct != 1 {
+            continue;
+        }
+        if keep[r as usize] & 1 != 0 {
+            continue;
+        } // tile 1 not forced
         let d = table.dist_of_rank(r);
         if best.is_none_or(|(bd, _)| d < bd) {
             best = Some((d, r));
@@ -137,7 +161,11 @@ fn main() {
             print!("   ");
             for col in 0..3 {
                 let v = s.0[row * 3 + col];
-                if v == 0 { print!("  _"); } else { print!(" {v:>2}"); }
+                if v == 0 {
+                    print!("  _");
+                } else {
+                    print!(" {v:>2}");
+                }
             }
             println!();
         }

@@ -127,7 +127,11 @@ impl Default for GeneratorConfig {
             hidden: DEFAULT_HIDDEN,
             lr: 1e-3,
             baseline_decay: 0.95,
-            solver_bwas: BwasConfig { weight: 2.0, batch_size: 1000, node_budget: 300_000 },
+            solver_bwas: BwasConfig {
+                weight: 2.0,
+                batch_size: 1000,
+                node_budget: 300_000,
+            },
             beam: BeamConfig::default(),
             baseline: BaselineHeuristic::Wd,
             fail_penalty: 400.0,
@@ -182,8 +186,17 @@ impl Generator {
         }
 
         let varmap = VarMap::new();
-        let net = PolicyNet::new(VarBuilder::from_varmap(&varmap, DType::F32, &device), cfg.hidden)?;
-        let opt = AdamW::new(varmap.all_vars(), ParamsAdamW { lr: cfg.lr, ..Default::default() })?;
+        let net = PolicyNet::new(
+            VarBuilder::from_varmap(&varmap, DType::F32, &device),
+            cfg.hidden,
+        )?;
+        let opt = AdamW::new(
+            varmap.all_vars(),
+            ParamsAdamW {
+                lr: cfg.lr,
+                ..Default::default()
+            },
+        )?;
         Ok(Self {
             varmap,
             net,
@@ -243,12 +256,15 @@ impl Generator {
         let track_wd = self.reward == GeneratorReward::WdDepth;
         let wd = WalkingDistanceInc;
         let mut stats = SearchStats::default();
-        let mut ctx = if track_wd { Some(wd.root(&s, &mut stats).1) } else { None };
+        let mut ctx = if track_wd {
+            Some(wd.root(&s, &mut stats).1)
+        } else {
+            None
+        };
         let mut steps = Vec::with_capacity(k as usize);
         for _ in 0..k {
             let banned = last.map(|m| m.inverse());
-            let (m, lp, logp4) =
-                sample_move_full(&self.net, &s, blank, banned, &self.device, rng)?;
+            let (m, lp, logp4) = sample_move_full(&self.net, &s, blank, banned, &self.device, rng)?;
             let (ns, nb) = s.apply_at(m, blank);
             let wd_child = if let Some(c) = ctx {
                 let (h, cc) = wd.advance(&c, &ns, m, &mut stats);
@@ -257,7 +273,11 @@ impl Generator {
             } else {
                 0
             };
-            steps.push(Step { lp, logp4, wd_child });
+            steps.push(Step {
+                lp,
+                logp4,
+                wd_child,
+            });
             s = ns;
             blank = nb;
             last = Some(m);
@@ -288,7 +308,8 @@ impl Generator {
                 };
                 // Fixed suboptimal beam baseline with an admissible heuristic.
                 let t = std::time::Instant::now();
-                let cost_baseline = match beam_search(&board, self.beam_h.as_ref(), &self.beam_cfg) {
+                let cost_baseline = match beam_search(&board, self.beam_h.as_ref(), &self.beam_cfg)
+                {
                     Some(mv) => mv.len() as f32,
                     None => self.fail_penalty,
                 };
@@ -407,7 +428,8 @@ impl Generator {
                 let banned = last[i].map(|m| m.inverse());
                 let legal = State::legal_moves_at(blank);
                 let row = &rows[a];
-                let allowed = |k: usize| legal.contains(Move::ALL[k]) && Some(Move::ALL[k]) != banned;
+                let allowed =
+                    |k: usize| legal.contains(Move::ALL[k]) && Some(Move::ALL[k]) != banned;
 
                 let mut mx = f32::NEG_INFINITY;
                 for k in 0..4 {
@@ -453,8 +475,8 @@ impl Generator {
         let mut last: Option<Move> = None;
         for _ in 0..k {
             let banned = last.map(|m| m.inverse());
-            let (m, _lp) =
-                sample_move(&self.net, &s, blank, banned, &self.device, rng).expect("policy sample");
+            let (m, _lp) = sample_move(&self.net, &s, blank, banned, &self.device, rng)
+                .expect("policy sample");
             let (ns, nb) = s.apply_at(m, blank);
             s = ns;
             blank = nb;
@@ -495,8 +517,16 @@ mod tests {
                 hidden: 32,
                 lr: 1e-3,
                 baseline_decay: 0.9,
-                solver_bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: budget },
-                beam: BeamConfig { width: 200, max_depth: 80, node_budget: 500_000 },
+                solver_bwas: BwasConfig {
+                    weight: 1.0,
+                    batch_size: 8,
+                    node_budget: budget,
+                },
+                beam: BeamConfig {
+                    width: 200,
+                    max_depth: 80,
+                    node_budget: 500_000,
+                },
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
                 reward: GeneratorReward::Regret,
@@ -518,8 +548,16 @@ mod tests {
                 hidden: 32,
                 lr: 1e-3,
                 baseline_decay: 0.9,
-                solver_bwas: BwasConfig { weight: 1.0, batch_size: 8, node_budget: 10_000 },
-                beam: BeamConfig { width: 100, max_depth: 80, node_budget: 200_000 },
+                solver_bwas: BwasConfig {
+                    weight: 1.0,
+                    batch_size: 8,
+                    node_budget: 10_000,
+                },
+                beam: BeamConfig {
+                    width: 100,
+                    max_depth: 80,
+                    node_budget: 200_000,
+                },
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
                 reward: GeneratorReward::WdDepth,
@@ -555,12 +593,18 @@ mod tests {
         let rounds = 20;
         for _ in 0..rounds {
             let r = g.train_round(constant_value, &mut rng).unwrap();
-            assert!(r.is_finite() && r >= 0.0, "reward should be finite & >=0, got {r}");
+            assert!(
+                r.is_finite() && r >= 0.0,
+                "reward should be finite & >=0, got {r}"
+            );
             if r > 350.0 {
                 big += 1;
             }
         }
-        assert!(big >= 15, "expected most rounds to show large regret, got {big}/{rounds}");
+        assert!(
+            big >= 15,
+            "expected most rounds to show large regret, got {big}/{rounds}"
+        );
     }
 
     #[test]
@@ -581,7 +625,10 @@ mod tests {
         for s in &pool {
             assert!(s.is_solvable());
         }
-        assert!(g.sample_pool(0, constant_value, &mut rng).unwrap().is_empty());
+        assert!(g
+            .sample_pool(0, constant_value, &mut rng)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -599,8 +646,16 @@ mod tests {
                 hidden: 32,
                 lr: 1e-3,
                 baseline_decay: 0.9,
-                solver_bwas: BwasConfig { weight: 2.0, batch_size: 8, node_budget: 50_000 },
-                beam: BeamConfig { width: 200, max_depth: 100, node_budget: 500_000 },
+                solver_bwas: BwasConfig {
+                    weight: 2.0,
+                    batch_size: 8,
+                    node_budget: 50_000,
+                },
+                beam: BeamConfig {
+                    width: 200,
+                    max_depth: 100,
+                    node_budget: 500_000,
+                },
                 baseline: BaselineHeuristic::Wd,
                 fail_penalty: 400.0,
                 reward: GeneratorReward::Regret,
@@ -625,8 +680,16 @@ mod tests {
         for &lambda in &[0.0f32, 0.5, 1.0, 2.0] {
             for &wd in &[0.0f32, 10.0, 50.0, 140.0] {
                 assert!(composite_reward(wd, 0.0, lambda) >= wd, "floor violated");
-                assert_eq!(composite_reward(wd, wd, lambda), wd, "not self-cleared at v==wd");
-                assert_eq!(composite_reward(wd, wd + 5.0, lambda), wd, "not clamped at v>wd");
+                assert_eq!(
+                    composite_reward(wd, wd, lambda),
+                    wd,
+                    "not self-cleared at v==wd"
+                );
+                assert_eq!(
+                    composite_reward(wd, wd + 5.0, lambda),
+                    wd,
+                    "not clamped at v>wd"
+                );
             }
         }
         let (v, lambda) = (20.0f32, 1.0);
@@ -650,8 +713,14 @@ mod tests {
         let masked =
             Tensor::from_vec(vec![(0.5f32).ln(), (0.5f32).ln(), -1e30, -1e30], (4,), &dev).unwrap();
         let h2 = entropy_of(&masked).unwrap().to_scalar::<f32>().unwrap();
-        assert!(h2.is_finite() && (0.0..=(4f32).ln() + 1e-3).contains(&h2), "bad masked H {h2}");
-        assert!((h2 - (2f32).ln()).abs() < 1e-3, "masked entropy {h2} != ln2");
+        assert!(
+            h2.is_finite() && (0.0..=(4f32).ln() + 1e-3).contains(&h2),
+            "bad masked H {h2}"
+        );
+        assert!(
+            (h2 - (2f32).ln()).abs() < 1e-3,
+            "masked entropy {h2} != ln2"
+        );
     }
 
     #[test]
@@ -687,12 +756,16 @@ mod tests {
             let g = wd_generator(k);
             let mut rng = Rng::new(seed);
             let n = 40u32;
-            let sum: u32 =
-                (0..n).map(|_| g.rollout(&mut rng).unwrap().1.last().unwrap().wd_child as u32).sum();
+            let sum: u32 = (0..n)
+                .map(|_| g.rollout(&mut rng).unwrap().1.last().unwrap().wd_child as u32)
+                .sum();
             sum as f32 / n as f32
         };
         let (m4, m40, m120) = (mean_wd(4, 1), mean_wd(40, 2), mean_wd(120, 3));
-        assert!(m4 < m40 && m40 < m120, "WD not increasing with k: {m4} {m40} {m120}");
+        assert!(
+            m4 < m40 && m40 < m120,
+            "WD not increasing with k: {m4} {m40} {m120}"
+        );
     }
 
     #[test]
@@ -720,7 +793,10 @@ mod tests {
         }
         use super::super::wdsearch::{Diversity, WdSearchConfig};
         use crate::puzzle24::search::{Heuristic, WalkingDistanceHeuristic};
-        let mut cfg = GeneratorConfig { hidden: 32, ..Default::default() };
+        let mut cfg = GeneratorConfig {
+            hidden: 32,
+            ..Default::default()
+        };
         cfg.source = GeneratorSource::WdSearch(WdSearchConfig {
             width: 1000,
             target_depth: 120,
@@ -733,9 +809,17 @@ mod tests {
         let pool = g.sample_pool(2000, constant_value, &mut rng).unwrap();
         assert!(!pool.is_empty());
         let depths = g.last_pool_depths();
-        assert_eq!(depths.len(), pool.len(), "depth labels not aligned with pool");
+        assert_eq!(
+            depths.len(),
+            pool.len(),
+            "depth labels not aligned with pool"
+        );
         // The ladder spans depths; its deepest boards are genuinely deep.
-        let max_wd = pool.iter().map(|s| WalkingDistanceHeuristic.h(s)).max().unwrap();
+        let max_wd = pool
+            .iter()
+            .map(|s| WalkingDistanceHeuristic.h(s))
+            .max()
+            .unwrap();
         assert!(max_wd > 100, "ladder pool max WD only {max_wd}");
         for s in &pool {
             assert!(s.is_solvable());

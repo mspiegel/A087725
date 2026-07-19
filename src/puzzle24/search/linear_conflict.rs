@@ -164,7 +164,12 @@ impl IncHeuristic for LinearConflictInc {
             row_pen[i] = row_pen_direct(s, i);
             col_pen[i] = col_pen_direct(s, i);
         }
-        let ctx = LcCtx { manhattan: manhattan as u8, row_pen, col_pen, blank };
+        let ctx = LcCtx {
+            manhattan: manhattan as u8,
+            row_pen,
+            col_pen,
+            blank,
+        };
         (ctx_h(&ctx), ctx)
     }
 
@@ -176,7 +181,9 @@ impl IncHeuristic for LinearConflictInc {
         _stats: &mut SearchStats,
     ) -> (u8, LcCtx) {
         #[cfg(feature = "verifier-stats")]
-        { _stats.lc_advances += 1; }
+        {
+            _stats.lc_advances += 1;
+        }
         // After the move: the blank moved by `delta(m)`, the tile that filled
         // the blank's old cell is what just moved. Hence:
         //   from = blank_new (where the tile was, in the parent)
@@ -213,7 +220,12 @@ impl IncHeuristic for LinearConflictInc {
             row_pen[rf] = row_pen_direct(child, rf); // rf == rt
         }
 
-        let ctx = LcCtx { manhattan, row_pen, col_pen, blank: from_cell as u8 };
+        let ctx = LcCtx {
+            manhattan,
+            row_pen,
+            col_pen,
+            blank: from_cell as u8,
+        };
         (ctx_h(&ctx), ctx)
     }
 }
@@ -234,7 +246,13 @@ impl IncHeuristicMut for LinearConflictInc {
     fn root(&self, s: &State) -> (u8, LcMutCtx) {
         let mut stats = SearchStats::default();
         let (h, cur) = <Self as IncHeuristic>::root(self, s, &mut stats);
-        (h, LcMutCtx { cur, undo: Vec::with_capacity(220) })
+        (
+            h,
+            LcMutCtx {
+                cur,
+                undo: Vec::with_capacity(220),
+            },
+        )
     }
 
     fn make(&self, ctx: &mut LcMutCtx, child: &State, m: Move) -> u8 {

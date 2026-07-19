@@ -69,7 +69,10 @@ impl PatternDb {
     pub fn build(pattern: Pattern) -> Self {
         let dist = build::build(pattern);
         debug_assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     /// Build using multi-threaded BFS (rayon). Available with the `parallel`
@@ -78,14 +81,20 @@ impl PatternDb {
     pub fn build_parallel(pattern: Pattern) -> Self {
         let dist = build::build_parallel(pattern);
         debug_assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     /// Construct from an owned distance vector (e.g. produced by the
     /// build module directly). For tests and reuse.
     pub fn from_dist(pattern: Pattern, dist: Vec<u8>) -> Self {
         assert_eq!(dist.len() as u64, pattern.num_projected_states());
-        Self { pattern, storage: Storage::Owned(dist) }
+        Self {
+            pattern,
+            storage: Storage::Owned(dist),
+        }
     }
 
     pub fn pattern(&self) -> Pattern {
@@ -155,7 +164,10 @@ impl PatternDb {
         // Verify no trailing bytes.
         let mut tail = [0u8; 1];
         match f.read(&mut tail)? {
-            0 => Ok(Self { pattern, storage: Storage::Owned(dist) }),
+            0 => Ok(Self {
+                pattern,
+                storage: Storage::Owned(dist),
+            }),
             _ => Err(LoadError::TrailingBytes),
         }
     }
@@ -181,7 +193,10 @@ impl PatternDb {
                 expected,
             });
         }
-        Ok(Self { pattern, storage: Storage::Mmapped(map) })
+        Ok(Self {
+            pattern,
+            storage: Storage::Mmapped(map),
+        })
     }
 }
 
@@ -211,9 +226,14 @@ pub enum LoadError {
     ReservedNonZero,
     TrailingBytes,
     /// mmap path: file shorter than the header.
-    ShortFile { got: usize },
+    ShortFile {
+        got: usize,
+    },
     /// mmap path: file size doesn't match `HEADER_BYTES + num_projected_states`.
-    SizeMismatch { got: u64, expected: u64 },
+    SizeMismatch {
+        got: u64,
+        expected: u64,
+    },
 }
 
 impl From<std::io::Error> for LoadError {
@@ -233,10 +253,16 @@ impl std::fmt::Display for LoadError {
             LoadError::ReservedNonZero => write!(f, "reserved bytes must be zero"),
             LoadError::TrailingBytes => write!(f, "file has trailing bytes after expected payload"),
             LoadError::ShortFile { got } => {
-                write!(f, "file too short for header: got {got} bytes, need {HEADER_BYTES}")
+                write!(
+                    f,
+                    "file too short for header: got {got} bytes, need {HEADER_BYTES}"
+                )
             }
             LoadError::SizeMismatch { got, expected } => {
-                write!(f, "file size {got} doesn't match expected {expected} (header + payload)")
+                write!(
+                    f,
+                    "file size {got} doesn't match expected {expected} (header + payload)"
+                )
             }
         }
     }

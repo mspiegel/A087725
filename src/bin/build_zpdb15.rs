@@ -34,9 +34,7 @@ fn part_tiles(part: &str) -> Option<Vec<u8>> {
 }
 
 fn print_usage(prog: &str) {
-    eprintln!(
-        "usage: {prog} (--part 7|8 | --tiles T1,T2,...) --out PATH [--threads N]"
-    );
+    eprintln!("usage: {prog} (--part 7|8 | --tiles T1,T2,...) --out PATH [--threads N]");
     eprintln!("  --part     one block of the canonical Korf 7-8 partition");
     eprintln!("  --tiles    comma-separated tile values in 1..=15");
     eprintln!("  --out      path to write the ZPDB binary (Z15D)");
@@ -100,11 +98,17 @@ fn parse_args() -> Result<Args, String> {
 
     let tiles = tiles.ok_or("missing --part or --tiles")?;
     let out = out.ok_or("missing --out")?;
-    Ok(Args { tiles, out, threads })
+    Ok(Args {
+        tiles,
+        out,
+        threads,
+    })
 }
 
 fn main() -> ExitCode {
-    let prog = std::env::args().next().unwrap_or_else(|| "build_zpdb15".into());
+    let prog = std::env::args()
+        .next()
+        .unwrap_or_else(|| "build_zpdb15".into());
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -144,7 +148,12 @@ fn main() -> ExitCode {
     println!("ZPDB BFS complete in {:.2?}", t0.elapsed());
     println!("  ZPDB entries : {}", layout.total());
     let unvisited = dist.iter().filter(|&&d| d == u8::MAX).count();
-    let maxd = dist.iter().filter(|&&d| d != u8::MAX).copied().max().unwrap_or(0);
+    let maxd = dist
+        .iter()
+        .filter(|&&d| d != u8::MAX)
+        .copied()
+        .max()
+        .unwrap_or(0);
     println!("  Max depth    : {maxd}");
     if unvisited != 0 {
         eprintln!("error: ZPDB build left {unvisited} unvisited entries");

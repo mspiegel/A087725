@@ -55,7 +55,9 @@ impl Move {
 pub struct MoveSet(pub u8);
 
 impl MoveSet {
-    pub const fn empty() -> Self { MoveSet(0) }
+    pub const fn empty() -> Self {
+        MoveSet(0)
+    }
 
     pub fn contains(self, m: Move) -> bool {
         self.0 & (1 << m as u8) != 0
@@ -74,7 +76,10 @@ impl MoveSet {
     }
 
     pub fn iter(self) -> MoveSetIter {
-        MoveSetIter { bits: self.0, idx: 0 }
+        MoveSetIter {
+            bits: self.0,
+            idx: 0,
+        }
     }
 }
 
@@ -114,10 +119,18 @@ impl State {
         let row = b / 3;
         let col = b % 3;
         let mut moves = MoveSet::empty();
-        if row > 0 { moves.insert(Move::Up); }
-        if row < 2 { moves.insert(Move::Down); }
-        if col > 0 { moves.insert(Move::Left); }
-        if col < 2 { moves.insert(Move::Right); }
+        if row > 0 {
+            moves.insert(Move::Up);
+        }
+        if row < 2 {
+            moves.insert(Move::Down);
+        }
+        if col > 0 {
+            moves.insert(Move::Left);
+        }
+        if col < 2 {
+            moves.insert(Move::Right);
+        }
         moves
     }
 
@@ -205,7 +218,13 @@ mod tests {
             if GOAL.legal_moves().contains(m) {
                 let after = GOAL.apply(m);
                 let back = after.apply(m.inverse());
-                assert_eq!(back, GOAL, "apply({:?}) then apply({:?}) should restore", m, m.inverse());
+                assert_eq!(
+                    back,
+                    GOAL,
+                    "apply({:?}) then apply({:?}) should restore",
+                    m,
+                    m.inverse()
+                );
             }
         }
     }
@@ -214,7 +233,14 @@ mod tests {
     fn apply_preserves_solvability() {
         let mut s = GOAL;
         // Walk a deterministic path; every reached state must be solvable.
-        let path = [Move::Up, Move::Up, Move::Left, Move::Left, Move::Down, Move::Right];
+        let path = [
+            Move::Up,
+            Move::Up,
+            Move::Left,
+            Move::Left,
+            Move::Down,
+            Move::Right,
+        ];
         for m in path {
             assert!(s.legal_moves().contains(m));
             s = s.apply(m);
@@ -227,12 +253,15 @@ mod tests {
         // Walk a few hundred random-ish positions; every state we reach has
         // 2..=4 legal moves.
         let mut s = GOAL;
-        let pseudo = |i: u32| -> Move {
-            Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize]
-        };
+        let pseudo = |i: u32| -> Move { Move::ALL[(i.wrapping_mul(2654435761) % 4) as usize] };
         for i in 0u32..500 {
             let n = s.legal_moves().len();
-            assert!((2..=4).contains(&n), "blank at {} has {} moves", s.blank_pos(), n);
+            assert!(
+                (2..=4).contains(&n),
+                "blank at {} has {} moves",
+                s.blank_pos(),
+                n
+            );
             // Try to apply a pseudo-random legal move
             for k in 0u32..4 {
                 let m = pseudo(i.wrapping_add(k));

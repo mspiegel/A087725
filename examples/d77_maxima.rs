@@ -23,8 +23,12 @@ use puzzle8::puzzle15::search::{
 use puzzle8::puzzle15::state::State;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let min_h_seed: u8 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(68);
-    let cache_path: PathBuf = std::env::args().nth(2)
+    let min_h_seed: u8 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(68);
+    let cache_path: PathBuf = std::env::args()
+        .nth(2)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
 
@@ -37,8 +41,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let c = cache::load(&cache_path)?;
     eprintln!("loaded cache: {} entries", c.len());
 
-    let d78: HashSet<u64> = c.iter().filter(|(_, &d)| d == 78).map(|(&r, _)| r).collect();
-    let d77: Vec<u64> = c.iter().filter(|(_, &d)| d == 77).map(|(&r, _)| r).collect();
+    let d78: HashSet<u64> = c
+        .iter()
+        .filter(|(_, &d)| d == 78)
+        .map(|(&r, _)| r)
+        .collect();
+    let d77: Vec<u64> = c
+        .iter()
+        .filter(|(_, &d)| d == 77)
+        .map(|(&r, _)| r)
+        .collect();
     eprintln!("d77 cached: {}, d78 cached: {}", d77.len(), d78.len());
 
     // (blank, h) -> count for maxima; also count non-maxima for contrast.
@@ -57,21 +69,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (ns, _) = s.apply_at(m, blank);
             d78.contains(&rank(&ns))
         });
-        if !is_max { n_nonmax += 1; continue; }
+        if !is_max {
+            n_nonmax += 1;
+            continue;
+        }
         n_max += 1;
         let mut stats = SearchStats::default();
         let (hv, _) = h.root(&s, &mut stats);
         *max_by_blank.entry(blank).or_insert(0) += 1;
         *max_by_h.entry(hv).or_insert(0) += 1;
         *max_by_blank_h.entry((blank, hv)).or_insert(0) += 1;
-        if hv >= min_h_seed { seeds.push((r, blank, hv)); }
+        if hv >= min_h_seed {
+            seeds.push((r, blank, hv));
+        }
     }
 
     eprintln!("\nd77 maxima: {n_max}   non-maxima: {n_nonmax}");
     eprintln!("\nmaxima by blank cell:");
-    for (b, n) in &max_by_blank { eprintln!("  blank@{b:>2}: {n:>6}"); }
+    for (b, n) in &max_by_blank {
+        eprintln!("  blank@{b:>2}: {n:>6}");
+    }
     eprintln!("\nmaxima by h:");
-    for (hv, n) in &max_by_h { eprintln!("  h={hv:>2}: {n:>6}"); }
+    for (hv, n) in &max_by_h {
+        eprintln!("  h={hv:>2}: {n:>6}");
+    }
     eprintln!("\nmaxima by (blank, h) — sparsest buckets are where rare maxima live:");
     let mut bh: Vec<((u8, u8), u32)> = max_by_blank_h.into_iter().collect();
     bh.sort_by_key(|&(_, n)| n);
@@ -79,8 +100,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("  blank@{b:>2} h={hv:>2}: {n:>5}");
     }
 
-    eprintln!("\nemitting {} maxima seeds with h >= {} to stdout", seeds.len(), min_h_seed);
+    eprintln!(
+        "\nemitting {} maxima seeds with h >= {} to stdout",
+        seeds.len(),
+        min_h_seed
+    );
     seeds.sort_by_key(|&(_, b, hv)| (b, std::cmp::Reverse(hv)));
-    for (r, _, _) in &seeds { println!("{r}"); }
+    for (r, _, _) in &seeds {
+        println!("{r}");
+    }
     Ok(())
 }

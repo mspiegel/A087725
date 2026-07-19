@@ -59,7 +59,10 @@ fn args_multi<'a>(argv: &'a [String], flag: &str) -> Vec<&'a String> {
 }
 
 fn arg_opt(argv: &[String], flag: &str) -> Option<String> {
-    argv.iter().position(|a| a == flag).and_then(|i| argv.get(i + 1)).cloned()
+    argv.iter()
+        .position(|a| a == flag)
+        .and_then(|i| argv.get(i + 1))
+        .cloned()
 }
 
 // --------------------------------------------------------------- board helpers
@@ -92,7 +95,10 @@ fn parse_board(s: &str) -> Option<State> {
 }
 
 fn board_str(s: &State) -> String {
-    s.0.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")
+    s.0.iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Reflection-canonical 25-token string — the catalog join key.
@@ -127,7 +133,12 @@ fn val_str(kind: &str, value: f64) -> String {
 
 impl Evidence {
     fn key(&self) -> (String, String, String, String) {
-        (self.canon.clone(), self.kind.clone(), val_str(&self.kind, self.value), self.method.clone())
+        (
+            self.canon.clone(),
+            self.kind.clone(),
+            val_str(&self.kind, self.value),
+            self.method.clone(),
+        )
     }
     fn to_line(&self) -> String {
         format!(
@@ -204,11 +215,15 @@ fn ingest_lb(path: &Path, added: &str, out: &mut Vec<Evidence>) {
     let src = path.display().to_string();
     // label board mode heur pick h0 lb solved_depth nodes iters secs outcome
     for line in text.lines() {
-        let Some(f) = tsv_fields(line, "label") else { continue };
+        let Some(f) = tsv_fields(line, "label") else {
+            continue;
+        };
         if f.len() < 12 {
             continue;
         }
-        let Some(board) = parse_board(&f[1]) else { continue };
+        let Some(board) = parse_board(&f[1]) else {
+            continue;
+        };
         let canon = canon_str(&board);
         let method = format!("ladder24:{}:{}", f[3], f[4]);
         let lb: f64 = f[6].parse().unwrap_or(0.0);
@@ -216,15 +231,29 @@ fn ingest_lb(path: &Path, added: &str, out: &mut Vec<Evidence>) {
         if solved {
             let d: f64 = f[7].parse().unwrap_or(lb);
             out.push(Evidence {
-                added: added.into(), canon, board: f[1].clone(), kind: "exact".into(),
-                value: d, method, nodes: f[8].clone(), replay_ok: "1".into(),
-                src: src.clone(), note: f[11].clone(),
+                added: added.into(),
+                canon,
+                board: f[1].clone(),
+                kind: "exact".into(),
+                value: d,
+                method,
+                nodes: f[8].clone(),
+                replay_ok: "1".into(),
+                src: src.clone(),
+                note: f[11].clone(),
             });
         } else {
             out.push(Evidence {
-                added: added.into(), canon, board: f[1].clone(), kind: "lb".into(),
-                value: lb, method, nodes: f[8].clone(), replay_ok: "-".into(),
-                src: src.clone(), note: f[11].clone(),
+                added: added.into(),
+                canon,
+                board: f[1].clone(),
+                kind: "lb".into(),
+                value: lb,
+                method,
+                nodes: f[8].clone(),
+                replay_ok: "-".into(),
+                src: src.clone(),
+                note: f[11].clone(),
             });
         }
     }
@@ -241,17 +270,28 @@ fn ingest_ub(path: &Path, added: &str, out: &mut Vec<Evidence>) {
     let src = path.display().to_string();
     // idx board wd ub gap nodes replay_ok solver
     for line in text.lines() {
-        let Some(f) = tsv_fields(line, "idx") else { continue };
+        let Some(f) = tsv_fields(line, "idx") else {
+            continue;
+        };
         if f.len() < 8 || f[3] == "-" {
             continue; // BudgetExceeded rows carry no UB
         }
-        let Some(board) = parse_board(&f[1]) else { continue };
+        let Some(board) = parse_board(&f[1]) else {
+            continue;
+        };
         let canon = canon_str(&board);
         let ub: f64 = f[3].parse().unwrap_or(0.0);
         out.push(Evidence {
-            added: added.into(), canon, board: f[1].clone(), kind: "ub".into(),
-            value: ub, method: f[7].clone(), nodes: f[5].clone(),
-            replay_ok: f[6].clone(), src: src.clone(), note: format!("wd={}", f[2]),
+            added: added.into(),
+            canon,
+            board: f[1].clone(),
+            kind: "ub".into(),
+            value: ub,
+            method: f[7].clone(),
+            nodes: f[5].clone(),
+            replay_ok: f[6].clone(),
+            src: src.clone(),
+            note: format!("wd={}", f[2]),
         });
     }
 }
@@ -267,11 +307,15 @@ fn ingest_score(path: &Path, added: &str, out: &mut Vec<Evidence>) {
     let src = path.display().to_string();
     // idx board wd lc v_fwd v_pair
     for line in text.lines() {
-        let Some(f) = tsv_fields(line, "idx") else { continue };
+        let Some(f) = tsv_fields(line, "idx") else {
+            continue;
+        };
         if f.len() < 6 {
             continue;
         }
-        let Some(board) = parse_board(&f[1]) else { continue };
+        let Some(board) = parse_board(&f[1]) else {
+            continue;
+        };
         let canon = canon_str(&board);
         for (col, meth) in [(4usize, "vfwd"), (5usize, "vpair")] {
             if f[col] == "-" {
@@ -279,9 +323,16 @@ fn ingest_score(path: &Path, added: &str, out: &mut Vec<Evidence>) {
             }
             if let Ok(v) = f[col].parse::<f64>() {
                 out.push(Evidence {
-                    added: added.into(), canon: canon.clone(), board: f[1].clone(),
-                    kind: "score".into(), value: v, method: meth.into(), nodes: "-".into(),
-                    replay_ok: "-".into(), src: src.clone(), note: String::new(),
+                    added: added.into(),
+                    canon: canon.clone(),
+                    board: f[1].clone(),
+                    kind: "score".into(),
+                    value: v,
+                    method: meth.into(),
+                    nodes: "-".into(),
+                    replay_ok: "-".into(),
+                    src: src.clone(),
+                    note: String::new(),
                 });
             }
         }
@@ -310,10 +361,20 @@ fn ingest_pool(path: &Path, added: &str, out: &mut Vec<Evidence>) {
         if let Some(board) = parse_board(t) {
             let canon = canon_str(&board);
             out.push(Evidence {
-                added: added.into(), canon, board: board_str(&board), kind: "lineage".into(),
-                value: 0.0, method: "candidates24".into(), nodes: "-".into(),
-                replay_ok: "-".into(), src: src.clone(),
-                note: if last_comment.is_empty() { "-".into() } else { last_comment.clone() },
+                added: added.into(),
+                canon,
+                board: board_str(&board),
+                kind: "lineage".into(),
+                value: 0.0,
+                method: "candidates24".into(),
+                nodes: "-".into(),
+                replay_ok: "-".into(),
+                src: src.clone(),
+                note: if last_comment.is_empty() {
+                    "-".into()
+                } else {
+                    last_comment.clone()
+                },
             });
         }
     }
@@ -402,7 +463,11 @@ fn reduce(all: &[Evidence]) -> Vec<Bracket> {
         b.best_lb
             .cmp(&a.best_lb)
             .then(b.best_ub.cmp(&a.best_ub))
-            .then(b.v_fwd.partial_cmp(&a.v_fwd).unwrap_or(std::cmp::Ordering::Equal))
+            .then(
+                b.v_fwd
+                    .partial_cmp(&a.v_fwd)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
     out
 }
@@ -466,8 +531,14 @@ fn main() -> ExitCode {
     }
 
     if do_ingest && !fresh.is_empty() {
-        let is_new = std::fs::metadata(&catalog).map(|m| m.len() == 0).unwrap_or(true);
-        let mut f = match std::fs::OpenOptions::new().create(true).append(true).open(&catalog) {
+        let is_new = std::fs::metadata(&catalog)
+            .map(|m| m.len() == 0)
+            .unwrap_or(true);
+        let mut f = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&catalog)
+        {
             Ok(f) => std::io::BufWriter::new(f),
             Err(e) => {
                 eprintln!("error opening {}: {}", catalog.display(), e);
@@ -482,9 +553,16 @@ fn main() -> ExitCode {
             writeln!(f, "{}", e.to_line()).ok();
         }
         f.flush().ok();
-        eprintln!("ingested {} new evidence rows -> {}", fresh.len(), catalog.display());
+        eprintln!(
+            "ingested {} new evidence rows -> {}",
+            fresh.len(),
+            catalog.display()
+        );
     } else if !do_ingest && !fresh.is_empty() {
-        eprintln!("(dry run: {} new evidence rows would be ingested; pass --ingest)", fresh.len());
+        eprintln!(
+            "(dry run: {} new evidence rows would be ingested; pass --ingest)",
+            fresh.len()
+        );
     }
 
     // Combined view (existing + fresh, whether or not persisted).
@@ -517,7 +595,10 @@ fn main() -> ExitCode {
         existing.len(),
         n_fresh
     );
-    println!("{:>4}  {:>4} {:>4} {:>4}  {:>6} {:>6}  {:>4}  lineage", "rank", "lb", "ub", "gap", "v_fwd", "v_pair", "n");
+    println!(
+        "{:>4}  {:>4} {:>4} {:>4}  {:>6} {:>6}  {:>4}  lineage",
+        "rank", "lb", "ub", "gap", "v_fwd", "v_pair", "n"
+    );
     for (i, b) in brackets.iter().take(rank_n).enumerate() {
         let gap = match (b.best_lb, b.best_ub) {
             (Some(lb), Some(ub)) => (ub - lb).to_string(),
@@ -541,12 +622,19 @@ fn main() -> ExitCode {
     if let Some(path) = arg_opt(&argv, "--reseed-out") {
         let k: usize = arg(&argv, "--reseed-top", 15);
         let mut text = String::new();
-        let _ = writeln!(text, "# catalog24 reseed: top {k} by proven LB (added {added})");
+        let _ = writeln!(
+            text,
+            "# catalog24 reseed: top {k} by proven LB (added {added})"
+        );
         for (i, b) in brackets.iter().take(k).enumerate() {
             let _ = writeln!(
                 text,
                 "# reseed#{} rank={} lb={} ub={} lineage={}",
-                i, i, opt_i(b.best_lb), opt_i(b.best_ub), b.lineage
+                i,
+                i,
+                opt_i(b.best_lb),
+                opt_i(b.best_ub),
+                b.lineage
             );
             let _ = writeln!(text, "{}", b.board);
         }
@@ -607,7 +695,14 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    fn ev(canon: &str, board: &str, kind: &str, value: f64, method: &str, replay: &str) -> Evidence {
+    fn ev(
+        canon: &str,
+        board: &str,
+        kind: &str,
+        value: f64,
+        method: &str,
+        replay: &str,
+    ) -> Evidence {
         Evidence {
             added: "t1".into(),
             canon: canon.into(),
@@ -627,10 +722,10 @@ mod tests {
         let c = "C";
         let all = vec![
             ev(c, "B", "lb", 130.0, "m1", "-"),
-            ev(c, "B", "lb", 134.0, "m2", "-"),      // max lb
-            ev(c, "B", "ub", 150.0, "u1", "1"),      // verified
-            ev(c, "B", "ub", 148.0, "u2", "0"),      // unverified -> ignored for bracket
-            ev(c, "B", "ub", 152.0, "u3", "1"),      // verified but larger
+            ev(c, "B", "lb", 134.0, "m2", "-"), // max lb
+            ev(c, "B", "ub", 150.0, "u1", "1"), // verified
+            ev(c, "B", "ub", 148.0, "u2", "0"), // unverified -> ignored for bracket
+            ev(c, "B", "ub", 152.0, "u3", "1"), // verified but larger
         ];
         let r = reduce(&all);
         assert_eq!(r.len(), 1);
@@ -683,8 +778,14 @@ mod tests {
     fn parse_board_validates_permutation() {
         assert!(parse_board("0 1 2 3").is_none());
         // duplicate tile 1
-        assert!(parse_board("1 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24").is_none());
-        assert!(parse_board("_ 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1").is_some());
+        assert!(
+            parse_board("1 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24")
+                .is_none()
+        );
+        assert!(
+            parse_board("_ 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1")
+                .is_some()
+        );
     }
 
     #[test]

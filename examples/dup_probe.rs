@@ -160,7 +160,10 @@ fn main() {
     let inc = KorfPdbInc::new([&p7, &p8]);
 
     let instances = parse_instances(&pdb_dir.join("korf100.txt"), limit);
-    let mut c = Counts { total: 0, redundant: 0 };
+    let mut c = Counts {
+        total: 0,
+        redundant: 0,
+    };
     for s in &instances {
         solve_counting(s, &inc, &mut c);
     }

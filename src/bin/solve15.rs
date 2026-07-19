@@ -25,12 +25,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use puzzle8::puzzle15::pdb::{
-    AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic,
-};
+use puzzle8::puzzle15::pdb::{AdditivePdbHeuristic, MaxHeuristic, PatternDb, ReflectedHeuristic};
 use puzzle8::puzzle15::search::{
-    idastar, Heuristic, LinearConflictHeuristic, ManhattanHeuristic,
-    WalkingDistanceHeuristic,
+    idastar, Heuristic, LinearConflictHeuristic, ManhattanHeuristic, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle15::state::{Move, State, GOAL, N_CELLS};
 
@@ -94,7 +91,12 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    Ok(Args { pdb_dir, position, from, heuristic })
+    Ok(Args {
+        pdb_dir,
+        position,
+        from,
+        heuristic,
+    })
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -107,7 +109,8 @@ fn parse_position(s: &str) -> Result<State, String> {
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
+            tok.parse::<u8>()
+                .map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v > 15 {
             return Err(format!("value {v} out of range 0..=15"));
@@ -132,21 +135,24 @@ fn parse_position(s: &str) -> Result<State, String> {
 fn load_pdbs(dir: &Path) -> Result<(PatternDb, PatternDb), String> {
     let p7 = dir.join(P7_PATH);
     let p8 = dir.join(P8_PATH);
-    let p7_db = PatternDb::load_mmap(&p7)
-        .map_err(|e| format!("loading {}: {}", p7.display(), e))?;
-    let p8_db = PatternDb::load_mmap(&p8)
-        .map_err(|e| format!("loading {}: {}", p8.display(), e))?;
+    let p7_db =
+        PatternDb::load_mmap(&p7).map_err(|e| format!("loading {}: {}", p7.display(), e))?;
+    let p8_db =
+        PatternDb::load_mmap(&p8).map_err(|e| format!("loading {}: {}", p8.display(), e))?;
     Ok((p7_db, p8_db))
 }
 
 fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     println!("Solution length: {}", sol.len());
-    let moves: Vec<&str> = sol.iter().map(|m| match m {
-        Move::Up => "U",
-        Move::Down => "D",
-        Move::Left => "L",
-        Move::Right => "R",
-    }).collect();
+    let moves: Vec<&str> = sol
+        .iter()
+        .map(|m| match m {
+            Move::Up => "U",
+            Move::Down => "D",
+            Move::Left => "L",
+            Move::Right => "R",
+        })
+        .collect();
     println!("Moves          : {}", moves.join(" "));
     println!("Wall-clock     : {elapsed:.2?}");
 
@@ -158,7 +164,10 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     if cur == GOAL {
         println!("Verified       : reaches GOAL");
     } else {
-        println!("WARNING        : solution does NOT reach GOAL — state: {:?}", cur.0);
+        println!(
+            "WARNING        : solution does NOT reach GOAL — state: {:?}",
+            cur.0
+        );
     }
 }
 
@@ -167,7 +176,10 @@ fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            if e == "help" { print_usage(&prog); return ExitCode::SUCCESS; }
+            if e == "help" {
+                print_usage(&prog);
+                return ExitCode::SUCCESS;
+            }
             eprintln!("error: {e}");
             print_usage(&prog);
             return ExitCode::FAILURE;
@@ -179,13 +191,22 @@ fn main() -> ExitCode {
         (Some(p), _) => p,
         (None, Some(f)) => match std::fs::read_to_string(&f) {
             Ok(s) => s,
-            Err(e) => { eprintln!("error reading {}: {}", f.display(), e); return ExitCode::FAILURE; }
+            Err(e) => {
+                eprintln!("error reading {}: {}", f.display(), e);
+                return ExitCode::FAILURE;
+            }
         },
-        _ => { eprintln!("error: provide --position or --from"); return ExitCode::FAILURE; }
+        _ => {
+            eprintln!("error: provide --position or --from");
+            return ExitCode::FAILURE;
+        }
     };
     let start = match parse_position(&position_str) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: position parse: {e}"); return ExitCode::FAILURE; }
+        Err(e) => {
+            eprintln!("error: position parse: {e}");
+            return ExitCode::FAILURE;
+        }
     };
 
     if !start.is_solvable() {
@@ -196,17 +217,21 @@ fn main() -> ExitCode {
     // Build heuristic and run.
     let t0 = Instant::now();
     let sol = match args.heuristic {
-        HeuristicChoice::Manhattan => {
-            idastar(&start, &ManhattanHeuristic)
-        }
+        HeuristicChoice::Manhattan => idastar(&start, &ManhattanHeuristic),
         _ => {
             let dir = match &args.pdb_dir {
                 Some(d) => d.clone(),
-                None => { eprintln!("error: --pdb-dir required for PDB heuristic"); return ExitCode::FAILURE; }
+                None => {
+                    eprintln!("error: --pdb-dir required for PDB heuristic");
+                    return ExitCode::FAILURE;
+                }
             };
             let (p7_db, p8_db) = match load_pdbs(&dir) {
                 Ok(x) => x,
-                Err(e) => { eprintln!("error: {e}"); return ExitCode::FAILURE; }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::FAILURE;
+                }
             };
             let dbs = [p7_db, p8_db];
             let h_add = AdditivePdbHeuristic::new(&dbs);
@@ -216,13 +241,15 @@ fn main() -> ExitCode {
                     // Reflected variant uses its own AdditivePdbHeuristic (also borrows dbs).
                     let h_refl_inner = AdditivePdbHeuristic::new(&dbs);
                     let h_refl = ReflectedHeuristic::new(h_refl_inner);
-                    let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
+                    let h_korf =
+                        MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
                     idastar(&start, &h_korf)
                 }
                 HeuristicChoice::KorfPlus => {
                     let h_refl_inner = AdditivePdbHeuristic::new(&dbs);
                     let h_refl = ReflectedHeuristic::new(h_refl_inner);
-                    let h_korf = MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
+                    let h_korf =
+                        MaxHeuristic::new(&h_add as &dyn Heuristic, &h_refl as &dyn Heuristic);
                     WalkingDistanceHeuristic::warm_up();
                     let h_classical = MaxHeuristic::new(
                         &LinearConflictHeuristic as &dyn Heuristic,
@@ -241,7 +268,13 @@ fn main() -> ExitCode {
 
     let elapsed = t0.elapsed();
     match sol {
-        Some(s) => { print_solution(&start, &s, elapsed); ExitCode::SUCCESS }
-        None => { eprintln!("no solution found"); ExitCode::FAILURE }
+        Some(s) => {
+            print_solution(&start, &s, elapsed);
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("no solution found");
+            ExitCode::FAILURE
+        }
     }
 }

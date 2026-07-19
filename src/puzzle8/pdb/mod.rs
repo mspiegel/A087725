@@ -24,10 +24,10 @@
 //! where PDBs compress storage by ~10^5× and are the canonical optimal
 //! solver.
 
-pub mod pattern;
 pub mod build;
 pub mod db;
 pub mod heuristic;
+pub mod pattern;
 
 pub use db::{LoadError, PatternDb};
 pub use heuristic::{AdditivePdbHeuristic, PdbHeuristic};

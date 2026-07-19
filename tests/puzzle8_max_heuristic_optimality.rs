@@ -9,8 +9,7 @@
 use puzzle8::puzzle8::bfs::DistanceTable;
 use puzzle8::puzzle8::rank::unrank;
 use puzzle8::puzzle8::search::{
-    idastar, LinearConflictHeuristic, ManhattanHeuristic, MaxHeuristic,
-    WalkingDistanceHeuristic,
+    idastar, LinearConflictHeuristic, ManhattanHeuristic, MaxHeuristic, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle8::state::{GOAL, N_STATES};
 

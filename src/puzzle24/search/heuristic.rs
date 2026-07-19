@@ -73,11 +73,7 @@ where
     type Ctx = (A::Ctx, B::Ctx);
 
     #[inline]
-    fn root(
-        &self,
-        s: &State,
-        stats: &mut crate::puzzle24::search::SearchStats,
-    ) -> (u8, Self::Ctx) {
+    fn root(&self, s: &State, stats: &mut crate::puzzle24::search::SearchStats) -> (u8, Self::Ctx) {
         let (ha, ca) = self.a.root(s, stats);
         let (hb, cb) = self.b.root(s, stats);
         (ha.max(hb), (ca, cb))
@@ -371,11 +367,7 @@ where
     type Ctx = (A::Ctx, B::Ctx);
 
     #[inline]
-    fn root(
-        &self,
-        s: &State,
-        stats: &mut crate::puzzle24::search::SearchStats,
-    ) -> (u8, Self::Ctx) {
+    fn root(&self, s: &State, stats: &mut crate::puzzle24::search::SearchStats) -> (u8, Self::Ctx) {
         let (ha, ca) = self.a.root(s, stats);
         let (hb, cb) = self.b.root(s, stats);
         (ha.max(hb), (ca, cb))
@@ -460,7 +452,13 @@ impl crate::puzzle24::search::idastar::IncHeuristicMut for IncManhattan {
 
     fn root(&self, s: &State) -> (u8, Self::Ctx) {
         let h = ManhattanHeuristic.h(s);
-        (h, ManhattanMutCtx { h, undo: Vec::with_capacity(220) })
+        (
+            h,
+            ManhattanMutCtx {
+                h,
+                undo: Vec::with_capacity(220),
+            },
+        )
     }
 
     fn make(&self, ctx: &mut Self::Ctx, child: &State, m: crate::puzzle24::state::Move) -> u8 {
@@ -638,11 +636,17 @@ mod tests {
                 let eb = Cell::new(0u64);
                 let lb = Cell::new(0u64);
                 let run = |lazy_b_makes: &Cell<u64>, lazy: bool| {
-                    let counted = |c| Counted { inner: IncManhattan, makes: c };
+                    let counted = |c| Counted {
+                        inner: IncManhattan,
+                        makes: c,
+                    };
                     // Same (A,B) pair for eager and lazy; only the combinator differs.
                     if b_dominant {
                         let a = IncManhattan;
-                        let b = Counted { inner: WalkingDistanceInc, makes: lazy_b_makes };
+                        let b = Counted {
+                            inner: WalkingDistanceInc,
+                            makes: lazy_b_makes,
+                        };
                         if lazy {
                             Search::new(&start, &LazyMaxInc::new(a, b)).bound(40).run()
                         } else {
@@ -664,9 +668,19 @@ mod tests {
                     LadderOutcome::Solved(p) => p.len(),
                     _ => panic!("scramble should solve within bound 40"),
                 };
-                assert_eq!(len(&oe), len(&ol), "seed {seed} bdom {b_dominant}: length differs");
-                assert_eq!(se.nodes, sl.nodes, "seed {seed} bdom {b_dominant}: tree differs");
-                assert!(lb.get() <= eb.get(), "seed {seed} bdom {b_dominant}: lazy did MORE B makes");
+                assert_eq!(
+                    len(&oe),
+                    len(&ol),
+                    "seed {seed} bdom {b_dominant}: length differs"
+                );
+                assert_eq!(
+                    se.nodes, sl.nodes,
+                    "seed {seed} bdom {b_dominant}: tree differs"
+                );
+                assert!(
+                    lb.get() <= eb.get(),
+                    "seed {seed} bdom {b_dominant}: lazy did MORE B makes"
+                );
                 if !b_dominant {
                     def_eager_b += eb.get();
                     def_lazy_b += lb.get();
@@ -748,17 +762,29 @@ mod tests {
             let eager = MaxInc::new(
                 MaxInc::new(
                     WalkingDistanceInc,
-                    Counted { inner: IncManhattan, makes: &eb },
+                    Counted {
+                        inner: IncManhattan,
+                        makes: &eb,
+                    },
                 ),
-                Counted { inner: IncManhattan, makes: &ec },
+                Counted {
+                    inner: IncManhattan,
+                    makes: &ec,
+                },
             );
             // Lazy cascade: LazyMaxInc(LazyMaxInc(WD, B), C).
             let lazy = LazyMaxInc::new(
                 LazyMaxInc::new(
                     WalkingDistanceInc,
-                    Counted { inner: IncManhattan, makes: &lb },
+                    Counted {
+                        inner: IncManhattan,
+                        makes: &lb,
+                    },
                 ),
-                Counted { inner: IncManhattan, makes: &lc },
+                Counted {
+                    inner: IncManhattan,
+                    makes: &lc,
+                },
             );
             let (oe, se) = Search::new(&start, &eager).bound(40).run();
             let (ol, sl) = Search::new(&start, &lazy).bound(40).run();
@@ -767,17 +793,32 @@ mod tests {
                 _ => panic!("scramble should solve within bound 40"),
             };
             assert_eq!(len(&oe), len(&ol), "seed {seed}: length differs");
-            assert_eq!(se.nodes, sl.nodes, "seed {seed}: tree differs (cascade not node-identical)");
-            assert!(lb.get() <= eb.get(), "seed {seed}: lazy B probed MORE than eager");
-            assert!(lc.get() <= ec.get(), "seed {seed}: lazy C probed MORE than eager");
+            assert_eq!(
+                se.nodes, sl.nodes,
+                "seed {seed}: tree differs (cascade not node-identical)"
+            );
+            assert!(
+                lb.get() <= eb.get(),
+                "seed {seed}: lazy B probed MORE than eager"
+            );
+            assert!(
+                lc.get() <= ec.get(),
+                "seed {seed}: lazy C probed MORE than eager"
+            );
             tot_eb += eb.get();
             tot_lb += lb.get();
             tot_ec += ec.get();
             tot_lc += lc.get();
         }
         // Both tiers must actually defer across the suite.
-        assert!(tot_lb < tot_eb, "inner tier never deferred: lazy {tot_lb} vs eager {tot_eb}");
-        assert!(tot_lc < tot_ec, "outer tier never deferred: lazy {tot_lc} vs eager {tot_ec}");
+        assert!(
+            tot_lb < tot_eb,
+            "inner tier never deferred: lazy {tot_lb} vs eager {tot_eb}"
+        );
+        assert!(
+            tot_lc < tot_ec,
+            "outer tier never deferred: lazy {tot_lc} vs eager {tot_ec}"
+        );
     }
 
     /// `MaxInc(LC, WD)` must equal `max(LC, WD)` at the root and stay in sync via
@@ -807,10 +848,18 @@ mod tests {
             let m = opts[(next() as usize) % opts.len()];
             let ns = s.apply(m);
             let (h_adv, ctx_adv) = mx.advance(&ctx, &ns, m, &mut stats);
-            let scratch = LinearConflictHeuristic.h(&ns).max(WalkingDistanceHeuristic.h(&ns));
-            assert_eq!(h_adv, scratch, "MaxInc advance vs scratch diverged at step {step}");
+            let scratch = LinearConflictHeuristic
+                .h(&ns)
+                .max(WalkingDistanceHeuristic.h(&ns));
+            assert_eq!(
+                h_adv, scratch,
+                "MaxInc advance vs scratch diverged at step {step}"
+            );
             let (h_fresh, _) = mx.root(&ns, &mut stats);
-            assert_eq!(h_adv, h_fresh, "MaxInc advance vs fresh root diverged at step {step}");
+            assert_eq!(
+                h_adv, h_fresh,
+                "MaxInc advance vs fresh root diverged at step {step}"
+            );
             s = ns;
             ctx = ctx_adv;
         }
@@ -822,7 +871,12 @@ mod tests {
     fn manhattan_mut_idastar_matches_copy_length_and_nodes() {
         use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let mut rng: u64 = 0x2B3C_4D5E_6F70_8191;
-        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
         for _ in 0..5 {
             let mut s = GOAL;
             for _ in 0..12 {
@@ -831,7 +885,11 @@ mod tests {
             }
             let (c, cs) = idastar_inc_with_stats(&s, &IncManhattan);
             let (m, ms) = Search::new(&s, &IncManhattan).solve_with_stats();
-            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "Manhattan length differs");
+            assert_eq!(
+                c.expect("copy").len(),
+                m.expect("mut").len(),
+                "Manhattan length differs"
+            );
             assert_eq!(cs.nodes, ms.nodes, "Manhattan node count differs");
         }
     }
@@ -840,11 +898,16 @@ mod tests {
     /// copy driver — verifies both members' mut paths compose correctly.
     #[test]
     fn maxinc_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         use crate::puzzle24::search::LinearConflictInc;
+        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
         let mx = MaxInc::new(IncManhattan, LinearConflictInc);
         let mut rng: u64 = 0x9F1E_2D3C_4B5A_6978;
-        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
         for _ in 0..5 {
             let mut s = GOAL;
             for _ in 0..14 {
@@ -853,7 +916,11 @@ mod tests {
             }
             let (c, cs) = idastar_inc_with_stats(&s, &mx);
             let (m, ms) = Search::new(&s, &mx).solve_with_stats();
-            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "MaxInc length differs");
+            assert_eq!(
+                c.expect("copy").len(),
+                m.expect("mut").len(),
+                "MaxInc length differs"
+            );
             assert_eq!(cs.nodes, ms.nodes, "MaxInc node count differs");
         }
     }
@@ -871,7 +938,12 @@ mod tests {
         let solo = max_inc!(IncManhattan,);
 
         let mut rng: u64 = 0x1357_9BDF_2468_ACE0;
-        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
         for _ in 0..200 {
             let mut s = GOAL;
             for _ in 0..16 {
@@ -884,7 +956,11 @@ mod tests {
             let expect = ManhattanHeuristic.h(&s).max(LinearConflictHeuristic.h(&s));
             assert_eq!(hm, hn, "macro fold != hand-nested MaxInc");
             assert_eq!(hm, expect, "macro fold != scratch max");
-            assert_eq!(solo.root(&s, &mut st).0, ManhattanHeuristic.h(&s), "solo != identity");
+            assert_eq!(
+                solo.root(&s, &mut st).0,
+                ManhattanHeuristic.h(&s),
+                "solo != identity"
+            );
         }
     }
 }

@@ -305,9 +305,7 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
     fn root(&self, s: &State, _stats: &mut SearchStats) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let mut ctx = ZpdbCtx {
-            normal: std::array::from_fn(|i| {
-                ProjectedState::from_state(s, self.dbs[i].pattern())
-            }),
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
             reflected: std::array::from_fn(|i| {
                 ProjectedState::from_state(&rs, self.dbs[i].pattern())
             }),
@@ -347,7 +345,9 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             let (np, n_cost) = parent.normal[i].apply(m);
             if n_cost != 0 {
                 #[cfg(feature = "verifier-stats")]
-                { _stats.zpdb_rank_calls += 1; }
+                {
+                    _stats.zpdb_rank_calls += 1;
+                }
                 let n_idx = db.layout().rank(&np, db.pattern());
                 ctx.n_h[i] = db.diff_lookup(n_idx, parent.n_h[i]);
             }
@@ -357,7 +357,9 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             let (rp, r_cost) = parent.reflected[i].apply(tm);
             if r_cost != 0 {
                 #[cfg(feature = "verifier-stats")]
-                { _stats.zpdb_rank_calls += 1; }
+                {
+                    _stats.zpdb_rank_calls += 1;
+                }
                 let r_idx = db.layout().rank(&rp, db.pattern());
                 ctx.r_h[i] = db.diff_lookup(r_idx, parent.r_h[i]);
             }
@@ -388,9 +390,7 @@ impl<'a, const N: usize> IncHeuristicMut for ZpdbInc<'a, N> {
     fn root(&self, s: &State) -> (u8, Self::Ctx) {
         let rs = reflect(s);
         let mut ctx = ZpdbCtxMut {
-            normal: std::array::from_fn(|i| {
-                ProjectedState::from_state(s, self.dbs[i].pattern())
-            }),
+            normal: std::array::from_fn(|i| ProjectedState::from_state(s, self.dbs[i].pattern())),
             reflected: std::array::from_fn(|i| {
                 ProjectedState::from_state(&rs, self.dbs[i].pattern())
             }),
@@ -492,7 +492,10 @@ mod tests {
         let truth = bfs_distances(8);
         for (raw, &true_dist) in &truth {
             let est = h_korf.h(&State(*raw));
-            assert!(est <= true_dist, "korf h {est} > true {true_dist} for {raw:?}");
+            assert!(
+                est <= true_dist,
+                "korf h {est} > true {true_dist} for {raw:?}"
+            );
         }
     }
 
@@ -548,10 +551,7 @@ mod tests {
             ZPatternDb::build(patterns[0]),
             ZPatternDb::build(patterns[1]),
         ];
-        let adbs = [
-            PatternDb::build(patterns[0]),
-            PatternDb::build(patterns[1]),
-        ];
+        let adbs = [PatternDb::build(patterns[0]), PatternDb::build(patterns[1])];
         let zinc = ZpdbInc::new([&zdbs[0], &zdbs[1]]);
         let kinc = KorfPdbInc::new([&adbs[0], &adbs[1]]);
 
@@ -644,7 +644,12 @@ mod tests {
                         cost == 0,
                         cidx == pidx,
                         "cost {} but {}->{} for pattern {:?}, move {:?}, state {:?}",
-                        cost, pidx, cidx, pattern, m, s.0,
+                        cost,
+                        pidx,
+                        cidx,
+                        pattern,
+                        m,
+                        s.0,
                     );
                 }
                 let opts: Vec<Move> = s.legal_moves().iter().collect();
@@ -894,7 +899,12 @@ mod tests {
         ];
         let inc = KorfPdbInc::new([&dbs[0], &dbs[1]]);
         let mut rng: u64 = 0x3141_5926_5358_9793;
-        let mut next = || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng };
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
         for _ in 0..6 {
             let mut s = GOAL;
             for _ in 0..12 {
@@ -903,7 +913,11 @@ mod tests {
             }
             let (c, cs) = idastar_inc_with_stats(&s, &inc);
             let (m, ms) = Search::new(&s, &inc).solve_with_stats();
-            assert_eq!(c.expect("copy").len(), m.expect("mut").len(), "Korf length differs");
+            assert_eq!(
+                c.expect("copy").len(),
+                m.expect("mut").len(),
+                "Korf length differs"
+            );
             assert_eq!(cs.nodes, ms.nodes, "Korf node count differs");
         }
     }

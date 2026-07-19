@@ -61,7 +61,10 @@ impl Pattern {
 
     /// Iterate the pattern's tile values in ascending order.
     pub fn iter(self) -> PatternIter {
-        PatternIter { bits: self.0 & !1, idx: 1 }
+        PatternIter {
+            bits: self.0 & !1,
+            idx: 1,
+        }
     }
 
     /// PDB storage size: `P(25, k)`. The empty pattern is `1`.
@@ -347,7 +350,11 @@ mod tests {
         assert!(b.is_disjoint(c) && b.is_disjoint(d) && c.is_disjoint(d));
         // Union covers all 24 tiles exactly once.
         let union = a.0 | b.0 | c.0 | d.0;
-        assert_eq!(union, ((1u32 << 25) - 1) & !1, "partition must cover tiles 1..=24");
+        assert_eq!(
+            union,
+            ((1u32 << 25) - 1) & !1,
+            "partition must cover tiles 1..=24"
+        );
     }
 
     #[test]

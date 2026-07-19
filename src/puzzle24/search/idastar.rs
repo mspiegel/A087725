@@ -215,7 +215,9 @@ pub fn idastar_inc_with_stats<E: IncHeuristic>(
     let found = std::sync::atomic::AtomicBool::new(false);
     loop {
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
+        match search_inc(
+            start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats,
+        ) {
             Step::Found => return (Some(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -289,7 +291,20 @@ fn search_inc<E: IncHeuristic>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let (child_h, child_ctx) = e.advance(&ctx, &s_next, m, stats);
         path.push(m);
-        match search_inc(&s_next, next_blank, child_ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, stats) {
+        match search_inc(
+            &s_next,
+            next_blank,
+            child_ctx,
+            child_h,
+            g + 1,
+            bound,
+            deadline,
+            found,
+            path,
+            Some(m),
+            e,
+            stats,
+        ) {
             Step::Found => return Step::Found,
             Step::Aborted => return Step::Aborted,
             Step::Bound(n) => {
@@ -367,7 +382,9 @@ where
         }
         stats.iterations += 1;
         let iter_start = std::time::Instant::now();
-        match search_inc(start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats) {
+        match search_inc(
+            start, blank, ctx0, h0, 0, bound, None, &found, &mut path, None, e, &mut stats,
+        ) {
             Step::Found => return (BoundedOutcome::Solved(path), stats),
             Step::Aborted => unreachable!("no deadline set"),
             Step::Bound(next) => {
@@ -427,7 +444,9 @@ pub fn idastar_inc_ladder<E: IncHeuristic>(
             return (LadderOutcome::ProvedAtLeast(bound), stats);
         }
         stats.iterations += 1;
-        match search_inc(start, blank, ctx0, h0, 0, bound, deadline, &found, &mut path, None, e, &mut stats) {
+        match search_inc(
+            start, blank, ctx0, h0, 0, bound, deadline, &found, &mut path, None, e, &mut stats,
+        ) {
             Step::Found => return (LadderOutcome::Solved(path), stats),
             // `bound` is the deepest threshold reached; the prior iteration
             // proved depth ≥ bound, so that is the lower bound at timeout.
@@ -513,7 +532,13 @@ where
         // ---- split: sequential BFS growing a frontier of subtree roots ----
         let mut frontier: VecDeque<PUnit<E::Ctx>> = VecDeque::new();
         frontier.push_back(PUnit {
-            state: *start, blank: blank0, g: 0, ctx: ctx0, h: h0, last: None, prefix: Vec::new(),
+            state: *start,
+            blank: blank0,
+            g: 0,
+            ctx: ctx0,
+            h: h0,
+            last: None,
+            prefix: Vec::new(),
         });
         let mut min_f_split = u8::MAX;
         let mut found_in_split: Option<Vec<Move>> = None;
@@ -550,7 +575,13 @@ where
                 let mut prefix = u.prefix.clone();
                 prefix.push(m);
                 frontier.push_back(PUnit {
-                    state: s_next, blank: nb, g: u.g + 1, ctx: cctx, h: ch, last: Some(m), prefix,
+                    state: s_next,
+                    blank: nb,
+                    g: u.g + 1,
+                    ctx: cctx,
+                    h: ch,
+                    last: Some(m),
+                    prefix,
                 });
             }
         }
@@ -583,8 +614,20 @@ where
             .map(|u| {
                 let mut st = SearchStats::default();
                 let mut path: Vec<Move> = Vec::new();
-                let step =
-                    search_inc(&u.state, u.blank, u.ctx, u.h, u.g, bound, deadline, &found_flag, &mut path, u.last, e, &mut st);
+                let step = search_inc(
+                    &u.state,
+                    u.blank,
+                    u.ctx,
+                    u.h,
+                    u.g,
+                    bound,
+                    deadline,
+                    &found_flag,
+                    &mut path,
+                    u.last,
+                    e,
+                    &mut st,
+                );
                 let wr = match step {
                     Step::Found => {
                         let mut full = u.prefix.clone();
@@ -700,7 +743,13 @@ where
         }
         let mut frontier: VecDeque<SplitUnit<<E as IncHeuristic>::Ctx, P::St>> = VecDeque::new();
         frontier.push_back(SplitUnit {
-            state: *start, blank: blank0, g: 0, ctx: ctx0, last: None, prefix: Vec::new(), pst: pst0,
+            state: *start,
+            blank: blank0,
+            g: 0,
+            ctx: ctx0,
+            last: None,
+            prefix: Vec::new(),
+            pst: pst0,
         });
         let mut min_f_split = u8::MAX;
         let mut found_in_split: Option<Vec<Move>> = None;
@@ -748,7 +797,12 @@ where
                 let mut prefix = u.prefix.clone();
                 prefix.push(m);
                 frontier.push_back(SplitUnit {
-                    state: s_next, blank: nb, g: u.g + 1, ctx: cctx, last: Some(m), prefix,
+                    state: s_next,
+                    blank: nb,
+                    g: u.g + 1,
+                    ctx: cctx,
+                    last: Some(m),
+                    prefix,
                     pst: pruner.advance(u.pst, m),
                 });
             }
@@ -773,7 +827,14 @@ where
         // Drop the split's Copy contexts; workers re-root their own mutable ones.
         let units: Vec<PUnit<P::St>> = frontier
             .into_iter()
-            .map(|u| PUnit { state: u.state, blank: u.blank, g: u.g, last: u.last, prefix: u.prefix, pst: u.pst })
+            .map(|u| PUnit {
+                state: u.state,
+                blank: u.blank,
+                g: u.g,
+                last: u.last,
+                prefix: u.prefix,
+                pst: u.pst,
+            })
             .collect();
         let found_flag = std::sync::atomic::AtomicBool::new(false);
         let results: Vec<(Wr, SearchStats)> = units
@@ -783,8 +844,21 @@ where
                 let mut path: Vec<Move> = Vec::new();
                 let (h_u, mut ctx) = IncHeuristicMut::root(e, &u.state);
                 let step = search_inc_mut(
-                    &u.state, u.blank, &mut ctx, h_u, u.g, bound, deadline, &found_flag,
-                    &mut path, u.last, e, pruner, u.pst, false, &mut st,
+                    &u.state,
+                    u.blank,
+                    &mut ctx,
+                    h_u,
+                    u.g,
+                    bound,
+                    deadline,
+                    &found_flag,
+                    &mut path,
+                    u.last,
+                    e,
+                    pruner,
+                    u.pst,
+                    false,
+                    &mut st,
                 );
                 let wr = match step {
                     Step::Found => {
@@ -1109,7 +1183,23 @@ fn run_seq_core<E: IncHeuristicMut, P: MovePruner>(
             }
         }
         stats.iterations += 1;
-        match search_inc_mut(start, blank, &mut ctx, h0, 0, bound, deadline, &found, &mut path, None, e, pruner, pst0, orbit_split, &mut stats) {
+        match search_inc_mut(
+            start,
+            blank,
+            &mut ctx,
+            h0,
+            0,
+            bound,
+            deadline,
+            &found,
+            &mut path,
+            None,
+            e,
+            pruner,
+            pst0,
+            orbit_split,
+            &mut stats,
+        ) {
             Step::Found => return (LadderOutcome::Solved(path), stats),
             Step::Aborted => return (LadderOutcome::TimedOut(bound), stats),
             Step::Bound(next) => {
@@ -1206,7 +1296,23 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
         let (s_next, next_blank) = s.apply_at(m, blank);
         let child_h = e.make_bounded(ctx, &s_next, m, bound.saturating_sub(g + 1));
         path.push(m);
-        match search_inc_mut(&s_next, next_blank, ctx, child_h, g + 1, bound, deadline, found, path, Some(m), e, p, p.advance(pst, m), orbit_split, stats) {
+        match search_inc_mut(
+            &s_next,
+            next_blank,
+            ctx,
+            child_h,
+            g + 1,
+            bound,
+            deadline,
+            found,
+            path,
+            Some(m),
+            e,
+            p,
+            p.advance(pst, m),
+            orbit_split,
+            stats,
+        ) {
             // On Found/Aborted the whole search terminates so `ctx` is discarded
             // (no need to unmake); keep the accumulated path.
             Step::Found => return Step::Found,
@@ -1281,7 +1387,11 @@ mod tests {
             let (n_out, _) = Search::new(&s, &IncManhattan).parallel().run();
             match (&p_out, &n_out) {
                 (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
-                    assert_eq!(a.len(), b.len(), "DFA pruning changed optimal length (seed {seed})");
+                    assert_eq!(
+                        a.len(),
+                        b.len(),
+                        "DFA pruning changed optimal length (seed {seed})"
+                    );
                     let mut t = s;
                     for &mv in a {
                         t = t.apply(mv);
@@ -1301,8 +1411,11 @@ mod tests {
             let s = scramble(seed, steps);
             let h0 = IncHeuristicMut::root(&IncManhattan, &s).0;
             let bound = h0 + 6;
-            let (_, p_stats) =
-                Search::new(&s, &IncManhattan).bound(bound).pruner(&dfa).parallel().run();
+            let (_, p_stats) = Search::new(&s, &IncManhattan)
+                .bound(bound)
+                .pruner(&dfa)
+                .parallel()
+                .run();
             let (_, n_stats) = Search::new(&s, &IncManhattan).bound(bound).parallel().run();
             p_total += p_stats.nodes;
             n_total += n_stats.nodes;
@@ -1341,7 +1454,11 @@ mod tests {
         // `ProvedAtLeast(_)` outcome that expands a real tree, so outcomes compare
         // by exact equality (no σ-mirror path ambiguity).
         let (o_off, s_off) = Search::new(&fix, &IncManhattan).bound(10).parallel().run();
-        let (o_on, s_on) = Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).parallel().run();
+        let (o_on, s_on) = Search::new(&fix, &IncManhattan)
+            .bound(10)
+            .orbit_split(true)
+            .parallel()
+            .run();
 
         assert_eq!(o_off, o_on, "orbit-split changed the lower-bound outcome");
         assert!(
@@ -1365,7 +1482,11 @@ mod tests {
         // Sanity: with a bound at/above the depth, both find an optimal-length
         // solution (path may be a σ-mirror, so compare lengths not moves).
         let (sol_off, _) = Search::new(&fix, &IncManhattan).bound(30).parallel().run();
-        let (sol_on, _) = Search::new(&fix, &IncManhattan).bound(30).orbit_split(true).parallel().run();
+        let (sol_on, _) = Search::new(&fix, &IncManhattan)
+            .bound(30)
+            .orbit_split(true)
+            .parallel()
+            .run();
         match (sol_off, sol_on) {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
@@ -1409,9 +1530,15 @@ mod tests {
         // Both engines go through the same `Search` builder, so their outcomes are
         // the same `LadderOutcome` type and compare directly.
         let (seq_off, s_seq_off) = Search::new(&fix, &IncManhattan).bound(10).run();
-        let (seq_on, s_seq_on) = Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).run();
-        let (par_on, s_par_on) =
-            Search::new(&fix, &IncManhattan).bound(10).orbit_split(true).parallel().run();
+        let (seq_on, s_seq_on) = Search::new(&fix, &IncManhattan)
+            .bound(10)
+            .orbit_split(true)
+            .run();
+        let (par_on, s_par_on) = Search::new(&fix, &IncManhattan)
+            .bound(10)
+            .orbit_split(true)
+            .parallel()
+            .run();
 
         // (1) The headline cross-check: sequential orbit-split is node-identical to
         // the parallel orbit-split, with the same outcome.
@@ -1420,29 +1547,40 @@ mod tests {
             "sequential orbit nodes {} != parallel orbit nodes {}",
             s_seq_on.nodes, s_par_on.nodes
         );
-        assert_eq!(seq_on, par_on, "sequential vs parallel orbit outcome differs");
+        assert_eq!(
+            seq_on, par_on,
+            "sequential vs parallel orbit outcome differs"
+        );
         assert!(
             matches!(seq_on, LadderOutcome::ProvedAtLeast(_)),
             "expected path-free ProvedAtLeast, got {seq_on:?}"
         );
         // (2) The split actually reduces work vs the un-split sequential run…
-        assert_eq!(seq_off, seq_on, "orbit-split changed the sequential lower-bound outcome");
+        assert_eq!(
+            seq_off, seq_on,
+            "orbit-split changed the sequential lower-bound outcome"
+        );
         assert!(
             s_seq_on.nodes < s_seq_off.nodes,
             "sequential orbit-split did not reduce nodes ({} vs {})",
-            s_seq_on.nodes, s_seq_off.nodes
+            s_seq_on.nodes,
+            s_seq_off.nodes
         );
         // …by roughly 2× (root + shared work not halved, so allow slack).
         assert!(
             s_seq_on.nodes * 2 >= s_seq_off.nodes.saturating_sub(8),
             "reduction implausibly large ({} on vs {} off)",
-            s_seq_on.nodes, s_seq_off.nodes
+            s_seq_on.nodes,
+            s_seq_off.nodes
         );
 
         // (3) With a bound above the depth, orbit-split still finds an optimal-
         // length solution (path may be a σ-mirror, so compare lengths).
         let (sol_off, _) = Search::new(&fix, &IncManhattan).bound(30).run();
-        let (sol_on, _) = Search::new(&fix, &IncManhattan).bound(30).orbit_split(true).run();
+        let (sol_on, _) = Search::new(&fix, &IncManhattan)
+            .bound(30)
+            .orbit_split(true)
+            .run();
         match (sol_off, sol_on) {
             (LadderOutcome::Solved(a), LadderOutcome::Solved(b)) => {
                 assert_eq!(a.len(), b.len(), "orbit-split changed optimal length");
@@ -1488,13 +1626,21 @@ mod tests {
             let start = scramble(seed, 20);
             // Bound at optimal − 2: strictly path-free (no early exit, so seq/par
             // node counts are comparable) yet ≥ h0 for a real tree.
-            let opt = Search::new(&start, &IncManhattan).solve().expect("solvable").len() as u8;
+            let opt = Search::new(&start, &IncManhattan)
+                .solve()
+                .expect("solvable")
+                .len() as u8;
             let bound = opt.saturating_sub(2);
             // pruner = the move-DFA; orbit off (general boards).
-            let (seq_out, seq_st) =
-                Search::new(&start, &IncManhattan).bound(bound).pruner(&dfa).run();
-            let (par_out, par_st) =
-                Search::new(&start, &IncManhattan).bound(bound).pruner(&dfa).parallel().run();
+            let (seq_out, seq_st) = Search::new(&start, &IncManhattan)
+                .bound(bound)
+                .pruner(&dfa)
+                .run();
+            let (par_out, par_st) = Search::new(&start, &IncManhattan)
+                .bound(bound)
+                .pruner(&dfa)
+                .parallel()
+                .run();
             // Un-pruned sequential baseline (NullPruner) for the same tree.
             let (_, plain_st) = Search::new(&start, &IncManhattan).bound(bound).run();
 
@@ -1504,7 +1650,10 @@ mod tests {
                 seq_st.nodes, par_st.nodes
             );
             // Both go through the builder, so outcomes share the LadderOutcome type.
-            assert_eq!(seq_out, par_out, "seed {seed}: outcome differs seq vs parallel");
+            assert_eq!(
+                seq_out, par_out,
+                "seed {seed}: outcome differs seq vs parallel"
+            );
             assert!(
                 matches!(seq_out, LadderOutcome::ProvedAtLeast(_)),
                 "seed {seed}: expected ProvedAtLeast, got {seq_out:?}"
@@ -1512,7 +1661,8 @@ mod tests {
             assert!(
                 seq_st.nodes <= plain_st.nodes,
                 "seed {seed}: pruned {} did MORE work than un-pruned {}",
-                seq_st.nodes, plain_st.nodes
+                seq_st.nodes,
+                plain_st.nodes
             );
             total_pruned += seq_st.nodes;
             total_plain += plain_st.nodes;
@@ -1600,7 +1750,12 @@ mod tests {
             walk_len += 1;
         }
         let sol = idastar(&s, &ManhattanHeuristic).expect("should solve");
-        assert!((sol.len() as u8) <= walk_len, "len {} > walk {}", sol.len(), walk_len);
+        assert!(
+            (sol.len() as u8) <= walk_len,
+            "len {} > walk {}",
+            sol.len(),
+            walk_len
+        );
         let mut cur = s;
         for m in &sol {
             cur = cur.apply(*m);
@@ -1670,7 +1825,11 @@ mod tests {
         // If max_bound < h(start), the search proves dist >= h(start) without
         // expanding any nodes past the root threshold.
         use super::super::heuristic::IncManhattan;
-        let s = GOAL.apply(Move::Up).apply(Move::Left).apply(Move::Up).apply(Move::Left);
+        let s = GOAL
+            .apply(Move::Up)
+            .apply(Move::Left)
+            .apply(Move::Up)
+            .apply(Move::Left);
         let h0 = ManhattanHeuristic.h(&s);
         assert!(h0 >= 2);
         let (outcome, _) = idastar_inc_bounded_with_stats(&s, &IncManhattan, h0 - 1);
@@ -1734,7 +1893,10 @@ mod tests {
         // the first deadline check and report TimedOut(K) with K ≥ root h (a
         // valid admissible lower bound).
         use super::super::heuristic::IncManhattan;
-        let r = State([0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+        let r = State([
+            0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2,
+            1,
+        ]);
         assert!(r.is_solvable());
         let h0 = ManhattanHeuristic.h(&r);
         let past = std::time::Instant::now() - std::time::Duration::from_millis(1);
@@ -1748,7 +1910,11 @@ mod tests {
     #[test]
     fn bounded_telemetry_fires_once_per_failed_iteration() {
         use super::super::heuristic::IncManhattan;
-        let s = GOAL.apply(Move::Up).apply(Move::Left).apply(Move::Up).apply(Move::Left);
+        let s = GOAL
+            .apply(Move::Up)
+            .apply(Move::Left)
+            .apply(Move::Up)
+            .apply(Move::Left);
         let truth = idastar(&s, &ManhattanHeuristic).unwrap().len() as u8;
         let mut thresholds = Vec::new();
         let (outcome, _) = idastar_inc_bounded_telemetry(&s, &IncManhattan, truth, |t, _, _| {
@@ -1761,7 +1927,10 @@ mod tests {
             assert!(w[0] < w[1], "thresholds not increasing: {thresholds:?}");
         }
         for &t in &thresholds {
-            assert!(t < truth, "telemetry fired at solving threshold {t} (depth {truth})");
+            assert!(
+                t < truth,
+                "telemetry fired at solving threshold {t} (depth {truth})"
+            );
         }
     }
 
@@ -1793,7 +1962,11 @@ mod tests {
             let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, u8::MAX, None);
             match seq {
                 LadderOutcome::Solved(a) => {
-                    assert_eq!(a.len(), par_sol.len(), "parallel vs sequential length mismatch for {raw:?}");
+                    assert_eq!(
+                        a.len(),
+                        par_sol.len(),
+                        "parallel vs sequential length mismatch for {raw:?}"
+                    );
                 }
                 other => panic!("expected sequential Solved, got {other:?}"),
             }
@@ -1813,7 +1986,11 @@ mod tests {
             // max_bound = depth-1: parallel must prove depth >= truth, matching
             // the sequential ladder exactly.
             let (par, _) = idastar_inc_bounded_parallel(&s, &IncManhattan, truth - 1, None);
-            assert_eq!(par, LadderOutcome::ProvedAtLeast(truth), "parallel LB wrong for {raw:?}");
+            assert_eq!(
+                par,
+                LadderOutcome::ProvedAtLeast(truth),
+                "parallel LB wrong for {raw:?}"
+            );
             let (seq, _) = idastar_inc_ladder(&s, &IncManhattan, truth - 1, None);
             assert_eq!(seq, par, "parallel vs sequential LB mismatch for {raw:?}");
         }

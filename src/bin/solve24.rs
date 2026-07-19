@@ -56,7 +56,12 @@ use puzzle8::puzzle24::search::{
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
 const PDB_FILES: [&str; 4] = ["pdb24_a.bin", "pdb24_b.bin", "pdb24_c.bin", "pdb24_d.bin"];
-const ZPDB_FILES_K6: [&str; 4] = ["pdb24_a.zbin", "pdb24_b.zbin", "pdb24_c.zbin", "pdb24_d.zbin"];
+const ZPDB_FILES_K6: [&str; 4] = [
+    "pdb24_a.zbin",
+    "pdb24_b.zbin",
+    "pdb24_c.zbin",
+    "pdb24_d.zbin",
+];
 const ZPDB_FILES_K7: [&str; 4] = [
     "pdb24_k7_a.zbin",
     "pdb24_k7_b.zbin",
@@ -293,7 +298,8 @@ fn parse_position(s: &str) -> Result<State, String> {
         let v = if tok == "_" || tok == "." {
             0
         } else {
-            tok.parse::<u8>().map_err(|e| format!("token {tok:?}: {e}"))?
+            tok.parse::<u8>()
+                .map_err(|e| format!("token {tok:?}: {e}"))?
         };
         if v > 24 {
             return Err(format!("value {v} out of range 0..=24"));
@@ -373,7 +379,10 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     if cur == GOAL {
         println!("Verified       : reaches GOAL");
     } else {
-        println!("WARNING        : solution does NOT reach GOAL — {:?}", cur.0);
+        println!(
+            "WARNING        : solution does NOT reach GOAL — {:?}",
+            cur.0
+        );
     }
 }
 
@@ -414,7 +423,10 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
     println!("Search time    : {search:.2?}");
     let secs = search.as_secs_f64();
     if secs > 0.0 {
-        println!("Throughput     : {:.2} Mnodes/s", st.nodes as f64 / secs / 1e6);
+        println!(
+            "Throughput     : {:.2} Mnodes/s",
+            st.nodes as f64 / secs / 1e6
+        );
     }
 }
 
@@ -437,7 +449,11 @@ where
 {
     // Build the move-pruning DFA (Taylor–Korf duplicate elimination) when
     // requested — sound for lower-bound proofs; build() self-verifies.
-    let dfa = if move_dfa { Some(MoveDfa::build_default()) } else { None };
+    let dfa = if move_dfa {
+        Some(MoveDfa::build_default())
+    } else {
+        None
+    };
     if let Some(dfa) = &dfa {
         eprintln!(
             "move-pruning DFA: {} states, {} KiB (L2-resident)",
@@ -448,7 +464,9 @@ where
     // One declarative search; the (parallel, pruner) runtime flags pick the arm
     // (each is a distinct type-state, all returning the same outcome + stats).
     let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
-        let s = Search::new(start, e).maybe_bound(max_bound).orbit_split(orbit_split);
+        let s = Search::new(start, e)
+            .maybe_bound(max_bound)
+            .orbit_split(orbit_split);
         match (parallel, &dfa) {
             (true, Some(dfa)) => s.pruner(dfa).parallel().run(),
             (true, None) => s.parallel().run(),
@@ -556,21 +574,61 @@ fn main() -> ExitCode {
 
     let t0 = Instant::now();
     match args.heuristic {
-        HeuristicChoice::Manhattan => run_inc(&start, &IncManhattan, args.max_bound, args.parallel, args.move_dfa, orbit, t0),
-        HeuristicChoice::Lc => run_inc(&start, &LinearConflictInc, args.max_bound, args.parallel, args.move_dfa, orbit, t0),
+        HeuristicChoice::Manhattan => run_inc(
+            &start,
+            &IncManhattan,
+            args.max_bound,
+            args.parallel,
+            args.move_dfa,
+            orbit,
+            t0,
+        ),
+        HeuristicChoice::Lc => run_inc(
+            &start,
+            &LinearConflictInc,
+            args.max_bound,
+            args.parallel,
+            args.move_dfa,
+            orbit,
+            t0,
+        ),
         HeuristicChoice::Wd => {
             WalkingDistanceHeuristic::warm_up_verbose();
-            run_inc(&start, &WalkingDistanceInc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &WalkingDistanceInc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::Cwd => {
             eprintln!("cWD: loading tables…");
             let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
             eprintln!(
                 "cWD ready: {} path{}",
-                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" },
-                if args.cwd_neighbor_prune { ", neighbor-prune ON" } else { "" }
+                if cwd.has_overlay() {
+                    "fast single-line-max table"
+                } else {
+                    "reference per-node A*"
+                },
+                if args.cwd_neighbor_prune {
+                    ", neighbor-prune ON"
+                } else {
+                    ""
+                }
             );
-            run_inc(&start, &cwd, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &cwd,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {
@@ -585,7 +643,15 @@ fn main() -> ExitCode {
                 }
             };
             let inc = KorfPdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::Zpdb => {
             let dir = match require_dir(&args, "zpdb") {
@@ -600,7 +666,15 @@ fn main() -> ExitCode {
                 }
             };
             let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::ZpdbPlus => {
             let dir = match require_dir(&args, "zpdb-plus") {
@@ -617,7 +691,15 @@ fn main() -> ExitCode {
             // Walking Distance needs its (heavy) table built before the search.
             WalkingDistanceHeuristic::warm_up_verbose();
             let inc = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::CwdZpdb => {
             let dir = match require_dir(&args, "cwd-zpdb") {
@@ -635,12 +717,28 @@ fn main() -> ExitCode {
             let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
             eprintln!(
                 "cWD+zpdb ready: cWD {} path{} maxed per-node with zpdb (neighbor-prune forwarded)",
-                if cwd.has_overlay() { "fast single-line-max table" } else { "reference per-node A*" },
-                if args.cwd_neighbor_prune { ", neighbor-prune ON" } else { "" },
+                if cwd.has_overlay() {
+                    "fast single-line-max table"
+                } else {
+                    "reference per-node A*"
+                },
+                if args.cwd_neighbor_prune {
+                    ", neighbor-prune ON"
+                } else {
+                    ""
+                },
             );
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let inc = MaxInc::new(cwd, zpdb);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::CwdZpdbLazy => {
             let dir = match require_dir(&args, "cwd-zpdb-lazy") {
@@ -658,11 +756,23 @@ fn main() -> ExitCode {
             let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
             eprintln!(
                 "cWD+zpdb (lazy) ready: zpdb advanced only on children cWD fails to prune{}",
-                if args.cwd_neighbor_prune { "; neighbor-prune ON" } else { "" },
+                if args.cwd_neighbor_prune {
+                    "; neighbor-prune ON"
+                } else {
+                    ""
+                },
             );
             let zpdb = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
             let inc = LazyMaxInc::new(cwd, zpdb);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::CwdZpdb8Lazy => {
             let dir = match require_dir(&args, "cwd-zpdb8-lazy") {
@@ -688,13 +798,25 @@ fn main() -> ExitCode {
             eprintln!(
                 "cWD+k6+k8 (lazy cascade) ready: k6 advanced only where cWD fails to prune, \
                  k8 (30.5 GiB) only where max(cWD,k6) fails{}",
-                if args.cwd_neighbor_prune { "; neighbor-prune ON" } else { "" },
+                if args.cwd_neighbor_prune {
+                    "; neighbor-prune ON"
+                } else {
+                    ""
+                },
             );
             let z6 = ZpdbInc::new([&k6[0], &k6[1], &k6[2], &k6[3]]);
             let z8 = ZpdbInc::new([&k8[0], &k8[1], &k8[2]]);
             // Nested lazy: cWD (cheap, every node) → k6 (mid) → k8 (finest).
             let inc = LazyMaxInc::new(LazyMaxInc::new(cwd, z6), z8);
-            run_inc(&start, &inc, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
         }
         HeuristicChoice::Select => {
             let dir = match require_dir(&args, "select") {
@@ -719,17 +841,43 @@ fn main() -> ExitCode {
             let zpdb_root = IncHeuristic::root(&zpdb, &start, &mut st).0;
             match pick_heuristic(cheap_root, zpdb_root, args.combine_slack) {
                 Pick::Cheap => {
-                    println!("Selected       : max(LC,WD)  (cheap_h {cheap_root} >= zpdb_h {zpdb_root})");
-                    run_inc(&start, &cheap, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+                    println!(
+                        "Selected       : max(LC,WD)  (cheap_h {cheap_root} >= zpdb_h {zpdb_root})"
+                    );
+                    run_inc(
+                        &start,
+                        &cheap,
+                        args.max_bound,
+                        args.parallel,
+                        args.move_dfa,
+                        orbit,
+                        t0,
+                    )
                 }
                 Pick::Zpdb => {
                     println!("Selected       : zpdb  (zpdb_h {zpdb_root} > cheap_h {cheap_root})");
-                    run_inc(&start, &zpdb, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+                    run_inc(
+                        &start,
+                        &zpdb,
+                        args.max_bound,
+                        args.parallel,
+                        args.move_dfa,
+                        orbit,
+                        t0,
+                    )
                 }
                 Pick::ZpdbPlus => {
                     println!("Selected       : zpdb-plus  (classical terms within slack of zpdb_h {zpdb_root})");
                     let zplus = ZpdbPlusInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-                    run_inc(&start, &zplus, args.max_bound, args.parallel, args.move_dfa, orbit, t0)
+                    run_inc(
+                        &start,
+                        &zplus,
+                        args.max_bound,
+                        args.parallel,
+                        args.move_dfa,
+                        orbit,
+                        t0,
+                    )
                 }
             }
         }

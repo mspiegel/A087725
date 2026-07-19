@@ -141,14 +141,41 @@ fn main() {
     // Candidate partitions (our convention; tiles 1..=24, blank goal cell 24).
     let mut partitions: Vec<(String, [[u8; 6]; 4])> = vec![
         // Canonical Korf 6-6-6-6 (our existing built set).
-        ("korf".into(), [[1, 2, 3, 6, 7, 8], [4, 5, 9, 10, 14, 15], [11, 12, 16, 17, 21, 22], [13, 18, 19, 20, 23, 24]]),
+        (
+            "korf".into(),
+            [
+                [1, 2, 3, 6, 7, 8],
+                [4, 5, 9, 10, 14, 15],
+                [11, 12, 16, 17, 21, 22],
+                [13, 18, 19, 20, 23, 24],
+            ],
+        ),
         // Value-contiguous strata.
-        ("strata".into(), [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], [13, 14, 15, 16, 17, 18], [19, 20, 21, 22, 23, 24]]),
+        (
+            "strata".into(),
+            [
+                [1, 2, 3, 4, 5, 6],
+                [7, 8, 9, 10, 11, 12],
+                [13, 14, 15, 16, 17, 18],
+                [19, 20, 21, 22, 23, 24],
+            ],
+        ),
         // Alternate spatial blocks (left 2 cols / next block / middle row / bottom).
-        ("spatial".into(), [[1, 2, 6, 7, 11, 12], [3, 4, 5, 8, 9, 10], [13, 14, 15, 16, 17, 18], [19, 20, 21, 22, 23, 24]]),
+        (
+            "spatial".into(),
+            [
+                [1, 2, 6, 7, 11, 12],
+                [3, 4, 5, 8, 9, 10],
+                [13, 14, 15, 16, 17, 18],
+                [19, 20, 21, 22, 23, 24],
+            ],
+        ),
     ];
     for seed in 0..5u64 {
-        partitions.push((format!("rnd{seed}"), random_partition(0x9E3779B97F4A7C15u64.wrapping_mul(seed + 1))));
+        partitions.push((
+            format!("rnd{seed}"),
+            random_partition(0x9E3779B97F4A7C15u64.wrapping_mul(seed + 1)),
+        ));
     }
 
     // h[partition][board].
@@ -160,16 +187,30 @@ fn main() {
         let t = Instant::now();
         let dbs = build_partition(p);
         let row: Vec<u8> = boards.iter().map(|(_, s)| zpdb_root_h(&dbs, s)).collect();
-        eprintln!("  built+scored partition {:<8} in {:?}: {:?}", name, t.elapsed(), row);
+        eprintln!(
+            "  built+scored partition {:<8} in {:?}: {:?}",
+            name,
+            t.elapsed(),
+            row
+        );
         names.push(name.clone());
         hmat.push(row);
         // dbs dropped here (frees ~88 MiB before the next partition).
     }
 
     // Reference heuristics per board.
-    let md: Vec<u8> = boards.iter().map(|(_, s)| ManhattanHeuristic.h(s)).collect();
-    let lc: Vec<u8> = boards.iter().map(|(_, s)| LinearConflictHeuristic.h(s)).collect();
-    let wd: Vec<u8> = boards.iter().map(|(_, s)| WalkingDistanceHeuristic.h(s)).collect();
+    let md: Vec<u8> = boards
+        .iter()
+        .map(|(_, s)| ManhattanHeuristic.h(s))
+        .collect();
+    let lc: Vec<u8> = boards
+        .iter()
+        .map(|(_, s)| LinearConflictHeuristic.h(s))
+        .collect();
+    let wd: Vec<u8> = boards
+        .iter()
+        .map(|(_, s)| WalkingDistanceHeuristic.h(s))
+        .collect();
 
     // Sanity: WD on R reproduces the documented 140.
     assert_eq!(wd[0], 140, "WD(R) expected 140, got {}", wd[0]);
@@ -191,10 +232,20 @@ fn main() {
                 besti = pi;
             }
         }
-        let per: Vec<String> = names.iter().zip(&hmat).map(|(n, row)| format!("{}={}", n, row[b])).collect();
+        let per: Vec<String> = names
+            .iter()
+            .zip(&hmat)
+            .map(|(n, row)| format!("{}={}", n, row[b]))
+            .collect();
         println!(
             "{:<12} {:>4} {:>4} {:>4} | {:>8} {:<10} | {}",
-            boards[b].0, md[b], lc[b], wd[b], bestv, names[besti], per.join(" ")
+            boards[b].0,
+            md[b],
+            lc[b],
+            wd[b],
+            bestv,
+            names[besti],
+            per.join(" ")
         );
         if boards[b].0 == "R" {
             r_zpdb_max = bestv;

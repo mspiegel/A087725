@@ -49,7 +49,12 @@ struct Hist {
 
 impl Hist {
     fn new() -> Self {
-        Hist { delta: [0; 9], max_delta: [0; 9], nodes: 0, children: 0 }
+        Hist {
+            delta: [0; 9],
+            max_delta: [0; 9],
+            nodes: 0,
+            children: 0,
+        }
     }
 }
 
@@ -109,7 +114,19 @@ fn dfs_hist(
     }
     for (m, child, hc) in kids {
         if g + 1 + hc as u16 <= thr {
-            dfs_hist(cwd, scratch, &child, hc, g + 1, thr, Some(m.inverse()), rng, cap, expansions, hist);
+            dfs_hist(
+                cwd,
+                scratch,
+                &child,
+                hc,
+                g + 1,
+                thr,
+                Some(m.inverse()),
+                rng,
+                cap,
+                expansions,
+                hist,
+            );
             if *expansions >= cap {
                 return;
             }
@@ -162,7 +179,16 @@ fn dfs_ab(
             return;
         }
         if g + 1 + hc as u16 <= thr {
-            dfs_ab(cwd, scratch, &child, g + 1, thr, Some(m.inverse()), bpmx, stats);
+            dfs_ab(
+                cwd,
+                scratch,
+                &child,
+                g + 1,
+                thr,
+                Some(m.inverse()),
+                bpmx,
+                stats,
+            );
         }
     }
 }
@@ -172,15 +198,24 @@ fn main() {
     // NB: must be ≥ cWD(R) = 144 or the root itself is cut and the A/B is vacuous.
     let thr_ab: u16 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(144);
     let thr_hist: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(144);
-    let hist_cap: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(3_000_000);
+    let hist_cap: u64 = args
+        .get(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3_000_000);
 
     let t0 = Instant::now();
     let cwd = Cwd::new();
-    assert!(cwd.has_overlay(), "data/cwd_single.bin missing — production single-line-max path required");
+    assert!(
+        cwd.has_overlay(),
+        "data/cwd_single.bin missing — production single-line-max path required"
+    );
     let mut scratch = CwdScratch::new();
     let r = r_board();
     let h_r = cwd.eval(&r, &mut scratch);
-    eprintln!("tables loaded in {:.1}s; cWD(R) = {h_r} (expect 144)", t0.elapsed().as_secs_f64());
+    eprintln!(
+        "tables loaded in {:.1}s; cWD(R) = {h_r} (expect 144)",
+        t0.elapsed().as_secs_f64()
+    );
     assert_eq!(h_r, 144);
 
     // ---- mode 1: jump histogram ----
@@ -188,8 +223,25 @@ fn main() {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut exp = 0u64;
     let t1 = Instant::now();
-    dfs_hist(&cwd, &mut scratch, &r, h_r, 0, thr_hist, None, &mut rng, hist_cap, &mut exp, &mut hist);
-    eprintln!("hist DFS: {} expansions at thr {} in {:.1}s", exp, thr_hist, t1.elapsed().as_secs_f64());
+    dfs_hist(
+        &cwd,
+        &mut scratch,
+        &r,
+        h_r,
+        0,
+        thr_hist,
+        None,
+        &mut rng,
+        hist_cap,
+        &mut exp,
+        &mut hist,
+    );
+    eprintln!(
+        "hist DFS: {} expansions at thr {} in {:.1}s",
+        exp,
+        thr_hist,
+        t1.elapsed().as_secs_f64()
+    );
     println!("=== Δ = h(child) − h(parent), cWD single-line-max, R tree @thr {thr_hist} ===");
     println!("children evaluated: {}", hist.children);
     let labels = ["≤-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "≥+4"];
@@ -206,7 +258,11 @@ fn main() {
     println!(
         "inconsistency rate (Δ ≥ +2): {:.4}% of children — {}",
         incon as f64 / hist.children.max(1) as f64 * 100.0,
-        if incon == 0 { "cWD looks CONSISTENT here; pathmax is dead" } else { "cWD is INCONSISTENT; pathmax can fire" }
+        if incon == 0 {
+            "cWD looks CONSISTENT here; pathmax is dead"
+        } else {
+            "cWD is INCONSISTENT; pathmax can fire"
+        }
     );
 
     // ---- mode 2: A/B exhaust ----
@@ -219,7 +275,9 @@ fn main() {
             stats.0, stats.1, stats.2, stats.3, t.elapsed().as_secs_f64()
         );
         if bpmx {
-            println!("(compare `generated` across the two runs — that is the probe-count the cut saves)");
+            println!(
+                "(compare `generated` across the two runs — that is the probe-count the cut saves)"
+            );
         }
     }
     println!("\ntotal {:.1}s", t0.elapsed().as_secs_f64());

@@ -39,25 +39,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let b = cache::load(&b_path)?;
     println!("  {} entries", b.len());
 
-    let a_at_d: HashSet<u64> = a.iter()
+    let a_at_d: HashSet<u64> = a
+        .iter()
         .filter(|(_, &d)| d == depth)
         .map(|(&r, _)| r)
         .collect();
-    let b_at_d: HashSet<u64> = b.iter()
+    let b_at_d: HashSet<u64> = b
+        .iter()
         .filter(|(_, &d)| d == depth)
         .map(|(&r, _)| r)
         .collect();
-    println!("A has {} d={} entries; B has {} d={} entries",
-             a_at_d.len(), depth, b_at_d.len(), depth);
+    println!(
+        "A has {} d={} entries; B has {} d={} entries",
+        a_at_d.len(),
+        depth,
+        b_at_d.len(),
+        depth
+    );
 
     // Boards in A at d but NOT in B at d (or not in B at all — we'd want to
     // know if B has them at a different depth too).
-    let diff_a_only: Vec<u64> = a_at_d.iter()
+    let diff_a_only: Vec<u64> = a_at_d
+        .iter()
         .filter(|r| !b_at_d.contains(r))
         .copied()
         .collect();
-    println!("\nRanks in A at d={} but not in B at d={}: {}",
-             depth, depth, diff_a_only.len());
+    println!(
+        "\nRanks in A at d={} but not in B at d={}: {}",
+        depth,
+        depth,
+        diff_a_only.len()
+    );
 
     // Set up heuristic for per-board analysis.
     let p7 = ZPatternDb::load_mmap(&PathBuf::from("data/zpdb15_p7.zbin"))?;
@@ -83,16 +95,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let nd = a.get(&nr).copied();
             nb_at.push((nr, nd));
             if let Some(nd) = nd {
-                if nd == depth + 1 { above += 1; }
-                else if depth > 0 && nd == depth - 1 { below += 1; }
+                if nd == depth + 1 {
+                    above += 1;
+                } else if depth > 0 && nd == depth - 1 {
+                    below += 1;
+                }
             }
         }
 
         println!("\n=== Residue board #{} ===", i + 1);
         println!("rank: {r}");
-        println!("blank cell: {} (row {}, col {}, degree {})",
-                 blank, blank / 4, blank % 4, degree);
-        println!("h(s) = {}  (slack = {} - {} = {})", hv, depth, hv, depth as i32 - hv as i32);
+        println!(
+            "blank cell: {} (row {}, col {}, degree {})",
+            blank,
+            blank / 4,
+            blank % 4,
+            degree
+        );
+        println!(
+            "h(s) = {}  (slack = {} - {} = {})",
+            hv,
+            depth,
+            hv,
+            depth as i32 - hv as i32
+        );
         println!("above-degree (neighbors at d={}): {}", depth + 1, above);
         println!("below-degree (neighbors at d={}): {}", depth - 1, below);
         println!("tile grid:");
@@ -100,7 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print!("  ");
             for col in 0..4 {
                 let t = s.0[row * 4 + col];
-                if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+                if t == 0 {
+                    print!(" __");
+                } else {
+                    print!(" {t:>2}");
+                }
             }
             println!();
         }

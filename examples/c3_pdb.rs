@@ -30,7 +30,10 @@ struct CountingHeuristic<'a, H: Heuristic> {
 
 impl<'a, H: Heuristic> CountingHeuristic<'a, H> {
     fn new(inner: &'a H) -> Self {
-        Self { inner, count: Cell::new(0) }
+        Self {
+            inner,
+            count: Cell::new(0),
+        }
     }
     fn count(&self) -> u64 {
         self.count.get()
@@ -120,11 +123,18 @@ fn benchmark<H: Heuristic>(
 fn main() {
     eprintln!("building reference distance table...");
     let table = DistanceTable::build();
-    eprintln!("done: {} states, diameter {}.\n", table.visited_count(), table.diameter());
+    eprintln!(
+        "done: {} states, diameter {}.\n",
+        table.visited_count(),
+        table.diameter()
+    );
 
     let samples = sample_states(100);
     println!("== Direction #3: PDB compression study ==");
-    println!("8-puzzle, single-threaded IDA\\*. Sample of {} states.\n", samples.len());
+    println!(
+        "8-puzzle, single-threaded IDA\\*. Sample of {} states.\n",
+        samples.len()
+    );
 
     let mut reports: Vec<Report> = Vec::new();
 
@@ -174,11 +184,17 @@ fn main() {
         &[&[1, 2, 3], &[4, 5], &[6, 7, 8]],
     ];
     for parts in partitions {
-        let dbs: Vec<PatternDb> =
-            parts.iter().map(|tiles| PatternDb::build(Pattern::new(tiles))).collect();
+        let dbs: Vec<PatternDb> = parts
+            .iter()
+            .map(|tiles| PatternDb::build(Pattern::new(tiles)))
+            .collect();
         let label = format!(
             "Additive[{}]",
-            parts.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" | ")
+            parts
+                .iter()
+                .map(|t| format!("{t:?}"))
+                .collect::<Vec<_>>()
+                .join(" | ")
         );
         let h = AdditivePdbHeuristic::new(&dbs);
         let bytes = h.bytes_stored();
@@ -196,7 +212,10 @@ fn main() {
     let baseline_bytes = puzzle8::puzzle8::io::FILE_SIZE;
     for r in &reports {
         if r.max_error_plies != 0 {
-            println!("  {:<32}  NOT OPTIMAL (max_err = {})", r.name, r.max_error_plies);
+            println!(
+                "  {:<32}  NOT OPTIMAL (max_err = {})",
+                r.name, r.max_error_plies
+            );
             continue;
         }
         let ratio = if r.bytes_stored == 0 {

@@ -180,7 +180,11 @@ mod tests {
         for (i, &d) in dist.iter().enumerate() {
             let want = ((d >> 1) & 1) << 1;
             assert_eq!(recovered[i], want, "round-trip differs at i={i} (d={d})");
-            assert_eq!(lookup_bit(&packed, i as u64), want, "lookup_bit differs at i={i}");
+            assert_eq!(
+                lookup_bit(&packed, i as u64),
+                want,
+                "lookup_bit differs at i={i}"
+            );
         }
     }
 
@@ -216,7 +220,8 @@ mod tests {
             let packed = pack_bits(&[next_h]);
             let got = diff_lookup(&packed, 0, old_h);
             assert_eq!(
-                got, next_h,
+                got,
+                next_h,
                 "diff_lookup({}→?, bit={}) = {} (wanted {})",
                 old_h,
                 (next_h >> 1) & 1,
@@ -313,9 +318,8 @@ mod tests {
         for (idx, _) in dist.iter().enumerate() {
             let idx = idx as u64;
             let (s, p, r) = unrank_into_cohort(&layout, idx);
-            let recomposed = layout.cohort_base()[s]
-                + p * layout.region_counts()[s] as u64
-                + r as u64;
+            let recomposed =
+                layout.cohort_base()[s] + p * layout.region_counts()[s] as u64 + r as u64;
             assert_eq!(recomposed, idx, "unrank/rank not inverse at idx={idx}");
         }
     }

@@ -35,29 +35,37 @@ use puzzle8::puzzle15::enumerate::cache;
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
 use puzzle8::puzzle15::search::{
-    idastar_inc_with_stats, IncHeuristic, LinearConflictInc, SearchStats,
-    WalkingDistanceHeuristic,
+    idastar_inc_with_stats, IncHeuristic, LinearConflictInc, SearchStats, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle15::state::State;
 
 const DEFAULT_REFERENCE: [u8; 16] = [0, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let max_k: usize = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
-    let min_h: u8 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(60);
+    let max_k: usize = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let min_h: u8 = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(60);
     let cache_path: PathBuf = std::env::args()
         .nth(3)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
-    let reference_rank: Option<u64> = std::env::args()
-        .nth(4)
-        .and_then(|s| s.parse().ok());
+    let reference_rank: Option<u64> = std::env::args().nth(4).and_then(|s| s.parse().ok());
     let reference: [u8; 16] = match reference_rank {
         Some(r) => unrank(r).0,
         None => DEFAULT_REFERENCE,
     };
 
-    println!("config: K={}, min_h={}, cache={}", max_k, min_h, cache_path.display());
+    println!(
+        "config: K={}, min_h={}, cache={}",
+        max_k,
+        min_h,
+        cache_path.display()
+    );
     match reference_rank {
         Some(r) => println!("reference (rank {r}):"),
         None => println!("reference (default: singleton #17, perfect reverse, h=70):"),
@@ -66,7 +74,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("  ");
         for col in 0..4 {
             let t = reference[row * 4 + col];
-            if t == 0 { print!(" __"); } else { print!(" {t:>2}"); }
+            if t == 0 {
+                print!(" __");
+            } else {
+                print!(" {t:>2}");
+            }
         }
         println!();
     }
@@ -86,7 +98,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // and apply it to REFERENCE.
     let t_gen = Instant::now();
     let raw_states: Vec<[u8; 16]> = enumerate_neighborhood(max_k, &reference);
-    println!("\nenumerated {} raw states in {:.1?}", raw_states.len(), t_gen.elapsed());
+    println!(
+        "\nenumerated {} raw states in {:.1?}",
+        raw_states.len(),
+        t_gen.elapsed()
+    );
 
     let t_filter = Instant::now();
     // Parallel solvability + h filter + cache-miss filter.
@@ -94,17 +110,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .par_iter()
         .filter_map(|&arr| {
             let s = State(arr);
-            if !s.is_solvable() { return None; }
+            if !s.is_solvable() {
+                return None;
+            }
             let mut stats = SearchStats::default();
             let (hv, _) = h.root(&s, &mut stats);
-            if hv < min_h { return None; }
+            if hv < min_h {
+                return None;
+            }
             let r = rank(&s);
-            if cache.contains_key(&r) { return None; }
+            if cache.contains_key(&r) {
+                return None;
+            }
             Some(r)
         })
         .collect();
-    println!("filter (solvable + h>={} + cache-miss): {} candidates in {:.1?}",
-             min_h, candidates.len(), t_filter.elapsed());
+    println!(
+        "filter (solvable + h>={} + cache-miss): {} candidates in {:.1?}",
+        min_h,
+        candidates.len(),
+        t_filter.elapsed()
+    );
 
     if candidates.is_empty() {
         println!("\nNo candidates to verify.");
@@ -120,13 +146,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (r, sol.map(|v| v.len() as u8).unwrap_or(u8::MAX))
         })
         .collect();
-    println!("verified {} cands in {:.1?} ({:.1}/s)",
-             results.len(), t_verify.elapsed(),
-             results.len() as f64 / t_verify.elapsed().as_secs_f64());
+    println!(
+        "verified {} cands in {:.1?} ({:.1}/s)",
+        results.len(),
+        t_verify.elapsed(),
+        results.len() as f64 / t_verify.elapsed().as_secs_f64()
+    );
 
     // Histogram.
     let mut hist: BTreeMap<u8, u32> = BTreeMap::new();
-    for &(_, d) in &results { *hist.entry(d).or_insert(0) += 1; }
+    for &(_, d) in &results {
+        *hist.entry(d).or_insert(0) += 1;
+    }
     println!("\nverified depth histogram:");
     for (d, c) in &hist {
         let mark = if *d >= 76 { " ***" } else { "" };
@@ -134,18 +165,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for target_d in (76..=80).rev() {
-        let finds: Vec<u64> = results.iter()
+        let finds: Vec<u64> = results
+            .iter()
             .filter(|&&(_, d)| d == target_d)
             .map(|&(r, _)| r)
             .collect();
-        if finds.is_empty() { continue; }
+        if finds.is_empty() {
+            continue;
+        }
         println!("\n=== NEW d={} BOARDS: {} ===", target_d, finds.len());
         for (i, &r) in finds.iter().enumerate() {
             let s = unrank(r);
-            print!("  #{:>3} rank {:>14} blank@{:>2}: ", i + 1, r, s.blank_pos());
+            print!(
+                "  #{:>3} rank {:>14} blank@{:>2}: ",
+                i + 1,
+                r,
+                s.blank_pos()
+            );
             for (j, &t) in s.0.iter().enumerate() {
-                if t == 0 { print!("__"); } else { print!("{t:>2}"); }
-                if j % 4 == 3 { print!("  "); } else { print!(","); }
+                if t == 0 {
+                    print!("__");
+                } else {
+                    print!("{t:>2}");
+                }
+                if j % 4 == 3 {
+                    print!("  ");
+                } else {
+                    print!(",");
+                }
             }
             println!();
         }
@@ -175,9 +222,13 @@ fn enumerate_neighborhood(max_k: usize, reference: &[u8; 16]) -> Vec<[u8; 16]> {
                     }
                     out.push(arr);
                 }
-                if !next_permutation(&mut perm) { break; }
+                if !next_permutation(&mut perm) {
+                    break;
+                }
             }
-            if !next_combination(&mut combo, 16) { break; }
+            if !next_combination(&mut combo, 16) {
+                break;
+            }
         }
     }
     out
@@ -191,12 +242,20 @@ fn is_derangement(p: &[usize]) -> bool {
 /// last permutation (descending).
 fn next_permutation(arr: &mut [usize]) -> bool {
     let n = arr.len();
-    if n < 2 { return false; }
+    if n < 2 {
+        return false;
+    }
     let mut i = n - 1;
-    while i > 0 && arr[i - 1] >= arr[i] { i -= 1; }
-    if i == 0 { return false; }
+    while i > 0 && arr[i - 1] >= arr[i] {
+        i -= 1;
+    }
+    if i == 0 {
+        return false;
+    }
     let mut j = n - 1;
-    while arr[j] <= arr[i - 1] { j -= 1; }
+    while arr[j] <= arr[i - 1] {
+        j -= 1;
+    }
     arr.swap(i - 1, j);
     arr[i..].reverse();
     true
@@ -206,19 +265,27 @@ fn next_permutation(arr: &mut [usize]) -> bool {
 /// false when at the last combination.
 fn next_combination(combo: &mut [usize], n: usize) -> bool {
     let k = combo.len();
-    if k == 0 { return false; }
+    if k == 0 {
+        return false;
+    }
     let mut i = k - 1;
     loop {
         if combo[i] < n - k + i {
             combo[i] += 1;
-            for j in i + 1..k { combo[j] = combo[j - 1] + 1; }
+            for j in i + 1..k {
+                combo[j] = combo[j - 1] + 1;
+            }
             return true;
         }
-        if i == 0 { return false; }
+        if i == 0 {
+            return false;
+        }
         i -= 1;
     }
 }
 
 // Quiet `unused`.
 #[allow(dead_code)]
-fn _unused() -> Option<(HashMap<u64, u8>, HashSet<u64>)> { None }
+fn _unused() -> Option<(HashMap<u64, u8>, HashSet<u64>)> {
+    None
+}

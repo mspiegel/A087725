@@ -9,20 +9,26 @@ use puzzle8::puzzle15::enumerate::cache;
 use puzzle8::puzzle15::rank::unrank;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let depth: u8 = std::env::args().nth(1)
+    let depth: u8 = std::env::args()
+        .nth(1)
         .ok_or("usage: dump_grids DEPTH [CACHE]")?
         .parse()?;
-    let cache_path: PathBuf = std::env::args().nth(2)
+    let cache_path: PathBuf = std::env::args()
+        .nth(2)
         .unwrap_or_else(|| "data/enum15/solve_cache.bin".into())
         .into();
 
     let c = cache::load(&cache_path)?;
     let mut out = String::new();
     for (&r, &d) in &c {
-        if d != depth { continue; }
+        if d != depth {
+            continue;
+        }
         let s = unrank(r);
         for (i, &v) in s.0.iter().enumerate() {
-            if i > 0 { out.push(' '); }
+            if i > 0 {
+                out.push(' ');
+            }
             out.push_str(&v.to_string());
         }
         out.push('\n');

@@ -44,7 +44,9 @@ fn ramped_k(c: &Curriculum, round: u32, rounds: u32) -> u32 {
         return c.k_end.max(1);
     }
     let f = round as f64 / (rounds - 1) as f64;
-    (c.k_start as f64 + (c.k_end as f64 - c.k_start as f64) * f).round().max(1.0) as u32
+    (c.k_start as f64 + (c.k_end as f64 - c.k_start as f64) * f)
+        .round()
+        .max(1.0) as u32
 }
 
 pub struct AlternationConfig {
@@ -118,7 +120,11 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 eprintln!(
                     "resumed solver from {}{}",
                     cfg.checkpoint_dir.display(),
-                    if loaded_gen { " + generator" } else { " (generator fresh)" }
+                    if loaded_gen {
+                        " + generator"
+                    } else {
+                        " (generator fresh)"
+                    }
                 );
             }
         } else if cfg.verbose {
@@ -216,7 +222,11 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             for _ in 0..n_gen {
                 let idx = rng.gen_range(0, (gen_pool.len() - 1) as u32) as usize;
                 batch.push(gen_pool[idx]);
-                supervised.push(if supervise { Some(gen_depths[idx] as f32) } else { None });
+                supervised.push(if supervise {
+                    Some(gen_depths[idx] as f32)
+                } else {
+                    None
+                });
             }
             for _ in 0..n_corr {
                 let idx = rng.gen_range(0, (corridor_pool.len() - 1) as u32) as usize;
@@ -235,7 +245,12 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
             };
             if cfg.verbose && (i + 1) % win_every == 0 {
                 let ms = win.elapsed().as_secs_f64() * 1000.0 / win_every as f64;
-                eprintln!("    [solver {}/{}] {:.0} ms/step", i + 1, cfg.solver_steps_per_round, ms);
+                eprintln!(
+                    "    [solver {}/{}] {:.0} ms/step",
+                    i + 1,
+                    cfg.solver_steps_per_round,
+                    ms
+                );
                 win = std::time::Instant::now();
             }
         }
@@ -244,8 +259,10 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
         // ---- Generator phase (solver frozen: value_of is read-only) ----
         let mut reward_sum = 0.0f32;
         for _ in 0..cfg.generator_steps_per_round {
-            let r = generator
-                .train_round(|s| davi.value_of(s).expect("solver value_of failed"), &mut rng)?;
+            let r = generator.train_round(
+                |s| davi.value_of(s).expect("solver value_of failed"),
+                &mut rng,
+            )?;
             reward_sum += r;
         }
         let gen_reward = reward_sum / cfg.generator_steps_per_round.max(1) as f32;
@@ -283,7 +300,8 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                 generator.reward_baseline(),
             );
             let opt = |v: Option<f32>| v.map(|x| format!("{x:.2}")).unwrap_or_else(|| "-".into());
-            let optsign = |v: Option<f32>| v.map(|x| format!("{x:+.2}")).unwrap_or_else(|| "-".into());
+            let optsign =
+                |v: Option<f32>| v.map(|x| format!("{x:+.2}")).unwrap_or_else(|| "-".into());
             let (header, line) = match &cfg.eval {
                 EvalSpec::MidDepth(ec) => {
                     let r = eval::run(|s| davi.value_of(s).expect("solver value_of failed"), ec);
@@ -301,7 +319,8 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                     (MID_METRICS_HEADER, line)
                 }
                 EvalSpec::Deep(dc) => {
-                    let r = eval::run_deep(|s| davi.value_of(s).expect("solver value_of failed"), dc);
+                    let r =
+                        eval::run_deep(|s| davi.value_of(s).expect("solver value_of failed"), dc);
                     if cfg.verbose {
                         r.print();
                     }
@@ -309,7 +328,10 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                         .r_line
                         .as_ref()
                         .map(|rr| {
-                            let l = rr.learned.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
+                            let l = rr
+                                .learned
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "x".into());
                             let b = rr.beam.map(|v| v.to_string()).unwrap_or_else(|| "x".into());
                             format!("{l}/{b}")
                         })
@@ -328,7 +350,12 @@ pub fn run(cfg: &AlternationConfig, device: Device) -> Result<()> {
                     (DEEP_METRICS_HEADER, line)
                 }
             };
-            checkpoint::save(&cfg.checkpoint_dir, round, davi.online_varmap(), generator.varmap())?;
+            checkpoint::save(
+                &cfg.checkpoint_dir,
+                round,
+                davi.online_varmap(),
+                generator.varmap(),
+            )?;
             checkpoint::append_metrics(&cfg.checkpoint_dir, header, &line)?;
         }
     }
@@ -348,21 +375,36 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ml24_alt_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
-        let small_bwas = BwasConfig { weight: 2.0, batch_size: 16, node_budget: 20_000 };
+        let small_bwas = BwasConfig {
+            weight: 2.0,
+            batch_size: 16,
+            node_budget: 20_000,
+        };
         let cfg = AlternationConfig {
             rounds: 2,
             solver_steps_per_round: 5,
             generator_steps_per_round: 5,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10, residual: false },
+            davi: DaviConfig {
+                k_max: 8,
+                hidden: 32,
+                blocks: 1,
+                lr: 1e-3,
+                target_sync_every: 10,
+                residual: false,
+            },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
                 lr: 1e-3,
                 baseline_decay: 0.9,
                 solver_bwas: small_bwas,
-                beam: BeamConfig { width: 100, max_depth: 60, node_budget: 200_000 },
+                beam: BeamConfig {
+                    width: 100,
+                    max_depth: 60,
+                    node_budget: 200_000,
+                },
                 baseline: BaselineHeuristic::Manhattan,
                 fail_penalty: 400.0,
                 // Regret keeps this test table-free (no WD warm-up); entropy on.
@@ -382,7 +424,10 @@ mod tests {
                 label_heuristic: LabelHeuristic::Lc,
             }),
             // Exercise the ramp (Regret + curriculum is table-free).
-            curriculum: Some(Curriculum { k_start: 4, k_end: 8 }),
+            curriculum: Some(Curriculum {
+                k_start: 4,
+                k_end: 8,
+            }),
             checkpoint_dir: dir.clone(),
             seed: 1,
             verbose: false,
@@ -396,12 +441,18 @@ mod tests {
         run(&cfg, Device::Cpu).unwrap();
 
         // Resuming from the just-written checkpoint must run without error.
-        let mut cfg_resume = AlternationConfig { resume: true, ..cfg };
+        let mut cfg_resume = AlternationConfig {
+            resume: true,
+            ..cfg
+        };
         cfg_resume.rounds = 1;
         run(&cfg_resume, Device::Cpu).unwrap();
 
         // Checkpoints + metrics were written across the round boundary.
-        assert!(checkpoint::value_latest_path(&dir).exists(), "no latest checkpoint written");
+        assert!(
+            checkpoint::value_latest_path(&dir).exists(),
+            "no latest checkpoint written"
+        );
         assert!(dir.join("metrics.tsv").exists(), "no metrics written");
 
         // The latest checkpoint reloads into a fresh net.
@@ -409,8 +460,12 @@ mod tests {
         use candle_core::DType;
         use candle_nn::{VarBuilder, VarMap};
         let mut vm = VarMap::new();
-        let _net =
-            ValueNet::new(VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu), 32, 1).unwrap();
+        let _net = ValueNet::new(
+            VarBuilder::from_varmap(&vm, DType::F32, &Device::Cpu),
+            32,
+            1,
+        )
+        .unwrap();
         vm.load(checkpoint::value_latest_path(&dir)).unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -424,15 +479,30 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ml24_altdeep_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
-        let small_bwas = BwasConfig { weight: 2.0, batch_size: 16, node_budget: 50_000 };
-        let small_beam = BeamConfig { width: 100, max_depth: 60, node_budget: 200_000 };
+        let small_bwas = BwasConfig {
+            weight: 2.0,
+            batch_size: 16,
+            node_budget: 50_000,
+        };
+        let small_beam = BeamConfig {
+            width: 100,
+            max_depth: 60,
+            node_budget: 200_000,
+        };
         let cfg = AlternationConfig {
             rounds: 1,
             solver_steps_per_round: 5,
             generator_steps_per_round: 3,
             solver_batch: 32,
             generator_frac: 0.5,
-            davi: DaviConfig { k_max: 8, hidden: 32, blocks: 1, lr: 1e-3, target_sync_every: 10, residual: false },
+            davi: DaviConfig {
+                k_max: 8,
+                hidden: 32,
+                blocks: 1,
+                lr: 1e-3,
+                target_sync_every: 10,
+                residual: false,
+            },
             generator: GeneratorConfig {
                 k_max: 8,
                 hidden: 32,
@@ -473,15 +543,24 @@ mod tests {
         run(&cfg, Device::Cpu).unwrap();
 
         let metrics = std::fs::read_to_string(dir.join("metrics.tsv")).unwrap();
-        assert!(metrics.contains("mean_excess_beam"), "deep metrics header missing: {metrics}");
-        assert!(checkpoint::value_latest_path(&dir).exists(), "no checkpoint written");
+        assert!(
+            metrics.contains("mean_excess_beam"),
+            "deep metrics header missing: {metrics}"
+        );
+        assert!(
+            checkpoint::value_latest_path(&dir).exists(),
+            "no checkpoint written"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn ramped_k_endpoints_monotonic_and_clamped() {
-        let c = Curriculum { k_start: 50, k_end: 160 };
+        let c = Curriculum {
+            k_start: 50,
+            k_end: 160,
+        };
         assert_eq!(ramped_k(&c, 0, 10), 50, "round 0 should be k_start");
         assert_eq!(ramped_k(&c, 9, 10), 160, "last round should be k_end");
         let mut prev = 0;
@@ -493,6 +572,16 @@ mod tests {
         // rounds <= 1 → k_end; clamp ≥ 1.
         assert_eq!(ramped_k(&c, 0, 1), 160);
         assert_eq!(ramped_k(&c, 0, 0), 160);
-        assert_eq!(ramped_k(&Curriculum { k_start: 0, k_end: 0 }, 0, 5), 1);
+        assert_eq!(
+            ramped_k(
+                &Curriculum {
+                    k_start: 0,
+                    k_end: 0
+                },
+                0,
+                5
+            ),
+            1
+        );
     }
 }

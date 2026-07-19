@@ -289,7 +289,16 @@ impl ZpdbLayout {
             cohort_base[s] = acc;
             acc += kfact * counts[s] as u64;
         }
-        Self { k, kfact, slot_of, tiles, cohort_base, counts, labels, total: acc }
+        Self {
+            k,
+            kfact,
+            slot_of,
+            tiles,
+            cohort_base,
+            counts,
+            labels,
+            total: acc,
+        }
     }
 
     /// Cached `(region_count, region_labels)` for an occupancy mask — an array
@@ -429,7 +438,11 @@ mod tests {
                 }
             }
         });
-        assert_eq!(seen.len() as u64, layout.total(), "rank not surjective onto [0,total)");
+        assert_eq!(
+            seen.len() as u64,
+            layout.total(),
+            "rank not surjective onto [0,total)"
+        );
     }
 
     #[test]
@@ -447,10 +460,20 @@ mod tests {
             let mut seen: HashSet<u64> = HashSet::new();
             for_each_ksubset(k, |cells, _| {
                 let r = shape_rank(cells);
-                assert!(r < binom(N_CELLS, k), "shape_rank {r} >= C(16,{k}) for {cells:?}");
-                assert!(seen.insert(r), "shape_rank COLLISION at {r} for cells {cells:?} (k={k})");
+                assert!(
+                    r < binom(N_CELLS, k),
+                    "shape_rank {r} >= C(16,{k}) for {cells:?}"
+                );
+                assert!(
+                    seen.insert(r),
+                    "shape_rank COLLISION at {r} for cells {cells:?} (k={k})"
+                );
             });
-            assert_eq!(seen.len() as u64, binom(N_CELLS, k), "shape_rank not surjective at k={k}");
+            assert_eq!(
+                seen.len() as u64,
+                binom(N_CELLS, k),
+                "shape_rank not surjective at k={k}"
+            );
         }
     }
 

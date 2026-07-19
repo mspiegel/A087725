@@ -24,7 +24,9 @@ impl DistanceTable {
     /// Allocate an empty table (all entries [`UNVISITED`]). Mostly useful for
     /// tests.
     pub fn new_empty() -> Self {
-        Self { data: vec![UNVISITED; N_STATES as usize] }
+        Self {
+            data: vec![UNVISITED; N_STATES as usize],
+        }
     }
 
     /// Build the full distance table by backward BFS from [`GOAL`].

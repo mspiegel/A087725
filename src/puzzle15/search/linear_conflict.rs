@@ -132,7 +132,10 @@ const LC_LUT_SIZE: usize = 1 << 16;
 type LcLut = Box<[u8; LC_LUT_SIZE]>;
 
 fn build_line_lut(line_idx: usize, axis_is_row: bool) -> LcLut {
-    let mut lut: LcLut = vec![0u8; LC_LUT_SIZE].into_boxed_slice().try_into().unwrap();
+    let mut lut: LcLut = vec![0u8; LC_LUT_SIZE]
+        .into_boxed_slice()
+        .try_into()
+        .unwrap();
     for key in 0..LC_LUT_SIZE {
         let tiles = [
             (key & 0xF) as u8,
@@ -149,7 +152,11 @@ fn build_line_lut(line_idx: usize, axis_is_row: bool) -> LcLut {
             let g = (t - 1) as usize;
             // For a row LUT at index r: count tiles whose goal row is r, by goal column.
             // For a col LUT at index c: count tiles whose goal col is c, by goal row.
-            let (in_line, other) = if axis_is_row { (g / W, g % W) } else { (g % W, g / W) };
+            let (in_line, other) = if axis_is_row {
+                (g / W, g % W)
+            } else {
+                (g % W, g / W)
+            };
             if in_line == line_idx {
                 goals[n] = other as u8;
                 n += 1;
@@ -228,7 +235,12 @@ impl IncHeuristic for LinearConflictInc {
             row_pen[i] = row_pen_lut(rl, s, i);
             col_pen[i] = col_pen_lut(cl, s, i);
         }
-        let ctx = LcCtx { manhattan: manhattan as u8, row_pen, col_pen, blank };
+        let ctx = LcCtx {
+            manhattan: manhattan as u8,
+            row_pen,
+            col_pen,
+            blank,
+        };
         (ctx_h(&ctx), ctx)
     }
 
@@ -240,7 +252,9 @@ impl IncHeuristic for LinearConflictInc {
         _stats: &mut SearchStats,
     ) -> (u8, LcCtx) {
         #[cfg(feature = "verifier-stats")]
-        { _stats.lc_advances += 1; }
+        {
+            _stats.lc_advances += 1;
+        }
         // After the move: the blank moved by `delta(m)`, the tile that filled
         // the blank's old cell is what just moved. Hence:
         //   from = blank_new (where the tile was, in the parent)
@@ -279,7 +293,12 @@ impl IncHeuristic for LinearConflictInc {
             row_pen[rf] = row_pen_lut(rl, child, rf); // rf == rt
         }
 
-        let ctx = LcCtx { manhattan, row_pen, col_pen, blank: from_cell as u8 };
+        let ctx = LcCtx {
+            manhattan,
+            row_pen,
+            col_pen,
+            blank: from_cell as u8,
+        };
         (ctx_h(&ctx), ctx)
     }
 }
@@ -309,9 +328,9 @@ fn lc_removals(arr: &[u8]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle15::search::ManhattanHeuristic;
     use crate::puzzle15::search::tests_util::bfs_distances;
-    use crate::puzzle15::state::{GOAL, State};
+    use crate::puzzle15::search::ManhattanHeuristic;
+    use crate::puzzle15::state::{State, GOAL};
 
     #[test]
     fn lc_of_goal_is_zero() {
@@ -406,7 +425,7 @@ mod tests {
         assert_eq!(lc_removals(&[]), 0);
         assert_eq!(lc_removals(&[0]), 0);
         assert_eq!(lc_removals(&[0, 1, 2, 3]), 0);
-        assert_eq!(lc_removals(&[3, 2, 1, 0]), 3);  // LIS = [0], remove 3
-        assert_eq!(lc_removals(&[1, 3, 2, 0]), 2);  // LIS = [1, 3] or [1, 2], remove 2
+        assert_eq!(lc_removals(&[3, 2, 1, 0]), 3); // LIS = [0], remove 3
+        assert_eq!(lc_removals(&[1, 3, 2, 0]), 2); // LIS = [1, 3] or [1, 2], remove 2
     }
 }
