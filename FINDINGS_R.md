@@ -632,6 +632,43 @@ line," opposite outcome, because one was work and one was already free.
 Instrumentation kept: the gated `zpdb-locality` feature (`c4032e7`, off by
 default) — exact `make`/probe counters. A/B logs: `data/r_k8lazy_*_ab.txt`.
 
+## 8j. Drop the k6 tier entirely — `cwd-zpdb8-lazy`, a 2-tier `max(cWD, k8)` (2026-07-19)
+
+§8i established that k6's *reflected* view is nearly free to drop (+0.39%
+nodes). §8j asks the natural next question: what does the *entire* k6 tier buy
+on top of `max(cWD, k8)`? A new combiner `cwd-zpdb8-lazy` —
+`LazyMaxInc(cWD, k8)`, cWD every node and the three-group 8-tile ZPDB advanced
+only where cWD fails to prune — was A/B'd against the production 3-tier
+`cwd-zpdb6-zpdb8-lazy` (`max(cWD, k6-zpdb, k8-zpdb)`) on R, warm, 8 threads. Both
+default (k6 reflection already off per §8i), so this measures the value of k6's
+*primary* view on top of cWD+k8. Node counts are the exact §8i trees
+(268,071,922 @144; 8,742,025,201 @146), so the 3-tier column below matches §8i
+node-for-node.
+
+| bound | | 2-tier `cwd-zpdb8-lazy` | 3-tier `cwd-zpdb6-zpdb8-lazy` | Δ (2-tier) |
+|-------|--|-------------------------|------------------------------|------------|
+| **144** (proves ≥146) | search time | **4.80 s** | 5.93 s | **−19% faster** |
+| | throughput | **56.04 Mn/s** | 45.23 Mn/s | +24% |
+| | nodes | 269,180,930 | 268,071,922 | +0.41% |
+| **146** (proves ≥148) | search time | **180.78 s** | 221.04 s | **−18% faster** |
+| | throughput | **48.73 Mn/s** | 39.55 Mn/s | +23% |
+| | nodes | 8,808,311,484 | 8,742,025,201 | +0.76% |
+
+**The finding:** the whole k6 tier is nearly redundant against `max(cWD, k8)` on
+R — removing it costs only **+0.41% → +0.76%** nodes through bound 146, while
+every non-cWD-pruned node gets **~23% cheaper** (no k6 projection/rank/probe),
+so search finishes **~18–19% faster**. This is the §8i lesson taken to its
+conclusion: k6's marginal pruning does not pay for its per-node compute in the
+cWD+k8 regime. The node penalty does creep up with depth (0.41% → 0.76%), so a
+much deeper bound could eventually reach a crossover where k6 earns its keep —
+but there is no sign of one through 146. On R in this regime, the 2-tier is the
+faster combiner.
+
+Caveat: *search time* is the fair metric — wall-clock adds the identical ~25 s
+k8 mmap + cWD load both tiers pay. Off-R this is untested; like the rest of the
+combiner family (§8e) the balance is expected to shift on boards where cWD is
+weaker and k6 carries more of the max. A/B log: `data/r_k8lazy_2tier_vs_3tier_ab.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
