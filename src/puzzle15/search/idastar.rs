@@ -118,6 +118,7 @@ enum Step {
     Bound(u8),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn search<H: Heuristic>(
     s: &State,
     blank: u8,

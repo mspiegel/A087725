@@ -64,6 +64,7 @@ impl Rng {
 }
 
 /// Mode 1: bounded DFS (randomized child order) accumulating the jump histogram.
+#[allow(clippy::too_many_arguments)]
 fn dfs_hist(
     cwd: &Cwd,
     scratch: &mut CwdScratch,
@@ -119,6 +120,7 @@ fn dfs_hist(
 /// Mode 2: full exhaust at `thr`, fixed child order, optional pathmax
 /// sibling-cut. Returns (expanded nodes, generated children, cut events,
 /// siblings skipped by cuts).
+#[allow(clippy::too_many_arguments)]
 fn dfs_ab(
     cwd: &Cwd,
     scratch: &mut CwdScratch,

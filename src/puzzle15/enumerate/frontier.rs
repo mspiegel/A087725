@@ -180,6 +180,7 @@ fn fresh_neighbors(store: &Store, frontier: &[u64]) -> Vec<u64> {
 /// connected; the work scales with the cumulative `N(≥floor)`, so it is only
 /// practical for the top of the distribution.
 #[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
 pub fn run_band<F>(
     store: &mut Store,
     hist: &Histogram,

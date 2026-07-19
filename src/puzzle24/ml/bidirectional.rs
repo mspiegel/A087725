@@ -58,6 +58,7 @@ type Visited = HashMap<State, (u32, State, Move)>; // state -> (g, parent, move 
 /// Expand one beam layer: generate undo-pruned children, dedup/relax against this
 /// side's `visited`, record any that already sit in `other` as meetings, then
 /// keep the best `width` by `g + weight·h`. Grows `expanded` and `meetings`.
+#[allow(clippy::too_many_arguments)]
 fn expand<H>(
     layer: &[BNode],
     visited: &mut Visited,
@@ -268,6 +269,7 @@ fn ff_h(child: &State, anchors: &[(State, u32)]) -> f32 {
 /// Expand one side's layer with a front-to-front heuristic aimed at `opp_anchors`;
 /// dedup/relax against this side's `survivors` (memory-bounded: only survivors are
 /// stored), record survivors that already sit in `opp_survivors` as meetings.
+#[allow(clippy::too_many_arguments)]
 fn expand_ff<H>(
     layer: &[FfNode],
     survivors: &mut Visited,

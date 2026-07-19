@@ -59,6 +59,7 @@ struct Counts {
     total_exp: u64,      // all expansions (for the true node count)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dfs(
     s: &State,
     blank: u8,
