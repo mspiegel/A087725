@@ -723,6 +723,59 @@ reduction** (move-DFA-class, finite state, not another heuristic tier); or (3) a
 heuristic with a better **pruning-per-cycle** ratio — not simply more or less
 pruning.
 
+## 8l. Four node-identical throughput wins on the 2-tier frontier (2026-07-19)
+
+§8k's prescription — *move one axis, hold the other fixed* — executed. Re-profiled
+the settled frontier `cwd-zpdb8-lazy` (the §8i profile was on the retired 3-tier;
+`sample` + dSYM on the search phase, 8 threads, exhaust-146). The 2-tier split:
+**search loop 29%, ZPDB/k8 ~40% (`rank` 21% + `apply`/`make` 13% + `unmake` 5%),
+cWD 23%, LazyMax glue 8%; the 30.5 GiB k8 probe itself is 0.05%** (§8i's
+"compute-bound, not the table read" holds). Four changes followed, **every one
+node-identical** (bit-for-bit `8,808,311,484` nodes @146) — the only kind §8k
+says pays — each landed by a back-to-back A/B on R:
+
+| change | attacks | mechanism | A/B (R, thr146, 8t) |
+|--------|---------|-----------|---------------------|
+| demand-LIS LUT (`c21078e`) | top cWD line | per-node `n − LIS(...)` → a 32 KiB table keyed by the line's residency pattern | −2.5…4.7% |
+| undo-record trim (`b3f427a`) | cWD make/unmake | drop the *dead* `curves` field; recompute the packed `key` on unmake (`CwdUndo` 40→20 B) | −2.0% |
+| `search_inc_mut` arg-bundle (`5b75923`) | search-loop spills | bundle the 6 loop-invariant args behind one `&SearchInv` (15→10 args) | −2.0% |
+| zPDB `rank` co-location (`5496995`) | `rank` cache misses | merge `counts`/`cohort_base`/`labels[sr]` into one ~40 B `ShapeInfo` (3 scattered lookups → 1 cache line) | −2.9% |
+
+Cumulative throughput rose ~**48 → 53 Mn/s** across the round (≈ +10%; exact
+per-change deltas blur under cross-session thermal drift, so the table cites each
+change's own same-session A/B). Two of the four were **disassembly-/layout-driven,
+not profile-percentage-driven** — the profiler said *where*, but the *why* and the
+fix came from reading the generated code:
+
+- **The fat argument list was a real spill site.** Disassembling the hot
+  `search_inc_mut` showed a 384 B frame, all 10 callee-saved registers used, and
+  **85 stack spill/reload instructions** — 7 of its 15 args stack-passed and
+  re-loaded per node. Bundling the invariants cut it to a 288 B frame / 53 spills
+  (−31% code). A stack-spill survey of the other hot functions found **none
+  close** — `rank`/`ZpdbInc::make` are compute-bound, not spill-bound.
+- **`rank` was *partly memory-stall-bound*, correcting §8i.** §8i read the ZPDB
+  working set as cache-resident, but that was the diff table; the *ranking* tables
+  (`labels` ≈27 MB, `cohort_base` ≈8.6 MB for k8, indexed by an effectively-random
+  `sr`) miss. Co-locating the three per-shape reads into one cache line — cutting
+  the *number* of misses 3→1 — won 2.9%. The lesson: reducing miss *count* pays
+  where the hardware can't help you.
+
+**Reconfirmed dead ends (kept honest by the A/Bs).** A software prefetch of
+`shape_info[sr]` (overlapping the `perm_rank` window) was **neutral** — the
+out-of-order core already issues that load speculatively, so §8i's "prefetch is
+neutral on this core" holds for a second reason (the hardware beats us to it), and
+it was reverted. Also measured-and-dropped this round: the forced-move `promote`
+combiner (§8j follow-on, ≈break-even) and the ZPDB lazy-blank apply (sound but
+shelved — k8's reflected view needs `TAU`/`SIGMA` owning-group handling that
+doubles the intricacy for the same ~4% apply-side prize).
+
+**Still open (untried levers, ranked):** shrink `ShapeInfo` (nibble-pack the
+region `labels`, ~40→27 B, more resident shapes); the lazy-blank apply (the
+largest single work-reduction left, ~4%); and — only if attacking the reflected
+view — note the reflected *rank integer* is **not** derivable from the normal one
+(the transpose scrambles both the shape and permutation ranks), though the
+reflected *positions* are, which would save the reflected *apply*, not the *rank*.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
