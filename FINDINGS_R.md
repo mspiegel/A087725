@@ -669,6 +669,60 @@ k8 mmap + cWD load both tiers pay. Off-R this is untested; like the rest of the
 combiner family (§8e) the balance is expected to shift on boards where cWD is
 weaker and k6 carries more of the max. A/B log: `data/r_k8lazy_2tier_vs_3tier_ab.txt`.
 
+## 8k. The pruning-tier trade is iso-time — you only win by moving *one* axis (2026-07-19)
+
+§8i established the engine is *compute-bound* at its pruning ceiling, so on a
+first order **time ≈ nodes × per-node-cost**. §8j and a follow-on forced-move
+experiment pin down the consequence: **trading node-count against per-node cost
+is a wash in either direction.** The two are coupled, and perturbing the tier
+structure just slides along an iso-time curve.
+
+The forced-move experiment (branch `single-survivor-promote`, `--promote-forced`,
+not merged). The single-survivor histogram (§8j instrumentation follow-on) found
+**36% of expanded nodes have exactly one child surviving the cWD neighbor
+prune** — "forced" moves with no branching decision. The idea: on those nodes
+skip the lazy combiner's upper tier (advance cWD, defer/skip k8) and collapse the
+forced move in-frame instead of recursing. Sound (admissible ⇒ same proven bound)
+but not node-identical. Measured on R, 8 threads:
+
+| combiner / bound | Δ nodes | Δ throughput | Δ search time |
+|------------------|---------|--------------|---------------|
+| `cwd-zpdb6-lazy` / 144 | +1.9% | +2.8% | **−0.7%** |
+| `cwd-zpdb8-lazy` / 146 | +5.6% | +6.2% | **−0.6%** |
+
+Skipping k8 lifts throughput (fewer catch-ups/probes + no recursion frame) by
+almost exactly what the extra nodes (weaker pruning) cost. **≈ break-even both
+regimes** — and the node penalty scales with how much the skipped tier prunes
+(k8 > k6), while the throughput gain scales with its per-node cost, so the two
+track each other by construction.
+
+**The governing law, generalized (the reusable finding).** On a compute-bound
+heuristic at its pruning ceiling, an effort pays **only if it moves one axis
+while holding the other fixed**:
+
+- **cheaper at fixed nodes** — §8i (drop k6's reflected view, hoist, incremental
+  key): **+32% throughput, zero node change**. Pure win.
+- **fewer nodes at ~zero per-node cost** — the move-DFA (Taylor–Korf duplicate
+  FSA, L2-resident): cuts nodes for a table lookup, not a heuristic probe.
+- **a tier that isn't paying its way** — §8j (drop k6 entirely): +0.76% nodes but
+  ~18% faster, because k6 added almost no pruning yet cost real compute. That is
+  *work-reduction disguised as a tier drop*, not a genuine pruning trade.
+
+Anything that moves **both** axes at once — add a tier (−nodes, +compute), or
+drop/skip a paying tier (+nodes, −compute) — is iso-time. The forced-move result
+also settles a structural question: skipping k8 *costs* +5.6% nodes, so **k8 is
+paying its way** (unlike k6). That makes **cWD + k8, k6 dropped, at §8i's tuned
+throughput the efficient frontier** for this heuristic family on R — every local
+perturbation of its tier structure is a wash.
+
+To beat the frontier you must move it, not slide along it: (1) a **cheaper cWD**
+— paid on *every* node (§8i profiled `Cwd::make` at ~16% of the 3-tier's samples,
+and its share is larger in the k6-dropped 2-tier where less ZPDB work runs), so
+any node-identical speedup is pure win; (2) more **near-free structural node
+reduction** (move-DFA-class, finite state, not another heuristic tier); or (3) a
+heuristic with a better **pruning-per-cycle** ratio — not simply more or less
+pruning.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
