@@ -395,6 +395,9 @@ pub struct Cwd {
     /// from its parent's cached `nbr_wd` and prune it before probing. Off by
     /// default; toggled per-run for A/B. See [`Cwd::child_h_lb`].
     neighbor_prune: bool,
+    /// Precomputed per-line escape-demand table (32 KiB); replaces the per-node
+    /// LIS in `make`. See [`build_demand_lut`].
+    demand_lut: Box<[u8; DEMAND_LUT_LEN]>,
 }
 
 impl Cwd {
@@ -442,6 +445,7 @@ impl Cwd {
             goal: goal_key(),
             merged: None,
             neighbor_prune: false,
+            demand_lut: build_demand_lut(),
         }
     }
 
@@ -452,6 +456,7 @@ impl Cwd {
             goal: goal_key(),
             merged: None,
             neighbor_prune: false,
+            demand_lut: build_demand_lut(),
         }
     }
 
@@ -559,10 +564,97 @@ impl IncHeuristic for Cwd {
 
 // ---- incremental evaluator (fast path) --------------------------------------
 
-/// Forced-escape demand of physical row `g`: residents (goal-row-`g` tiles in
-/// row `g`) minus the LIS of their goal columns (read in physical-column order).
+/// Physical-line demand LUT. `demand = n − LIS(goal-value sequence)` depends only
+/// on the line's residency pattern, so it precomputes to a table instead of an
+/// O(n²) LIS per node. Key: `W` cells × 3 bits — cell code `0` = blank/non-resident
+/// of this line, `1..=W` = a resident carrying goal-value `code−1` (goal-column for
+/// a row line, goal-row for a column line). 32 KiB, built once per [`Cwd`]. Removes
+/// the top cWD hotspot (`demand_*_line` ≈ 24% of cWD in the `cwd-zpdb8-lazy` sample
+/// profile). Node-identical to the LIS reference (`demand_*_line_ref`).
+const DEMAND_LUT_LEN: usize = 1 << (3 * W); // W cells × 3 bits
+
+fn build_demand_lut() -> Box<[u8; DEMAND_LUT_LEN]> {
+    let mut lut = Box::new([0u8; DEMAND_LUT_LEN]);
+    for (key, slot) in lut.iter_mut().enumerate() {
+        let mut seq = [0u8; W];
+        let mut n = 0usize;
+        for p in 0..W {
+            let code = (key >> (3 * p)) & 0x7;
+            if (1..=W).contains(&code) {
+                seq[n] = (code - 1) as u8;
+                n += 1;
+            }
+        }
+        *slot = (n - lis_strict(&seq[..n])) as u8;
+    }
+    lut
+}
+
+/// Pack physical row `g` of `s` into a demand-LUT key (residents' goal-columns).
 #[inline]
-fn demand_row_line(s: &State, g: usize) -> u8 {
+fn demand_row_key(s: &State, g: usize) -> usize {
+    let mut key = 0usize;
+    for c in 0..W {
+        let tile = s.0[g * W + c];
+        if tile != 0 {
+            let gp = (tile - 1) as usize;
+            if gp / W == g {
+                key |= (gp % W + 1) << (3 * c);
+            }
+        }
+    }
+    key
+}
+
+/// Pack physical column `g` of `s` into a demand-LUT key (residents' goal-rows).
+#[inline]
+fn demand_col_key(s: &State, g: usize) -> usize {
+    let mut key = 0usize;
+    for r in 0..W {
+        let tile = s.0[r * W + g];
+        if tile != 0 {
+            let gp = (tile - 1) as usize;
+            if gp % W == g {
+                key |= (gp / W + 1) << (3 * r);
+            }
+        }
+    }
+    key
+}
+
+/// Forced-escape demand of physical row `g` (LUT fast path; see [`build_demand_lut`]).
+#[inline]
+fn demand_row_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+    let d = lut[demand_row_key(s, g)];
+    // Gated so the `_ref` reference is absent in release (`debug_assert_eq!` still
+    // *compiles* its args under `if false`, which would need `_ref` to exist).
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(
+        d,
+        demand_row_line_ref(s, g),
+        "demand-row LUT mismatch (g={g})"
+    );
+    d
+}
+
+/// Forced-escape demand of physical column `g` (symmetric: goal-row order).
+#[inline]
+fn demand_col_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+    let d = lut[demand_col_key(s, g)];
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(
+        d,
+        demand_col_line_ref(s, g),
+        "demand-col LUT mismatch (g={g})"
+    );
+    d
+}
+
+/// Reference (LIS) demand — residents (goal-row-`g` tiles in row `g`) minus the LIS
+/// of their goal columns (physical-column order). The LUT is built from and checked
+/// against this; retained for `debug_assert` and tests.
+#[cfg(any(test, debug_assertions))]
+fn demand_row_line_ref(s: &State, g: usize) -> u8 {
     let mut seq = [0u8; W];
     let mut n = 0usize;
     for c in 0..W {
@@ -579,9 +671,9 @@ fn demand_row_line(s: &State, g: usize) -> u8 {
     (n - lis_strict(&seq[..n])) as u8
 }
 
-/// Forced-escape demand of physical column `g` (symmetric: goal-row order).
-#[inline]
-fn demand_col_line(s: &State, g: usize) -> u8 {
+/// Reference (LIS) demand for a physical column (symmetric: goal-row order).
+#[cfg(any(test, debug_assertions))]
+fn demand_col_line_ref(s: &State, g: usize) -> u8 {
     let mut seq = [0u8; W];
     let mut n = 0usize;
     for r in 0..W {
@@ -789,7 +881,7 @@ impl IncHeuristicMut for Cwd {
             if gr == rf || gr == rt {
                 undo.demline = gr as u8;
                 undo.demold = st.dem_row[gr];
-                st.dem_row[gr] = demand_row_line(child, gr);
+                st.dem_row[gr] = demand_row_line(&self.demand_lut, child, gr);
             }
             st.br = rf as u8;
             st.bc = cf as u8;
@@ -822,7 +914,7 @@ impl IncHeuristicMut for Cwd {
             if gc == cf || gc == ct {
                 undo.demline = gc as u8;
                 undo.demold = st.dem_col[gc];
-                st.dem_col[gc] = demand_col_line(child, gc);
+                st.dem_col[gc] = demand_col_line(&self.demand_lut, child, gc);
             }
             st.br = rf as u8;
             st.bc = cf as u8;
@@ -918,6 +1010,40 @@ impl IncHeuristicMut for Cwd {
 mod tests {
     use super::*;
     use crate::puzzle24::search::WalkingDistanceHeuristic;
+
+    /// The demand LUT + key-packing must reproduce the LIS reference on every line
+    /// of arbitrary boards. Table-free, so it runs fast (no `#[ignore]`).
+    #[test]
+    fn demand_lut_matches_lis_reference() {
+        let lut = build_demand_lut();
+        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+        for _ in 0..2000 {
+            // Fisher–Yates shuffle of 0..=24 via a xorshift stream.
+            let mut a = [0u8; 25];
+            for (i, cell) in a.iter_mut().enumerate() {
+                *cell = i as u8;
+            }
+            for i in (1..25usize).rev() {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                a.swap(i, (x as usize) % (i + 1));
+            }
+            let s = State(a);
+            for g in 0..W {
+                assert_eq!(
+                    demand_row_line(&lut, &s, g),
+                    demand_row_line_ref(&s, g),
+                    "row demand mismatch at line {g}"
+                );
+                assert_eq!(
+                    demand_col_line(&lut, &s, g),
+                    demand_col_line_ref(&s, g),
+                    "col demand mismatch at line {g}"
+                );
+            }
+        }
+    }
 
     /// The 180° rotation R. cWD(R) must be 144 (= WD 140 + 4).
     fn r_board() -> State {
