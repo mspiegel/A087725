@@ -360,7 +360,7 @@ node reduction that *grows* with depth (1.39× @146 → 1.73× @148) but paid an
 eager ~2.4–2.6× per-node cost — break-even was extrapolated at thr 152–154.
 **Lazy evaluation moves the break-even to ≈ thr 150.**
 
-Mechanism (`--heuristic cwd-zpdb-lazy`, `LazyMaxInc` in
+Mechanism (`--heuristic cwd-zpdb6-lazy`, `LazyMaxInc` in
 `src/puzzle24/search/heuristic.rs`; `IncHeuristicMut::make_bounded` hook in
 `idastar.rs`): the search passes each child's pruning budget `bound − (g+1)` to
 the heuristic, and the combiner skips the zPDB advance whenever cWD alone
@@ -377,10 +377,10 @@ log `data/cwdzpdb_lazy_ab.txt`):
 |---|---|---:|---:|---:|
 | 146 | pure cWD | 18.19 B | 158.6 s | 1× |
 | 146 | cwd-zpdb (eager) | 13.09 B | 266.3 s | 1.68× slower |
-| 146 | **cwd-zpdb-lazy** | 13.09 B | 237.0 s | **1.49× slower** |
+| 146 | **cwd-zpdb6-lazy** | 13.09 B | 237.0 s | **1.49× slower** |
 | 148 | pure cWD (§8b) | 595.86 B | 5,633 s | 1× |
 | 148 | cwd-zpdb (eager, §8b) | 343.84 B | 8,508.8 s | 1.51× slower |
-| 148 | **cwd-zpdb-lazy** | 343.84 B | **6,755.7 s** | **1.20× slower** |
+| 148 | **cwd-zpdb6-lazy** | 343.84 B | **6,755.7 s** | **1.20× slower** |
 
 Wall gap vs pure cWD shrinks 1.49× → 1.20× per +2 threshold while the node
 reduction keeps growing — extrapolation puts **break-even at exhaust-150** (the
@@ -407,11 +407,11 @@ threshold 144 with the full default stack (log `data/cwdzpdb_deepboard_ab.txt`):
 | board | engine | nodes | search | node red. | wall vs cWD |
 |---|---|---:|---:|---:|---:|
 | B1 (g2) | pure cWD | 269.59 B | 2,927.7 s | — | 1× |
-| B1 | cwd-zpdb-lazy | 145.27 B | 3,039.0 s | **1.86×** | 1.04× slower |
+| B1 | cwd-zpdb6-lazy | 145.27 B | 3,039.0 s | **1.86×** | 1.04× slower |
 | B2 (g3) | pure cWD | 192.57 B | 1,901.2 s | — | 1× |
-| B2 | cwd-zpdb-lazy | 108.53 B | 2,212.2 s | **1.77×** | 1.16× slower |
+| B2 | cwd-zpdb6-lazy | 108.53 B | 2,212.2 s | **1.77×** | 1.16× slower |
 | B3 (g4) | pure cWD | 73.87 B | 727.3 s | — | 1× |
-| B3 | cwd-zpdb-lazy | 47.54 B | 964.5 s | **1.55×** | 1.33× slower |
+| B3 | cwd-zpdb6-lazy | 47.54 B | 964.5 s | **1.55×** | 1.33× slower |
 
 Versus R@146 (1.39× reduction at 1.49× slower): on generic deep boards the
 zPDB complement removes ~45 % of the tree at near wall parity **already at
@@ -581,7 +581,7 @@ Data: `data/yg_{70,90,110}.tsv`, `data/yield_gap_probe.txt`.
 ## 8i. Engine throughput — the deep-board heuristic is compute-bound, and only *work-reduction* pays (2026-07-19)
 
 Everything above sharpens the *heuristic* (fewer nodes). §8i is orthogonal:
-make each node **cheaper**. The production combiner `cwd-zpdb8-lazy`
+make each node **cheaper**. The production combiner `cwd-zpdb6-zpdb8-lazy`
 (`max(cWD, k6-zpdb, k8-zpdb)`, lazily) was profiled and tuned on R at
 exhaust-144 (proves ≥146; warm, 8 threads; node-identical A/Bs throughout —
 every change here preserves the 268,071,922-node tree exactly).

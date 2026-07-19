@@ -21,9 +21,9 @@
 //!   the strongest admissible heuristic here, all advanced incrementally per node.
 //! - `lc` / `wd` : standalone Linear-Conflict / Walking-Distance (WD is the
 //!   strongest term on deep boards like the 180° rotation `R`).
-//! - `cwd-zpdb-lazy`  : `max(cWD, k6-zpdb)` with the zPDB advanced only where cWD
+//! - `cwd-zpdb6-lazy`  : `max(cWD, k6-zpdb)` with the zPDB advanced only where cWD
 //!   fails to prune (`LazyMaxInc`). The settled deep-board combiner.
-//! - `cwd-zpdb8-lazy` : three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` —
+//! - `cwd-zpdb6-zpdb8-lazy` : three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` —
 //!   `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`. cWD every node, k6 only where cWD fails
 //!   to prune, the 30.5 GiB three-group 8-tile ZPDB (`pdb24_k8_{a,b,c}.zbin`) only
 //!   where `max(cWD,k6)` still fails. Node-identical to the eager three-way max;
@@ -69,7 +69,7 @@ const ZPDB_FILES_K7: [&str; 4] = [
     "pdb24_k7_d.zbin",
 ];
 /// The three Candidate-1 8-tile ZPDB groups (SUGGESTIONS_R §2); the second,
-/// finest tier of the `cwd-zpdb8-lazy` cascade. Fixed partition (not a
+/// finest tier of the `cwd-zpdb6-zpdb8-lazy` cascade. Fixed partition (not a
 /// `--pdb-set` choice): A=2×4 top-left, B=corner-L (owns the blank corner),
 /// C=bottom-left. 10.17 GiB each (30.5 GiB total), mmap'd.
 const ZPDB_FILES_K8: [&str; 3] = ["pdb24_k8_a.zbin", "pdb24_k8_b.zbin", "pdb24_k8_c.zbin"];
@@ -93,7 +93,7 @@ enum HeuristicChoice {
     /// zPDB is advanced only on children cWD fails to prune, skipping the
     /// dominant per-node probe cost on the (frontier-heavy) cWD-pruned children.
     /// Node-identical to `cwd-zpdb`; per-node cost only.
-    CwdZpdbLazy,
+    CwdZpdb6Lazy,
     /// Three-tier lazy cascade `max(cWD, k6-zpdb, k8-zpdb)` via nested
     /// `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`: cWD every node, the k6 zPDB probed
     /// only on children cWD fails to prune, and the three-group 8-tile ZPDB
@@ -102,7 +102,7 @@ enum HeuristicChoice {
     /// tier honors `--pdb-set` (default k6). Node-identical to the eager three-way
     /// max; per-node/probe cost only. The measured k8 pruning win on c1 is
     /// −43% nodes @thr 142, −52% @144 over the cWD+k6 baseline.
-    CwdZpdb8Lazy,
+    CwdZpdb6Zpdb8Lazy,
     /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
     /// picked from the root heuristics (the settled Phase 1C policy — WD on
     /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
@@ -173,7 +173,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {prog} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb6-lazy|cwd-zpdb6-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards)\n         \
@@ -222,8 +222,8 @@ fn parse_args() -> Result<Args, String> {
                     "zpdb" => HeuristicChoice::Zpdb,
                     "zpdb-plus" => HeuristicChoice::ZpdbPlus,
                     "cwd-zpdb" => HeuristicChoice::CwdZpdb,
-                    "cwd-zpdb-lazy" => HeuristicChoice::CwdZpdbLazy,
-                    "cwd-zpdb8-lazy" => HeuristicChoice::CwdZpdb8Lazy,
+                    "cwd-zpdb6-lazy" => HeuristicChoice::CwdZpdb6Lazy,
+                    "cwd-zpdb6-zpdb8-lazy" => HeuristicChoice::CwdZpdb6Zpdb8Lazy,
                     "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {other:?}")),
                 };
@@ -267,7 +267,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-cwd-neighbor-prune" => cwd_neighbor_prune = false,
             "--root-orbit-split" => root_orbit_split = Some(true),
             "--no-root-orbit-split" => root_orbit_split = Some(false),
-            // k6 reflected view defaults OFF for cwd-zpdb8-lazy; restore with
+            // k6 reflected view defaults OFF for cwd-zpdb6-zpdb8-lazy; restore with
             // `--k6-reflect` (the `--no-` form is the accepted default no-op).
             "--k6-reflect" => k6_reflect = true,
             "--no-k6-reflect" => k6_reflect = false,
@@ -754,8 +754,8 @@ fn main() -> ExitCode {
                 t0,
             )
         }
-        HeuristicChoice::CwdZpdbLazy => {
-            let dir = match require_dir(&args, "cwd-zpdb-lazy") {
+        HeuristicChoice::CwdZpdb6Lazy => {
+            let dir = match require_dir(&args, "cwd-zpdb6-lazy") {
                 Ok(d) => d,
                 Err(c) => return c,
             };
@@ -776,7 +776,7 @@ fn main() -> ExitCode {
                     ""
                 },
             );
-            // Same default as cwd-zpdb8-lazy: drop the zpdb tier's reflected view
+            // Same default as cwd-zpdb6-zpdb8-lazy: drop the zpdb tier's reflected view
             // (`--k6-reflect` restores it). Here that tier is the *finest* term,
             // so its reflection may carry more weight than k6-as-mid-tier does —
             // the node cost is unmeasured on this heuristic.
@@ -793,8 +793,8 @@ fn main() -> ExitCode {
                 t0,
             )
         }
-        HeuristicChoice::CwdZpdb8Lazy => {
-            let dir = match require_dir(&args, "cwd-zpdb8-lazy") {
+        HeuristicChoice::CwdZpdb6Zpdb8Lazy => {
+            let dir = match require_dir(&args, "cwd-zpdb6-zpdb8-lazy") {
                 Ok(d) => d,
                 Err(c) => return c,
             };
