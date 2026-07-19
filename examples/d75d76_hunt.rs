@@ -36,9 +36,16 @@ fn perm24() -> Vec<[usize; 4]> {
     out
 }
 
-fn topk(mut v: Vec<(f32, u64)>, k: usize) -> Vec<(f32, u64)> {
+/// A scored candidate board: the model score and the board's rank.
+#[derive(Clone, Copy)]
+struct Cand {
+    score: f32,
+    rank: u64,
+}
+
+fn topk(mut v: Vec<Cand>, k: usize) -> Vec<Cand> {
     if v.len() > k {
-        v.select_nth_unstable_by(k, |a, b| b.0.partial_cmp(&a.0).unwrap());
+        v.select_nth_unstable_by(k, |a, b| b.score.partial_cmp(&a.score).unwrap());
         v.truncate(k);
     }
     v
@@ -80,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let perms = perm24();
 
     // per partition: (even/d76 top-K, odd/d75 top-K)
-    let per: Vec<(Vec<(f32,u64)>, Vec<(f32,u64)>)> = partitions.par_iter().map(|key| {
+    let per: Vec<(Vec<Cand>, Vec<Cand>)> = partitions.par_iter().map(|key| {
         let q: [Vec<[u8;4]>;4] = [
             perms.iter().map(|p| [key[0][p[0]],key[0][p[1]],key[0][p[2]],key[0][p[3]]]).collect(),
             perms.iter().map(|p| [key[1][p[0]],key[1][p[1]],key[1][p[2]],key[1][p[3]]]).collect(),
@@ -89,8 +96,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ];
         let mut st = SearchStats::default();
         let mut feats = [0f64; 17];
-        let mut even: Vec<(f32,u64)> = Vec::new();
-        let mut odd: Vec<(f32,u64)> = Vec::new();
+        let mut even: Vec<Cand> = Vec::new();
+        let mut odd: Vec<Cand> = Vec::new();
         for a in &q[0] { for b in &q[1] { for cc in &q[2] { for d in &q[3] {
             let mut g=[0u8;16];
             for t in 0..4 { g[QUAD[0][t]]=a[t]; g[QUAD[1][t]]=b[t]; g[QUAD[2][t]]=cc[t]; g[QUAD[3][t]]=d[t]; }
@@ -103,34 +110,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             feats[0] = s.blank_pos() as f64;
             for i in 0..16 { feats[i+1] = g[i] as f64; }
             let sc = model.score(&feats) as f32;
-            if hv % 2 == 0 { even.push((sc, r)); } else { odd.push((sc, r)); }
+            if hv % 2 == 0 { even.push(Cand { score: sc, rank: r }); } else { odd.push(Cand { score: sc, rank: r }); }
         }}}}
         (topk(even, k), topk(odd, k))
     }).collect();
 
-    let mut d76: Vec<(f32,u64)> = Vec::new();
-    let mut d75: Vec<(f32,u64)> = Vec::new();
+    let mut d76: Vec<Cand> = Vec::new();
+    let mut d75: Vec<Cand> = Vec::new();
     for (e, o) in per { d76.extend(e); d75.extend(o); }
-    d76.sort_unstable_by(|a,b| b.0.partial_cmp(&a.0).unwrap());
-    d75.sort_unstable_by(|a,b| b.0.partial_cmp(&a.0).unwrap());
+    d76.sort_unstable_by(|a,b| b.score.partial_cmp(&a.score).unwrap());
+    d75.sort_unstable_by(|a,b| b.score.partial_cmp(&a.score).unwrap());
     eprintln!("kept d76(even): {}  d75(odd): {}  in {:.1?}", d76.len(), d75.len(), t0.elapsed());
 
     // per-layer files: "rank score layer" (score-descending)
     for (lbl, v) in [("d76", &d76), ("d75", &d75)] {
         let p = format!("{out_prefix}.{lbl}");
         let mut w = BufWriter::new(fs::File::create(&p)?);
-        for (s, r) in v.iter() { writeln!(w, "{r} {s} {lbl}")?; }
+        for c in v.iter() { writeln!(w, "{} {} {lbl}", c.rank, c.score)?; }
         w.flush()?;
-        let hi = v.iter().filter(|(s,_)| *s >= 0.9).count();
+        let hi = v.iter().filter(|c| c.score >= 0.9).count();
         eprintln!("wrote {} -> {p}  (score>=0.9: {hi})", v.len());
     }
     // INTERLEAVED merge: both layers sorted together by score, ranks only,
     // for top-down verify_depths (finds whichever layer's residue scores highest).
-    let mut merged: Vec<(f32, u64)> = d76.iter().cloned().chain(d75.iter().cloned()).collect();
-    merged.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    let mut merged: Vec<Cand> = d76.iter().copied().chain(d75.iter().copied()).collect();
+    merged.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
     let pm = format!("{out_prefix}.merged");
     let mut w = BufWriter::new(fs::File::create(&pm)?);
-    for (_, r) in merged.iter() { writeln!(w, "{r}")?; }
+    for c in merged.iter() { writeln!(w, "{}", c.rank)?; }
     w.flush()?;
     eprintln!("wrote {} merged ranks (score-interleaved) -> {pm}", merged.len());
     Ok(())
