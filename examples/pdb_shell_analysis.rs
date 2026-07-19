@@ -116,7 +116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Per-threshold recall sweep: if we PDB-shell at h >= T, how many cached
     // boards pass the filter at each true-depth tier?
     println!("\nfilter sweep (rows = threshold T on h, cols = true depth bucket):");
-    let depth_tiers: Vec<(&str, Box<dyn Fn(u8) -> bool>)> = vec![
+    type DepthTier = (&'static str, Box<dyn Fn(u8) -> bool>);
+    let depth_tiers: Vec<DepthTier> = vec![
         ("d>=80", Box::new(|d| d >= 80)),
         ("d=79",  Box::new(|d| d == 79)),
         ("d=78",  Box::new(|d| d == 78)),

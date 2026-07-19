@@ -69,7 +69,7 @@ fn construct_control(rng: &mut Rng) -> State {
     s
 }
 
-fn report(name: &str, wds: &mut Vec<u8>) {
+fn report(name: &str, wds: &mut [u8]) {
     wds.sort_unstable();
     let n = wds.len();
     let mean = wds.iter().map(|&w| w as f64).sum::<f64>() / n as f64;

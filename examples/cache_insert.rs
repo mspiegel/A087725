@@ -72,11 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Positional (RANK DEPTH ...) args.
         let mut it = args.into_iter();
         let mut p: Vec<(u64, u8)> = Vec::new();
-        loop {
-            let r_str = match it.next() {
-                Some(s) => s,
-                None => break,
-            };
+        while let Some(r_str) = it.next() {
             let d_str = it.next().ok_or("trailing rank with no depth")?;
             let r: u64 = r_str.parse()?;
             let d: u8 = d_str.parse()?;

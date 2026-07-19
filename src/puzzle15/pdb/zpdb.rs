@@ -269,11 +269,9 @@ impl ZpdbLayout {
         // inverse map (slot -> tile value) for the O(k) occupied-cell lookup.
         let mut slot_of = [0u8; N_CELLS];
         let mut tiles = [0u8; 8];
-        let mut slot = 0u8;
-        for t in pattern.iter() {
-            slot_of[t as usize] = slot;
-            tiles[slot as usize] = t;
-            slot += 1;
+        for (slot, t) in pattern.iter().enumerate() {
+            slot_of[t as usize] = slot as u8;
+            tiles[slot] = t;
         }
 
         let mut counts = vec![0u8; nshapes];

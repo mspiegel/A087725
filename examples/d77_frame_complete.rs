@@ -114,7 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if d!=77 { continue; }
                 let s=unrank(r);
                 print!("*** FIND d=77 rank={r} blank@{}: ", s.blank_pos());
-                for (j,&t) in s.0.iter().enumerate(){ if t==0{print!("__");}else{print!("{t:>2}");} if j%4==3{print!("  ");}else{print!(",");} }
+                for (j, &t) in s.0.iter().enumerate() {
+                    if t == 0 { print!("__"); } else { print!("{t:>2}"); }
+                    if j % 4 == 3 { print!("  "); } else { print!(","); }
+                }
                 println!();
             }
         }
