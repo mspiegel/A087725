@@ -37,7 +37,7 @@ impl Default for EvalConfig {
             antipodes_path: PathBuf::from("data/pdb15_antipodes.txt"),
             holdout_n: 100,
             holdout_k_max: 60,
-            holdout_seed: 0xE_15_5EED,
+            holdout_seed: 0x0E15_5EED,
         }
     }
 }

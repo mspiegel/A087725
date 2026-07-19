@@ -106,7 +106,7 @@ fn main() -> ExitCode {
             antipodes_path: PathBuf::from("data/pdb15_antipodes.txt"),
             holdout_n: holdout,
             holdout_k_max: holdout_k,
-            holdout_seed: 0xE_15_5EED,
+            holdout_seed: 0x0E15_5EED,
         },
         checkpoint_dir: PathBuf::from(out),
         seed,

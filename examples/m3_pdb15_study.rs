@@ -132,7 +132,7 @@ fn benchmark<H: Heuristic>(name: &str, bytes_stored: usize, h: &H, samples: &[St
 fn main() {
     const SAMPLES: usize = 25;
     const WALK_DEPTH: u32 = 25;
-    const SEED_BASE: u64 = 0xC0FFEE_CAFE;
+    const SEED_BASE: u64 = 0x00C0_FFEE_CAFE;
 
     // Generate samples.
     let samples: Vec<State> = (0..SAMPLES)

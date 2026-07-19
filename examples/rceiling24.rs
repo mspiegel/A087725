@@ -131,7 +131,7 @@ fn main() {
         ("reflect(R)".into(), reflect(&r_board())),
     ];
     for len in [200u32, 300, 400] {
-        let s = random_walk(0x24_C0FFEE_0000 ^ (len as u64), len);
+        let s = random_walk(0x24C0_FFEE_0000 ^ (len as u64), len);
         boards.push((format!("walk{len}"), s));
     }
 

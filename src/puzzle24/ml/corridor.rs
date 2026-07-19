@@ -263,7 +263,7 @@ mod tests {
             return;
         }
         use crate::puzzle24::ml::scramble::{scramble, Rng};
-        use crate::puzzle24::search::{Heuristic, WalkingDistanceTo};
+        use crate::puzzle24::search::WalkingDistanceTo;
         let mut rng = Rng::new(9);
         let t = scramble(&mut rng, 80).0;
         let wd_t = WalkingDistanceTo::new(&t);

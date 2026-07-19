@@ -367,7 +367,7 @@ mod tests {
     /// incremental update.
     #[test]
     fn lc_inc_advance_matches_fresh_root_random_walk() {
-        let mut rng: u64 = 0xC0DE_FACE_BAD_BEEF;
+        let mut rng: u64 = 0x0C0D_EFAC_EBAD_BEEF;
         let mut next = || {
             rng ^= rng << 13;
             rng ^= rng >> 7;

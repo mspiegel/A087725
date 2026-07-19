@@ -246,7 +246,7 @@ fn main() {
 
     // ---- invariant 3: random σ × d vs reference A* ----
     let goal = goal_key();
-    let mut rng: u64 = 0xC0FFEE_1234_5678;
+    let mut rng: u64 = 0x00C0_FFEE_1234_5678;
     let mut next = || {
         rng ^= rng << 13;
         rng ^= rng >> 7;

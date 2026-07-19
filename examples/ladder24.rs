@@ -172,7 +172,7 @@ fn parse_args() -> Result<Args, String> {
     let mut mode = Mode::Both;
     let mut walk_lengths = vec![20u16, 40, 60, 80, 100, 120];
     let mut reps = 2u32;
-    let mut seed = 0x24_5151_C0FFEE_24u64;
+    let mut seed = 0x0024_5151_C0FF_EE24_u64;
     let mut budget_secs = 60u64;
     let mut bound_budget_secs = 300u64;
     let mut max_bound = 140u8;

@@ -47,7 +47,7 @@ fn main() -> ExitCode {
     let budget: u64 = arg(&argv, "--budget", 1_000_000);
     let holdout_n: usize = arg(&argv, "--holdout", 100);
     let holdout_k_max: u32 = arg(&argv, "--holdout-k", 60);
-    let holdout_seed: u64 = arg(&argv, "--seed", 0xE_15_5EED);
+    let holdout_seed: u64 = arg(&argv, "--seed", 0x0E15_5EED);
     if argv.iter().any(|a| a == "--profile") {
         profile::set_enabled(true);
     }
