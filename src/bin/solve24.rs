@@ -28,6 +28,10 @@
 //!   to prune, the 30.5 GiB three-group 8-tile ZPDB (`pdb24_k8_{a,b,c}.zbin`) only
 //!   where `max(cWD,k6)` still fails. Node-identical to the eager three-way max;
 //!   measured −43% nodes @thr 142 / −52% @144 on c1 over cWD+k6 (SUGGESTIONS_R §2).
+//! - `cwd-zpdb8-lazy` : two-tier lazy cascade `max(cWD, k8-zpdb)` — cWD every
+//!   node, the 30.5 GiB three-group 8-tile ZPDB probed only where cWD fails to
+//!   prune. Same finest tier as `cwd-zpdb6-zpdb8-lazy` but with no k6 middle
+//!   tier. Node-identical to the eager `max(cWD, k8)`.
 //! - `select`    : per-board 3-way auto-pick — cheap `max(LC,WD)` / pure `zpdb` /
 //!   `zpdb-plus` from the root heuristics (Phase 1C policy: WD on deep boards,
 //!   zpdb on general). `--combine-slack` tunes it.
@@ -98,11 +102,18 @@ enum HeuristicChoice {
     /// `LazyMaxInc(LazyMaxInc(cWD, k6), k8)`: cWD every node, the k6 zPDB probed
     /// only on children cWD fails to prune, and the three-group 8-tile ZPDB
     /// (`pdb24_k8_{a,b,c}.zbin`, SUGGESTIONS_R §2) probed only when `max(cWD,k6)`
-    /// still fails — minimizing the expensive 30.5 GiB k8 mmap probes. The middle
-    /// tier honors `--pdb-set` (default k6). Node-identical to the eager three-way
+    /// still fails. The middle tier honors `--pdb-set` (default k6). Node-identical
+    /// to the eager three-way
     /// max; per-node/probe cost only. The measured k8 pruning win on c1 is
     /// −43% nodes @thr 142, −52% @144 over the cWD+k6 baseline.
     CwdZpdb6Zpdb8Lazy,
+    /// Two-tier lazy cascade `max(cWD, k8-zpdb)` via `LazyMaxInc(cWD, k8)`: cWD
+    /// every node, the three-group 8-tile ZPDB (`pdb24_k8_{a,b,c}.zbin`,
+    /// SUGGESTIONS_R §2) probed only on children cWD fails to prune. Unlike
+    /// [`CwdZpdb6Zpdb8Lazy`](Self::CwdZpdb6Zpdb8Lazy) it omits the k6 middle tier
+    /// entirely, so the k8 term is advanced on every child cWD fails to prune.
+    /// Node-identical to the eager `max(cWD, k8)`; per-node cost only.
+    CwdZpdb8Lazy,
     /// Per-board 3-way auto-selector: cheap `max(LC,WD)` / pure `zpdb` / `zpdb-plus`
     /// picked from the root heuristics (the settled Phase 1C policy — WD on
     /// deep boards, zpdb on general boards). Uses the `--pdb-set` PDBs.
@@ -173,7 +184,7 @@ fn pick_heuristic(cheap_root: u8, zpdb_root: u8, slack: u8) -> Pick {
 fn print_usage(prog: &str) {
     eprintln!(
         "usage: {prog} --pdb-dir DIR [--position \"...\"] [--from FILE]\n         \
-         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb6-lazy|cwd-zpdb6-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
+         [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb6-lazy|cwd-zpdb6-zpdb8-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards)\n         \
@@ -224,6 +235,7 @@ fn parse_args() -> Result<Args, String> {
                     "cwd-zpdb" => HeuristicChoice::CwdZpdb,
                     "cwd-zpdb6-lazy" => HeuristicChoice::CwdZpdb6Lazy,
                     "cwd-zpdb6-zpdb8-lazy" => HeuristicChoice::CwdZpdb6Zpdb8Lazy,
+                    "cwd-zpdb8-lazy" => HeuristicChoice::CwdZpdb8Lazy,
                     "select" => HeuristicChoice::Select,
                     other => return Err(format!("unknown heuristic {other:?}")),
                 };
@@ -831,6 +843,41 @@ fn main() -> ExitCode {
             let z8 = ZpdbInc::new([&k8[0], &k8[1], &k8[2]]);
             // Nested lazy: cWD (cheap, every node) → k6 (mid) → k8 (finest).
             let inc = LazyMaxInc::new(LazyMaxInc::new(cwd, z6), z8);
+            run_inc(
+                &start,
+                &inc,
+                args.max_bound,
+                args.parallel,
+                args.move_dfa,
+                orbit,
+                t0,
+            )
+        }
+        HeuristicChoice::CwdZpdb8Lazy => {
+            let dir = match require_dir(&args, "cwd-zpdb8-lazy") {
+                Ok(d) => d,
+                Err(c) => return c,
+            };
+            let k8 = match load_zpdbs_k8(&dir) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            eprintln!("cWD+k8 (lazy): loading cWD tables…");
+            let cwd = Cwd::new().with_neighbor_prune(args.cwd_neighbor_prune);
+            eprintln!(
+                "cWD+k8 (lazy) ready: k8 (30.5 GiB) advanced only on children cWD fails to prune{}",
+                if args.cwd_neighbor_prune {
+                    "; neighbor-prune ON"
+                } else {
+                    ""
+                },
+            );
+            // k8 keeps its reflected view (as in cwd-zpdb6-zpdb8-lazy).
+            let z8 = ZpdbInc::new([&k8[0], &k8[1], &k8[2]]);
+            let inc = LazyMaxInc::new(cwd, z8);
             run_inc(
                 &start,
                 &inc,
