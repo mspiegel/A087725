@@ -428,6 +428,8 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
             st.nodes as f64 / secs / 1e6
         );
     }
+    #[cfg(feature = "zpdb-locality")]
+    println!("{}", puzzle8::puzzle24::pdb::heuristic::locality::report());
 }
 
 /// Drive an incremental heuristic, dispatching on bounded vs optimal mode.

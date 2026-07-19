@@ -33,6 +33,10 @@ puzzle24 = ["parallel", "mmap"]
 # counter bumps cost ~5-10% wall time. Turn on to derive accurate ns/call per
 # component when paired with a samply profile (`enumerate15` prints totals).
 verifier-stats = []
+# Global probe/make counters for the ZPDB `make()` hot path, printed by solve24
+# at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
+# `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
+zpdb-locality = []
 # 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
 # See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
 # automatically on macOS via the target block below, with runtime CPU fallback
