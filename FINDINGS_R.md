@@ -1081,6 +1081,45 @@ shell, where k8 fires but pays for it). That needs instrumenting the real search
 per-node cWD distribution — a node-count profile, not a heuristic probe.
 `deepboard_profile` retained; results in `data/deepboard_complement_profile.txt`.
 
+## 8u. The R-proof workload lives at cWD 100–125 — where the complement DOES fire (corrects §8t) (2026-07-20)
+
+§8t's complement profile used random walks from R and concluded "k8's complement
+vanishes toward R (cWD≥130)." That measured the wrong distribution. The real
+question is the cWD value of the nodes the *proof search actually expands*, so I
+instrumented the search directly: feature `cwd-node-hist` histograms `h_val` for
+every node passing the `f ≤ bound` check — the nodes cWD does NOT prune, which are
+exactly the nodes where a complementary heuristic is probed. A bounded R search
+(`--heuristic cwd --max-bound 144`, proves ≥146; 319M expanded nodes) gives:
+
+| cWD region | share of expanded nodes | k8 fires here (§8t) |
+|---|---:|---:|
+| ≤ 109 | **44.4%** | high (62% at 100–109) |
+| 110–125 | **55.3%** (peak ~112) | ~4% at 110–119 |
+| ≥ 126 | **0.33%** | ~0% |
+
+**§8t was misleading; the complement lever is reopened.** The proof workload is
+dominated by cWD **100–125**; the near-R cWD≥126 region where k8 is useless is a
+negligible **0.33%**. §8t's random-walk sample (mean cWD 126) over-weighted the
+high-cWD near-R states that barely appear in the real tree — the threshold
+constraint `g + cWD ≤ bound` puts the node mass at intermediate depth / mid cWD,
+not at the root. So k8 *does* fire on the dominant workload (consistent with the
+~40% node cut in the coarse A/B), and the barrier is **iso-time** (per-node cost),
+not absence of a complement.
+
+**The actionable lever this exposes.** k8's firing concentrates at the *low* end
+(cWD ≤ ~109, 44% of the workload, ~62% fire) and is weak at cWD 110–125 (55% of
+the workload, ~4% fire) — yet the lazy combiner pays the full k8 per-node cost
+across *all* expanded nodes. A **cWD-value-gated complement** — probe the expensive
+k8 only when cWD ≤ ~112, skipping it on the ~half of expanded nodes at cWD 113–125
+where it almost never fires — would keep most of the node-cut while roughly halving
+the wasted probe cost, which is precisely what turns §8k's iso-time trade into a
+win. (Caveat: measured at bound 144; the real ≥152 tree explores deeper, extending
+the workload *below* cWD 100 where k8 fires even more, so the lever likely
+strengthens at the target threshold.) Next: confirm k8's firing rate stratified by
+cWD on a sample dense in the 100–120 band (§8t's ≤109 bucket had only 8 samples),
+then A/B a cWD-gated lazy combiner. `cwd-node-hist` feature retained (off by
+default, zero cost); results in `data/cwd_node_hist_r144.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
