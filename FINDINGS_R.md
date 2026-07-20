@@ -859,6 +859,45 @@ poor: the strongest such abstraction we have (the 30.5 GiB k8 ZPDB) already
 so a cost-partition of cWD⊕PDB has little slack to redistribute. `axis_lp_ceiling.rs`
 is retained as the constructive proof witness. Cf. [[mincut-manhattan-cap]].
 
+## 8o. The axis-coupled ("blank-ferry") WD is vacuous — column-abstracted coupling = plain WD (2026-07-19)
+
+After §8m/§8n closed the cut/flow congestion family, the remaining structurally
+distinct lever was a *conflict*-style coupling: a single WD automaton over the
+**product** state `(M_r, M_c, blank_cell)` — one blank serving both axes — to
+charge the ferry cost cWD's two independent per-axis solves miss (§8g: R's slack
+is ferry/far-churn; Step A re-confirms it — blank round-trip pairs = 74, `rt_far`
+= 9 on R's path). Two cheap root measurements, no table.
+
+- **Step A (available slack).** `slack_anatomy rpath`: R's gap over cWD is 12
+  moves (row 8 + col 8 over WD; cWD surcharge 4). Plenty of physical ferrying to
+  *try* to charge.
+- **Step B (can a coupled WD charge it?).** `examples/coupled_wd_root.rs` computes
+  the coupled bound at R's root by IDA* over the product state (admissible: every
+  real move → one abstract move, goal-class in the blank's column chosen freely;
+  `h = WD_row+WD_col` is consistent, so exact). Result: **coupled-WD(R) = 140 =
+  WD(R) exactly** (found in one downhill plunge at threshold 140).
+
+**Theorem (vacuous).** The blank's ROW trajectory is driven solely by the vertical
+moves and its COLUMN trajectory solely by the horizontal ones; a vertical move's
+availability depends only on `M_r` (any class present in the adjacent row, chosen
+freely) and never on the blank's column, symmetrically for horizontal. So any
+interleaving of an optimal row-WD sequence with an optimal col-WD sequence is a
+valid product path ⇒ coupled-WD ≤ WD_row+WD_col, and ≥ h = the same ⇒ **= WD
+exactly**. The shared blank couples nothing, because column-abstraction has
+forgotten *which* tile sits in the blank's column — so the relaxation lets the
+blank always find a useful move.
+
+**Consequence.** A coupling that actually bites must retain **tile-column
+identity** — i.e. a PDB — and PDBs collapse to ≤126 on R. So the tractable
+axis-coupling (#2 of the "beating cWD" menu) reduces to the PDB direction, already
+known weak on R; it is closed in its column-abstracted form. Net after §8m/§8n/§8o:
+every *sound-by-construction* admissible-bound family that does not see tile
+identity at range is measured-out for R — cut/flow (= Manhattan) and product-WD
+(= WD). What is left is not construction but **combination** (cost-partition cWD ⊕
+PDB) or **a sound strengthening of cWD's own escape rules** (§8h's transit-yield
+ceiling reaches R's slack; only the soundness proof is missing). `coupled_wd_root.rs`
+retained as the witness. Cf. [[mincut-manhattan-cap]].
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
