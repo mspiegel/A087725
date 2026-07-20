@@ -898,6 +898,46 @@ PDB) or **a sound strengthening of cWD's own escape rules** (§8h's transit-yiel
 ceiling reaches R's slack; only the soundness proof is missing). `coupled_wd_root.rs`
 retained as the witness. Cf. [[mincut-manhattan-cap]].
 
+## 8p. Transit-yield soundness diagnostic (Phase 1) — the unsound cause is free-slot escape (2026-07-19)
+
+Of the "beating cWD" menu, transit-yield (#3) is the only family whose *ceiling*
+already exceeds cWD (§8h/R4 reaches R's slack) — so the entire problem is
+soundness. Phase 1 localizes exactly where the aggressive rules R2/R3 lose it.
+`slack_anatomy yielddiag` (3000 random len-55 boards, exact-solved) reports the
+board-level unsound rate (cwd_axis with the rule's demands > d*) and buckets every
+fired transit demand by `(k = goal-g residents in line g, thru = transiters
+spanning g)`, measuring the "over-fire" (optimal path made fewer exits than
+demanded).
+
+**Results.** R2 is unsound on **3/3000 (0.1%)**, R3 on **19/3000 (0.6%)**, mean
+overshoot ~2.7–2.8 when unsound. Over-fire by bucket:
+
+| bucket | over-fire rate | reading |
+|--------|---------------:|---------|
+| **k=5**, any thru | **0%** | fully saturated line ⇒ transiter *must* force a yield — the provable R1 core |
+| k=4, thru=1 (R2/R3) | 29% | one gap in the line |
+| k=4, thru=2+ demanding 2 (R3) | 29% | two transiters, one gap |
+| k=3, thru=1/2+ (R3) | 27% / 13% | two gaps |
+
+**The cause is free-slot escape.** A line with `k` goal-g residents has `5−k`
+non-resident cells = **gaps**. A transiter can pass *through a gap* without
+displacing any resident, so demanding a yield is unsound whenever a gap is
+reachable. This is why **k=5 is the unique safe condition** (0 gaps ⇒ 0% over-fire
+= exactly R1) and every `k≤4` demand (all of R2/R3's extensions) is unsound. The
+`k=4, thru≥2 → demand 2` case adds a second failure — **shared yield**: two
+transiters share the single gap, so only one exit is forced, not two.
+
+**Implication for Phase 2.** Gating on the *count* `k` alone cannot beat R1
+soundly — the count can't tell whether the line's gaps are *reachable by the
+transiter*. A sound strengthening must be **position-aware**: demand a yield only
+when the transiter's path is blocked by residents on *both* sides (no reachable
+gap). That needs within-line **column order** — the exact information WD's
+count-only contingency abstracts away (the same crux as §8o). So #3 is not dead,
+but Phase 1 reframes it precisely: the target is a *gap-blocked* refinement
+carrying minimal within-line position, not a bigger count-demand. Encouragingly,
+R2 is already unsound on only 0.1% of boards, so the guard that must be added is
+narrow. Diagnostic saved to `data/yielddiag_len55.txt`; `yielddiag` mode retained.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

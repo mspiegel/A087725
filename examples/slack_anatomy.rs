@@ -936,6 +936,194 @@ fn run_rpath(file: &str) {
     }
 }
 
+// ---- transit-yield soundness diagnostic (Phase 1) --------------------------
+//
+// R2/R3 are aggressive transit-yield rules that overshoot d* on some boards
+// (unsound). This mode localizes WHERE: for each board it computes the
+// board-level unsound flag (cwd_axis value with the rule's demands > d*), and
+// buckets every FIRED transit demand by its features (k = goal-g residents in
+// line g, thru = tiles whose interval spans g) — measuring how often the
+// optimal path made FEWER exits than the rule demanded (the "over-fire", the
+// structural cause of unsoundness). A bucket with 0% over-fire is a safe
+// (candidate-sound) side-condition; a high-% bucket is the guard we must add.
+
+#[derive(Default, Clone)]
+struct DiagBucket {
+    fires: u64,
+    overfires: u64,  // optimal path made fewer exits than demanded (e < y)
+    sum_over: u64,   // total (y - e) across over-fires
+    on_unsound: u64, // fires occurring on a board that is unsound overall
+}
+
+type DiagAgg = HashMap<(u8, u8, u8), DiagBucket>; // (rule, k, thru_bucket)
+
+fn run_yielddiag(n: u64, len: u32, seed0: u64, threads: usize) {
+    eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
+    let cwd = Cwd::new();
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
+    let goal = goal_key();
+    let next: std::sync::atomic::AtomicU64 = 0.into();
+    #[allow(clippy::type_complexity)]
+    let shared: std::sync::Mutex<(DiagAgg, [u64; 2], [u64; 2], [u64; 2], [u64; 2], Vec<String>)> =
+        // (agg, unsound[rule], fallback[rule], judged[rule], sum_overshoot[rule], samples)
+        std::sync::Mutex::new((DiagAgg::new(), [0; 2], [0; 2], [0; 2], [0; 2], Vec::new()));
+
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let mut agg = DiagAgg::new();
+                let mut unsound = [0u64; 2];
+                let mut fb = [0u64; 2];
+                let mut judged = [0u64; 2];
+                let mut overshoot = [0u64; 2];
+                let mut samples: Vec<String> = Vec::new();
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= n {
+                        break;
+                    }
+                    let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+                    let s = random_walk(seed, len);
+                    let (sol, _st) = Search::new(&s, &cwd).solve_with_stats();
+                    let path = sol.expect("solvable by construction");
+                    let d = path.len() as u32;
+
+                    let (mr, br, dr, mc, bc, dc) = project(&s);
+                    let (k_r, t_r, k_c, t_c) = yield_features(&s);
+                    let (e_r, e_c) = observed_exits(&s, &path);
+
+                    for (ri, rule) in [2u8, 3u8].into_iter().enumerate() {
+                        let y_r = yield_dem(&k_r, &t_r, rule);
+                        let y_c = yield_dem(&k_c, &t_c, rule);
+                        // board-level unsound flag: cwd_axis with max(LIS, transit) demands
+                        let mut fell_back = false;
+                        let mut hr = 0u32;
+                        for (m, blank, dem) in
+                            [(&mr, br, max_dem(&dr, &y_r)), (&mc, bc, max_dem(&dc, &y_c))]
+                        {
+                            match cwd_axis(&table, m, blank, goal, &dem) {
+                                Some(v) => hr += v as u32,
+                                None => {
+                                    fell_back = true;
+                                    hr += *table.get(&pack(m, blank)).unwrap() as u32;
+                                }
+                            }
+                        }
+                        if fell_back {
+                            fb[ri] += 1;
+                            continue;
+                        }
+                        judged[ri] += 1;
+                        let is_unsound = hr > d;
+                        if is_unsound {
+                            unsound[ri] += 1;
+                            overshoot[ri] += (hr - d) as u64;
+                        }
+                        // line-level over-fire attribution
+                        let mut offending = String::new();
+                        for (axis, (y, e, k, t)) in
+                            [(&y_r, &e_r, &k_r, &t_r), (&y_c, &e_c, &k_c, &t_c)]
+                                .into_iter()
+                                .enumerate()
+                        {
+                            for g in 0..W {
+                                if y[g] == 0 {
+                                    continue;
+                                }
+                                let key = (rule, k[g], t[g].min(2) as u8);
+                                let b = agg.entry(key).or_default();
+                                b.fires += 1;
+                                if is_unsound {
+                                    b.on_unsound += 1;
+                                }
+                                if e[g] < y[g] {
+                                    b.overfires += 1;
+                                    b.sum_over += (y[g] - e[g]) as u64;
+                                    if is_unsound && offending.is_empty() {
+                                        offending = format!(
+                                            "{}g{g} k={} thru={} y={} e={}",
+                                            if axis == 0 { "r" } else { "c" },
+                                            k[g],
+                                            t[g],
+                                            y[g],
+                                            e[g]
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if is_unsound && rule == 3 && samples.len() < 12 {
+                            samples.push(format!(
+                                "d={d} h_r3={hr} (+{}) offend[{offending}] board={:?}",
+                                hr - d,
+                                s.0
+                            ));
+                        }
+                    }
+                }
+                let mut g = shared.lock().unwrap();
+                for (k, v) in agg {
+                    let e = g.0.entry(k).or_default();
+                    e.fires += v.fires;
+                    e.overfires += v.overfires;
+                    e.sum_over += v.sum_over;
+                    e.on_unsound += v.on_unsound;
+                }
+                for i in 0..2 {
+                    g.1[i] += unsound[i];
+                    g.2[i] += fb[i];
+                    g.3[i] += judged[i];
+                    g.4[i] += overshoot[i];
+                }
+                g.5.extend(samples);
+            });
+        }
+    });
+
+    let (agg, unsound, fb, judged, overshoot, samples) = shared.into_inner().unwrap();
+    println!("=== transit-yield soundness diagnostic [len={len}] (n={n}, {threads} thr) ===");
+    for (ri, rule) in [2u8, 3u8].into_iter().enumerate() {
+        let (u, j, f) = (unsound[ri], judged[ri], fb[ri]);
+        let rate = 100.0 * u as f64 / j.max(1) as f64;
+        let mo = if u > 0 {
+            overshoot[ri] as f64 / u as f64
+        } else {
+            0.0
+        };
+        println!(
+            "  R{rule}: unsound {u}/{j} ({rate:.1}%), fallback {f}; mean overshoot (h−d) when unsound {mo:.2}"
+        );
+    }
+    println!();
+    println!("fired transit demands, bucketed by (k=residents, thru=transiters):");
+    println!("  rule   k  thru |  fires  overfire  rate   mean_over  %fires_on_unsound_boards");
+    let mut keys: Vec<_> = agg.keys().copied().collect();
+    keys.sort();
+    for key in keys {
+        let b = &agg[&key];
+        let (rule, k, tb) = key;
+        let tb_s = if tb >= 2 { "2+".into() } else { tb.to_string() };
+        println!(
+            "  R{rule}   {k}  {tb_s:>4} | {:6}  {:8}  {:4.0}%  {:8.2}   {:5.0}%",
+            b.fires,
+            b.overfires,
+            100.0 * b.overfires as f64 / b.fires.max(1) as f64,
+            b.sum_over as f64 / b.overfires.max(1) as f64,
+            100.0 * b.on_unsound as f64 / b.fires.max(1) as f64,
+        );
+    }
+    println!();
+    println!("sample unsound boards (R3):");
+    for s in samples.iter().take(12) {
+        println!("  {s}");
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -967,8 +1155,17 @@ fn main() {
                 .unwrap_or("data/r156_ours_solution.txt");
             run_rpath(file);
         }
+        Some("yielddiag") => {
+            let n: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(300);
+            let len: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(90);
+            let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
+            run_yielddiag(n, len, seed0, threads);
+        }
         other => {
-            eprintln!("usage: slack_anatomy walks N LEN SEED0 | rpath [FILE]  (got {other:?})");
+            eprintln!(
+                "usage: slack_anatomy walks N LEN SEED0 | yieldgap N LEN SEED0 T | yielddiag N LEN SEED0 T | yieldr [FILE] | rpath [FILE]  (got {other:?})"
+            );
         }
     }
 }
