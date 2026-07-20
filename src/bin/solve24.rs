@@ -459,11 +459,6 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
         "{}",
         puzzle8::puzzle24::search::idastar::prune_histogram::report()
     );
-    #[cfg(feature = "cwd-node-hist")]
-    println!(
-        "{}",
-        puzzle8::puzzle24::search::idastar::cwd_node_hist::report()
-    );
 }
 
 /// Drive an incremental heuristic, dispatching on bounded vs optimal mode.

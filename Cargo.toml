@@ -40,10 +40,6 @@ zpdb-locality = []
 # Per-depth cWD-vs-k8 prune histogram for cwd-zpdb8-lazy (diagnostic, off by
 # default; a relaxed-atomic bump per prune decision). Printed by solve24 at exit.
 prune-histogram = []
-# cWD-value histogram of expanded nodes (nodes cWD does not prune) — which
-# cWD-region dominates the proof workload. Off by default (a relaxed-atomic bump
-# per expanded node). Printed by solve24 at exit.
-cwd-node-hist = []
 # 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
 # See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
 # automatically on macOS via the target block below, with runtime CPU fallback

@@ -274,8 +274,6 @@ fn search_inc<E: IncHeuristic>(
     if f > bound {
         return Step::Bound(f);
     }
-    #[cfg(feature = "cwd-node-hist")]
-    cwd_node_hist::note(h_val);
     if s == &GOAL {
         // Signal any parallel siblings to stop — every goal at this threshold is
         // optimal-length, so the first one found is a valid optimal solution.
@@ -1295,52 +1293,6 @@ pub mod prune_histogram {
     }
 }
 
-/// cWD-value histogram of *expanded* nodes (feature `cwd-node-hist`, off by
-/// default). Records `h_val` for every node that passes the `f <= bound` check —
-/// i.e. the nodes cWD does NOT prune, which are exactly the nodes where a
-/// complementary heuristic (a PDB) would be probed. Answers which cWD-region
-/// dominates the R-proof workload (§8t follow-up). Instrumented in both search
-/// drivers; a relaxed-atomic bump per expanded node.
-#[cfg(feature = "cwd-node-hist")]
-pub mod cwd_node_hist {
-    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-
-    pub const MAXH: usize = 200;
-
-    #[allow(clippy::declare_interior_mutable_const)]
-    const Z: AtomicU64 = AtomicU64::new(0);
-    static HIST: [AtomicU64; MAXH] = [Z; MAXH];
-
-    #[inline(always)]
-    pub fn note(h: u8) {
-        HIST[(h as usize).min(MAXH - 1)].fetch_add(1, Relaxed);
-    }
-
-    pub fn report() -> String {
-        let counts: [u64; MAXH] = std::array::from_fn(|i| HIST[i].load(Relaxed));
-        let total: u64 = counts.iter().sum();
-        let t = total.max(1) as f64;
-        let mut out = String::from("cWD-value histogram of expanded nodes (cWD does not prune):\n");
-        out.push_str(&format!("  total expanded: {total}\n"));
-        for (i, &c) in counts.iter().enumerate() {
-            if c > 0 {
-                out.push_str(&format!(
-                    "  cWD {i:3}: {c:>16}  ({:6.3}%)\n",
-                    100.0 * c as f64 / t
-                ));
-            }
-        }
-        let band = |lo: usize, hi: usize| -> u64 { counts[lo..=hi.min(MAXH - 1)].iter().sum() };
-        out.push_str(&format!(
-            "  summary: cWD<=109 {:.2}%  |  110-125 (k8 fires) {:.2}%  |  >=126 (k8 dead) {:.2}%",
-            100.0 * band(0, 109) as f64 / t,
-            100.0 * band(110, 125) as f64 / t,
-            100.0 * band(126, MAXH - 1) as f64 / t,
-        ));
-        out
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 /// Loop-invariant parameters of one IDA\* threshold, bundled into a single
 /// pointer so the hot recursive [`search_inc_mut`] passes ~9 args (fitting
@@ -1388,8 +1340,6 @@ fn search_inc_mut<E: IncHeuristicMut, P: MovePruner>(
     if f > inv.bound {
         return Step::Bound(f);
     }
-    #[cfg(feature = "cwd-node-hist")]
-    cwd_node_hist::note(h_val);
     if s == &GOAL {
         inv.found.store(true, std::sync::atomic::Ordering::Relaxed);
         return Step::Found;

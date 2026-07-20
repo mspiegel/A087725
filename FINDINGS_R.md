@@ -1125,8 +1125,36 @@ absent. The barrier is the intrinsic per-node incremental cost (apply + diff-ran
 wall-clock is a *throughput* problem (cheapen k8's per-node cost — the §8i–§8l
 frontier) or a *structurally cheaper complement* problem (a partition with lower
 per-node apply+rank cost that still fires on the cWD 100–125 workload), not a gating
-problem. `cwd-node-hist` retained (off by default, zero cost); results in
-`data/cwd_node_hist_r144.txt`.
+problem. The `cwd-node-hist` instrumentation lives on branch `cwd-node-hist` (kept off
+main); results in `data/cwd_node_hist_r144.txt`.
+
+## 8v. cWD is pinned to depth on the proof contour — the cWD-gate IS the depth-gate (2026-07-20)
+
+Extending `cwd-node-hist` to record depth `g` alongside cWD (branch `cwd-node-hist`)
+and re-running the same bounded R search answers "how do the cWD bands correlate with
+depth?" — **exactly, and trivially**: every expanded node has `cWD = 144 − g`.
+
+The per-depth table shows mean-cWD = `144 − g` at every depth with **zero spread**
+(each depth is 100% within one cWD band), i.e. `g + cWD = 144` for *every* expanded
+node — the last IDA\* iteration explores only the `f = 144` contour, as expected for a
+consistent heuristic rooted at `f = threshold`. So the cWD bands are *depth* bands:
+
+| band | cWD | depth g | share |
+|---|---|---|---:|
+| k8 dead | ≥ 126 | g ≤ 18 | 0.33% |
+| k8 weak | 110–125 | g 19–34 | 55.3% |
+| k8 fires | ≤ 109 | g ≥ 35 | 44.4% |
+
+(node count peaks at g≈32, cWD 112.)
+
+**Consequence — this rigorously confirms §8u's retraction.** Because `cWD = 144 − g` on
+the dominant contour, a cWD-value gate (probe k8 only when cWD ≤ 112) is *identical* to
+a depth gate (probe k8 only when g ≥ 32) — which is exactly the `--zpdb-depth`
+experiment, already measured a wash. The cWD value carries no information beyond depth
+on the contour, so there is nothing a cWD-keyed decision can do that a depth-keyed one
+cannot — and the depth-keyed one lost. The wall-clock lever is throughput or a
+structurally cheaper complement, not any gate. Results in `data/cwd_depth_hist_r144.txt`;
+tool on branch `cwd-node-hist`.
 
 ## 9. Summary
 
