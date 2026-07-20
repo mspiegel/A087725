@@ -1007,6 +1007,41 @@ is guarded — path detours are reroutable — but detour is now the specific,
 localized target, which yields never were. Saved to `data/ydceiling_r.txt`;
 `ydceiling` mode retained.
 
+## 8s. The detour rule is unsound — yield-or-detour closes; R's churn is provably-optional to a static bound (2026-07-19)
+
+§8r localized R's transit churn to **detour** (off-band column travel), not yield.
+The Phase-2 second cut, `slack_anatomy dettest`, built the natural state-computable
+detour rule and validated it the §8q way. **DET(s):** a tile that must transit a
+row is *blocked* if in some transit row every cell within its natural column band
+is a resident (no on-band gap) → it must yield-or-detour, +1 (symmetric for
+columns). Test: is `h0(LIS cWD) + DET ≤ d*`?
+
+**Unsound, decisively.** Bulk: unsound on **0.57% (17/3000)**, worst overshoot +5.
+On R's path it is far worse — DET fires on 84/157 states but `h0+DET` exceeds the
+suffix length (a *valid* solution bound) on **77 of 157 states**, DET reaching 38.
+The block is **illusory**: a transiter facing no on-band gap *now* reroutes, or a
+gap opens as other tiles move, before it must cross — so the detour is **not
+forced**. The free-slot/reroute wall that killed the yield branch (§8p/§8q) kills
+the detour branch identically.
+
+**This closes yield-or-detour, and with it the last cross-axis coupling.** The deep
+reason, now demonstrated on both branches: R's residual churn is **optional** — it
+appears on R's optimal path but can be rerouted across the space of optimal
+solutions, so no *static, state-computable* sound bound can charge it (only a
+path-specific one can, which is §8h's R4 — sound for one path, not a heuristic).
+That is precisely why cWD's sound demands are ⊆ LIS and every strengthening is
+unsound. `dettest`/`ydceiling` retained; results in `data/dettest_len55.txt`.
+
+**Net over §8m–§8s — the admissible-bound search over cWD is complete for R.** Every
+sound-by-construction family has been built and measured out: cut/flow congestion
+= Manhattan (§8m/§8n), blank-ferry/product coupling = WD (§8o), per-line yield
+(§8p/§8q) and cross-axis detour (§8r/§8s) both defeated by reroutable/optional
+churn, and cost-partition ⊕ PDB = max by cWD saturation. **cWD(R) = 144 is the
+ceiling for tractable admissible heuristics on R**; the residual 12 to d*≤156 is
+optional churn no static sound bound reaches. The practical route to R ≥ 152 is the
+~2-day exhaustive compute (§8b), not a tighter heuristic — which is exactly what R
+being the global WD-maximum instance predicts.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

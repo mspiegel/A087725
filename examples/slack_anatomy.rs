@@ -1477,6 +1477,186 @@ fn run_ydceiling(file: &str) {
     );
 }
 
+// ---- detour rule soundness test (Phase 2 second cut) -----------------------
+//
+// DET(s): a tile that must transit a row is "blocked" if in some transit row
+// EVERY cell within its natural column band is a resident of that row (no
+// on-band gap) — then it cannot cross on-band and must yield-or-detour: +1.
+// Symmetric for column-transiters. We test whether h0(LIS cWD) + DET stays
+// admissible (<= d*) on the bulk set and along R's path (suffix length bound),
+// and whether DET fires on R. If it's unsound, the block is illusory (the
+// transiter reroutes / a gap opens); if sound with gain, it's a real lever.
+
+fn detour_charge(s: &State) -> u32 {
+    let mut ch = 0u32;
+    for pos in 0..N_CELLS {
+        let t = s.0[pos] as usize;
+        if t == 0 {
+            continue;
+        }
+        let (cr, cc) = (pos / W, pos % W);
+        let (gr, gc) = ((t - 1) / W, (t - 1) % W);
+        // row-transiter: transit rows strictly between cr and gr
+        if cr != gr {
+            let (clo, chi) = (cc.min(gc), cc.max(gc));
+            let (rlo, rhi) = (cr.min(gr), cr.max(gr));
+            let mut blocked = false;
+            for g in (rlo + 1)..rhi {
+                let onband_gap = (clo..=chi).any(|c| {
+                    let u = s.0[g * W + c] as usize;
+                    u == 0 || (u - 1) / W != g
+                });
+                if !onband_gap {
+                    blocked = true;
+                    break;
+                }
+            }
+            if blocked {
+                ch += 1;
+            }
+        }
+        // col-transiter: transit cols strictly between cc and gc
+        if cc != gc {
+            let (rlo, rhi) = (cr.min(gr), cr.max(gr));
+            let (clo, chi) = (cc.min(gc), cc.max(gc));
+            let mut blocked = false;
+            for g in (clo + 1)..chi {
+                let onband_gap = (rlo..=rhi).any(|r| {
+                    let u = s.0[r * W + g] as usize;
+                    u == 0 || (u - 1) % W != g
+                });
+                if !onband_gap {
+                    blocked = true;
+                    break;
+                }
+            }
+            if blocked {
+                ch += 1;
+            }
+        }
+    }
+    ch
+}
+
+fn run_dettest(n: u64, len: u32, seed0: u64, threads: usize) {
+    eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
+    let cwd = Cwd::new();
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
+    let goal = goal_key();
+    let next: std::sync::atomic::AtomicU64 = 0.into();
+    // (judged, unsound, fallback, sum_det, fires, worst_overshoot)
+    let shared: std::sync::Mutex<(u64, u64, u64, u64, u64, i64)> =
+        std::sync::Mutex::new((0, 0, 0, 0, 0, 0));
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let (mut j, mut u, mut fb, mut sd, mut fi, mut worst) =
+                    (0u64, 0u64, 0u64, 0u64, 0u64, 0i64);
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= n {
+                        break;
+                    }
+                    let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+                    let s = random_walk(seed, len);
+                    let (sol, _st) = Search::new(&s, &cwd).solve_with_stats();
+                    let path = sol.expect("solvable by construction");
+                    let d = path.len() as u32;
+                    let (mr, br, dr, mc, bc, dc) = project(&s);
+                    let h0 = match (
+                        cwd_axis(&table, &mr, br, goal, &dr),
+                        cwd_axis(&table, &mc, bc, goal, &dc),
+                    ) {
+                        (Some(a), Some(b)) => a as u32 + b as u32,
+                        _ => {
+                            fb += 1;
+                            continue;
+                        }
+                    };
+                    let det = detour_charge(&s);
+                    j += 1;
+                    sd += det as u64;
+                    fi += u64::from(det > 0);
+                    let over = (h0 + det) as i64 - d as i64;
+                    if over > 0 {
+                        u += 1;
+                        worst = worst.max(over);
+                    }
+                }
+                let mut g = shared.lock().unwrap();
+                g.0 += j;
+                g.1 += u;
+                g.2 += fb;
+                g.3 += sd;
+                g.4 += fi;
+                g.5 = g.5.max(worst);
+            });
+        }
+    });
+    let (j, u, fb, sd, fi, worst) = shared.into_inner().unwrap();
+    println!("=== detour rule (DET) soundness test [len={len}] (n={n}, {threads} thr) ===");
+    println!(
+        "  h0(LIS cWD) + DET:  unsound {u}/{j} ({:.2}%), fallback {fb}; worst overshoot +{worst}",
+        100.0 * u as f64 / j.max(1) as f64
+    );
+    println!(
+        "  DET fires on {fi}/{j} boards ({:.1}%); mean DET {:.3}",
+        100.0 * fi as f64 / j.max(1) as f64,
+        sd as f64 / j.max(1) as f64
+    );
+
+    // R path: DET must satisfy h0 + DET <= suffix length (a valid solution bound)
+    let text = std::fs::read_to_string("data/r156_ours_solution.txt").expect("R path");
+    let body: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let moves = parse_moves(&body);
+    let mut st = r_board();
+    let (mut det_states, mut det_sum, mut det_max, mut rviol) = (0u32, 0u32, 0u32, 0u32);
+    for i in 0..=moves.len() {
+        let det = detour_charge(&st);
+        if det > 0 {
+            det_states += 1;
+            det_sum += det;
+            det_max = det_max.max(det);
+            // soundness against suffix length
+            let (mr, br, dr, mc, bc, dc) = project(&st);
+            if let (Some(a), Some(b)) = (
+                cwd_axis(&table, &mr, br, goal, &dr),
+                cwd_axis(&table, &mc, bc, goal, &dc),
+            ) {
+                let suffix = (moves.len() - i) as u32;
+                if a as u32 + b as u32 + det > suffix {
+                    rviol += 1;
+                }
+            }
+        }
+        if i < moves.len() {
+            st = st.apply(moves[i]);
+        }
+    }
+    println!();
+    println!(
+        "R's path: DET fires on {det_states}/{} states (max {det_max}, total {det_sum}); h0+DET > suffix on {rviol} states",
+        moves.len() + 1
+    );
+    let verdict = if u > 0 || rviol > 0 {
+        "UNSOUND -> the block is illusory (transiter reroutes / a gap opens); detour not forced. Confirms the free-slot/reroute wall."
+    } else if fi == 0 && det_states == 0 {
+        "sound but never fires -> no gain."
+    } else {
+        "SOUND and fires -> real lever; wire DET into cwd_axis and A/B on R."
+    };
+    println!("  VERDICT: {verdict}");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -1528,6 +1708,13 @@ fn main() {
                 .map(String::as_str)
                 .unwrap_or("data/r156_ours_solution.txt");
             run_ydceiling(file);
+        }
+        Some("dettest") => {
+            let n: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3000);
+            let len: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(55);
+            let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
+            run_dettest(n, len, seed0, threads);
         }
         other => {
             eprintln!(

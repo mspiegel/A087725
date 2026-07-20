@@ -1,0 +1,6 @@
+=== detour rule (DET) soundness test [len=55] (n=3000, 8 thr) ===
+  h0(LIS cWD) + DET:  unsound 17/3000 (0.57%), fallback 0; worst overshoot +5
+  DET fires on 1970/3000 boards (65.7%); mean DET 1.109
+
+R's path: DET fires on 84/157 states (max 38, total 920); h0+DET > suffix on 77 states
+  VERDICT: UNSOUND -> the block is illusory (transiter reroutes / a gap opens); detour not forced. Confirms the free-slot/reroute wall.
