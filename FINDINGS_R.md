@@ -776,6 +776,47 @@ view — note the reflected *rank integer* is **not** derivable from the normal 
 (the transpose scrambles both the shape and permutation ranks), though the
 reflected *positions* are, which would save the reflected *apply*, not the *rank*.
 
+## 8m. Min-cut / cut-packing congestion bounds are provably capped at Manhattan (2026-07-19)
+
+§8f/§8h ruled out the per-line escape-demand family (ceiling proven) and said
+"whatever closes R's slack must couple the axes or see tile identity at range."
+The one genuinely-unbuilt *sound-by-construction* candidate that survived was a
+**min-cut / operator-counting congestion bound** — the LP/flow generalization of
+WD's per-boundary linear flow. `examples/mincut_ceiling.rs` measured its ceiling
+on R the §8h way (path-informed, fail-fast) — and the answer is a **theorem, not
+a number: the whole cut-packing family cannot exceed Manhattan(R) = 112.**
+
+**Construction.** A *cut* is a subset `S` of the 25 cells; a sound lower bound on
+the solution moves that cross it is `lb(S) = #{tiles whose start,goal straddle S}`
+(each crossing move carries exactly one tile across; the directional balance pins
+the minimum to `a+b`). A move slides one tile along one grid edge, so a move
+crosses `S` iff that edge is a cut-edge of `S`. Hence for any **edge-disjoint**
+family of cuts, no move crosses two of them and `d* ≥ Σ lb(S)`. Maximizing that
+sum is the min-cut / operator-counting ceiling for the family.
+
+**The Menger cap.** `Σ_{S∈F} lb(S) = Σ_tiles #{S∈F separating that tile}`. For a
+fixed tile the separating cuts are pairwise edge-disjoint, and by **Menger's
+theorem** the max number of edge-disjoint edge-cuts between two vertices equals
+their graph distance = that tile's **Manhattan** distance. Summing:
+`Σ lb(S) ≤ Σ_tiles Manhattan(t) = Manhattan(R)`, with equality achieved by the 8
+axis half-plane cuts. The tool confirms it numerically: axis-packing = best of
+200 000 randomized packings = **112 = Manhattan(R)**; greedy (lb-biased) even
+*under*performs at 108. Every selected cut's observed crossings on R's 156-move
+path dominate its `lb` (soundness witness holds).
+
+**Consequence.** The min-cut congestion direction is **dead for R by proof**, not
+by budget: it is capped at Manhattan = 112, *below* WD (140) — because WD already
+beats Manhattan via the one thing a single-commodity cut is blind to, **intra-line
+ordering** (LIS). So neither non-axis rectangle cuts, center-isolating cuts, nor
+any edge-disjoint packing can add anything WD/cWD don't already have. This closes
+the last sound-by-construction *single-commodity* lever. What Menger does **not**
+cap — and what therefore remains the only live frontier for R's residual slack —
+is exactly what §8f named: intra-line **ordering** (already exploited) and true
+**axis-coupling** (a joint row×col relaxation, i.e. a *multi-commodity* LP whose
+tiles compete for shared edge capacity — the operator-counting bound proper, which
+Menger's single-tile argument does not bound). `mincut_ceiling.rs` is retained as
+the constructive proof witness (the "measured-dead, harness retained" pattern).
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
