@@ -1,0 +1,11 @@
+Lower bound: depth >= 146
+Nodes          : 422379806
+Search time    : 35.21s
+
+mid-tree dedup probe (same-depth transpositions surviving the move-DFA):
+  depth |       visits |     distinct | dup-rate | redundancy
+  g 13  |        17841 |        17841 |   0.00% | 1.000x
+  g 22  |      3699141 |      3541534 |   4.26% | 1.045x
+  g 28  |     14902743 |     13969823 |   6.26% | 1.067x
+  g 34  |     18443783 |     17208548 |   6.70% | 1.072x
+  g 40  |     11506524 |     10704512 |   6.97% | 1.075x

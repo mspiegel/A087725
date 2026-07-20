@@ -1156,6 +1156,43 @@ cannot — and the depth-keyed one lost. The wall-clock lever is throughput or a
 structurally cheaper complement, not any gate. Results in `data/cwd_depth_hist_r144.txt`;
 tool on branch `cwd-node-hist`.
 
+## 8w. Mid-tree transpositions are already gone — the move-DFA leaves only ~7% (2026-07-20)
+
+§8v left one lever that *isn't* blocked by the admissible-bound wall: don't tighten
+the bound on the dominant depth-19–34 nodes, **eliminate them as duplicates**. The
+move-DFA (Taylor–Korf) prunes redundant move *sequences* statelessly but not full
+transpositions (one board reached by two paths); a transposition table would. The
+probe (`midtree-dedup` feature, branch `midtree-dedup`, sequential R search at
+bound 144) collects the actual boards at target depths and counts same-depth
+repeats:
+
+| depth g | visits | distinct | dup-rate | redundancy |
+|---:|---:|---:|---:|---:|
+| 13 | 17 841 | 17 841 | 0.00% | 1.000× |
+| 22 | 3 699 141 | 3 541 534 | 4.26% | 1.045× |
+| 28 | 14 902 743 | 13 969 823 | 6.26% | 1.067× |
+| 34 | 18 443 783 | 17 208 548 | 6.70% | 1.072× |
+| 40 | 11 506 524 | 10 704 512 | 6.97% | 1.075× |
+
+**Same-depth = total transposition redundancy here** (a clean consequence of §8v):
+on the `f = 144` contour cWD is a function of the board, so `board → cWD → g` is
+deterministic — every board appears at exactly one depth, and cross-depth
+transpositions are *impossible*. So the probe captures all of it, and it's only
+**~7%** in the mid-tree. The move-DFA already eliminates the rest. A transposition
+table's ceiling is therefore a ~7% node cut, bought with a table storing billions
+of boards — not worth it. The duplicate-pruning lever is dry.
+
+**Synthesis (the traversal thread, §8t–§8w).** The dominant depth-19–34 mid-tree
+nodes are **largely irreducible** for the current method: (1) a tighter *admissible*
+heuristic there means beating cWD on cWD-110–125 states, closed generally by
+§8m–§8s; (2) the *complement* (k8) fires but is iso-time, and gating it is the
+already-failed depth-gate (§8u/§8v); (3) they are *not* transposition-redundant
+(§8w, ~7%). So R ≥ 152 stays a **compute** problem — the ~2-day exhaustive run
+(§8b) — and the wall-clock frontier is throughput (§8i–§8l) or a structurally
+cheaper complement, not a tighter bound, a gate, or a transposition table. The
+`midtree-dedup` tool is on branch `midtree-dedup`; data in
+`data/midtree_dedup_r144.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
