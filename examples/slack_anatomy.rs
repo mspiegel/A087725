@@ -401,6 +401,58 @@ fn yield_dem(k: &[u8; W], thru: &[u32; W], rule: u8) -> [u8; W] {
     y
 }
 
+/// Gap-blocked demand (Phase-2 first cut). Reads the ACTUAL line layout, not
+/// just counts. For a line with `k` goal-residents, the (5-k) non-resident cells
+/// are "gaps" a transiter can slip through without forcing a yield (§8p). This
+/// rule demands 1 exit only when either the line is fully saturated (k=5, the
+/// provable R1 core — no gap at all) or every gap is INTERIOR (columns 1..3,
+/// flanked by residents), the hypothesis being that an interior gap is not
+/// reachable by a transiter. `r1_only` restricts to the k=5 core for comparison.
+fn gap_blocked_line(resident: &[bool; W], thru: u32, r1_only: bool) -> u8 {
+    if thru == 0 {
+        return 0;
+    }
+    let k = resident.iter().filter(|&&b| b).count();
+    if k == 5 {
+        return 1; // R1: fully saturated => a transiter must force a yield
+    }
+    if r1_only {
+        return 0;
+    }
+    // gap-blocked hypothesis: fire iff every gap is interior (flanked)
+    let mut any_gap = false;
+    let mut all_interior = true;
+    for (c, &res) in resident.iter().enumerate() {
+        if !res {
+            any_gap = true;
+            if c == 0 || c == W - 1 {
+                all_interior = false;
+            }
+        }
+    }
+    u8::from(any_gap && all_interior && k >= 3)
+}
+
+/// (row, col) gap-blocked demand vectors for a state.
+fn gap_blocked_dem(s: &State, r1_only: bool) -> ([u8; W], [u8; W]) {
+    let (_, t_r, _, t_c) = yield_features(s);
+    let mut y_r = [0u8; W];
+    let mut y_c = [0u8; W];
+    for g in 0..W {
+        let mut res_row = [false; W];
+        let mut res_col = [false; W];
+        for i in 0..W {
+            let tr = s.0[g * W + i]; // row g, col i
+            res_row[i] = tr != 0 && ((tr as usize - 1) / W) == g;
+            let tc = s.0[i * W + g]; // row i, col g
+            res_col[i] = tc != 0 && ((tc as usize - 1) % W) == g;
+        }
+        y_r[g] = gap_blocked_line(&res_row, t_r[g], r1_only);
+        y_c[g] = gap_blocked_line(&res_col, t_c[g], r1_only);
+    }
+    (y_r, y_c)
+}
+
 /// Observed per-line exits along a path: goal-g tile leaving line g (per axis).
 fn observed_exits(start: &State, path: &[Move]) -> ([u8; W], [u8; W]) {
     let mut e_r = [0u32; W];
@@ -1124,6 +1176,171 @@ fn run_yielddiag(n: u64, len: u32, seed0: u64, threads: usize) {
     }
 }
 
+// ---- gap-blocked rule test (Phase 2 first cut) -----------------------------
+//
+// Measures, over exact-solved bulk boards, the unsound rate (h_rule > d*) and
+// mean gain over cWD (LIS-only baseline h0) for two sound-candidate demands:
+// R1 (k=5 saturation) and GB (k=5 + interior-gap k<=4). Then counts how often
+// each fires along R's 156-move path — "does it activate near R?".
+
+fn run_gbtest(n: u64, len: u32, seed0: u64, threads: usize) {
+    eprintln!("loading cWD (solver) + raw WD table… ({threads} worker thread(s))");
+    let cwd = Cwd::new();
+    let table = load_dist_table(
+        Path::new("data/wd24.bin"),
+        WD_KIND_FULL,
+        Some(FULL_WD_ENTRIES),
+    )
+    .expect("wd24.bin load");
+    let goal = goal_key();
+    let next: std::sync::atomic::AtomicU64 = 0.into();
+    // per rule [r1, gb]: (judged, unsound, fallback, sum_gain, sum_fires); plus (cnt, sum_d, sum_h0)
+    #[allow(clippy::type_complexity)]
+    let shared: std::sync::Mutex<(
+        [u64; 2],
+        [u64; 2],
+        [u64; 2],
+        [u64; 2],
+        [u64; 2],
+        u64,
+        u64,
+        u64,
+    )> = std::sync::Mutex::new(([0; 2], [0; 2], [0; 2], [0; 2], [0; 2], 0, 0, 0));
+
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let (mut judged, mut unsound, mut fb, mut gain, mut fires) =
+                    ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
+                let (mut cnt, mut sum_d, mut sum_h0) = (0u64, 0u64, 0u64);
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= n {
+                        break;
+                    }
+                    let seed = seed0.wrapping_add(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+                    let s = random_walk(seed, len);
+                    let (sol, _st) = Search::new(&s, &cwd).solve_with_stats();
+                    let path = sol.expect("solvable by construction");
+                    let d = path.len() as u32;
+                    let (mr, br, dr, mc, bc, dc) = project(&s);
+                    let axis_sum = |dem_r: &[u8; W], dem_c: &[u8; W]| -> Option<u32> {
+                        let a = cwd_axis(&table, &mr, br, goal, dem_r)?;
+                        let b = cwd_axis(&table, &mc, bc, goal, dem_c)?;
+                        Some(a as u32 + b as u32)
+                    };
+                    let h0 = match axis_sum(&dr, &dc) {
+                        Some(v) => v,
+                        None => continue, // baseline fell back; skip board
+                    };
+                    cnt += 1;
+                    sum_d += d as u64;
+                    sum_h0 += h0 as u64;
+                    for (idx, r1_only) in [(0usize, true), (1usize, false)] {
+                        let (y_r, y_c) = gap_blocked_dem(&s, r1_only);
+                        let f = y_r.iter().chain(y_c.iter()).filter(|&&x| x > 0).count() as u64;
+                        match axis_sum(&max_dem(&dr, &y_r), &max_dem(&dc, &y_c)) {
+                            Some(h) => {
+                                judged[idx] += 1;
+                                if h > d {
+                                    unsound[idx] += 1;
+                                }
+                                gain[idx] += (h - h0) as u64;
+                                fires[idx] += f;
+                            }
+                            None => fb[idx] += 1,
+                        }
+                    }
+                }
+                let mut g = shared.lock().unwrap();
+                for i in 0..2 {
+                    g.0[i] += judged[i];
+                    g.1[i] += unsound[i];
+                    g.2[i] += fb[i];
+                    g.3[i] += gain[i];
+                    g.4[i] += fires[i];
+                }
+                g.5 += cnt;
+                g.6 += sum_d;
+                g.7 += sum_h0;
+            });
+        }
+    });
+
+    let (judged, unsound, fb, gain, fires, cnt, sum_d, sum_h0) = shared.into_inner().unwrap();
+    let cf = cnt.max(1) as f64;
+    println!("=== gap-blocked rule test [len={len}] (n={n}, {threads} thr) ===");
+    println!(
+        "  boards judged {cnt}; mean d* {:.2}; mean cWD (LIS baseline h0) {:.2}",
+        sum_d as f64 / cf,
+        sum_h0 as f64 / cf
+    );
+    for (idx, name) in [(0usize, "R1 (k=5)"), (1usize, "GB (k=5 + interior-gap)")] {
+        let j = judged[idx].max(1);
+        println!(
+            "  {name:24}: unsound {}/{} ({:.2}%), fallback {}; mean gain over cWD {:.3}; fires/board {:.2}",
+            unsound[idx],
+            judged[idx],
+            100.0 * unsound[idx] as f64 / j as f64,
+            fb[idx],
+            gain[idx] as f64 / j as f64,
+            fires[idx] as f64 / cf,
+        );
+    }
+
+    // does it fire near R? walk R's 156-move path, count firing states.
+    let text = std::fs::read_to_string("data/r156_ours_solution.txt").expect("R path");
+    let body: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let moves = parse_moves(&body);
+    let mut st = r_board();
+    let (mut r1_states, mut gb_states, mut r1_f, mut gb_f) = (0u32, 0u32, 0u32, 0u32);
+    let (mut r1_gain_sum, mut r1_gain_max, mut r1_bind) = (0i64, 0i64, 0u32);
+    let n_states = moves.len() + 1;
+    for i in 0..n_states {
+        let (yr1r, yr1c) = gap_blocked_dem(&st, true);
+        let (ygbr, ygbc) = gap_blocked_dem(&st, false);
+        let f1 = yr1r.iter().chain(yr1c.iter()).filter(|&&x| x > 0).count() as u32;
+        let fg = ygbr.iter().chain(ygbc.iter()).filter(|&&x| x > 0).count() as u32;
+        r1_f += f1;
+        gb_f += fg;
+        r1_states += u32::from(f1 > 0);
+        gb_states += u32::from(fg > 0);
+        if f1 > 0 {
+            // does R1 actually tighten cWD here? (only compute where it fires)
+            let (mr, br, dr, mc, bc, dc) = project(&st);
+            let axis_sum = |a: &[u8; W], b: &[u8; W]| -> Option<u32> {
+                Some(
+                    cwd_axis(&table, &mr, br, goal, a)? as u32
+                        + cwd_axis(&table, &mc, bc, goal, b)? as u32,
+                )
+            };
+            if let (Some(h0), Some(h1)) = (
+                axis_sum(&dr, &dc),
+                axis_sum(&max_dem(&dr, &yr1r), &max_dem(&dc, &yr1c)),
+            ) {
+                let g = h1 as i64 - h0 as i64;
+                r1_gain_sum += g;
+                r1_gain_max = r1_gain_max.max(g);
+                r1_bind += u32::from(g > 0);
+            }
+        }
+        if i < moves.len() {
+            st = st.apply(moves[i]);
+        }
+    }
+    println!();
+    println!("R's 156-move path ({n_states} states) — activation near R:");
+    println!("  R1: fires on {r1_states}/{n_states} states, {r1_f} total line-fires");
+    println!("  GB: fires on {gb_states}/{n_states} states, {gb_f} total line-fires");
+    println!(
+        "  R1 tightening where it fires: binds on {r1_bind} states, max gain +{r1_gain_max}, total +{r1_gain_sum}"
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -1161,6 +1378,13 @@ fn main() {
             let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
             let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
             run_yielddiag(n, len, seed0, threads);
+        }
+        Some("gbtest") => {
+            let n: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3000);
+            let len: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(55);
+            let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
+            run_gbtest(n, len, seed0, threads);
         }
         other => {
             eprintln!(

@@ -938,6 +938,41 @@ carrying minimal within-line position, not a bigger count-demand. Encouragingly,
 R2 is already unsound on only 0.1% of boards, so the guard that must be added is
 narrow. Diagnostic saved to `data/yielddiag_len55.txt`; `yielddiag` mode retained.
 
+## 8q. Gap-blocked rule refuted; the sound transit-yield demand is redundant with LIS on R (Phase 2 first cut) (2026-07-19)
+
+§8p's Phase 1 said a sound rule beyond R1 must be *position-aware* (fire only
+when the transiter has no reachable gap). `slack_anatomy gbtest` built and tested
+the first cut — a **gap-blocked** rule (fire when every gap in the line is
+INTERIOR, cols 1–3, flanked by residents, hypothesised unreachable) — against the
+same exact-solved bulk set (3000 boards) plus R's 156-move path.
+
+**Both halves came back negative.**
+- **The gap-blocked hypothesis is refuted.** GB is **unsound — 0.07% (2/3000)**.
+  An interior gap does *not* block a transiter: the transiter reaches that column
+  by ferrying **in its own row**, not line g, so line-g gap geometry is irrelevant
+  to reachability. §8p's free-slot escape cannot be fixed by any position feature
+  read from line g alone.
+- **The only sound demand (R1, k=5) is gainless on R.** R1 is sound (0/3000) but
+  never fires on shallow boards (0 gain), and where it *does* fire on R's corridor
+  (6/157 path states) it **binds on 0 of them** (max gain +0): cWD's LIS ordering
+  demand already covers those exits. R1 ⊆ LIS on the states that matter for R.
+
+**Consequence — the per-line escape-demand family is closed for R.** Feeding a
+scalar per-line demand to the vector-constrained WD (`cwd_axis`) cannot beat cWD
+soundly: the sound subset (R1) is subsumed by cWD's existing LIS demands, and
+every gainful extension (R2/R3, and now GB) is unsound via free-slot escape. This
+operationalizes §8h's verdict ("the family ceiling reaches the slack; soundness is
+the whole problem") into a mechanism: the gain lives exactly in the exits that
+free-slot escape makes unprovable. A sound gain would require a relaxation *richer
+than a scalar per-line demand* — carrying within-line column order (→ a PDB, which
+collapses to ≤126 on R) or cost-partitioning cWD with a PDB (candidate #1, still
+unmeasured). `gbtest`/`yielddiag` retained; results in `data/gbtest_len55.txt`.
+
+Net after §8m–§8q: of the "beating cWD" menu, cross-axis congestion (cut/flow =
+Manhattan), blank-ferry coupling (= WD), and per-line transit-yield (sound ⊆ LIS)
+are all measured-out for R. The last unmeasured lever is **cost-partition cWD ⊕
+PDB** (#1) — an LP over abstractions, cheap to try, with a poor prior (k8 ≤126).
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

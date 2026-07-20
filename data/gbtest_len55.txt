@@ -1,0 +1,9 @@
+=== gap-blocked rule test [len=55] (n=3000, 8 thr) ===
+  boards judged 3000; mean d* 44.14; mean cWD (LIS baseline h0) 34.80
+  R1 (k=5)                : unsound 0/3000 (0.00%), fallback 0; mean gain over cWD 0.000; fires/board 0.00
+  GB (k=5 + interior-gap) : unsound 2/3000 (0.07%), fallback 0; mean gain over cWD 0.369; fires/board 0.39
+
+R's 156-move path (157 states) — activation near R:
+  R1: fires on 6/157 states, 8 total line-fires
+  GB: fires on 6/157 states, 8 total line-fires
+  R1 tightening where it fires: binds on 0 states, max gain +0, total +0
