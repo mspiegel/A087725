@@ -817,6 +817,48 @@ tiles compete for shared edge capacity — the operator-counting bound proper, w
 Menger's single-tile argument does not bound). `mincut_ceiling.rs` is retained as
 the constructive proof witness (the "measured-dead, harness retained" pattern).
 
+## 8n. The multi-commodity (fractional) cut LP is *also* exactly Manhattan — congestion coupling is dead (2026-07-19)
+
+§8m capped the *integral* edge-disjoint cut packing at Manhattan(R)=112 by Menger,
+and named the one thing Menger does **not** cap: the *fractional* relaxation, where
+cuts share edge capacity — the multi-commodity / operator-counting coupling.
+`examples/axis_lp_ceiling.rs` built and solved it exactly (a one-phase primal
+simplex on the packing LP, over rectangles + multi-order prefix sweeps). **It is
+Manhattan too — 112.0000, with the 8 axis cuts as its entire support.**
+
+**The LP.** Let `k_e ≥ 0` be the crossings of grid edge `e`; then `d* = Σ k_e` and
+every cut obeys `Σ_{e∈∂S} k_e ≥ lb(S)`. So `min Σ k_e` s.t. those constraints (the
+**covering LP**) lower-bounds `d*`; its dual is the fractional cut packing
+`max Σ lb(S)y_S` s.t. `Σ_{S∋e} y_S ≤ 1`. The hope: sharing edges fractionally
+escapes the Menger integrality cap.
+
+**Theorem (it doesn't).** Route each tile on a shortest path; the induced edge
+counts `k_e` are feasible for **every** cut (a straddling tile crosses each
+separating cut an odd ≥1 times ⇒ `Σ_{e∈∂S} k_e ≥ lb(S)`) and `Σ k_e =
+Manhattan`. So the full covering LP `≤ Manhattan ≤` (axis lower bound) covering
+LP `⇒ = Manhattan` exactly — over *all* cuts, fractional included. The solver
+exhibits it: optimum 112, support = the 8 axis cuts (each `y=1`), observed
+crossings on R's path dominate every `lb` (soundness witness holds).
+
+**Why coupling fails here.** A cut/flow bound charges edge *traversals*, but
+sliding-puzzle edges have **unbounded per-plan capacity** — a tile may recross an
+edge for free in the relaxation — so congestion never bites. The constraint that
+actually makes R hard is intra-line **ordering** (two tiles can't pass through
+each other): a *conflict*, not a *cut*. That is exactly what WD/cWD/linear-conflict
+already charge, and no single-commodity-*or*-multi-commodity cut/flow LP can see it.
+
+**Consequence — the whole cut/flow congestion family is closed for R.** Integral
+(§8m) and fractional (§8n), single- and multi-commodity, all collapse to Manhattan
+= 112, below WD (140) < cWD (144). Coupling the axes *through shared edge capacity*
+buys nothing. The only structurally-distinct lever left is **cost-partitioning an
+ordering bound with a cross-axis tile-identity abstraction** — i.e. optimally
+combining cWD (ordering) with a PDB (cross-axis identity) via an LP *over
+abstractions, not cuts*. That is a genuinely different object; but the prior is
+poor: the strongest such abstraction we have (the 30.5 GiB k8 ZPDB) already
+**collapses to ≤126 on R**, and cWD saturates the full unit move-cost reaching 144,
+so a cost-partition of cWD⊕PDB has little slack to redistribute. `axis_lp_ceiling.rs`
+is retained as the constructive proof witness. Cf. [[mincut-manhattan-cap]].
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
