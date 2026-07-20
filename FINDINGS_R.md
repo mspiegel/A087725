@@ -1106,19 +1106,27 @@ not at the root. So k8 *does* fire on the dominant workload (consistent with the
 ~40% node cut in the coarse A/B), and the barrier is **iso-time** (per-node cost),
 not absence of a complement.
 
-**The actionable lever this exposes.** k8's firing concentrates at the *low* end
-(cWD ≤ ~109, 44% of the workload, ~62% fire) and is weak at cWD 110–125 (55% of
-the workload, ~4% fire) — yet the lazy combiner pays the full k8 per-node cost
-across *all* expanded nodes. A **cWD-value-gated complement** — probe the expensive
-k8 only when cWD ≤ ~112, skipping it on the ~half of expanded nodes at cWD 113–125
-where it almost never fires — would keep most of the node-cut while roughly halving
-the wasted probe cost, which is precisely what turns §8k's iso-time trade into a
-win. (Caveat: measured at bound 144; the real ≥152 tree explores deeper, extending
-the workload *below* cWD 100 where k8 fires even more, so the lever likely
-strengthens at the target threshold.) Next: confirm k8's firing rate stratified by
-cWD on a sample dense in the 100–120 band (§8t's ≤109 bucket had only 8 samples),
-then A/B a cWD-gated lazy combiner. `cwd-node-hist` feature retained (off by
-default, zero cost); results in `data/cwd_node_hist_r144.txt`.
+**A cWD-value gate does NOT convert this to a win — the incremental cost blocks it.**
+An earlier draft proposed probing k8 only when cWD ≤ ~112 (skipping the ~half of
+expanded nodes at cWD 113–125 where k8 fires ~4%). But k8 is an *incremental*
+heuristic: `ZpdbInc::make` runs `apply_in_place_at` unconditionally per group per
+move (position maintenance — unavoidable), and the value is a *diff* from the prior
+`n_h` (`diff_lookup(n_idx, ctx.n_h[i])`). So a gated node can't skip-and-resume
+cheaply: the apply is always paid, and recovering a deferred value needs a cold
+rank (`cold_lookup_proj`) that re-pays the rank *plus* a cold 10 GiB access. This is
+the same defer-and-replay economics that made the `--zpdb-depth` gate a measured
+wash. The gate is retracted.
+
+**What stands, and where the wall-clock lever actually is.** The solid, load-bearing
+result is the *correction of §8t*: the proof workload lives at cWD 100–125 where k8
+DOES fire, so the ~40% node cut is genuine and on-workload — the complement is not
+absent. The barrier is the intrinsic per-node incremental cost (apply + diff-rank,
+~40% of runtime, §8l), which no value-gate can dodge. So converting the node-cut to
+wall-clock is a *throughput* problem (cheapen k8's per-node cost — the §8i–§8l
+frontier) or a *structurally cheaper complement* problem (a partition with lower
+per-node apply+rank cost that still fires on the cWD 100–125 workload), not a gating
+problem. `cwd-node-hist` retained (off by default, zero cost); results in
+`data/cwd_node_hist_r144.txt`.
 
 ## 9. Summary
 
