@@ -1,0 +1,18 @@
+== yield-or-detour ceiling on R (156 moves) ==
+classification of transit crossings (through a non-goal line):
+  row-transit (vertical): transit crossings 53 (settle 25) | YIELD 1 DETOUR 22 FREE 30 | chargeable 23/53 = 43%; detour-excess 28
+  col-transit (horizontal): transit crossings 52 (settle 26) | YIELD 1 DETOUR 19 FREE 32 | chargeable 20/52 = 38%; detour-excess 25
+
+  YIELD 2  DETOUR 41  FREE 62  (R slack over cWD = 12)
+  Reading (careful — these are GROSS path crossings, not net-of-cWD):
+  - YIELDS negligible (2): saturation-forced yields barely occur on R (confirms
+    §8q R1 binds 0). Row-saturation charging is dead here.
+  - DETOURS are the coupling that shows up (41): transiters cross at off-band
+    columns — the ferry/far-churn made concrete. BUT this is gross: cWD_col already
+    prices most column churn (slack is 12, detour-excess is 53), so the NET recoverable
+    is bounded by the 12 slack, and most may be OPTIONAL (a detour on THIS optimal path
+    can be rerouted on another — the R4 trap).
+  - FREE is the plurality (62): on-band gap slips no sound bound can reach.
+  VERDICT: not decisive alone. R's churn is DETOUR-dominated (not yield). Whether any
+  detour is soundly chargeable NET of cWD needs a soundness-checked detour rule (gbtest-
+  style); prior is guarded because path detours are reroutable across optimal solutions.

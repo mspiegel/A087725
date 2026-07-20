@@ -973,6 +973,40 @@ Manhattan), blank-ferry coupling (= WD), and per-line transit-yield (sound ⊆ L
 are all measured-out for R. The last unmeasured lever is **cost-partition cWD ⊕
 PDB** (#1) — an LP over abstractions, cheap to try, with a poor prior (k8 ≤126).
 
+## 8r. Yield-or-detour ceiling — R's transit churn is detour-dominated, not yield-dominated (2026-07-19)
+
+The one cross-axis coupling §8m–§8q left untested: a transiter dodging a row-yield
+by slipping through a gap must *reach that gap's column*, costing column moves — so
+each transit crossing is a **yield** (through a saturated row), a **detour** (at an
+off-band column, extra column travel), or **free** (an on-band gap slip).
+`slack_anatomy ydceiling` classifies every transit crossing on R's 156-move path:
+
+| | transit | YIELD | DETOUR | FREE |
+|---|---:|---:|---:|---:|
+| row (vertical) | 53 | 1 | 22 | 30 |
+| col (horizontal) | 52 | 1 | 19 | 32 |
+
+**Findings.**
+- **Yields are negligible (2/105).** Saturation-forced yields barely occur on R —
+  independent confirmation of §8q (R1 binds 0). Row-saturation charging is dead here.
+- **The coupling that shows up is DETOUR (41/105).** Transiters routinely cross at
+  off-band columns (off-band excess 53) — R's ferry/far-churn made concrete, and it
+  lives on the *column* axis, not row saturation.
+- **FREE is the plurality (62/105)** — on-band gap slips no sound bound can reach.
+
+**But it is not a win, and the tool says so.** These are **gross** path crossings,
+not net-of-cWD: cWD_col already prices most column churn (R's slack over cWD is 12,
+while the detour-excess alone is 53), so the *net* recoverable is bounded by the 12
+slack and is subject to the R4 trap — a detour on *this* optimal path can be
+rerouted on another, i.e. it may be optional. So §8r **redirects** the search
+(from row-yield, dead, to column-detour, the live mechanism) without yet
+establishing sound net gain. The decisive next step is a **soundness-checked detour
+rule** (gbtest-style: a state-computable "transiter with no on-band gap must detour
+≥ k columns" demand, tested for 0% unsound + gain over cWD on the bulk set). Prior
+is guarded — path detours are reroutable — but detour is now the specific,
+localized target, which yields never were. Saved to `data/ydceiling_r.txt`;
+`ydceiling` mode retained.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

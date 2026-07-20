@@ -1341,6 +1341,142 @@ fn run_gbtest(n: u64, len: u32, seed0: u64, threads: usize) {
     );
 }
 
+// ---- yield-or-detour ceiling (Phase 2, cross-axis coupling) -----------------
+//
+// The one coupling §8m/§8n/§8o/§8q did NOT test: a transiter through a row can
+// dodge a yield only by slipping through a GAP, but reaching that gap's column
+// costs column moves. So each transit crossing is one of:
+//   YIELD  — the row was saturated (4 residents + blank, no other gap): a
+//            resident must have vacated -> chargeable on the row axis.
+//   DETOUR — the crossing happened at a column OUTSIDE the tile's natural
+//            [start_col, goal_col] band: extra column travel cWD_col does not
+//            charge (it counts only the minimum) -> chargeable on the col axis.
+//   FREE   — crossing at an on-band gap: no yield, no detour -> OPTIONAL churn
+//            that no sound bound can charge.
+// If FREE dominates on R's path, yield-or-detour (and any sound transit charge)
+// is dead; if YIELD+DETOUR is a large share of the slack, it has juice.
+
+#[derive(Default)]
+struct YdCount {
+    yield_c: u32,
+    detour_c: u32,
+    free_c: u32,
+    settle_c: u32,      // crossing into the tile's own goal line (not transit)
+    detour_excess: u32, // total off-band distance of detour crossings
+}
+
+fn run_ydceiling(file: &str) {
+    let text = std::fs::read_to_string(file).expect("read move file");
+    let body: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let moves = parse_moves(&body);
+    let start = r_board();
+
+    let mut row = YdCount::default(); // vertical crossings (transit through a row)
+    let mut col = YdCount::default(); // horizontal crossings (transit through a col)
+    let mut s = start;
+    let mut blank = s.0.iter().position(|&t| t == 0).unwrap();
+    for &m in &moves {
+        let s2 = s.apply(m);
+        let b2 = s2.0.iter().position(|&t| t == 0).unwrap();
+        let t = s2.0[blank] as usize; // tile that moved into the old blank cell (r0,c0)
+        let (r0, c0) = (blank / W, blank % W);
+        let r1 = b2 / W;
+        let (gr, gc) = ((t - 1) / W, (t - 1) % W);
+        let (sr, sc) = ((25 - t) / W, (25 - t) % W); // start cell on R board
+
+        if r0 != r1 {
+            // vertical move: t now sits in row r0, column c0
+            if gr == r0 {
+                row.settle_c += 1;
+            } else {
+                // residents of row r0 among its non-blank cells (blank is at c0 in s)
+                let res = (0..W)
+                    .filter(|&c| {
+                        c != c0 && s.0[r0 * W + c] != 0 && (s.0[r0 * W + c] as usize - 1) / W == r0
+                    })
+                    .count();
+                if res == 4 {
+                    row.yield_c += 1;
+                } else {
+                    let (lo, hi) = (sc.min(gc), sc.max(gc));
+                    if c0 >= lo && c0 <= hi {
+                        row.free_c += 1;
+                    } else {
+                        row.detour_c += 1;
+                        row.detour_excess += if c0 < lo { lo - c0 } else { c0 - hi } as u32;
+                    }
+                }
+            }
+        } else {
+            // horizontal move: t now sits in column c0, row r0
+            if gc == c0 {
+                col.settle_c += 1;
+            } else {
+                let res = (0..W)
+                    .filter(|&r| {
+                        r != r0 && s.0[r * W + c0] != 0 && (s.0[r * W + c0] as usize - 1) % W == c0
+                    })
+                    .count();
+                if res == 4 {
+                    col.yield_c += 1;
+                } else {
+                    let (lo, hi) = (sr.min(gr), sr.max(gr));
+                    if r0 >= lo && r0 <= hi {
+                        col.free_c += 1;
+                    } else {
+                        col.detour_c += 1;
+                        col.detour_excess += if r0 < lo { lo - r0 } else { r0 - hi } as u32;
+                    }
+                }
+            }
+        }
+        s = s2;
+        blank = b2;
+    }
+    assert_eq!(s, GOAL, "path must end at GOAL");
+
+    let show = |name: &str, c: &YdCount| {
+        let transit = c.yield_c + c.detour_c + c.free_c;
+        let charge = c.yield_c + c.detour_c;
+        println!(
+            "  {name}: transit crossings {transit} (settle {}) | YIELD {} DETOUR {} FREE {} | chargeable {}/{} = {:.0}%; detour-excess {}",
+            c.settle_c,
+            c.yield_c,
+            c.detour_c,
+            c.free_c,
+            charge,
+            transit.max(1),
+            100.0 * charge as f64 / transit.max(1) as f64,
+            c.detour_excess,
+        );
+    };
+    println!("== yield-or-detour ceiling on R ({} moves) ==", moves.len());
+    println!("classification of transit crossings (through a non-goal line):");
+    show("row-transit (vertical)", &row);
+    show("col-transit (horizontal)", &col);
+    let yields = (row.yield_c + col.yield_c) as i64;
+    let detours = (row.detour_c + col.detour_c) as i64;
+    let free = (row.free_c + col.free_c) as i64;
+    println!();
+    println!("  YIELD {yields}  DETOUR {detours}  FREE {free}  (R slack over cWD = 12)");
+    println!("  Reading (careful — these are GROSS path crossings, not net-of-cWD):");
+    println!(
+        "  - YIELDS negligible ({yields}): saturation-forced yields barely occur on R (confirms\n    §8q R1 binds 0). Row-saturation charging is dead here."
+    );
+    println!(
+        "  - DETOURS are the coupling that shows up ({detours}): transiters cross at off-band\n    columns — the ferry/far-churn made concrete. BUT this is gross: cWD_col already\n    prices most column churn (slack is 12, detour-excess is {}), so the NET recoverable\n    is bounded by the 12 slack, and most may be OPTIONAL (a detour on THIS optimal path\n    can be rerouted on another — the R4 trap).",
+        row.detour_excess + col.detour_excess
+    );
+    println!("  - FREE is the plurality ({free}): on-band gap slips no sound bound can reach.");
+    println!(
+        "  VERDICT: not decisive alone. R's churn is DETOUR-dominated (not yield). Whether any\n  detour is soundly chargeable NET of cWD needs a soundness-checked detour rule (gbtest-\n  style); prior is guarded because path detours are reroutable across optimal solutions."
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -1385,6 +1521,13 @@ fn main() {
             let seed0: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
             let threads: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
             run_gbtest(n, len, seed0, threads);
+        }
+        Some("ydceiling") => {
+            let file = args
+                .get(2)
+                .map(String::as_str)
+                .unwrap_or("data/r156_ours_solution.txt");
+            run_ydceiling(file);
         }
         other => {
             eprintln!(
