@@ -173,6 +173,10 @@ name = "build_adj8"
 required-features = ["sha"]
 
 [[example]]
+name = "deepboard_profile"
+required-features = ["mmap"]
+
+[[example]]
 name = "korf100_bench"
 required-features = ["mmap"]
 

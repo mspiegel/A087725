@@ -1042,6 +1042,45 @@ optional churn no static sound bound reaches. The practical route to R ≥ 152 i
 ~2-day exhaustive compute (§8b), not a tighter heuristic — which is exactly what R
 being the global WD-maximum instance predicts.
 
+## 8t. Deep-board complement profile — k8's complement vanishes toward R (2026-07-19)
+
+Correctly targeting the *traversal* (not h(R)): what matters for proving R ≥ 152 is
+the heuristic across the R→goal tree. `examples/deepboard_profile.rs` evaluates cWD
+and the k8 zPDB standalone on a large sample of the states the proof visits (4000
+random walks 1..60 from R, mean cWD 126) plus R's 156-corridor, and profiles where
+k8 *complements* cWD (k8 > cWD).
+
+**k8 complements cWD almost never — and it collapses toward R.**
+
+| cWD bucket | states | k8 > cWD | mean gain |
+|---|---:|---:|---:|
+| 100–109 | 8 | 62% | 2.4 |
+| 110–119 | 718 | 4% | 2.2 |
+| 120–129 | 2040 | 0.1% | 2.0 |
+| 130–139 | 962 | **0%** | — |
+| 140–149 | 272 | **0%** | — |
+
+Overall k8 > cWD on **1.0%** of near-R states; on R's corridor **0/157**, with
+`max(cWD,k8) = cWD` exactly (k8 is strictly looser — mean looseness 5.55 vs cWD's
+3.06 against the suffix-length d* proxy). And cWD's looseness is **concentrated at
+R**: 12 at the root, ~3 on the corridor.
+
+**Reconciles the coarse A/B and closes the traversal-complement question.** The
+earlier deep-board A/B (k8-lazy cut ~40% of nodes, iso-time) drew its win from the
+cWD≈100–119 boards where k8 fires ~4%; but the complement **vanishes at cWD ≥ 130**
+— the near-R region where the R≥152 proof is bottlenecked. The structural reason is
+the same one that makes R hard: near the antipode, aggregate per-axis flow (cWD)
+dominates any partial-tile-identity bound (PDB), so k8 — and, by the collapse of all
+8-tile PDBs on R, any PDB partition — has nothing to add on the deepest states. So
+the traversal-complement lever, correctly targeted this time, is **dry for the hard
+region**: k8 helps only on shallower deep boards and only iso-time there.
+
+The remaining honest unknown is which cWD-region actually dominates the R-proof
+tree's node count (near-R cWD≥130, where no complement exists, vs the cWD~110–125
+shell, where k8 fires but pays for it). That needs instrumenting the real search's
+per-node cWD distribution — a node-count profile, not a heuristic probe.
+`deepboard_profile` retained; results in `data/deepboard_complement_profile.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured
