@@ -1193,6 +1193,69 @@ cheaper complement, not a tighter bound, a gate, or a transposition table. The
 `midtree-dedup` tool is on branch `midtree-dedup`; data in
 `data/midtree_dedup_r144.txt`.
 
+## 8z. The cWD ladder ratio is ~43×/+2, not 29×, and throughput *falls* with depth (2026-07-29)
+
+*(Numbering: §8x…§8x-8 and §8y are in use on unmerged branches; this is §8z to
+avoid a collision. Renumber on merge.)*
+
+Two corrections to figures this file and `PUZZLE24.md` have been carrying, both
+measured on the rewritten flat engine (`src/puzzle24/search/flat.rs`, sequential,
+cWD + move-DFA + neighbour-WD pre-prune + root σ-orbit split).
+
+**1. The ~29×/+2 growth rate is a *WD* number and does not apply to cWD.**
+`PUZZLE24.md:378-381` derives it from `wd --prove-at-least 144` (exhausts 142,
+1.23 B) → `wd --prove-at-least 146` (exhausts 144, 36.9 B) ≈ 30×. It has since
+been quoted as if it governed the cWD proof ladder (`PUZZLE24.md:533`, `:590`).
+It does not. Measured on R with cWD:
+
+| exhausts | nodes (cumulative) | ratio vs previous |
+|---|---:|---:|
+| 144 | 422,379,806 | — |
+| 146 | 18,189,473,636 | **43.1×** |
+| 148 | 595.86 B (§8b) | **32.8×** |
+
+Iteration-only, the 146 pass is 17,767,093,830 nodes = **42.1×** the 144 pass.
+The ratio *falls* with depth (43 → 33), so a single constant is the wrong model
+in both directions: it understates the next step and overstates the one after.
+
+**2. Throughput degrades with depth — same binary, same board.**
+
+| exhausts | search time | throughput |
+|---|---:|---:|
+| 144 | 13.41 s | **31.50 Mn/s** |
+| 146 | 679.94 s | **26.75 Mn/s** |
+
+−15%. A deeper threshold walks a larger and more diffuse slice of the merged cWD
+table, so probe locality falls; this is the same effect §8i's hit-rate table
+shows from the other side. **Every wall-clock extrapolation in this repo assumes
+a fixed rate and is therefore optimistic**, including the ones made on the day
+the engine landed.
+
+**Revised projection.** Proving R ≥ 152 requires exhausting threshold 150.
+
+| exhausts | nodes | 1 thread @ ~25 Mn/s |
+|---|---:|---:|
+| 148 | 595.86 B (measured, §8b) | ~6.6 h |
+| 150 | ~17 T (extrapolated, ratio ~28×) | **~8 days** |
+
+The 150 row is an extrapolation twice over — the ratio is still falling so 28× is
+a guess, and the rate at that depth will be below 25 Mn/s. Treat it as an order
+of magnitude. It is nonetheless a materially different picture from the 75-day
+figure at `PUZZLE24.md:590`, which was WD-based and predates cWD, the σ-orbit
+split, and this engine.
+
+**Engine state.** The flat engine reached this via seven node-identical
+work-removal wins (C, D1, A, F, G3, H1, widemul-fold hash): 21.83 s → 13.41 s at
+exhaust-144, **−39% search time / +63% throughput**, unchanged nodes. Five
+loop-*restructuring* attempts all lost (prefetch −37%, index table −3.5%, probe
+cache −5.8%, H5 +16%, H5b +12.7%). Full log: `data/r_flat_engine_ab.txt`.
+
+**Method note.** The exhaust-146 run doubles as the strongest correctness check
+the engine has: 18,189,473,636 nodes matching the pure-cWD figure recorded at
+§8c bit-for-bit, ~500× the coverage of the 180-case frozen oracle
+(`src/puzzle24/search/flat_oracle.rs`) and at a depth the oracle's 200–700-step
+walk boards never reach.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

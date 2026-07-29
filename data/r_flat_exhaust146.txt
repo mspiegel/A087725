@@ -1,0 +1,12 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: loading tables…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+[14:03:45.630 UTC] search: start  (setup 26.86s)
+[14:15:05.602 UTC] search: end    (679.94s in search)
+Lower bound: depth >= 148
+Wall-clock     : 706.80s
+Nodes          : 18189473636
+Iterations     : 2
+Search time    : 679.94s
+Throughput     : 26.75 Mnodes/s
