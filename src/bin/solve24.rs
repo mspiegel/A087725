@@ -34,7 +34,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle24::search::cwd::Cwd;
-use puzzle8::puzzle24::search::flat::flat_bounded_telemetry;
+use puzzle8::puzzle24::search::flat::flat_bounded_budgeted;
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
@@ -45,6 +45,9 @@ struct Args {
     max_bound: Option<u8>,
     /// `None` = auto (on iff the board is σ-symmetric).
     root_orbit_split: Option<bool>,
+    /// Stop after this many nodes. Benchmarking only — a truncated run proves
+    /// nothing. `u64::MAX` = no budget.
+    max_nodes: u64,
 }
 
 const USAGE: &str = "\
@@ -56,12 +59,17 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           dist >= T. omit to solve optimally with no cap.
   --no-root-orbit-split   disable the σ-orbit split (auto-on when the board is
                           σ-symmetric). use to cross-check a proof.
+  --max-nodes N           stop after N nodes. BENCHMARKING ONLY — the result is
+                          not a proof, and is reported as such. Useful because
+                          the engine is node-identical across variants, so a
+                          budget cuts every A/B arm at the same tree position.
   --help                  this message.";
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut position = None;
     let mut max_bound = None;
     let mut root_orbit_split = None;
+    let mut max_nodes = u64::MAX;
 
     let mut i = 0;
     while i < argv.len() {
@@ -83,6 +91,18 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 max_bound = Some(t - 1);
             }
             "--no-root-orbit-split" => root_orbit_split = Some(false),
+            "--max-nodes" => {
+                i += 1;
+                max_nodes = argv
+                    .get(i)
+                    .ok_or("--max-nodes needs a value")?
+                    .replace('_', "")
+                    .parse()
+                    .map_err(|e| format!("--max-nodes: {e}"))?;
+                if max_nodes == 0 {
+                    return Err("--max-nodes must be >= 1".into());
+                }
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -95,6 +115,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         position,
         max_bound,
         root_orbit_split,
+        max_nodes,
     })
 }
 
@@ -254,12 +275,13 @@ fn main() -> ExitCode {
     // and a ladder run's cumulative average silently blends the two.
     let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
         let mut prev_nodes = 0u64;
-        flat_bounded_telemetry(
+        flat_bounded_budgeted(
             &start,
             &cwd,
             &dfa,
             orbit,
             args.max_bound.unwrap_or(u8::MAX),
+            args.max_nodes,
             |bound, stats, iter_dt| {
                 let nodes = stats.nodes - prev_nodes;
                 prev_nodes = stats.nodes;
@@ -298,6 +320,13 @@ fn main() -> ExitCode {
             println!("Unsolvable from this start.");
             print_stats(&st, search_dt);
             ExitCode::FAILURE
+        }
+        BoundedOutcome::BudgetExhausted(t) => {
+            println!("*** NOT A PROOF — node budget reached inside threshold {t} ***");
+            println!("Threshold {t} was NOT exhausted, so no lower bound follows.");
+            println!("Wall-clock     : {elapsed:.2?}");
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
         }
     }
 }

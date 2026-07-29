@@ -500,6 +500,33 @@ pub fn flat_bounded(
     flat_bounded_telemetry(start, cwd, dfa, orbit_split, max_bound, |_, _, _| {})
 }
 
+/// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
+/// return [`BoundedOutcome::BudgetExhausted`].
+///
+/// This exists for A/B benchmarking at depth, not for proving anything. An
+/// exhaust-146 run on `R` is ~18.2 B nodes and ~12 minutes; capping it at, say,
+/// 3 B lets the 144 pass finish and then samples ~2.6 B nodes of the 146 pass in
+/// ~100 s. Because the engine is node-identical across variants, the budget cuts
+/// every arm at the *same* tree position, so the truncated runs stay directly
+/// comparable — which is the whole point.
+///
+/// Pass `u64::MAX` for no budget; that dispatches to the same monomorphisation
+/// [`flat_bounded`] uses, in which the budget check does not exist.
+pub fn flat_bounded_budgeted<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    orbit_split: bool,
+    max_bound: u8,
+    max_nodes: u64,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner(start, cwd, dfa, orbit_split, max_bound, max_nodes, on_iter)
+}
+
 /// [`flat_bounded`] with a per-iteration callback, mirroring
 /// [`idastar_inc_bounded_telemetry`](super::idastar::idastar_inc_bounded_telemetry)
 /// so the ladder harnesses can report per-threshold nodes and wall time.
@@ -509,6 +536,21 @@ pub fn flat_bounded_telemetry<F>(
     dfa: &MoveDfa,
     orbit_split: bool,
     max_bound: u8,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner(start, cwd, dfa, orbit_split, max_bound, u64::MAX, on_iter)
+}
+
+fn flat_bounded_inner<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    orbit_split: bool,
+    max_bound: u8,
+    budget: u64,
     mut on_iter: F,
 ) -> (BoundedOutcome, SearchStats)
 where
@@ -539,7 +581,13 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        match run_iteration(&mut arena, cwd, merged, dfa, bound, &mut stats) {
+        let step = if budget == u64::MAX {
+            run_iteration::<false>(&mut arena, cwd, merged, dfa, bound, &mut stats, budget)
+        } else {
+            run_iteration::<true>(&mut arena, cwd, merged, dfa, bound, &mut stats, budget)
+        };
+        match step {
+            Step::BudgetOut => return (BoundedOutcome::BudgetExhausted(bound), stats),
             Step::Found(path) => return (BoundedOutcome::Solved(path), stats),
             Step::Exhausted(next) => {
                 if next == u8::MAX {
@@ -555,6 +603,8 @@ where
 enum Step {
     Found(Vec<Move>),
     Exhausted(u8),
+    /// The node budget ran out mid-iteration.
+    BudgetOut,
 }
 
 /// Project `start` into both axes, probe the merged table once per axis, and lay
@@ -635,13 +685,14 @@ fn seed_root(
 /// (`idastar.rs:1324`, `:1340`), so a child that is immediately over bound **is**
 /// counted, while one dropped by the pre-prune is **not** — it `continue`s before
 /// recursing. Both are reproduced below.
-fn run_iteration(
+fn run_iteration<const BUDGETED: bool>(
     arena: &mut Arena,
     cwd: &Cwd,
     merged: &CwdMerged,
     dfa: &MoveDfa,
     bound: u8,
     stats: &mut SearchStats,
+    budget: u64,
 ) -> Step {
     let lut = cwd.demand_lut();
     let neighbor_prune = cwd.neighbor_prune_enabled();
@@ -708,6 +759,11 @@ fn run_iteration(
 
         build_child(arena, d, m, geom, tile, merged, lut, dfa);
         stats.nodes += 1;
+        // Compiles away entirely when `BUDGETED` is false, so the proof driver's
+        // hot loop is byte-identical to a build without this feature.
+        if BUDGETED && stats.nodes >= budget {
+            return Step::BudgetOut;
+        }
 
         let h = arena.hot[d + 1].h;
         let f = g_next.saturating_add(h);
@@ -1147,6 +1203,11 @@ mod tests {
                 BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
                 BoundedOutcome::ProvedAtLeast(k) => c.tag == 1 && *k == c.val,
                 BoundedOutcome::Unsolvable => c.tag == 2,
+                // The oracle never runs with a budget; if this fires, the test
+                // harness is wrong rather than the engine.
+                BoundedOutcome::BudgetExhausted(_) => {
+                    panic!("oracle case {i} hit a node budget — the fixture is run unbudgeted")
+                }
             };
             assert!(
                 ok,

@@ -347,6 +347,12 @@ pub enum BoundedOutcome {
     ProvedAtLeast(u8),
     /// `start` is unreachable from `GOAL` (impossible for solvable states).
     Unsolvable,
+    /// The search was cut short by an explicit node budget while inside
+    /// threshold `.0`. **This is not a proof of anything** — the threshold was
+    /// not exhausted, so no lower bound follows. It exists so that a truncated
+    /// benchmarking run cannot be mistaken for, or silently folded into, a real
+    /// result: every `match` on this enum has to name it.
+    BudgetExhausted(u8),
 }
 
 /// Bounded / lower-bound IDA\* driven by an [`IncHeuristic`].

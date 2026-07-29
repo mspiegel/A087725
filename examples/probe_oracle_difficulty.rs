@@ -63,6 +63,7 @@ fn main() {
                     BoundedOutcome::Solved(ref m) => format!("Solved({})", m.len()),
                     BoundedOutcome::ProvedAtLeast(k) => format!("ProvedAtLeast({k})"),
                     BoundedOutcome::Unsolvable => "Unsolvable".into(),
+                    BoundedOutcome::BudgetExhausted(t) => format!("BudgetExhausted({t})"),
                 };
                 println!(
                     "seed={seed} steps={steps:4} h0={h0:3} bound=h0+{:<2} -> {tag:20} \
