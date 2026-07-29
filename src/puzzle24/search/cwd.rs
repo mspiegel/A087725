@@ -837,6 +837,26 @@ mod tests {
     /// hashbrown's SIMD group width.
     const GROUP: usize = 16;
 
+    /// [`place`] for an arbitrary (possibly non-power-of-two) bucket count.
+    fn place_mod(slots: &mut [bool], buckets: usize, h1: usize) -> usize {
+        let mut pos = h1 % buckets;
+        let mut stride = 0usize;
+        let mut hops = 0usize;
+        loop {
+            for i in 0..GROUP {
+                let idx = (pos + i) % buckets;
+                if !slots[idx] {
+                    slots[idx] = true;
+                    return hops;
+                }
+            }
+            stride += GROUP;
+            pos = (pos + stride) % buckets;
+            hops += 1;
+            assert!(hops < 1 << 22, "probe sequence failed to terminate");
+        }
+    }
+
     /// Insert `h1` into a SwissTable-shaped slot array using hashbrown's
     /// triangular probe sequence, returning the number of **group hops** past
     /// the home group. 0 hops means the key landed in the group its hash chose.
@@ -857,6 +877,88 @@ mod tests {
             hops += 1;
             assert!(hops < 1 << 20, "probe sequence failed to terminate");
         }
+    }
+
+    /// **Sizes the "shrink the table by raising the load factor" idea.**
+    ///
+    /// The merged map holds 65,650,495 entries in 134,217,728 buckets — 48.9%
+    /// load — because hashbrown rounds to a power of two and 65.65M x 8/7 just
+    /// crosses 2^26. Over half the allocation is empty slots, and the depth
+    /// slowdown is footprint-driven (TLB misses +52.7% per node at exhaust-146,
+    /// `puzzle24::pmu`), so a denser table is the obvious lever.
+    ///
+    /// The catch is that density costs probe length. This models hashbrown's
+    /// placement over the real key set at several bucket counts, so the
+    /// trade-off is measured rather than assumed: footprint saved on the left,
+    /// extra group hops per lookup on the right.
+    #[ignore = "loads the 563 MB + 1.1 GB tables and models placement at several \
+                load factors; run with --ignored --nocapture"]
+    #[test]
+    fn probe_length_vs_load_factor() {
+        let cwd = Cwd::new().with_neighbor_prune(true);
+        let Some(merged) = cwd.merged_table() else {
+            eprintln!("no merged cWD table — skipping");
+            return;
+        };
+        let mut keys: Vec<u64> = merged.keys().copied().collect();
+        keys.sort_unstable();
+        let n = keys.len();
+        // 32 B per (u64, CwdCell) entry + 1 control byte per bucket.
+        let bytes = |b: usize| (b * 33) as f64 / 1e9;
+        let cur = (n * 8 / 7 + 1).next_power_of_two();
+        println!("\n{n} keys; current {cur} buckets = {:.2} GB\n", bytes(cur));
+        println!(
+            "{:>12} {:>7} {:>9} {:>7} {:>7} {:>9} {:>9}",
+            "buckets", "load", "mean hops", "p99", "max", "size GB", "vs now"
+        );
+        for &b in &[
+            cur,
+            100_000_000,
+            90_000_000,
+            80_000_000,
+            75_030_000,
+            70_000_000,
+        ] {
+            if b < n {
+                continue;
+            }
+            let mut slots = vec![false; b];
+            let mask_pow2 = b.is_power_of_two();
+            let mut hops = vec![0u32; n];
+            for (i, &k) in keys.iter().enumerate() {
+                let h = {
+                    let mut x = k;
+                    x ^= x >> 33;
+                    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+                    x ^= x >> 33;
+                    x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+                    x ^= x >> 33;
+                    x
+                };
+                // Power-of-two tables mask; a non-power-of-two table needs a
+                // multiply-shift (fastrange) instead, which is what a custom
+                // table would use.
+                let home = if mask_pow2 {
+                    (h as usize) & (b - 1)
+                } else {
+                    (((h as u128) * (b as u128)) >> 64) as usize
+                };
+                hops[i] = place_mod(&mut slots, b, home) as u32;
+            }
+            let total: u64 = hops.iter().map(|&h| h as u64).sum();
+            let mut srt = hops.clone();
+            srt.sort_unstable();
+            println!(
+                "{b:>12} {:>6.1}% {:>9.4} {:>7} {:>7} {:>9.2} {:>8.0}%",
+                n as f64 / b as f64 * 100.0,
+                total as f64 / n as f64,
+                srt[(n as f64 * 0.99) as usize],
+                srt.last().unwrap(),
+                bytes(b),
+                bytes(b) / bytes(cur) * 100.0
+            );
+        }
+        println!();
     }
 
     /// **Decides whether a cheaper hash is even a candidate.** Models hashbrown's
