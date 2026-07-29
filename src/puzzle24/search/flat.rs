@@ -628,11 +628,17 @@ fn run_iteration(
 
         let m = pop_lowest(&mut cand);
         let g_next = (d as u8) + 1;
+        // The move geometry and the moved tile are both needed by the pre-prune
+        // and again by the child build, which recomputed them — and 54.87% of
+        // candidates survive the pre-prune and reach it. Compute once per
+        // candidate and pass them down.
+        let geom = GEOM[arena.hot[d].blank as usize][m as usize];
+        let tile = arena.board[d].0 .0[geom.from as usize] as usize;
 
         // Pre-prune from the parent's cached neighbour-WD: no probe, and — like
         // the generic engine — no node counted.
         if neighbor_prune {
-            if let Some(lb) = child_lb(arena, d, m) {
+            if let Some(lb) = child_lb(arena, d, m, geom, tile) {
                 let f = g_next.saturating_add(lb);
                 if f > bound {
                     if f < minf {
@@ -643,7 +649,7 @@ fn run_iteration(
             }
         }
 
-        build_child(arena, d, m, merged, lut, dfa);
+        build_child(arena, d, m, geom, tile, merged, lut, dfa);
         stats.nodes += 1;
 
         let h = arena.hot[d + 1].h;
@@ -690,10 +696,8 @@ fn run_iteration(
 /// neighbour WD (the surcharge is dropped, which keeps the bound admissible) and
 /// the untouched axis carries over whole.
 #[inline]
-fn child_lb(arena: &Arena, d: usize, m: Move) -> Option<u8> {
+fn child_lb(arena: &Arena, d: usize, m: Move, geom: Geom, tile: usize) -> Option<u8> {
     let f = &arena.hot[d];
-    let geom = &GEOM[f.blank as usize][m as usize];
-    let tile = arena.board[d].0 .0[geom.from as usize] as usize;
 
     let (slot, other, g) = if geom.vertical {
         (
@@ -723,24 +727,28 @@ fn child_lb(arena: &Arena, d: usize, m: Move) -> Option<u8> {
 /// contingency matrix: the two counts the incremental key update needs are read
 /// back out of the key itself with [`key_get_cell`], which is a shift and a mask
 /// on a value already in a register.
+// Same convention as the sibling engine's search functions (`idastar.rs:1296`,
+// `:1311`): three of these are loop invariants threaded down from the driver.
+#[allow(clippy::too_many_arguments)]
 fn build_child(
     arena: &mut Arena,
     d: usize,
     m: Move,
+    geom: Geom,
+    tile: usize,
     merged: &CwdMerged,
     lut: &[u8; DEMAND_LUT_LEN],
     dfa: &MoveDfa,
 ) {
     let parent = arena.hot[d];
-    let geom = GEOM[parent.blank as usize][m as usize];
     debug_assert_ne!(geom.from, NO_CELL, "illegal move reached build_child");
 
     // Board: copy the parent and swap the two cells. Same operation as
     // `State::apply_at`, which the generic engine calls at `idastar.rs:1387`.
     let mut child = arena.board[d].0;
     child.0.swap(parent.blank as usize, geom.from as usize);
-    let tile = child.0[parent.blank as usize] as usize;
     arena.board[d + 1] = BoardSlot(child);
+    debug_assert_eq!(tile, child.0[parent.blank as usize] as usize, "tile drift");
 
     let child_dfa = <MoveDfa as super::move_dfa::MovePruner>::advance(dfa, parent.dfa, m);
 
