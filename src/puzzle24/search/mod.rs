@@ -2,6 +2,8 @@
 
 pub mod cwd;
 pub mod flat;
+#[cfg(test)]
+mod flat_oracle;
 pub mod heuristic;
 pub mod idastar;
 pub mod linear_conflict;

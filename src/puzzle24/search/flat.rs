@@ -838,7 +838,6 @@ fn build_child(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::puzzle24::search::idastar::{LadderOutcome, Search};
     use crate::puzzle24::search::move_dfa::MovePruner;
     use std::path::Path;
 
@@ -1008,125 +1007,126 @@ mod tests {
         None
     }
 
-    /// Deterministic scramble by a random walk with no immediate undo.
-    fn scramble(seed: u64, steps: u32) -> State {
-        let mut s = GOAL;
-        let mut blank = s.blank_pos();
-        let mut last: Option<Move> = None;
-        let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
-        for _ in 0..steps {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            let legal: Vec<Move> = State::legal_moves_at(blank)
-                .iter()
-                .filter(|&m| last.is_none_or(|p| m != p.inverse()))
-                .collect();
-            let m = legal[(x % legal.len() as u64) as usize];
-            let (next, nb) = s.apply_at(m, blank);
-            s = next;
-            blank = nb;
-            last = Some(m);
-        }
-        s
-    }
-
-    fn same_outcome(flat: &BoundedOutcome, rec: &LadderOutcome) -> bool {
-        match (flat, rec) {
-            (BoundedOutcome::Solved(a), LadderOutcome::Solved(b)) => a.len() == b.len(),
-            (BoundedOutcome::ProvedAtLeast(a), LadderOutcome::ProvedAtLeast(b)) => a == b,
-            (BoundedOutcome::Unsolvable, LadderOutcome::Unsolvable) => true,
-            _ => false,
-        }
-    }
-
-    /// **The gate.** Two engines, one configuration, identical trees. Node counts
-    /// are compared exactly: they catch tree-shape divergence that comparing `h`
-    /// values or final bounds would miss.
-    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored. \
-                The LUT invariants this engine adds (CAND / GEOM / prune_mask / pop_lowest) are \
+    /// **The gate.** The flat engine's tree, compared node-for-node against the
+    /// frozen answers of the deleted recursive engine
+    /// ([`super::flat_oracle`]). Node counts are compared exactly: they catch
+    /// tree-shape divergence that comparing `h` values or final bounds would
+    /// miss.
+    ///
+    /// The oracle covers ~3.7 × 10^7 nodes over 180 cases, the largest a single
+    /// 10.4 M-node exhaustion. That sizing is deliberate and was arrived at the
+    /// hard way — the original grid searched **1,570 nodes in total** and was
+    /// nearly frozen in that state. Two properties of cWD make a naive grid
+    /// vacuous:
+    ///
+    /// - **Parity.** cWD shares the true distance's parity, so `f` only takes
+    ///   `h0, h0+2, h0+4, …`; a bound of `h0+1` is the same search as `h0`.
+    /// - **`bound = h0` is a narrow corridor.** Each child has `h = h0 ± 1`, so
+    ///   `f` is `h0` or `h0+2` and the latter is pruned immediately — only
+    ///   strictly-`h`-decreasing paths survive, tens of nodes.
+    ///
+    /// Hence the real cases sit at `h0 + {4,6,8}` on 200-700 step walks, where
+    /// cWD stops being exact and the search genuinely exhausts.
+    ///
+    /// A failure here means the flat engine's tree changed. The fixture is not
+    /// refreshable — the engine that produced it is gone — so it is ground
+    /// truth, never something to regenerate to make a test pass.
+    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s) and searches ~37M \
+                nodes; run with --ignored, and prefer --release (debug is ~100x slower). The \
+                LUT invariants this engine adds (CAND / GEOM / prune_mask / pop_lowest) are \
                 covered table-free by the fast tests in this module"]
     #[test]
-    fn flat_matches_recursive_nodes_and_outcome() {
+    fn flat_matches_frozen_recursive_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
         let dfa = MoveDfa::build_default();
 
-        for seed in 0..8u64 {
-            for steps in [4u32, 9, 14, 19] {
-                let s = scramble(seed, steps);
-                // Root h, to place the bounds around the real exhaust window.
-                let (h0, _) = flat_bounded(&s, &cwd, &dfa, false, 0);
-                let h0 = match h0 {
-                    BoundedOutcome::ProvedAtLeast(k) => k,
-                    _ => continue,
-                };
-                for extra in 0..3u8 {
-                    let bound = h0 + extra;
-                    let (fo, fs) = flat_bounded(&s, &cwd, &dfa, false, bound);
-                    let (ro, rs) = Search::new(&s, &cwd)
-                        .bound(bound)
-                        .pruner(&dfa)
-                        .orbit_split(false)
-                        .run();
-                    assert!(
-                        same_outcome(&fo, &ro),
-                        "outcome differs (seed {seed}, steps {steps}, bound {bound}): \
-                         flat {fo:?} vs recursive {ro:?}"
-                    );
-                    assert_eq!(
-                        fs.nodes, rs.nodes,
-                        "node count differs (seed {seed}, steps {steps}, bound {bound})"
-                    );
-                    assert_eq!(
-                        fs.iterations, rs.iterations,
-                        "iteration count differs (seed {seed}, steps {steps}, bound {bound})"
-                    );
-                }
-            }
+        let mut checked = 0usize;
+        let mut nodes_total = 0u64;
+        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
+            .iter()
+            .enumerate()
+        {
+            let s = State(c.board);
+            let (fo, fs) = flat_bounded(&s, &cwd, &dfa, c.orbit_split, c.bound);
+
+            let ok = match &fo {
+                BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
+                BoundedOutcome::ProvedAtLeast(k) => c.tag == 1 && *k == c.val,
+                BoundedOutcome::Unsolvable => c.tag == 2,
+            };
+            assert!(
+                ok,
+                "case {i}: outcome differs (board {:?}, bound {}, orbit_split {}): \
+                 flat {fo:?} vs frozen tag={} val={}",
+                c.board, c.bound, c.orbit_split, c.tag, c.val
+            );
+            assert_eq!(
+                fs.nodes, c.nodes,
+                "case {i}: node count differs (board {:?}, bound {}, orbit_split {})",
+                c.board, c.bound, c.orbit_split
+            );
+            assert_eq!(
+                fs.iterations, c.iterations,
+                "case {i}: iteration count differs (board {:?}, bound {}, orbit_split {})",
+                c.board, c.bound, c.orbit_split
+            );
+            checked += 1;
+            nodes_total += fs.nodes;
         }
+
+        // Guard the fixture itself: a truncated or half-written oracle would make
+        // every assertion above vacuous.
+        assert_eq!(checked, 180, "oracle case count changed");
+        assert!(
+            nodes_total > 30_000_000,
+            "oracle got weaker: only {nodes_total} nodes searched"
+        );
     }
 
-    /// The root σ-orbit split, on a σ-fixed board (the only place it is sound).
-    /// Uses the shallow fixture from `idastar.rs`'s own orbit test — `R` itself is
-    /// proof-scale — while asserting `R` is the σ-symmetric board it stands in for.
+    /// The orbit split must actually reduce the tree. The frozen oracle records
+    /// both settings at each bound, so this compares split against unsplit
+    /// without needing the deleted engine.
     #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored"]
     #[test]
-    fn flat_orbit_split_matches_recursive_on_symmetric_board() {
+    fn flat_orbit_split_reduces_nodes_against_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
         let dfa = MoveDfa::build_default();
+
         let r = State([
             0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2,
             1,
         ]);
         assert!(symmetry::is_symmetric(&r), "board R must be σ-symmetric");
 
-        let fix = State([
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 14, 15, 16, 17, 18, 13, 20, 21, 22, 23, 24,
-            19,
-        ]);
-        assert!(symmetry::is_symmetric(&fix), "fixture must be σ-symmetric");
-
-        for bound in [10u8, 12, 14] {
-            let (fo, fs) = flat_bounded(&fix, &cwd, &dfa, true, bound);
-            let (ro, rs) = Search::new(&fix, &cwd)
-                .bound(bound)
-                .pruner(&dfa)
-                .orbit_split(true)
-                .run();
-            assert!(same_outcome(&fo, &ro), "outcome differs at bound {bound}");
-            assert_eq!(fs.nodes, rs.nodes, "node count differs at bound {bound}");
-
-            // And the split must actually be doing something.
-            let (_, off) = flat_bounded(&fix, &cwd, &dfa, false, bound);
+        let mut pairs = 0usize;
+        for c in crate::puzzle24::search::flat_oracle::CASES
+            .iter()
+            .filter(|c| c.orbit_split)
+        {
+            let s = State(c.board);
+            assert!(symmetry::is_symmetric(&s), "orbit case must be σ-symmetric");
+            let Some(off) = crate::puzzle24::search::flat_oracle::CASES
+                .iter()
+                .find(|o| !o.orbit_split && o.board == c.board && o.bound == c.bound)
+            else {
+                continue;
+            };
+            let (_, on_stats) = flat_bounded(&s, &cwd, &dfa, true, c.bound);
+            assert_eq!(on_stats.nodes, c.nodes, "split node count differs");
             assert!(
-                fs.nodes < off.nodes,
-                "orbit split did not reduce nodes at bound {bound}"
+                c.nodes < off.nodes,
+                "orbit split did not reduce nodes at bound {}: {} vs {}",
+                c.bound,
+                c.nodes,
+                off.nodes
             );
+            pairs += 1;
         }
+        assert!(pairs >= 6, "expected orbit split pairs in the oracle");
     }
 
     /// The bounded-lower-bound contract, mirroring `tests/puzzle24_bounded.rs`.
@@ -1143,33 +1143,49 @@ mod tests {
         assert_eq!(o, BoundedOutcome::Solved(Vec::new()));
         assert_eq!(s.nodes, 0);
 
-        for seed in 0..4u64 {
-            let start = scramble(seed, 8);
-            // Truth from a full search with no cap.
-            let (truth, _) = Search::new(&start, &cwd).pruner(&dfa).run();
-            let d = match truth {
-                LadderOutcome::Solved(p) => p.len() as u8,
-                other => panic!("expected a solution, got {other:?}"),
-            };
+        // Optimal depths come from the frozen oracle rather than from a second
+        // engine or from this engine's own solve, so the contract below is
+        // anchored to ground truth. Tier-1 oracle cases that report `Solved`
+        // carry the optimum in `val`.
+        let solved: Vec<(State, u8)> = {
+            let mut seen: Vec<[u8; N_CELLS]> = Vec::new();
+            crate::puzzle24::search::flat_oracle::CASES
+                .iter()
+                .filter(|c| c.tag == 0 && !c.orbit_split)
+                .filter(|c| {
+                    let fresh = !seen.contains(&c.board);
+                    if fresh {
+                        seen.push(c.board);
+                    }
+                    fresh
+                })
+                .take(4)
+                .map(|c| (State(c.board), c.val))
+                .collect()
+        };
+        assert_eq!(solved.len(), 4, "oracle must supply four solved boards");
+
+        for (start, d) in solved {
+            let start = &start;
 
             // bound == depth ⇒ Solved at exactly that length.
-            match flat_bounded(&start, &cwd, &dfa, false, d).0 {
+            match flat_bounded(start, &cwd, &dfa, false, d).0 {
                 BoundedOutcome::Solved(p) => assert_eq!(p.len() as u8, d),
                 other => panic!("expected Solved at bound {d}, got {other:?}"),
             }
 
             // bound == depth-1 ⇒ ProvedAtLeast(depth): the exhaust is the proof.
             assert_eq!(
-                flat_bounded(&start, &cwd, &dfa, false, d - 1).0,
+                flat_bounded(start, &cwd, &dfa, false, d - 1).0,
                 BoundedOutcome::ProvedAtLeast(d),
             );
 
             // bound < h0 ⇒ the bound is returned without visiting a single node.
-            let h0 = match flat_bounded(&start, &cwd, &dfa, false, 0).0 {
+            let h0 = match flat_bounded(start, &cwd, &dfa, false, 0).0 {
                 BoundedOutcome::ProvedAtLeast(k) => k,
                 other => panic!("expected ProvedAtLeast, got {other:?}"),
             };
-            let (o, s) = flat_bounded(&start, &cwd, &dfa, false, h0 - 1);
+            let (o, s) = flat_bounded(start, &cwd, &dfa, false, h0 - 1);
             assert_eq!(o, BoundedOutcome::ProvedAtLeast(h0));
             assert_eq!(s.nodes, 0, "no node should be visited below h0");
         }
