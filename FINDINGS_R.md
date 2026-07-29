@@ -1193,10 +1193,12 @@ cheaper complement, not a tighter bound, a gate, or a transposition table. The
 `midtree-dedup` tool is on branch `midtree-dedup`; data in
 `data/midtree_dedup_r144.txt`.
 
-## 8z. The cWD ladder ratio is ~43×/+2, not 29×, and throughput *falls* with depth (2026-07-29)
+## 8x. The cWD ladder ratio is ~43×/+2, not 29×, and throughput *falls* with depth (2026-07-29)
 
-*(Numbering: §8x…§8x-8 and §8y are in use on unmerged branches; this is §8z to
-avoid a collision. Renumber on merge.)*
+*(Numbering: the unmerged branch `blank-tour-disjunction` also uses §8x…§8x-8,
+for unrelated lower-bound work that is not being merged — it carries no
+performance changes. If that branch is ever revived, its sections need
+renumbering, not this one.)*
 
 Two corrections to figures this file and `PUZZLE24.md` have been carrying, both
 measured on the rewritten flat engine (`src/puzzle24/search/flat.rs`, sequential,
