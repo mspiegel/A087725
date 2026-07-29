@@ -610,3 +610,56 @@ Treat isolated-latency arithmetic as an upper bound, not an estimate.
 Cumulative on R at exhaust-144, unchanged nodes throughout:
   recursive 21.83s (19.35 Mn/s) -> 13.41s (31.50 Mn/s) = -39% time, +63% thpt.
   Landed: C, D1, A, F, G3, H1, widemul.
+
+================================================================================
+Round: H5 — branchless pre-prune via a survivor mask   *** REJECTED, +16% ***
+Date: 2026-07-29
+Baseline: 7b5962d (C, D1, A, F, G3, H1, widemul)
+Bench: solve24 --position R --prove-at-least 146 (exhaust-144, sequential)
+================================================================================
+
+Motivated by a fresh hardware-counter run, the first since G3/H1/widemul landed.
+Top-down, normalised (categories summed to 103.5% before scaling; ~11s window of
+a 14.5s traced search; IPC 3.22):
+
+                        post-F      now      delta
+  useful / retiring      38.7%     37.2%     -1.5pp
+  discarded / bad spec   15.8%     19.9%     +4.1pp
+  back-end / processing  42.1%     42.9%     +0.8pp
+
+Reading: G3/H1/widemul removed work, so cycles/node fell ~39% while the
+mispredict penalty stayed fixed per bad branch — bad speculation therefore grew
+as a *share*. That pointed at the pre-prune's `f > bound`, which fires on 45.13%
+of 769,806,911 candidates (near-maximal entropy), ~3 branches per node.
+
+H5 hoisted the pre-prune out of the inner loop into `prefilter`, evaluating it
+for all candidates of a node at once and returning a survivor bitmask; the inner
+loop then builds every candidate it pops. Accept/reject by csel, minf folded
+branchlessly with u8::MAX as min's identity. No extra child_lb calls — it
+already ran for every candidate. Node identity verified by the frozen oracle
+(180 cases / 37M nodes, all green).
+
+  base   13.42  13.42     mean 13.420   31.48 Mn/s
+  H5     15.49  15.65     mean 15.570   27.13 Mn/s     +16.0%   REJECT
+
+Baseline spread 0.00s, so the regression is unambiguous.
+
+WHAT THIS COSTS THE MODEL. The counter share was real but the inference from it
+was wrong: a large "discarded" share does NOT imply that removing the specific
+high-entropy branch pays. Restructuring to remove it cost far more than the
+mispredicts it saved. Candidate mechanisms, none yet measured: `prefilter` is
+inlined at two sites and each carries its own loop, so the hot loop's register
+allocation may have degraded and reintroduced the spills the flat engine exists
+to avoid (§8l); and the per-candidate `lo = lo.min(...)` serialises a chain
+across prefilter iterations that the old lazy path only touched on a prune.
+
+Also folded in and now unmeasurable separately: H5 gave up G3's dedup half by
+recomputing geom/tile for survivors. That was worth at most ~1% and cannot
+explain 16%.
+
+STANDING LESSON, now with two independent confirmations. Every intervention that
+RESTRUCTURED the loop has lost (prefetch -37%, index table -3.5%, probe cache
+-5.8%, H5 +16%); every one that REMOVED OPERATIONS from the chain head has won
+(C, D1, A, F, G3, H1, widemul). Top-down counters are good at saying which
+*category* is large; they are not evidence that a given restructuring will
+capture it.
