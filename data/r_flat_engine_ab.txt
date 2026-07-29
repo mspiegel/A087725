@@ -1072,3 +1072,43 @@ METHOD NOTE. I had added these counters when building the cache and then removed
 them as "redundant with the LRU model". That was wrong, and the 14x prediction
 miss is the cost of it: a model of a different associativity is not a substitute
 for measuring the structure you actually built.
+
+================================================================================
+Named PMU counters POST-cache: the TLB mechanism is eliminated
+Date: 2026-07-29   (sudo, --prove-at-least 147 --max-nodes 2e9)
+================================================================================
+
+  /node                        pre-cache            post-cache
+                            144       146        144       146     146 ratio
+  INST_ALL               426.236   431.089    406.025   411.232     0.954
+  CORE_ACTIVE_CYCLE      127.421   142.765    109.691   121.024     0.848
+  L1D_CACHE_MISS_LD...     1.604     1.962      1.141     1.445     0.737
+  L2_TLB_MISS_DATA         0.264     0.403      0.005     0.023     0.057
+
+L2 TLB misses at exhaust-146: 0.403 -> 0.023 per node, a 94% reduction; at
+exhaust-144 they are 0.005, down 98%. THE FOOTPRINT THREAD IS CLOSED. The custom
+non-power-of-two SwissTable (sized at ~1-2%), entry shrinking to 24 B, and any
+other table-shrinking work all targeted a mechanism that no longer exists. The
+sizing exercise that argued against building it was right, for a reason it did
+not anticipate.
+
+THE CACHE WINS ON TWO AXES, not one. INST_ALL fell 4.6% (~20 instructions/node):
+a cache hit (multiply-shift, tag compare, one load) is less WORK than fmix64 plus
+hashbrown's control-byte scan. So it is simultaneously miss-removal and
+work-removal — which explains the thing left unexplained earlier, namely why it
+won at exhaust-144 too, where TLB pressure was already negligible.
+
+RESIDUAL DEPTH PENALTY is now L1D-dominated. Cycles/node 109.691 -> 121.024
+(+10.3%, was +12.0% pre-cache); of the +11.3 extra cycles, ~6.1 are the +0.304
+L1D misses and only ~0.9 the +0.018 TLB misses, leaving ~4.3 unaccounted. The
+likely L1D source is the cache itself: 8.4 MB is L2-resident, not L1-resident, so
+nearly every HIT is an L1 miss that hits L2 (~1.4 L1D misses/node at ~1 probe per
+node). A smaller cache would have better L1 locality but more table misses — that
+trade-off was measured directly and 256 K beat 64 K, so table misses dominate.
+
+REMAINING LEVERS on this profile, with honest sizes:
+  * 2-way associativity: real miss rate 1.229% at 146 vs 0.49% associative floor,
+    ~2.5% of runtime per pp => under ~1%. Zero extra memory, which matters since
+    the cache cannot grow within the 8-thread L2 budget.
+  * everything else on the profile is <1% or closed.
+  * parallelism: ~8x. That is where the leverage is.
