@@ -123,6 +123,17 @@ impl MoveDfa {
     pub fn states(&self) -> usize {
         self.trans.len()
     }
+
+    /// The whole prune bitmask for `st`: bit `m as u8` set ⇒ move `m` is a
+    /// redundant continuation. [`mcode`] numbers the moves exactly as
+    /// [`MoveSet`](crate::puzzle24::state::MoveSet) does (`Up`=0 … `Right`=3), so
+    /// a caller holding a candidate `MoveSet` can drop every pruned move with a
+    /// single `& !prune_mask(st)` instead of one [`is_pruned`](MovePruner::is_pruned)
+    /// call per child. Used by the flat engine's per-node candidate fold.
+    #[inline(always)]
+    pub(crate) fn prune_mask(&self, st: u32) -> u8 {
+        self.prune[st as usize]
+    }
     /// Runtime table footprint in bytes (`trans` + `prune`).
     pub fn table_bytes(&self) -> usize {
         self.trans.len() * (4 * 4 + 1)

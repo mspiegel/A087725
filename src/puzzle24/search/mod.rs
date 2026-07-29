@@ -1,6 +1,7 @@
 //! Optimal search algorithms over [`crate::puzzle24::state::State`].
 
 pub mod cwd;
+pub mod flat;
 pub mod heuristic;
 pub mod idastar;
 pub mod linear_conflict;

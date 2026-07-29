@@ -53,6 +53,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle24::pdb::{KorfPdbInc, PatternDb, ZPatternDb, ZpdbInc, ZpdbPlusInc};
+use puzzle8::puzzle24::search::flat::flat_bounded;
+use puzzle8::puzzle24::search::idastar::BoundedOutcome;
 use puzzle8::puzzle24::search::{
     Cwd, IncHeuristic, IncHeuristicMut, IncManhattan, LadderOutcome, LazyMaxInc, LinearConflictInc,
     MaxInc, MoveDfa, Search, SearchStats, WalkingDistanceHeuristic, WalkingDistanceInc,
@@ -144,6 +146,11 @@ struct Args {
     /// cached neighbor-WD and prune it before probing. Sound. **Default on**;
     /// disable with `--no-cwd-neighbor-prune`.
     cwd_neighbor_prune: bool,
+    /// Search engine for `--heuristic cwd`, sequential runs only. `recursive`
+    /// (default) is the generic make/unmake driver; `flat` is the specialised
+    /// iterative engine in `puzzle24::search::flat` — same tree, node-for-node,
+    /// so the two differ only in ns/node and the pair is a clean A/B.
+    flat_engine: bool,
     /// For `--heuristic select`: pick zpdb-plus (over pure zpdb) when the classical
     /// terms are within this many of the PDB root. `0` = never combine (default).
     combine_slack: u8,
@@ -187,6 +194,7 @@ fn print_usage(prog: &str) {
          [--heuristic manhattan|lc|wd|cwd|korf|zpdb|zpdb-plus|cwd-zpdb|cwd-zpdb6-lazy|cwd-zpdb6-zpdb8-lazy|cwd-zpdb8-lazy|select] (default: cwd) [--pdb-set k6|k7]\n         \
          [--max-bound T | --prove-at-least T] [--parallel]\n         \
          [--no-move-dfa] [--no-cwd-neighbor-prune]  (both default ON) [--combine-slack S]\n         \
+         [--engine recursive|flat]  (cwd + sequential only; default recursive)\n         \
          [--no-root-orbit-split]  (auto-on for σ-symmetric boards)\n         \
          [--k6-reflect]  (restore k6's reflected view; default off)"
     );
@@ -204,6 +212,7 @@ fn parse_args() -> Result<Args, String> {
     let mut cwd_neighbor_prune = true;
     let mut combine_slack = 0u8;
     let mut root_orbit_split: Option<bool> = None;
+    let mut flat_engine = false;
     let mut k6_reflect = false;
 
     let argv: Vec<String> = std::env::args().collect();
@@ -277,6 +286,15 @@ fn parse_args() -> Result<Args, String> {
             "--no-move-dfa" => move_dfa = false,
             "--cwd-neighbor-prune" => cwd_neighbor_prune = true,
             "--no-cwd-neighbor-prune" => cwd_neighbor_prune = false,
+            "--engine" => {
+                i += 1;
+                let v = argv.get(i).ok_or("--engine needs a value")?;
+                flat_engine = match v.as_str() {
+                    "flat" => true,
+                    "recursive" => false,
+                    other => return Err(format!("unknown --engine '{other}'")),
+                };
+            }
             "--root-orbit-split" => root_orbit_split = Some(true),
             "--no-root-orbit-split" => root_orbit_split = Some(false),
             // k6 reflected view defaults OFF for cwd-zpdb6-zpdb8-lazy; restore with
@@ -308,6 +326,7 @@ fn parse_args() -> Result<Args, String> {
         cwd_neighbor_prune,
         combine_slack,
         root_orbit_split,
+        flat_engine,
         k6_reflect,
     })
 }
@@ -430,6 +449,59 @@ fn now_hms() -> String {
 /// timestamp logs on stderr, and return its result alongside the search-only
 /// duration (excludes table load / DFA build — those are `setup`). This makes
 /// the time actually spent in search explicit instead of buried in wall-clock.
+/// The specialised iterative cWD engine (`--engine flat`). Prints exactly what
+/// [`run_inc`] does, so an A/B is two invocations of this binary differing in one
+/// flag. Sequential only — the flat engine has no parallel driver yet.
+fn run_flat(
+    start: &State,
+    cwd: &Cwd,
+    max_bound: Option<u8>,
+    move_dfa: bool,
+    orbit_split: bool,
+    t0: Instant,
+) -> ExitCode {
+    // The flat engine is specialised to one stack, and the DFA is part of it —
+    // its prune bits are folded into the per-node candidate mask rather than
+    // tested per child. Rather than silently searching a different tree than the
+    // flag asked for (which would quietly invalidate an A/B), refuse.
+    if !move_dfa {
+        eprintln!("error: --engine flat does not support --no-move-dfa (the DFA is folded into");
+        eprintln!("       its candidate mask). Drop one of the two flags.");
+        return ExitCode::FAILURE;
+    }
+    let dfa = MoveDfa::build_default();
+    eprintln!(
+        "flat engine: iterative arena, move-pruning DFA {} states, {} KiB",
+        dfa.states(),
+        dfa.table_bytes() / 1024
+    );
+    let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
+        flat_bounded(start, cwd, &dfa, orbit_split, max_bound.unwrap_or(u8::MAX))
+    });
+    let elapsed = t0.elapsed();
+    match outcome {
+        BoundedOutcome::Solved(s) => {
+            if let Some(mb) = max_bound {
+                println!("Found within bound {mb} (optimal):");
+            }
+            print_solution(start, &s, elapsed);
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
+        }
+        BoundedOutcome::ProvedAtLeast(k) => {
+            println!("Lower bound: depth >= {k}");
+            println!("Wall-clock     : {elapsed:.2?}");
+            print_stats(&st, search_dt);
+            ExitCode::SUCCESS
+        }
+        BoundedOutcome::Unsolvable => {
+            println!("Unsolvable from this start.");
+            print_stats(&st, search_dt);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn timed_search<R>(setup: std::time::Duration, f: impl FnOnce() -> R) -> (R, std::time::Duration) {
     eprintln!("[{}] search: start  (setup {:.2?})", now_hms(), setup);
     let t = Instant::now();
@@ -651,15 +723,22 @@ fn main() -> ExitCode {
                     ""
                 }
             );
-            run_inc(
-                &start,
-                &cwd,
-                args.max_bound,
-                args.parallel,
-                args.move_dfa,
-                orbit,
-                t0,
-            )
+            if args.flat_engine && !args.parallel {
+                run_flat(&start, &cwd, args.max_bound, args.move_dfa, orbit, t0)
+            } else {
+                if args.flat_engine {
+                    eprintln!("note: --engine flat is sequential-only; falling back to recursive");
+                }
+                run_inc(
+                    &start,
+                    &cwd,
+                    args.max_bound,
+                    args.parallel,
+                    args.move_dfa,
+                    orbit,
+                    t0,
+                )
+            }
         }
         HeuristicChoice::Korf => {
             let dir = match require_dir(&args, "korf") {

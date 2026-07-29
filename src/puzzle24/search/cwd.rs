@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
-type Matrix = [[u8; W]; W];
+pub(crate) type Matrix = [[u8; W]; W];
 
 /// The precomputed single-line escape-constrained surcharge overlay
 /// (`data/cwd_single.bin`, built by `examples/build_cwd_table.rs`). Maps each WD
@@ -57,7 +57,7 @@ pub type CwdMerged = HashMap<u64, CwdCell, WdBuild>;
 /// Surcharge (in moves) for one axis: single-line-max — the strongest single-line
 /// escape bound over the demanded lines. `Δ = 2 · nibble`.
 #[inline]
-fn surcharge_from_curves(curves: &[u16; W], dem: &[u8; W]) -> u8 {
+pub(crate) fn surcharge_from_curves(curves: &[u16; W], dem: &[u8; W]) -> u8 {
     let mut best = 0u8;
     for g in 0..W {
         let d = dem[g];
@@ -101,7 +101,7 @@ pub fn load_cwd_overlay(path: &Path) -> std::io::Result<CwdOverlay> {
 
 // ---- WD-table key codec (identical layout to walking_distance::pack) --------
 
-fn pack(m: &Matrix, blank: u8) -> u64 {
+pub(crate) fn pack(m: &Matrix, blank: u8) -> u64 {
     let mut k: u64 = blank as u64;
     for r in 0..W {
         for c in 0..(W - 1) {
@@ -115,23 +115,23 @@ fn pack(m: &Matrix, blank: u8) -> u64 {
 /// [`pack`] shifts cell `(r,c)` — linear index `r*(W-1)+c` — left the most for
 /// `(0,0)` and least for the last cell, so field `i` sits at `((W*(W-1)-1)-i)*3`.
 #[inline]
-const fn key_bit(r: usize, c: usize) -> u64 {
+pub(crate) const fn key_bit(r: usize, c: usize) -> u64 {
     ((W * (W - 1) - 1 - (r * (W - 1) + c)) * 3) as u64
 }
 /// The blank field's bit offset (the top 3 bits, above the `W*(W-1)` cells).
-const KEY_BLANK_BIT: u64 = (W * (W - 1) * 3) as u64;
+pub(crate) const KEY_BLANK_BIT: u64 = (W * (W - 1) * 3) as u64;
 
 /// Set the 3-bit field for cell `(r, c)` in a packed key to `val`, in place —
 /// the O(1) incremental alternative to re-[`pack`]ing the whole matrix.
 #[inline]
-fn key_set_cell(key: u64, r: usize, c: usize, val: u8) -> u64 {
+pub(crate) fn key_set_cell(key: u64, r: usize, c: usize, val: u8) -> u64 {
     let bit = key_bit(r, c);
     (key & !(0x7u64 << bit)) | ((val as u64) << bit)
 }
 
 /// Set the blank field (row/column index) in a packed key.
 #[inline]
-fn key_set_blank(key: u64, blank: u8) -> u64 {
+pub(crate) fn key_set_blank(key: u64, blank: u8) -> u64 {
     (key & !(0x7u64 << KEY_BLANK_BIT)) | ((blank as u64) << KEY_BLANK_BIT)
 }
 
@@ -181,7 +181,7 @@ fn neighbor_keys(key: u64) -> [Option<u64>; 2 * W] {
 
 /// The solved contingency (identity with the 4-margin in the blank's axis).
 /// Serves both axes: the goal blank sits at row 4 and column 4.
-fn goal_key() -> u64 {
+pub(crate) fn goal_key() -> u64 {
     let mut m = [[0u8; W]; W];
     for d in 0..W {
         m[d][d] = 5;
@@ -212,7 +212,7 @@ fn lis_strict(seq: &[u8]) -> usize {
 /// `(m_row, blank_row, demand_row, m_col, blank_col, demand_col)` where
 /// `demand_row[g] = x_g` = (goal-row-`g` residents physically in row `g`)
 /// − LIS(their goal columns): the forced type-`g` escapes. Symmetric for columns.
-fn project(s: &State) -> (Matrix, u8, [u8; W], Matrix, u8, [u8; W]) {
+pub(crate) fn project(s: &State) -> (Matrix, u8, [u8; W], Matrix, u8, [u8; W]) {
     let mut m_row = [[0u8; W]; W];
     let mut m_col = [[0u8; W]; W];
     let mut br = 0u8;
@@ -498,6 +498,26 @@ impl Cwd {
         self.merged.is_some()
     }
 
+    /// The merged WD+surcharge table, for engines that drive the fast path
+    /// themselves rather than through [`IncHeuristicMut`] (see `flat.rs`).
+    #[inline]
+    pub(crate) fn merged_table(&self) -> Option<&CwdMerged> {
+        self.merged.as_ref()
+    }
+
+    /// The per-line escape-demand LUT, shared with such engines.
+    #[inline]
+    pub(crate) fn demand_lut(&self) -> &[u8; DEMAND_LUT_LEN] {
+        &self.demand_lut
+    }
+
+    /// Whether the neighbour-WD child pre-prune is enabled (and hence whether
+    /// each merged cell's `nbr_wd` has been filled).
+    #[inline]
+    pub(crate) fn neighbor_prune_enabled(&self) -> bool {
+        self.neighbor_prune
+    }
+
     /// `cWD(s) = cWD_row + cWD_col`, each ≥ its WD half. With the merged table
     /// this is the single-line-max lookup — **one probe per axis**; otherwise the
     /// constrained A\* (falling back to WD on any axis whose A\* exhausts its pop
@@ -571,9 +591,9 @@ impl IncHeuristic for Cwd {
 /// a row line, goal-row for a column line). 32 KiB, built once per [`Cwd`]. Removes
 /// the top cWD hotspot (`demand_*_line` ≈ 24% of cWD in the `cwd-zpdb8-lazy` sample
 /// profile). Node-identical to the LIS reference (`demand_*_line_ref`).
-const DEMAND_LUT_LEN: usize = 1 << (3 * W); // W cells × 3 bits
+pub(crate) const DEMAND_LUT_LEN: usize = 1 << (3 * W); // W cells × 3 bits
 
-fn build_demand_lut() -> Box<[u8; DEMAND_LUT_LEN]> {
+pub(crate) fn build_demand_lut() -> Box<[u8; DEMAND_LUT_LEN]> {
     let mut lut = Box::new([0u8; DEMAND_LUT_LEN]);
     for (key, slot) in lut.iter_mut().enumerate() {
         let mut seq = [0u8; W];
@@ -624,7 +644,7 @@ fn demand_col_key(s: &State, g: usize) -> usize {
 
 /// Forced-escape demand of physical row `g` (LUT fast path; see [`build_demand_lut`]).
 #[inline]
-fn demand_row_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+pub(crate) fn demand_row_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
     let d = lut[demand_row_key(s, g)];
     // Gated so the `_ref` reference is absent in release (`debug_assert_eq!` still
     // *compiles* its args under `if false`, which would need `_ref` to exist).
@@ -639,7 +659,7 @@ fn demand_row_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
 
 /// Forced-escape demand of physical column `g` (symmetric: goal-row order).
 #[inline]
-fn demand_col_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+pub(crate) fn demand_col_line(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
     let d = lut[demand_col_key(s, g)];
     #[cfg(debug_assertions)]
     debug_assert_eq!(
