@@ -1,10 +1,14 @@
 //! Flat (iterative) IDA\* — one hardcoded configuration, no recursion, no undo.
 //!
-//! This is a second engine beside [`idastar`](super::idastar), specialised to the
-//! exact stack the `R` lower-bound program runs: **cWD + move-DFA + neighbour-WD
-//! child pre-prune + root σ-orbit split**, bounded lower-bound mode only. The
-//! generic engine stays the reference implementation; this one trades its
-//! flexibility for a tighter inner loop.
+//! **The** 24-puzzle search engine, specialised to the exact stack the `R`
+//! lower-bound program runs: **cWD + move-DFA + neighbour-WD child pre-prune +
+//! root σ-orbit split**, bounded lower-bound mode only.
+//!
+//! It began as a second engine beside a generic recursive one, which is why so
+//! much below is phrased against "the generic engine". That engine has since
+//! been deleted; what survives of it is [`idastar`](super::idastar)'s Copy-path
+//! ladder, kept only for the ML/corridor tooling and the heuristic-correctness
+//! tests, and never used to search here.
 //!
 //! # Why a second engine
 //!
@@ -42,10 +46,15 @@
 //!
 //! # Node identity
 //!
-//! Every choice here is required to reproduce [`idastar`](super::idastar)'s tree
-//! **exactly** — same nodes, same count, same next threshold. Nothing in this
-//! module changes a pruning decision; it only evaluates the same predicates more
-//! cheaply. The differential test in this file is the gate.
+//! Every choice here is required to reproduce the deleted recursive engine's
+//! tree **exactly** — same nodes, same count, same next threshold. Nothing in
+//! this module changes a pruning decision; it only evaluates the same predicates
+//! more cheaply.
+//!
+//! Since that engine is gone, the gate is now [`super::flat_oracle`]: 180 cases
+//! and ~3.7 × 10^7 nodes of its frozen answers, captured before removal. It
+//! **cannot be regenerated** — a mismatch means this engine's tree changed, not
+//! that the fixture is stale.
 
 use super::cwd::{
     demand_col_line, demand_row_line, key_bit, pack, project, surcharge_from_curves, Cwd,

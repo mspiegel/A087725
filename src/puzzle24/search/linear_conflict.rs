@@ -12,7 +12,7 @@
 //! one column for a vertical slide; two columns + one row for a horizontal
 //! slide), so per-node cost is three short scans regardless.
 
-use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
+use super::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle24::state::{Move, State, W};
 
 /// Manhattan distance plus the linear-conflict correction. Admissible.
@@ -230,44 +230,6 @@ impl IncHeuristic for LinearConflictInc {
     }
 }
 
-/// Make/unmake context: the current [`LcCtx`] plus a LIFO stack of snapshots.
-/// `LcCtx` is a 12-byte `Copy`, so snapshotting it is as cheap as the copy the
-/// [`IncHeuristic`] path already makes — LC's real cost is the row/col penalty
-/// rescan, which make/unmake does not change. This exists so LC can be a
-/// component of the make/unmake `zpdb-plus`/`select` stacks.
-pub struct LcMutCtx {
-    cur: LcCtx,
-    undo: Vec<LcCtx>,
-}
-
-impl IncHeuristicMut for LinearConflictInc {
-    type Ctx = LcMutCtx;
-
-    fn root(&self, s: &State) -> (u8, LcMutCtx) {
-        let mut stats = SearchStats::default();
-        let (h, cur) = <Self as IncHeuristic>::root(self, s, &mut stats);
-        (
-            h,
-            LcMutCtx {
-                cur,
-                undo: Vec::with_capacity(220),
-            },
-        )
-    }
-
-    fn make(&self, ctx: &mut LcMutCtx, child: &State, m: Move) -> u8 {
-        ctx.undo.push(ctx.cur);
-        let mut stats = SearchStats::default();
-        let (h, next) = <Self as IncHeuristic>::advance(self, &ctx.cur, child, m, &mut stats);
-        ctx.cur = next;
-        h
-    }
-
-    fn unmake(&self, ctx: &mut LcMutCtx, _m: Move) {
-        ctx.cur = ctx.undo.pop().expect("unmake without matching make");
-    }
-}
-
 /// `len(arr) - LIS(arr)` — the minimum number of elements to remove so the
 /// remaining sequence is strictly increasing. O(n²) DP; `n ≤ 5`.
 fn lc_removals(arr: &[u8]) -> usize {
@@ -396,34 +358,5 @@ mod tests {
         assert_eq!(lc_removals(&[1, 3, 2, 0]), 2); // LIS = [1, 3] or [1, 2], remove 2
         assert_eq!(lc_removals(&[0, 1, 2, 3, 4]), 0); // full 5-cell line, no conflict
         assert_eq!(lc_removals(&[4, 3, 2, 1, 0]), 4); // fully reversed 5-cell line
-    }
-
-    /// The make/unmake driver must match the copy driver: same optimal length and
-    /// node count. LC's snapshot undo must restore the `LcCtx` exactly.
-    #[test]
-    fn lc_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
-        let mut rng: u64 = 0x71C4_9AD5_33BE_1102;
-        let mut next = || {
-            rng ^= rng << 13;
-            rng ^= rng >> 7;
-            rng ^= rng << 17;
-            rng
-        };
-        for _ in 0..5 {
-            let mut s = GOAL;
-            for _ in 0..16 {
-                let opts: Vec<Move> = s.legal_moves().iter().collect();
-                s = s.apply(opts[(next() as usize) % opts.len()]);
-            }
-            let (c, cs) = idastar_inc_with_stats(&s, &LinearConflictInc);
-            let (m, ms) = Search::new(&s, &LinearConflictInc).solve_with_stats();
-            assert_eq!(
-                c.expect("copy no sol").len(),
-                m.expect("mut no sol").len(),
-                "LC mut/copy optimal length differs"
-            );
-            assert_eq!(cs.nodes, ms.nodes, "LC mut/copy node count differs");
-        }
     }
 }

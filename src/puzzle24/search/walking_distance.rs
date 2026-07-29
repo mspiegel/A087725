@@ -21,7 +21,7 @@
 //!   That leaves `5·4 = 20` cells (3 bits each) + the 3-bit blank index = **63
 //!   bits → fits a `u64`**, halving both the key width and the table footprint.
 
-use super::{Heuristic, IncHeuristic, IncHeuristicMut, SearchStats};
+use super::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle24::state::{Move, State, N_CELLS, W};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -812,126 +812,6 @@ impl IncHeuristic for WalkingDistanceInc {
     }
 }
 
-/// One undo frame for the make/unmake path: which axis moved (`vertical` ⇒ the
-/// row matrix), the two matrix cells that changed (`i -= 1`, `j += 1` at goal
-/// index `g`), and the pre-move scalars to restore. Reversing is a `±1` flip of
-/// those two cells plus a scalar copy — no `pack`/table lookup needed.
-struct WdUndo {
-    vertical: bool,
-    i: u8,
-    j: u8,
-    g: u8,
-    br: u8,
-    bc: u8,
-    h_row: u8,
-    h_col: u8,
-}
-
-/// Make/unmake context for [`WalkingDistanceInc`]. Unlike the `Copy`
-/// [`IncHeuristic`] path — which rebuilds a whole [`WdCtx`] (two 5×5 matrices)
-/// per node — this mutates one matrix cell-pair in place and records a tiny undo
-/// frame, so backtracking is a `±1` flip instead of a 54-byte copy.
-pub struct WdMutCtx {
-    cur: WdCtx,
-    undo: Vec<WdUndo>,
-}
-
-impl IncHeuristicMut for WalkingDistanceInc {
-    type Ctx = WdMutCtx;
-
-    fn root(&self, s: &State) -> (u8, WdMutCtx) {
-        let mut stats = SearchStats::default();
-        let (h, cur) = <Self as IncHeuristic>::root(self, s, &mut stats);
-        (
-            h,
-            WdMutCtx {
-                cur,
-                undo: Vec::with_capacity(220),
-            },
-        )
-    }
-
-    fn make(&self, ctx: &mut WdMutCtx, child: &State, m: Move) -> u8 {
-        let c = &mut ctx.cur;
-        let parent_blank = (c.br as usize) * W + c.bc as usize;
-        let delta: i32 = match m {
-            Move::Up => -(W as i32),
-            Move::Down => W as i32,
-            Move::Left => -1,
-            Move::Right => 1,
-        };
-        let from_cell = (parent_blank as i32 + delta) as usize;
-        let to_cell = parent_blank;
-        let tile = child.0[to_cell];
-        debug_assert_ne!(tile, 0, "moved tile cannot be the blank");
-        let goal_pos = (tile - 1) as usize;
-        let gr = goal_pos / W;
-        let gc = goal_pos % W;
-        let rf = from_cell / W;
-        let rt = to_cell / W;
-        let cf = from_cell % W;
-        let ct = to_cell % W;
-        let new_br = rf as u8;
-        let new_bc = cf as u8;
-        let t = table();
-
-        // Snapshot the scalars before mutating (matrix reversal is derived below).
-        let mut undo = WdUndo {
-            vertical: rf != rt,
-            i: 0,
-            j: 0,
-            g: 0,
-            br: c.br,
-            bc: c.bc,
-            h_row: c.h_row,
-            h_col: c.h_col,
-        };
-
-        if rf != rt {
-            // Vertical slide: row-WD matrix changes; column axis untouched.
-            c.m_row[rf][gr] -= 1;
-            c.m_row[rt][gr] += 1;
-            undo.i = rf as u8;
-            undo.j = rt as u8;
-            undo.g = gr as u8;
-            c.h_row = *t
-                .get(&pack(&c.m_row, new_br))
-                .expect("row-WD state must be reachable from goal");
-        } else {
-            // Horizontal slide: column-WD matrix changes; row axis untouched.
-            c.m_col[cf][gc] -= 1;
-            c.m_col[ct][gc] += 1;
-            undo.i = cf as u8;
-            undo.j = ct as u8;
-            undo.g = gc as u8;
-            c.h_col = *t
-                .get(&pack(&c.m_col, new_bc))
-                .expect("col-WD state must be reachable from goal");
-        }
-        c.br = new_br;
-        c.bc = new_bc;
-        ctx.undo.push(undo);
-        c.h_row + c.h_col
-    }
-
-    fn unmake(&self, ctx: &mut WdMutCtx, _m: Move) {
-        let u = ctx.undo.pop().expect("unmake without matching make");
-        let c = &mut ctx.cur;
-        // Reverse the cell-pair flip (make did `i -= 1`, `j += 1`).
-        if u.vertical {
-            c.m_row[u.i as usize][u.g as usize] += 1;
-            c.m_row[u.j as usize][u.g as usize] -= 1;
-        } else {
-            c.m_col[u.i as usize][u.g as usize] += 1;
-            c.m_col[u.j as usize][u.g as usize] -= 1;
-        }
-        c.br = u.br;
-        c.bc = u.bc;
-        c.h_row = u.h_row;
-        c.h_col = u.h_col;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1061,36 +941,6 @@ mod tests {
             "WD table size drifted from the measured value"
         );
         println!("24-puzzle WD table size: {n} states");
-    }
-
-    /// The make/unmake driver must expand the exact same nodes and return the
-    /// same optimal length as the copy driver — WD's fine-grained undo (±1 matrix
-    /// flip + scalar restore) must reproduce the copy path's per-node state.
-    #[test]
-    fn wd_mut_idastar_matches_copy_length_and_nodes() {
-        use crate::puzzle24::search::{idastar_inc_with_stats, Search};
-        let mut rng: u64 = 0x51ED_270B_2E07_9AA1;
-        let mut next = || {
-            rng ^= rng << 13;
-            rng ^= rng >> 7;
-            rng ^= rng << 17;
-            rng
-        };
-        for _ in 0..5 {
-            let mut s = GOAL;
-            for _ in 0..18 {
-                let opts: Vec<Move> = s.legal_moves().iter().collect();
-                s = s.apply(opts[(next() as usize) % opts.len()]);
-            }
-            let (c, cs) = idastar_inc_with_stats(&s, &WalkingDistanceInc);
-            let (m, ms) = Search::new(&s, &WalkingDistanceInc).solve_with_stats();
-            assert_eq!(
-                c.expect("copy no sol").len(),
-                m.expect("mut no sol").len(),
-                "WD mut/copy optimal length differs"
-            );
-            assert_eq!(cs.nodes, ms.nodes, "WD mut/copy node count differs");
-        }
     }
 
     // --- persistence (save_dist_table / load_dist_table) ---

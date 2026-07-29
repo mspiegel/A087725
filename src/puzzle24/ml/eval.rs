@@ -16,8 +16,8 @@ use super::generator::BaselineHeuristic;
 use super::scramble::{scramble_exact, Rng};
 use super::wdsearch::{construct_deep_boards, Diversity, WdSearchConfig};
 use crate::puzzle24::search::{
-    Heuristic, IncHeuristicMut, LadderOutcome, LinearConflictInc, ManhattanHeuristic, MaxInc,
-    Search, WalkingDistanceHeuristic, WalkingDistanceInc,
+    idastar_inc_bounded_with_stats, BoundedOutcome, Heuristic, IncHeuristic, LinearConflictInc,
+    ManhattanHeuristic, MaxInc, WalkingDistanceHeuristic, WalkingDistanceInc,
 };
 use crate::puzzle24::state::{State, DIAMETER_LOWER, N_CELLS};
 
@@ -125,7 +125,7 @@ where
 fn run_with<F, E>(value_of: F, cfg: &EvalConfig, opt_h: &E) -> EvalReport
 where
     F: Fn(&[State]) -> Vec<f32>,
-    E: IncHeuristicMut,
+    E: IncHeuristic,
 {
     // Fixed holdout: walk lengths spread over [depth_min, depth_max].
     let mut rng = Rng::new(cfg.seed);
@@ -145,14 +145,15 @@ where
 
     for board in &holdout {
         // True optimal (admissible idastar, bounded).
-        let optimal: Option<u32> = match Search::new(board, opt_h)
-            .bound(cfg.optimal_max_bound)
-            .run()
-            .0
-        {
-            LadderOutcome::Solved(moves) => Some(moves.len() as u32),
-            _ => None, // ProvedAtLeast / TimedOut / Unsolvable → unlabeled
-        };
+        // The bounded Copy-path driver: admissible, so the optimum it reports is
+        // the same one any other admissible heuristic would give — only the node
+        // count differs. Deliberately not the flat engine, which would drag the
+        // 563 MB + 1.1 GB cWD tables into the table-free `Lc` path used by tests.
+        let optimal: Option<u32> =
+            match idastar_inc_bounded_with_stats(board, opt_h, cfg.optimal_max_bound).0 {
+                BoundedOutcome::Solved(moves) => Some(moves.len() as u32),
+                _ => None, // ProvedAtLeast / Unsolvable → unlabeled
+            };
         if optimal.is_some() {
             labeled += 1;
         }
