@@ -990,3 +990,47 @@ The cache's -15.4% is not being held back by it.
     prefetch -37%, index table -3.5%, probe cache at 1 K +5.8%, H5 +16%,
     H5b +12.7%, build_child inline(always) +14.4%
 Six for six on the loss side. Overriding LLVM's inlining belongs in that class.
+
+================================================================================
+Sensitivity probe: are arena stores actually costing anything?   *** NO ***
+Date: 2026-07-29
+================================================================================
+
+Post-cache profiling made arena stores the largest identifiable group at ~10.5%
+of samples (AxisSlot ~6.8%, FrameHot 2.0%, board 1.7%; ~76 B written per node).
+Rather than build a reduction, measure whether the share is recoverable time:
+add one extra 32 B arena store per node (+42% volume) and see what it costs.
+
+Probe design (a TEST, not a candidate optimisation):
+  * the stored bytes derive from live per-node values (tile, geom.from, m, d) so
+    they cannot be constant-folded or hoisted;
+  * the shadow pointer escapes ONCE via black_box outside the hot loop, so LLVM
+    cannot prove the stores dead — a per-node black_box would be a compiler
+    barrier and would distort the very thing being measured;
+  * verified in the binary (7262 -> 7273 store instructions) and node-identical
+    at 422,379,806.
+
+  146-regime portion   base  37.37  37.37  37.86   median 37.37
+                       +32B  37.98  37.86  37.52   median 37.86   +1.3%
+  exhausted-144 pass   base  13.28  13.34  13.38   median 13.34
+                       +32B  13.64  13.49  13.54   median 13.54   +1.5%
+
+The distributions OVERLAP (probe run3 37.52 < base run3 37.86), so +1.3% is an
+upper bound and the true marginal cost may be lower.
+
+CONCLUSION, and the reusable number: arena store volume costs ~0.04% per byte per
+node. The full ~76 B is therefore worth ~3.1% of runtime, not 10.5% — the sample
+share OVERSTATES it by ~3.4x. The one reduction available (drop nbr's 10 of 32
+bytes from AxisSlot) would buy ~0.4%, and it carries a soundness hazard: the cell
+now lives in the evictable probe cache, so referencing it instead of copying
+could let an ancestor frame read another state's neighbour data and emit a wrong
+bound silently. ITEM CLOSED on evidence.
+
+*** FIFTH CONFIRMATION THAT SAMPLE SHARE != RECOVERABLE TIME, and the first
+    measured DIRECTLY rather than inferred from a failed optimisation ***
+Previous four were retrospective (index table, probe cache at 1 K, widemul, H3 —
+each predicted from a share and each delivering 3-14x less). This one cost ~8
+minutes and avoided building something with a correctness hazard for ~0.4%.
+Stores retire in the background on an out-of-order core: a timer sample landing on
+a store records where the PC was, not that anything waited. Treat store-heavy
+sample shares as upper bounds and probe the sensitivity before optimising.
