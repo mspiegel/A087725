@@ -771,3 +771,70 @@ intermediate depth on this board to use as a proxy.
 The prize is correspondingly larger than anything left at 144: the gap between
 the two regimes is 17.7%, and exhaust-146+ is the regime the R proof actually
 runs in.
+
+================================================================================
+Round: H3 — dem_mask early-out on surcharge_from_curves
+Date: 2026-07-29
+Baseline: 9981c52 (C, D1, A, F, G3, H1, widemul)
+Bench: solve24 --prove-at-least 147 --max-nodes 1e9 (146 regime), battery,
+       caffeinate -dimsu. Per-run 146 time = total search - exhausted-144 time.
+================================================================================
+
+Chosen by profiling the regime we actually care about, not by guessing. Line-level
+sampling of the exhaust-146 pass (timer samples, inline frames expanded) ranked
+the node:
+
+  surcharge_from_curves  11.7%   <- largest single item
+  hash probe              9.3%
+  AxisSlot stores         5.2%
+  demand_*_fast           4.6%
+  board copy/swap/store   4.6%
+
+That inverted the plan: prefetch was going to be tried first, but the probe is
+NOT the dominant cost, and prefetch only hides latency rather than removing work.
+
+Sized before implementing, with the new `demand-histogram` feature:
+
+  demanded lines   exhaust-144   exhaust-146
+       0              45.72%        51.26%
+       1              49.49%        41.58%
+       2               4.66%         6.77%
+       3               0.14%         0.39%
+
+The W-iteration loop was doing five range checks to find zero or one relevant
+line 99.6% of the time. H3 carries a 5-bit `dem_mask` in AxisSlot (bit g set iff
+1 <= dem[g] <= 4, the only range the surcharge reacts to), maintained at the one
+site where dem can change, and iterates set bits: zero iterations for 51% of
+calls, one for 42%.
+
+Results, 4 runs per arm, 146-regime portion only:
+
+  base   23.91  23.41  23.39  23.31    median 23.40
+  H3     23.10  23.11  23.05  23.06    median 23.08     -1.4%   KEEP
+
+Every H3 run below every base run; H3 spread 0.06s vs base 0.60s.
+AxisSlot stays 32 B — the u8 lands in existing padding.
+
+*** DEPTH-DEPENDENCE OF PERCENTAGE WINS, measured ***
+The same runs also time the exhausted-144 pass, inside the same process:
+
+              144 pass    146 portion
+  base         15.56 s      23.40 s
+  H3           15.31 s      23.08 s
+  delta        -1.6%        -1.4%
+
+A fixed amount of removed work is a SMALLER fraction of a more expensive node.
+Nodes cost ~21% more at 146 than at 144 (30.6 vs 25.2 Mn/s), so every
+work-removal win reads high when measured at 144. I had proposed A/B-ing H3 at
+144 because it is 6x cheaper to run; that would have reported a number ~15% too
+optimistic for the proof regime. CONSEQUENCE FOR THE RECORD: the seven earlier
+wins (C, D1, A, F, G3, H1, widemul) were all measured at exhaust-144, so the
+cumulative "-39% search time" is a figure FOR EXHAUST-144, not for the proof.
+
+*** FOURTH CONSECUTIVE OVER-PREDICTION FROM SAMPLE SHARE ***
+Predicted 6-9% from 11.7% of samples times the fraction of work removed;
+delivered 1.4%. The loop was five iterations of cheap, well-predicted arithmetic
+that the out-of-order core largely absorbed. Its sample share reflects where the
+PC landed, not time on the critical path. With the index table, the probe cache,
+widemul and now H3 all overshooting, treat timer-sample share as a map of where
+work IS, not of what can be RECOVERED.

@@ -408,6 +408,16 @@ struct AxisSlot {
     key: u64,
     /// Per-goal-line escape demand.
     dem: [u8; W],
+    /// Bit `g` set iff `1 <= dem[g] <= 4`, i.e. iff line `g` can contribute to
+    /// the surcharge at all. Maintained wherever `dem` changes, which is only
+    /// when the moved tile enters or leaves its own line, so it is close to free
+    /// — and it copies with the slot like `dem` does.
+    ///
+    /// Measured shape on R (`demand-histogram`, exhaust-146): 51.26% of axis
+    /// updates have NO demanded line, and 41.58% have exactly one, so the
+    /// unguarded `W`-iteration loop was doing five range checks to find zero or
+    /// one relevant line 99.6% of the time.
+    dem_mask: u8,
     /// WD of each axis-neighbour, for the child pre-prune.
     nbr: [u8; 2 * W],
     wd: u8,
@@ -438,6 +448,7 @@ impl Arena {
         let blank_axis = AxisSlot {
             key: 0,
             dem: [0; W],
+            dem_mask: 0,
             nbr: [255; 2 * W],
             wd: 0,
             surch: 0,
@@ -628,6 +639,7 @@ fn seed_root(
     arena.row[0] = AxisSlot {
         key: key_row,
         dem: dem_row,
+        dem_mask: dem_mask_of(&dem_row),
         nbr: r.nbr_wd,
         wd: r.wd,
         surch: surcharge_from_curves(&r.curves, &dem_row),
@@ -637,6 +649,7 @@ fn seed_root(
     arena.col[0] = AxisSlot {
         key: key_col,
         dem: dem_col,
+        dem_mask: dem_mask_of(&dem_col),
         nbr: c.nbr_wd,
         wd: c.wd,
         surch: surcharge_from_curves(&c.curves, &dem_col),
@@ -803,6 +816,41 @@ fn run_iteration<const BUDGETED: bool>(
     }
 }
 
+/// Escape surcharge for one axis, driven by the demanded-line mask.
+///
+/// Same value as [`surcharge_from_curves`] over all `W` lines — this only skips
+/// lines that provably cannot contribute, since `dem_mask` is exactly the set
+/// with `1 <= dem[g] <= 4` and that is the only range the surcharge reacts to.
+/// The empty case, over half of all calls at depth, returns without touching
+/// `curves` at all.
+#[inline(always)]
+fn surcharge_masked(curves: &[u16; W], dem: &[u8; W], mut mask: u8) -> u8 {
+    let mut best = 0u8;
+    while mask != 0 {
+        let g = mask.trailing_zeros() as usize;
+        mask &= mask - 1;
+        let d = dem[g] as u16;
+        let s = 2 * ((curves[g] >> (4 * (d - 1))) & 0xF) as u8;
+        if s > best {
+            best = s;
+        }
+    }
+    best
+}
+
+/// `dem_mask` for a freshly-projected demand vector (root only; the search
+/// maintains the mask incrementally).
+#[inline]
+fn dem_mask_of(dem: &[u8; W]) -> u8 {
+    let mut m = 0u8;
+    for (g, &d) in dem.iter().enumerate() {
+        if (1..=4).contains(&d) {
+            m |= 1 << g;
+        }
+    }
+    m
+}
+
 /// Shape of the cWD escape-demand vector, behind the `demand-histogram` feature.
 ///
 /// [`surcharge_from_curves`] loops all `W` goal lines and range-checks each one,
@@ -936,8 +984,13 @@ fn build_child(
         }
         // The moved tile's own goal line is the only demand that can change, and
         // only when it enters or leaves its own physical line.
+        let mut dem_mask = src.dem_mask;
         if g == rf || g == rt {
-            dem[g] = demand_row_fast(lut, &child, g);
+            let d = demand_row_fast(lut, &child, g);
+            dem[g] = d;
+            // One bit, at the only place `dem` can change.
+            let bit = 1u8 << g;
+            dem_mask = (dem_mask & !bit) | (u8::from((1..=4).contains(&d)) << g);
         }
         // Cell pair and blank field in one add — see `KEY_DELTA`.
         key = key.wrapping_add(KEY_DELTA[rf][rt][g]);
@@ -950,8 +1003,14 @@ fn build_child(
             dem,
             nbr: cell.nbr_wd,
             wd: cell.wd,
+            dem_mask,
             surch: {
-                let s = surcharge_from_curves(&cell.curves, &dem);
+                let s = surcharge_masked(&cell.curves, &dem, dem_mask);
+                debug_assert_eq!(
+                    s,
+                    surcharge_from_curves(&cell.curves, &dem),
+                    "masked surcharge differs from the all-lines reference"
+                );
                 #[cfg(feature = "demand-histogram")]
                 demand_histogram::note(&dem, s);
                 s
@@ -974,8 +1033,12 @@ fn build_child(
             mat[cf][g] -= 1;
             mat[ct][g] += 1;
         }
+        let mut dem_mask = src.dem_mask;
         if g == cf || g == ct {
-            dem[g] = demand_col_fast(lut, &child, g);
+            let d = demand_col_fast(lut, &child, g);
+            dem[g] = d;
+            let bit = 1u8 << g;
+            dem_mask = (dem_mask & !bit) | (u8::from((1..=4).contains(&d)) << g);
         }
         key = key.wrapping_add(KEY_DELTA[cf][ct][g]);
         #[cfg(debug_assertions)]
@@ -987,8 +1050,14 @@ fn build_child(
             dem,
             nbr: cell.nbr_wd,
             wd: cell.wd,
+            dem_mask,
             surch: {
-                let s = surcharge_from_curves(&cell.curves, &dem);
+                let s = surcharge_masked(&cell.curves, &dem, dem_mask);
+                debug_assert_eq!(
+                    s,
+                    surcharge_from_curves(&cell.curves, &dem),
+                    "masked surcharge differs from the all-lines reference"
+                );
                 #[cfg(feature = "demand-histogram")]
                 demand_histogram::note(&dem, s);
                 s
@@ -1189,6 +1258,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The mask-driven surcharge must equal the all-lines reference for every
+    /// `(curves, dem)` pair, and the mask must be exactly the set of lines the
+    /// reference can react to.
+    ///
+    /// This is the gate for H3. The `debug_assert` inside `build_child` covers
+    /// the same property but only fires in debug builds, where a search over the
+    /// real tables is far too slow to run — so the equivalence is pinned here,
+    /// table-free, instead.
+    #[test]
+    fn masked_surcharge_matches_all_lines_reference() {
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut nz = 0usize;
+        for _ in 0..200_000 {
+            let mut curves = [0u16; W];
+            let mut dem = [0u8; W];
+            for g in 0..W {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                curves[g] = (x >> 11) as u16;
+                // Cover d = 0..=5 so the out-of-range values the reference
+                // ignores (0 and >=5) are exercised, not just the live band.
+                dem[g] = ((x >> 40) % 6) as u8;
+            }
+            let mask = dem_mask_of(&dem);
+            for g in 0..W {
+                assert_eq!(
+                    mask >> g & 1 == 1,
+                    (1..=4).contains(&dem[g]),
+                    "mask bit {g} disagrees with the reference predicate"
+                );
+            }
+            let want = surcharge_from_curves(&curves, &dem);
+            let got = surcharge_masked(&curves, &dem, mask);
+            assert_eq!(got, want, "curves {curves:?} dem {dem:?}");
+            if want != 0 {
+                nz += 1;
+            }
+        }
+        assert!(nz > 1000, "test data never produced a nonzero surcharge");
     }
 
     /// Consuming a `MoveSet` lowest-bit-first must reproduce `MoveSetIter`'s
