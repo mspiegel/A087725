@@ -954,6 +954,24 @@ pub mod demand_histogram {
 ///
 /// Node identity is by construction: this is a pure memo of an immutable table
 /// with an exact key match, so a hit returns precisely what the probe would.
+/// # Sizing is thread-count dependent — READ THIS BEFORE ADDING PARALLELISM
+///
+/// This cache is per-search mutable state, so a parallel engine needs one **per
+/// thread**, and they compete for a shared L2. On this machine
+/// (`hw.perflevel0.*`): 8 P-cores in 2 clusters of 4, **16 MB L2 per cluster**,
+/// so 8 threads means 4 threads sharing 16 MB — a per-thread budget of ~4 MB
+/// that must also cover the hashbrown probes on a miss.
+///
+/// | entries | per thread | x4 threads/cluster | vs 16 MB L2 |
+/// |--------:|-----------:|-------------------:|------------:|
+/// | 64 K | 2.1 MB | 8.4 MB | 52% — fits |
+/// | 256 K | 8.4 MB | 33.6 MB | **200% — thrashes** |
+/// | 512 K | 16.8 MB | 67.2 MB | 400% |
+///
+/// 18 bits (256 K, 8.4 MB) is the measured optimum for the **sequential** engine
+/// — it beat 64 K by 5.8% at exhaust-146. It is 2x over budget at 8 threads, so
+/// when parallelism lands this must be re-sized, most likely back to 16 bits.
+/// Re-run the A/B at the target thread count rather than inheriting this value.
 const CACHE_BITS: u32 = 18;
 const CACHE_LEN: usize = 1 << CACHE_BITS;
 

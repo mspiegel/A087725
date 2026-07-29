@@ -936,3 +936,23 @@ Consequence: the LRU plateau at 99.51% (256 K and 1 M identical) is NOT evidence
 that 256 K is the top of the curve. The model is blind to the mechanism that is
 improving. 512 K (16.8 MB, at M2 Pro's 16 MB L2 boundary) is worth one more A/B;
 1 M (33.6 MB) would exceed L2.
+
+*** 512 K NOT TESTED, deliberately — parallel sizing rules it out ***
+The probe cache is per-search mutable state, so a parallel engine needs one per
+THREAD and they share L2. Measured layout on this machine (hw.perflevel0.*):
+8 P-cores in 2 clusters of 4, 16 MB L2 per cluster, so 8 threads = 4 threads
+sharing 16 MB, i.e. ~4 MB per thread including the hashbrown probes on a miss.
+
+  entries   per thread   x4 threads/cluster   vs 16 MB L2
+    64 K       2.1 MB          8.4 MB          52%  fits
+   256 K       8.4 MB         33.6 MB         200%  thrashes
+   512 K      16.8 MB         67.2 MB         400%
+
+256 K is the measured sequential optimum and is kept, since the proof driver is
+sequential today — but it is 2x over budget at 8 threads and 512 K would be 4x.
+Sizing further optimises in a direction known to be wrong for the target. The
+constraint is documented at CACHE_BITS so it cannot be inherited silently.
+
+Also corrected while checking: this machine's cache line is 128 B, not 64. No
+conclusion changes (a 32 B slot aligned to 32 still never straddles a 128 B line;
+24 B entries still straddle sometimes) but the earlier reasoning used 64.
