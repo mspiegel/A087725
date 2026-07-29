@@ -41,6 +41,10 @@ verifier-stats = []
 # at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
 # `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
 zpdb-locality = []
+# Page-locality of the merged-table probe: records the 16 KiB page of every
+# probed cell and runs it through fixed-size LRUs to produce a TLB hit-rate vs
+# reach curve. Off by default (an LRU probe per node). No root needed.
+probe-locality = []
 # Named CPU performance counters (Apple kperf/kperfdata private API), read at
 # each threshold boundary and printed by solve24. REQUIRES ROOT (sudo). Off by
 # default. Counts are frequency-independent, so unlike timings this is valid on

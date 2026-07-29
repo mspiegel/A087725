@@ -334,6 +334,15 @@ fn main() -> ExitCode {
                 // Per-node event rates for this threshold alone. Counts are
                 // frequency-independent, so these are comparable across
                 // thresholds even on battery.
+                // Start recording when the FIRST threshold finishes — that is
+                // the moment the deeper pass begins. Keying on the deeper bound
+                // instead would never fire, because a budgeted run never
+                // exhausts it.
+                #[cfg(feature = "probe-locality")]
+                if prev_nodes == nodes {
+                    eprintln!("    probe-locality: recording the next 40M probes of the next pass");
+                    puzzle8::puzzle24::probe_locality::start(40_000_000);
+                }
                 #[cfg(feature = "pmu-counters")]
                 if let Some(p) = pmu.as_ref() {
                     let now = p.read();
@@ -372,6 +381,9 @@ fn main() -> ExitCode {
             }
         }
     }
+
+    #[cfg(feature = "probe-locality")]
+    eprintln!("{}", puzzle8::puzzle24::probe_locality::report());
 
     match outcome {
         BoundedOutcome::Solved(s) => {

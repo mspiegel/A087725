@@ -575,6 +575,7 @@ where
         "root orbit-split is only sound on a σ-fixed board"
     );
 
+    let mut cache = ProbeCache::new();
     let mut stats = SearchStats::default();
     if start == &GOAL {
         return (BoundedOutcome::Solved(Vec::new()), stats);
@@ -593,9 +594,13 @@ where
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
         let step = if budget == u64::MAX {
-            run_iteration::<false>(&mut arena, cwd, merged, dfa, bound, &mut stats, budget)
+            run_iteration::<false>(
+                &mut arena, &mut cache, cwd, merged, dfa, bound, &mut stats, budget,
+            )
         } else {
-            run_iteration::<true>(&mut arena, cwd, merged, dfa, bound, &mut stats, budget)
+            run_iteration::<true>(
+                &mut arena, &mut cache, cwd, merged, dfa, bound, &mut stats, budget,
+            )
         };
         match step {
             Step::BudgetOut => return (BoundedOutcome::BudgetExhausted(bound), stats),
@@ -698,8 +703,12 @@ fn seed_root(
 /// (`idastar.rs:1324`, `:1340`), so a child that is immediately over bound **is**
 /// counted, while one dropped by the pre-prune is **not** — it `continue`s before
 /// recursing. Both are reproduced below.
+// Same convention as `build_child` and the sibling engine's search functions:
+// most of these are loop invariants threaded down from the driver.
+#[allow(clippy::too_many_arguments)]
 fn run_iteration<const BUDGETED: bool>(
     arena: &mut Arena,
+    cache: &mut ProbeCache,
     cwd: &Cwd,
     merged: &CwdMerged,
     dfa: &MoveDfa,
@@ -770,7 +779,7 @@ fn run_iteration<const BUDGETED: bool>(
             }
         }
 
-        build_child(arena, d, m, geom, tile, merged, lut, dfa);
+        build_child(arena, cache, d, m, geom, tile, merged, lut, dfa);
         stats.nodes += 1;
         // Compiles away entirely when `BUDGETED` is false, so the proof driver's
         // hot loop is byte-identical to a build without this feature.
@@ -906,6 +915,100 @@ pub mod demand_histogram {
     }
 }
 
+/// A direct-mapped memo in front of the merged-table probe.
+///
+/// # Why this exists, and why 64 K
+///
+/// A 1 K-entry version of this was built and **rejected at +5.8%** (exhaust-144).
+/// The recorded cause was that its tag test became "a 77/23 mispredicting
+/// branch" — which is simply its hit rate: 1 K entries memo 77.40% of probes.
+///
+/// Entry-level reuse is far better than that. Measured over 40 M probes in the
+/// exhaust-146 regime (`puzzle24::probe_locality`), and essentially identical at
+/// exhaust-144:
+///
+/// | entries | RAM | hit rate |
+/// |--------:|----:|---------:|
+/// | 1 K | 0.03 MB | 79.6% |
+/// | 16 K | 0.5 MB | 96.3% |
+/// | **64 K** | **2.1 MB** | **99.0%** |
+/// | 256 K | 8.4 MB | 99.5% |
+///
+/// At 64 K the tag test is a 99/1 branch — predicted, not mispredicted — and
+/// installs happen 20× less often.
+///
+/// The second reason is spatial. The hot set is tiny in bytes (~64 K entries ≈
+/// 2.1 MB) but hashbrown scatters those 32 B entries across 4.43 GB, so half of
+/// all probes touch 2,448 separate 16 KiB pages holding a couple of hot entries
+/// each. That is why L2 TLB misses run ~0.40/node at depth. Gathering the hot
+/// set into 2.1 MB of contiguous memory replaces tens of thousands of touched
+/// pages with ~128.
+///
+/// Node identity is by construction: this is a pure memo of an immutable table
+/// with an exact key match, so a hit returns precisely what the probe would.
+const CACHE_BITS: u32 = 16;
+const CACHE_LEN: usize = 1 << CACHE_BITS;
+
+/// Tag and payload interleaved, 32 B aligned, so a hit touches exactly one line
+/// and a slot never straddles two.
+#[repr(align(32))]
+#[derive(Clone, Copy)]
+struct CacheSlot {
+    /// The packed key, or 0 for "empty". Real keys are never 0 — every reachable
+    /// contingency matrix distributes 24 tiles, so some field is nonzero.
+    tag: u64,
+    cell: super::cwd::CwdCell,
+}
+
+pub(crate) struct ProbeCache {
+    slots: Box<[CacheSlot]>,
+}
+
+impl ProbeCache {
+    fn new() -> Self {
+        ProbeCache {
+            slots: vec![
+                CacheSlot {
+                    tag: 0,
+                    cell: super::cwd::CwdCell {
+                        wd: 0,
+                        curves: [0; W],
+                        nbr_wd: [255; 2 * W],
+                    },
+                };
+                CACHE_LEN
+            ]
+            .into_boxed_slice(),
+        }
+    }
+
+    /// Index from a single multiply-shift. The keys are structured (packed 3-bit
+    /// fields), so their low bits are a poor index directly; taking the high bits
+    /// of a multiply spreads them, the same reason the table's own hash folds the
+    /// high half down.
+    #[inline(always)]
+    fn slot_of(key: u64) -> usize {
+        ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - CACHE_BITS)) as usize
+    }
+
+    /// Memoised probe. Returns exactly what `merged.get(&key)` would.
+    #[inline(always)]
+    fn get<'a>(&'a mut self, merged: &'a CwdMerged, key: u64) -> &'a super::cwd::CwdCell {
+        debug_assert_ne!(key, 0, "key 0 collides with the empty-slot sentinel");
+        let i = Self::slot_of(key);
+        if self.slots[i].tag != key {
+            let cell = *merged.get(&key).expect("state reachable");
+            self.slots[i] = CacheSlot { tag: key, cell };
+        }
+        debug_assert_eq!(
+            self.slots[i].cell.wd,
+            merged.get(&key).expect("state reachable").wd,
+            "probe cache returned a different cell than the table"
+        );
+        &self.slots[i].cell
+    }
+}
+
 /// Cheap admissible lower bound on the `h` of the child reached by `m`, read from
 /// the parent's cached neighbour-WD — the port of
 /// [`Cwd::child_h_lb`](super::cwd::Cwd). The moved axis contributes its cached
@@ -948,6 +1051,7 @@ fn child_lb(arena: &Arena, d: usize, m: Move, geom: Geom, tile: usize) -> Option
 #[allow(clippy::too_many_arguments)]
 fn build_child(
     arena: &mut Arena,
+    cache: &mut ProbeCache,
     d: usize,
     m: Move,
     geom: Geom,
@@ -997,7 +1101,9 @@ fn build_child(
         #[cfg(debug_assertions)]
         debug_assert_eq!(key, pack(&mat, geom.rf), "key_row drift");
 
-        let cell = merged.get(&key).expect("row reachable");
+        let cell = cache.get(merged, key);
+        #[cfg(feature = "probe-locality")]
+        crate::puzzle24::probe_locality::note_probe(cell as *const _ as usize);
         arena.row[d + 1] = AxisSlot {
             key,
             dem,
@@ -1044,7 +1150,9 @@ fn build_child(
         #[cfg(debug_assertions)]
         debug_assert_eq!(key, pack(&mat, geom.cf), "key_col drift");
 
-        let cell = merged.get(&key).expect("col reachable");
+        let cell = cache.get(merged, key);
+        #[cfg(feature = "probe-locality")]
+        crate::puzzle24::probe_locality::note_probe(cell as *const _ as usize);
         arena.col[d + 1] = AxisSlot {
             key,
             dem,

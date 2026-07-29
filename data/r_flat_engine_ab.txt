@@ -838,3 +838,71 @@ that the out-of-order core largely absorbed. Its sample share reflects where the
 PC landed, not time on the critical path. With the index table, the probe cache,
 widemul and now H3 all overshooting, treat timer-sample share as a map of where
 work IS, not of what can be RECOVERED.
+
+================================================================================
+Round: probe cache RE-TEST at 64 K entries    *** -10.2% at 146, -11.9% at 144 ***
+Date: 2026-07-29
+Baseline: 1212db0 (C, D1, A, F, G3, H1, widemul, H3)
+Bench: solve24 --prove-at-least 147 --max-nodes 1.5e9, AC power, caffeinate -dimsu.
+       Per-run 146 time = total search - exhausted-144 time.
+================================================================================
+
+A 1 K-entry probe cache was rejected earlier at +5.8% (see the 2026-07-29 entry
+above). The recorded cause was "the tag test is a 77/23 mispredicting branch" —
+which is literally its hit rate: 1 K entries memo 77.40% of probes. The size was
+the defect, not the idea.
+
+Entry-level reuse measured over 40 M probes in the exhaust-146 regime with the
+new `probe-locality` instrument (and essentially identical at exhaust-144):
+
+  entries      RAM     hit rate
+     1 K    0.03 MB      79.6%      <- what was built and rejected
+    16 K     0.5 MB      96.3%
+    64 K     2.1 MB      99.0%      <- built now
+   256 K     8.4 MB      99.5%
+
+At 64 K the tag test is a 99/1 branch — predicted, not mispredicted — and
+installs happen ~20x less often. Both recorded failure causes are removed by
+sizing alone.
+
+The second effect is spatial, and it is the one the page-locality data exposed.
+The hot set is TINY in bytes (~64 K entries = 2.1 MB) but hashbrown scatters 32 B
+entries across 4.43 GB, so half of all probes touch 2,448 separate 16 KiB pages
+holding a couple of hot entries each. That is why L2 TLB misses run ~0.40/node at
+depth (puzzle24::pmu). Gathering the hot set into 2.1 MB contiguous replaces tens
+of thousands of touched pages with ~128.
+
+Results, 3 runs per arm, 1.5e9 nodes each:
+
+  146-regime portion (total - 144 pass)
+    base   44.31  43.67  43.81     median 43.81
+    cache  39.20  39.32  39.65     median 39.32     -10.2%   KEEP
+
+  exhausted-144 pass, same runs
+    base   15.36  15.35  15.33     median 15.35
+    cache  13.50  13.52  13.52     median 13.52     -11.9%
+
+Every cache run below every base run. Node-identical at 1,500,000,000 (and at
+422,379,806 for a plain exhaust-144); the frozen oracle passes.
+
+Node identity is by construction: a pure memo of an immutable table with an exact
+key match, so a hit returns precisely what the probe would. A debug_assert
+compares the cached cell against the table on every access.
+
+Design: direct-mapped, 64 K slots, tag and cell interleaved at 32 B align 32 so a
+hit touches exactly one line and no slot straddles two. Index from one
+multiply-shift taking the HIGH bits — the keys are structured (packed 3-bit
+fields) so their low bits are a poor index, the same reason the table's own hash
+folds the high half down.
+
+*** THE LESSON, and it is about method, not the cache ***
+This is the largest win of the session — bigger than G3, H1, widemul and H3
+combined — and it was sitting behind a REJECTED result. The rejection was
+correct for what was built and was recorded with its cause; what was missing was
+that the cause ("77/23 mispredicting") was a restatement of a design parameter
+that could simply be changed. Two corrections compounded:
+  1. the size was wrong (1 K -> 64 K removes both recorded failure causes), and
+  2. the earlier A/B ran only at exhaust-144, where probes are cheaper.
+When a reject's recorded cause is a *parameter* rather than a *mechanism*, it is
+not closed. Contrast H5/H5b, where two different mechanisms each exceeded the
+saving — that family really is closed.
