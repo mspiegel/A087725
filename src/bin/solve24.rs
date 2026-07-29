@@ -229,8 +229,20 @@ const PMU_EVENTS: &[&str] = &[
     "L2_TLB_MISS_DATA",
 ];
 
+// dyld's ASLR slide for the main executable. Sampling tools report raw runtime
+// PCs, and deriving the slide by searching for the value that best fits the
+// symbol table is unreliable at low sample counts — it produced a profile
+// attributing 14% of time to a once-per-threshold callback. Printing it makes
+// symbolisation exact.
+extern "C" {
+    fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
+}
+
 fn main() -> ExitCode {
     let t0 = Instant::now();
+    eprintln!("image slide: {:#x}", unsafe {
+        _dyld_get_image_vmaddr_slide(0)
+    });
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match parse_args(&argv) {
         Ok(a) => a,
