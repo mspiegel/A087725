@@ -34,7 +34,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use puzzle8::puzzle24::search::cwd::Cwd;
-use puzzle8::puzzle24::search::flat::flat_bounded;
+use puzzle8::puzzle24::search::flat::flat_bounded_telemetry;
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
@@ -249,8 +249,33 @@ fn main() -> ExitCode {
         dfa.table_bytes() / 1024
     );
 
+    // Per-threshold telemetry. Cumulative totals hide that the rate FALLS with
+    // depth — 31.50 Mn/s exhausting 144 vs ~26.7 exhausting 146 (FINDINGS §8x) —
+    // and a ladder run's cumulative average silently blends the two.
     let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
-        flat_bounded(&start, &cwd, &dfa, orbit, args.max_bound.unwrap_or(u8::MAX))
+        let mut prev_nodes = 0u64;
+        flat_bounded_telemetry(
+            &start,
+            &cwd,
+            &dfa,
+            orbit,
+            args.max_bound.unwrap_or(u8::MAX),
+            |bound, stats, iter_dt| {
+                let nodes = stats.nodes - prev_nodes;
+                prev_nodes = stats.nodes;
+                let secs = iter_dt.as_secs_f64();
+                let rate = if secs > 0.0 {
+                    nodes as f64 / secs / 1e6
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "[{}] threshold {bound:>3} exhausted: {nodes:>15} nodes in {iter_dt:.2?} \
+                     ({rate:.2} Mn/s)",
+                    now_hms()
+                );
+            },
+        )
     });
     let elapsed = t0.elapsed();
 

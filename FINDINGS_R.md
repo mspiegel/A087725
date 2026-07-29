@@ -1252,6 +1252,14 @@ exhaust-144, **−39% search time / +63% throughput**, unchanged nodes. Five
 loop-*restructuring* attempts all lost (prefetch −37%, index table −3.5%, probe
 cache −5.8%, H5 +16%, H5b +12.7%). Full log: `data/r_flat_engine_ab.txt`.
 
+**Scope, and it matters.** Every one of those A/Bs ran at **exhaust-144**. The
+counters above show the regime changes with depth — back-end share rises, IPC
+falls 15% — so the *memory-shaped* rejects do not generalise. The prefetch
+entry's own recorded reason for failing, "working set already resident; nothing
+to hide", is a statement about the 144 regime and is exactly what breaks at 146.
+The seven wins are unaffected: they remove work from the node's dependency chain,
+and that work is removed at every depth.
+
 **Method note.** The exhaust-146 run doubles as the strongest correctness check
 the engine has: 18,189,473,636 nodes matching the pure-cWD figure recorded at
 §8c bit-for-bit, ~500× the coverage of the 180-case frozen oracle

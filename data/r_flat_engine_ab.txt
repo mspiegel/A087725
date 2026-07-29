@@ -427,7 +427,10 @@ WHY, and the correction that matters. The compaction model predicted -5% and got
 And the benefit it assumed (an L2->L1 upgrade) evidently was not there, meaning
 the probes were already close to L1-resident.
 
-THE MODEL, CORRECTED. Four memory-shaped interventions have now failed:
+THE MODEL, CORRECTED.  [*** SEE THE 2026-07-29 CORRECTION AT THE END OF THIS
+FILE: every result below was measured at exhaust-144, where memory is NOT the
+bottleneck; the counters show that changes at exhaust-146. ***]
+Four memory-shaped interventions have now failed:
   shrink the entry (B)      time-neutral
   prefetch (§8i)            -0.7%, and -37% cross-child
   index-addressed table     -3.5%
@@ -664,6 +667,12 @@ RESTRUCTURED the loop has lost (prefetch -37%, index table -3.5%, probe cache
 *category* is large; they are not evidence that a given restructuring will
 capture it.
 
+  [*** SCOPE CORRECTION, 2026-07-29 — see the entry at the end of this file.
+   Every A/B above ran at exhaust-144. The memory-shaped results in particular
+   do NOT generalise to deeper thresholds, and the prefetch entry's own recorded
+   reason ("working set already resident; nothing to hide") is a statement about
+   the 144 regime, not about the engine. ***]
+
 --------------------------------------------------------------------------------
 H5b — same idea with #[inline(always)]              *** ALSO REJECTED, +12.7% ***
 --------------------------------------------------------------------------------
@@ -707,3 +716,58 @@ sorted candidates) without new evidence that the *cost model* has changed.
 METHOD NOTE, worth keeping. The disassembly diff cost ~1 minute and zero
 benchmark runs, and it converted "H5 lost, mechanism unknown" into a specific
 falsifiable retry. The two A/Bs cost ~6 minutes. Disassembly first.
+
+================================================================================
+CORRECTION (2026-07-29): every A/B in this file ran at exhaust-144, and the
+memory-shaped conclusions do NOT generalise to deeper thresholds
+================================================================================
+
+This file repeatedly states, in increasingly confident form, that "memory-shaped
+interventions have all failed" and that back-end stalls here are therefore
+dependency-chain stalls rather than memory stalls. That conclusion is sound *for
+exhaust-144*. It was then quoted as a property of the engine. It is not.
+
+Every A/B recorded above — B, prefetch, index table, probe cache, G1/G2/G3, H1,
+widemul, H5, H5b — was run at exhaust-144 on R.
+
+Counter profiles of both thresholds, same process, same session, same power
+state, show the regime changes with depth:
+
+                             exhaust-144   exhaust-146
+  IPC                             3.25         2.76      -15%
+  useful / retiring              37.5%        35.7%      -1.8pp
+  discarded / bad speculation    22.2%        22.3%      +0.1pp
+  back-end / processing          40.3%        42.0%      +1.7pp
+
+  (normalised; raw category sums were 107.0% and 93.4%, so read the split as
+   directional. IPC is the robust figure and matches the independently measured
+   throughput drop of -17.7% within the same run: 30.63 -> 25.22 Mn/s.)
+
+Work per node is identical at both thresholds, so the only way throughput falls
+is more cycles per node — ~21% more — and the counters put the increase in the
+back-end, with bad speculation flat to a tenth of a point. The mechanism is
+locality: a deeper threshold walks a larger slice of the 4.43 GB merged map.
+
+WHY THIS MATTERS FOR THE REJECTS. The prefetch entry's recorded reason for
+failing is "working set already resident; nothing to hide". That is a statement
+about exhaust-144, and it is exactly the condition the counters show breaking at
+146. So the strongest of the memory-shaped rejects is untested in the regime
+where its premise would hold. Entry-shrinking is the other one worth revisiting,
+since a smaller entry touches fewer lines and pages — a locality fix rather than
+a latency-hiding one. A probe cache is the weakest re-test: it needs reuse, and
+reuse is what is degrading.
+
+WHAT IS NOT AFFECTED. The seven wins (C, D1, A, F, G3, H1, widemul) removed work
+from the node's dependency chain; that work is removed at every depth, so they
+carry over. H5/H5b's rejection also stands on its own mechanism (a non-inlined
+call, then spill pressure), independent of depth.
+
+COST OF THE RE-TEST, so nobody starts it casually. An exhaust-146 A/B is ~12 min
+per run. On battery, two runs of identical work differed by 2.9% and the session
+spanned ~10%, so resolving a few-percent effect needs 4+ runs per arm: ~1.5 h per
+A/B. R's thresholds are parity-quantised (144, 146, 148), so there is no cheaper
+intermediate depth on this board to use as a proxy.
+
+The prize is correspondingly larger than anything left at 144: the gap between
+the two regimes is 17.7%, and exhaust-146+ is the regime the R proof actually
+runs in.
