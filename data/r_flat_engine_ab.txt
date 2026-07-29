@@ -663,3 +663,47 @@ RESTRUCTURED the loop has lost (prefetch -37%, index table -3.5%, probe cache
 (C, D1, A, F, G3, H1, widemul). Top-down counters are good at saying which
 *category* is large; they are not evidence that a given restructuring will
 capture it.
+
+--------------------------------------------------------------------------------
+H5b — same idea with #[inline(always)]              *** ALSO REJECTED, +12.7% ***
+--------------------------------------------------------------------------------
+
+H5's autopsy was disassembly, not more benchmarking, and it found a concrete
+defect: `#[inline]` is a hint and LLVM DECLINED it (652 B, two call sites, holds
+a loop), so `flat_bounded` carried a real `bl ...prefilter...` — ~319M calls,
+each spilling loop state across a `&mut Arena` boundary. H5 therefore never
+tested the idea it was meant to test.
+
+H5b forces `#[inline(always)]`. Verified in the disassembly BEFORE benchmarking
+(pre-registered: an unverified binary would not be measured):
+
+                    prefilter sym   bl prefilter   insns  sp_st  sp_ld  cond  csel
+  baseline              absent            0         1196    49     69    102    26
+  H5   (call)           present           2         1168    45     73     96    23
+  H5b  (inlined)        absent            0         1360    50     97    122    40
+
+Call gone — but stack RELOADS up 40% (69 -> 97), which is the register-pressure
+mechanism I had originally guessed for H5 and which only materialises once the
+loop is actually inlined at both sites.
+
+  base   13.41  13.83     mean 13.620   31.03 Mn/s
+  H5b    15.26  15.44     mean 15.350   27.52 Mn/s     +12.7%   REJECT
+
+Removing the call recovered ~3pp of ~16pp. The rest is the restructuring itself.
+
+VERDICT — this family is closed. The pre-prune's `f > bound` is the
+highest-entropy branch in the engine (45.13% of 769,806,911 candidates) and
+hoisting it out of the inner loop lost under TWO DIFFERENT implementations with
+TWO DIFFERENT dominant costs (call overhead, then spill pressure). That is not
+one experiment failing twice; it is two distinct costs each exceeding whatever
+the mispredicts were worth. Conclusion: bad speculation's ~19.9% top-down share
+is largely NOT recoverable here — the branches that mispredict are the ones
+doing essential control flow, and any structure that defers or batches the
+decision costs more than the misprediction does.
+
+Do not re-litigate by trying a third shape (unrolled 4-way mask, SIMD compare,
+sorted candidates) without new evidence that the *cost model* has changed.
+
+METHOD NOTE, worth keeping. The disassembly diff cost ~1 minute and zero
+benchmark runs, and it converted "H5 lost, mechanism unknown" into a specific
+falsifiable retry. The two A/Bs cost ~6 minutes. Disassembly first.
