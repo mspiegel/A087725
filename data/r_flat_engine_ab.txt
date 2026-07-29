@@ -1,0 +1,558 @@
+flat vs recursive engine — R, exhaust-144 (proves >= 146), sequential, --heuristic cwd
+=======================================================================================
+Machine: Apple silicon, 8 perf cores (search is single-threaded here — no --parallel).
+Build:   cargo build --release --features "mmap parallel" --bin solve24
+Command: solve24 --pdb-dir data --heuristic cwd --engine {recursive,flat} \
+                 --position "0 24 23 ... 2 1" --prove-at-least 146
+Both engines: move-DFA on (41,396 states), cWD neighbour-prune on, root orbit-split
+auto-on (R is sigma-symmetric). Runs alternated back-to-back in one session per FINDINGS
+§8l (cross-session thermal drift blurs per-change deltas).
+
+run  engine     nodes        search time  throughput
+---  ---------  -----------  -----------  -----------
+1    recursive  422,379,806  21.85 s      19.33 Mn/s
+1    flat       422,379,806  17.41 s      24.26 Mn/s
+2    recursive  422,379,806  21.83 s      19.35 Mn/s
+2    flat       422,379,806  17.35 s      24.34 Mn/s
+3    recursive  422,379,806  21.79 s      19.39 Mn/s
+3    flat       422,379,806  17.40 s      24.28 Mn/s
+
+median     recursive 21.83 s / 19.35 Mn/s
+           flat      17.40 s / 24.28 Mn/s
+delta      search time -20.3%,  throughput +25.5%
+
+NODE-IDENTICAL: 422,379,806 on every run of both engines. This rewrite changes no
+pruning decision, so nodes is the control variable and ns/node is the only thing that
+moved — the A/B discipline §8k prescribes ("move one axis, hold the other fixed").
+
+Disassembly (cargo build --profile profiling), the mechanism behind the delta:
+
+  recursive  search_inc_mut   `sub sp, sp, #0x120` -> 288 B frame, all 10 callee-saved
+                              registers live, 52 sp-relative spill/reloads, 491 instrs.
+                              Set up and torn down ONCE PER NODE (it is the recursion),
+                              i.e. 422 million times in this run.
+
+  flat       run_flat         96 B callee-saved area + a 736 B aligned frame, established
+                              ONCE PER SEARCH. The per-node path is a loop body with no
+                              call boundary, so there is no per-node frame to spill across.
+
+The two frame sizes are not directly comparable (run_flat inlines the whole driver —
+setup, deepening loop, build_child, child_lb, printing — into 1,568 instructions). The
+load-bearing difference is the *frequency*: 288 B x 422M vs 736 B x 1.
+
+Corroborates §8l's `5b75923` (arg-bundle, 384 B/85 spills -> 288 B/53, -2.0%): the same
+axis, taken to its conclusion by removing the call rather than shrinking its frame.
+
+
+Hotspot A/Bs — three candidates from the sample profile, each measured ALONE
+============================================================================
+Profile (diagnostic build, sub-functions un-inlined so `sample` can attribute):
+  run_flat (loop body) 41.0% | build_child 24.3% | child_lb 16.5% |
+  probe 5.8% | surcharge_from_curves 5.3% | demand_col_key 3.8% | demand_row_key 3.2%
+
+Each candidate applied to the baseline on its own (never stacked), same binary
+otherwise, runs interleaved with baseline in one thermal window.
+
+variant                                    search    vs base   verdict
+-----------------------------------------  --------  --------  ------------------
+baseline (4 runs)                          17.54–17.75 s  —     spread 1.2%
+A  dem_mask surcharge early-out            17.43 s   −1.1%     NOISE — a second
+                                           17.65 s   +0.2%     run came in SLOWER
+                                                              than its own baseline
+B  cached per-axis terms in FrameHot       17.33 s   −1.6%     inside noise; not
+                                                              established
+C  division-free demand-LUT keys           16.77 s   −4.8%     REAL — landed
+
+LANDED: C only.
+
+Why not A and B. Both sit at or under the ~2% resolution §8l says matters, and
+both *add state to hot structures* to get there — A grows AxisSlot by a byte, B
+grows FrameHot from 12 to 14 B, which risks separating depth d from d+1 in a
+cache line. Paying a certain structural cost for an unmeasurable gain is a net
+negative, so they are dropped rather than banked.
+
+Why C works. `cwd.rs`'s demand_row_key / demand_col_key recompute `gp / W` and
+`gp % W` for each of the W cells — ten divisions by 5 per call, each a
+multiply-high/shift/multiply/subtract on aarch64 — while the flat engine already
+carries GOAL_ROW / GOAL_COL. Same key, same LUT entry, node-identical. This is
+§8k's one paying category (real multi-instruction work removed at fixed nodes)
+and the same shape as c21078e, which replaced the per-node LIS with the LUT.
+
+All variants were node-identical at 422,379,806 — the control held throughout.
+
+Cumulative: recursive 21.83 s -> flat 17.40 s -> flat+C 16.77 s
+            = -23.2% search time / +30.4% throughput over the recursive engine.
+
+
+build_child A/Bs — the 24.3% component
+=======================================
+Baseline is flat+C (16.77–16.90 s, spread 0.8%). Each candidate measured alone.
+
+variant                                        search           vs base   verdict
+---------------------------------------------  ---------------  --------  --------
+baseline flat+C (3 runs)                        16.77/16.81/16.90 s  —     spread 0.8%
+D1  KEY_DELTA: whole key update as one add      16.36 / 16.39 s  −2.7%    REAL — landed
+D2  build the frame with its final h            16.82 / 16.77 s  −0.2%    NOISE — LLVM
+                                                                          already killed
+                                                                          the dead store
+
+LANDED: D1.
+
+D1. The packed-key update was two `key_get_cell` reads, two `key_set_cell`
+writes, a `key_set_blank` and a branch. All of it collapses into ONE table read
+plus one `wrapping_add`, because the 3-bit fields cannot carry into each other:
+  - M[rf][g] >= 1 before the decrement, M[rt][g] <= W-1 before the increment
+    (rt is the blank's line), and a 3-bit field holds 0..=7 — no borrow, no carry;
+  - the blank field is the top field (bits 60-62, bit 63 unused), so its +rf-rt
+    disturbs nothing above it;
+  - g == W-1 is not encoded at all, so the cell part is zero — which also folds
+    away the branch.
+KEY_DELTA[rf][rt][g] is 5x5x5 u64 = 1000 B, L1-resident. Both D1 runs came in
+below EVERY baseline run. The `pack` drift assertion pins the arithmetic against
+the field-insert form on every node of the differential test.
+
+D2 rejected. Writing the frame with h=0 and then overwriting h looked like a
+redundant store plus a store-to-load round trip through row_at/col_at. It is not:
+the measurement is flat (16.82 / 16.77 vs a 16.77-16.90 baseline), so LLVM was
+already eliminating the dead store and forwarding the value. A reminder of §8i's
+governing law — the profiler shows you where, but only removing real
+multi-instruction work moves the needle, and this was not real work.
+
+Cumulative on R at exhaust-144, all node-identical at 422,379,806:
+  recursive        21.83 s   19.35 Mn/s
+  flat             17.40 s   24.28 Mn/s   (-20.3% vs recursive)
+  flat + C         16.77 s   25.19 Mn/s   (-23.2%)
+  flat + C + D1    16.38 s   25.80 Mn/s   (-25.0% / +33.4% throughput)
+
+
+Tighter neighbour pre-prune — measured DEAD on R (2026-07-29)
+=============================================================
+child_h_lb is loose by exactly the changed axis's surcharge (lb = h - surch).
+Instrumentation on R at exhaust-144:
+
+  candidates   769,806,911
+  pre-pruned   347,427,106   45.13%  (free array read; never counted as nodes)
+  built        422,379,805   = nodes - 1
+    over-bound 103,397,347   24.48% of built — materialised then discarded
+    descended  318,982,458   75.52%
+
+So ~10% of runtime goes into building children the search throws away one line
+later. Closing the gap needs a lower bound on the child's surcharge WITHOUT the
+probe. The child's demand is free (board-derived); its curves are not.
+
+SCAN (examples/cwd_curve_floor.rs, over all 65,650,495 overlay states):
+
+  PREMISE "a demanded line always costs >= 1 nibble": FALSE
+  floor[line][demand] = min nibble over all states
+      line 1 (top/left)      d=1..4 -> 1 2 3 4
+      line 2,3,4 (interior)  d=1..4 -> 0 0 0 0
+      line 5 (bottom/right)  d=1..4 -> 1 2 3 4
+  Only 4.83% of (state,line,demand) triples have a zero nibble at all.
+
+The outer-line floors ARE a sound, zero-memory rule: demand d on line 1 or 5 of
+the changed axis => surcharge >= 2d. Counterfactual measurement on R:
+
+  over-bound builds with ANY outer-line demand:  9,039  (0.01%)
+  would-be caught by the floor rule:             9,028  (0.01%)
+
+DEAD ON R, and structurally so — not bad luck. R is the 180 deg rotation, so its
+outer lines hold no residents at all:
+    R row 1 = [_, 24, 23, 22, 21]  -> residents: NONE (all belong to row 5)
+    R row 5 = [ 5,  4,  3,  2,  1] -> residents: NONE (all belong to row 1)
+    R row 3 = [15, 14, 13, 12, 11] -> ALL residents (row 3 maps to itself)
+Every demand R carries sits on an interior line, which is exactly where the floor
+is 0. The rule fires on 1 in 10,000 wasted builds. (When it does fire it works —
+9028/9039 = 99.9% — it just never fires.)
+
+VERDICT: both cheap routes are closed.
+  - free +2 from "demand implies cost": premise false for interior lines.
+  - outer-line floor: sound and free, but fires on 0.01% of R's wasted builds.
+Only the exact per-state bound remains — store neighbour INDICES into a flat
+index-addressed table (~3.3 GB, vs ~6.6 GB to copy neighbour curves). That also
+eliminates the probe outright, and it sidesteps why the flat table was rejected
+in PUZZLE24.md:406 (that rejection was about paying the contingency rank per
+node; with neighbour indices you rank once, at the root). Est. ~10%, and it
+retires node-identity as the A/B control since pre-pruned children are not
+counted.
+
+
+Index-addressed cWD table (neighbour edges) — measured REGRESSION, reverted (2026-07-29)
+=========================================================================================
+Idea: give each merged-table entry its neighbours' INDICES, so the search follows a
+precomputed edge instead of hashing a packed key per child. Built in three stages,
+each independently verified:
+
+  stage 1  FlatTable: 65,650,495 states re-indexed. wd + curves co-located (12 B),
+           neighbour edges in a parallel array (40 B). ~3.4 GB vs the ~1.2 GB hash.
+           Verified EXHAUSTIVELY: every wd, every curves, all ~656 M edges land
+           exactly where neighbor_keys() says.
+  stage 2  Engine navigates by index. AxisSlot 32 B -> 12 B (u64 key + 10 B cached
+           neighbour-WD array both deleted); KEY_DELTA and all packed-key arithmetic
+           deleted; probe replaced by an edge follow. Node-identical by construction.
+  stage 3  prepare/commit split: a child's h is computed in locals and the arena is
+           written only on descent, so a rejected child costs 0 writes (was ~56 B).
+           Also node-identical — the bound is unchanged, only the commit is deferred.
+
+Node-identity gate passed on the final code (525 s in debug, 96 search pairs, all
+drift assertions live). A/B on R at exhaust-144, sequential, alternating:
+
+  D1   15.91 s  26.55 Mn/s        <- previous best (hash + KEY_DELTA)
+  idx  16.29 s  25.93 Mn/s
+  D1   15.74 s  26.83 Mn/s
+  idx  16.48 s  25.62 Mn/s
+
+  medians: D1 15.83 s, idx 16.39 s  ->  +3.5% SLOWER. No overlap between the sets.
+
+WHY (the correction that matters). The ~10% estimate assumed the profiler's 4.6%
+`probe` was mostly the HASH. It was not — it was the MEMORY ACCESS. Removing the
+hash saved almost nothing, and edge navigation ADDED a second dependent access:
+
+    before   hash(key) -> one lookup in a 1.2 GB table
+    after    nbr[parent_idx] -> cell[child_idx]   two dependent loads, 3.4 GB resident
+
+Two misses instead of one, over a table ~3x larger. That is the whole regression.
+
+This independently re-derives PUZZLE24.md:406 and sharpens why it holds. That
+rejection was read as "the per-node contingency rank cost more than the hash", which
+suggested precomputed edges would sidestep it. They do not: for a 65.6 M-entry state
+space the address computation was never the cost — the ACCESS is — and enlarging the
+table to carry the edges makes it strictly worse. No indexing scheme fixes this.
+
+Consequence for the tighter pre-prune: the exact-bound route is dead too, since it
+required exactly this table (the child's curves reachable without a probe). Combined
+with the curve-floor scan above, ALL routes to a tighter neighbour pre-prune are now
+closed — free +2 (premise false), outer-line floor (fires on 0.01% of R), and the
+exact per-state bound (its table is a net loss).
+
+REVERTED. flat.rs is byte-identical to the D1 state; flat_table.rs deleted; the
+cwd.rs/solve24.rs hooks undone. Sources kept for the record in the session scratchpad
+as flat_idx_REGRESSION.rs / flat_table_REGRESSION.rs.
+
+Still unmeasured: stage 3 (prepare/commit) in isolation. It is orthogonal to the table
+redesign and can sit on the hash-based engine — worth ~56 B of avoided arena writes per
+rejected child (24.48% of children), so plausibly 1-3%, i.e. possibly noise.
+
+
+Register-resident frame fields — LANDED (2026-07-29)
+=====================================================
+Target: `run_flat`, the largest profile component (43% of the diagnostic sample).
+`cand` and `minf` are the only fields of the current frame the loop MUTATES, and
+both are touched on every candidate child — a read-modify-write pair each, through
+a bounds-checked index into arena.hot[d]. Every other field (blank, dfa, row_at,
+col_at) is read-only at that depth, so child_lb and build_child keep reading the
+arena unchanged and see identical values.
+
+Hold the two in locals; refresh the arena copy only on descend and ascend:
+
+    descend:  arena.hot[d].cand = cand; arena.hot[d].minf = minf;
+              cand = <child's candidate set>; minf = u8::MAX;
+    ascend:   cand = arena.hot[d].cand; minf = min(arena.hot[d].minf, sub);
+
+A/B on R at exhaust-144, sequential, alternating:
+
+  base  16.25 s  26.00 Mn/s
+  A     15.47 s  27.31 Mn/s
+  base  15.94 s  26.49 Mn/s
+  A     15.44 s  27.36 Mn/s
+
+  medians: base 16.10 s, A 15.46 s  ->  -4.0%. Both A runs below BOTH base runs.
+  Nodes identical at 422,379,806.
+
+Why this one worked where the index table did not: it removes genuine load-store
+pairs (~3 memory ops per candidate, over ~770 M candidates) rather than address
+arithmetic. That is the distinction the index-table regression taught — a
+profiler's share is only reclaimable when it is real memory traffic or real
+multi-instruction work, not when it is arithmetic the core already hides.
+
+Cumulative on R at exhaust-144, all node-identical at 422,379,806:
+  recursive              21.83 s   19.35 Mn/s
+  flat                   17.40 s   24.28 Mn/s
+  flat + C               16.77 s   25.19 Mn/s
+  flat + C + D1          16.38 s   25.80 Mn/s
+  flat + C + D1 + A      15.46 s   27.36 Mn/s   (-29.2% vs recursive / +41.4% throughput)
+
+
+2-bit neighbour-WD deltas — TIME-NEUTRAL, MEMORY WIN (2026-07-29)
+==================================================================
+CwdCell cached the WD of all <=2W axis-neighbours as [u8; 10]. But WD is a BFS
+distance in the abstract graph, so an edge moves it by at most one: every
+neighbour is wd-1, wd, or wd+1. With "absent" that is exactly four codes — 2 bits
+x 10 slots = 20 bits, so 3 bytes instead of 10. No scan needed; it is a theorem
+about BFS distances, and set_nbr_wd debug-asserts the delta stays in -1..=1.
+
+  CwdCell  22 B -> 14 B
+  AxisSlot 32 B -> 24 B   (flat engine)
+  CwdUndo  20 B -> 13 B   (recursive engine)
+
+A/B on R at exhaust-144, sequential, alternating:
+
+  A  15.52 s  27.22 Mn/s
+  B  15.64 s  27.00 Mn/s
+  A  15.61 s  27.05 Mn/s
+  B  15.61 s  27.06 Mn/s
+  medians: A 15.565 s, B 15.625 s  ->  -0.4%, i.e. NOISE. No time win.
+
+Peak RSS (tables loaded, zero nodes searched):
+  A  9.96 GiB
+  B  8.96 GiB   ->  -1.00 GiB (-10%)
+
+VERDICT: kept, on memory not speed. This is the third memory-layout argument this
+session to fail to show up in the clock (after the co-located AxisSlot and the
+index table). The pattern is now consistent: only REMOVING accesses has ever paid
+— shrinking the thing being accessed has not, because a 1.4 GB table is far
+outside any cache either way and the miss rate barely moves.
+
+Distinguish it from the earlier rejects though: dem_mask and cached-axis-terms
+ADDED state for no gain (net negative). This REMOVES state for no time cost, so a
+measured gigabyte at parity is a real win — and it matters most in the 2-tier
+config, where 30.5 GiB of k8 makes every gigabyte contested.
+
+Cumulative on R at exhaust-144, all node-identical at 422,379,806:
+  recursive                  21.83 s   19.35 Mn/s
+  flat                       17.40 s   24.28 Mn/s
+  flat + C                   16.77 s   25.19 Mn/s
+  flat + C + D1              16.38 s   25.80 Mn/s
+  flat + C + D1 + A          15.46 s   27.36 Mn/s
+  flat + C + D1 + A + B      15.63 s   27.06 Mn/s  (time-neutral, -1.00 GiB RSS)
+                                       -28.4% vs recursive / +39.8% throughput
+
+DROPPED by decision (2026-07-29). The 2-bit delta encoding was time-neutral and
+saved 1.00 GiB, but it adds an encode/decode invariant to shared cwd.rs for zero
+measured speed. Reverted; cwd.rs and flat.rs are back to the C + D1 + A state.
+The finding stands on record: the encoding is sound (BFS 1-Lipschitz) and worth
+~1 GiB if memory ever becomes the binding constraint — e.g. in the 2-tier config
+where 30.5 GiB of k8 competes.
+
+The demand-LUT packing (32 KiB -> 12 KiB) was skipped unmeasured. It is the same
+category that failed three times here — same number of accesses, smaller target —
+so it was not worth the runs.
+
+FINAL STATE of the flat engine: flat + C + D1 + A.
+  recursive              21.83 s   19.35 Mn/s
+  flat + C + D1 + A      15.46 s   27.36 Mn/s   -29.2% / +41.4% throughput
+  node-identical throughout at 422,379,806.
+
+
+Branchless demand key — LANDED (2026-07-29), and a NEW cost category
+=====================================================================
+Found by hardware counters, not by reading the profiler. `sample` only ever gave
+function-level attribution; `xctrace record --template 'CPU Counters'` attached to
+the search phase gives the top-down breakdown AND PMU-triggered samples (the
+counter fires on a bottleneck event and captures the stack, attributing each
+bottleneck to a source line).
+
+  useful (retiring)             35.4%
+  discarded (bad speculation)   19.2%   <- previously invisible
+  delivery (front-end)           3.9%
+  processing (back-end)         41.5%
+  (validation: MetricTable independently reports delivery = 3.9%)
+
+Nearly a fifth of issue bandwidth was being thrown away on mispredicted paths — a
+category never examined in the nine prior A/Bs, all of which reasoned about
+instruction counts or memory. Bounds checks, incidentally, are cheap HERE too and
+now measured rather than assumed: they are predicted-not-taken, so they land in
+`retiring`, and front-end is only 3.9%.
+
+PMU attribution of the mispredicts:
+   88  build_child:794          if g == cf || g == ct        (guards a call)
+   37  demand_col_fast:283      if tile != 0 && GOAL_COL[..] (data-dependent)
+   36  demand_row_fast:268      if tile != 0 && GOAL_ROW[..] (data-dependent)
+   37  run_iteration:632        the pre-prune decision       (IRREDUCIBLE — ~45%
+                                                              taken, it IS the
+                                                              algorithm)
+   35  child_lb:697,714
+   20  surcharge_from_curves:63 if (1..=4).contains(&d)
+
+The demand-key test asks "is this cell a resident of its own line?" five times per
+call — essentially random against the board. Made branchless with `&` rather than
+`&&` (so the predicate does not reintroduce a branch); GOAL_COL[0] == 0, so the
+blank contributes nothing through the multiply. Same key computed => node-identical
+by construction, and the debug_assert against demand_*_line pins it.
+
+Codegen confirms the intended transformation (run_flat, profiling build):
+  conditional branches  150 -> 130
+  csel/cset              28 ->  38
+  instructions         1727 -> 1686
+
+A/B on R at exhaust-144, sequential, two rounds with the order reversed:
+  baseF  15.61  16.12  16.37  17.51    median 16.25   min 15.61
+  F      15.02  15.34  15.46  15.53    median 15.40   min 15.02
+  EVERY F run below EVERY baseline run. -5.2% on medians, -3.8% on minima (~4%).
+  Nodes identical at 422,379,806.
+
+F's spread is also much tighter (0.51 s vs 1.90 s), consistent with removing a
+mispredicting branch: less run-to-run variance.
+
+Cumulative on R at exhaust-144, all node-identical at 422,379,806:
+  recursive                      21.83 s   19.35 Mn/s
+  flat + C + D1 + A              15.46 s   27.36 Mn/s
+  flat + C + D1 + A + F          15.40 s   ~27.6 Mn/s  (measured 15.02-15.53)
+
+STILL OPEN, now justified by the same data:
+  - surcharge_from_curves:63 has the identical shape (20 sampled events).
+  - build_child:794 is the top attribution (88) but guards a CALL, so branchless
+    means always computing the demand — only worth it if `g == cf || g == ct` is
+    common. Measure the rate first.
+
+
+Probe cache — REGRESSION, reverted; and the corrected model (2026-07-29)
+=========================================================================
+Simulated a direct-mapped cache in front of the merged table (instrumentation
+only, 422,379,805 probes on R at exhaust-144):
+
+  1 K entries (32 KiB): 77.40%     16 K: 96.42%
+  4 K entries         : 89.39%     64 K: 98.91%
+
+That is TEMPORAL locality only. Spatial locality is absent by construction —
+hashing scatters keys — so each distinct hot key costs its own cache line, and the
+hot set spans 256-512 KiB of LINES while holding only ~120 KiB of data. The model
+was: that puts it in L2, so compacting into a 32 KiB contiguous table converts L2
+hits into L1 hits, worth ~5%.
+
+Built it: 1 K entries, tag and cell interleaved (32 B, align 32) so a hit touches
+one line. Node-identical by construction — a pure memo of an immutable table,
+exact key match required.
+
+  baseH  15.37 s  27.48 Mn/s
+  H      16.34 s  25.86 Mn/s
+  baseH  15.38 s  27.47 Mn/s
+  H      16.18 s  26.10 Mn/s
+  medians 15.375 vs 16.26  ->  +5.8% SLOWER. Reverted.
+
+WHY, and the correction that matters. The compaction model predicted -5% and got
++5.8%. Two costs it ignored, both of which we had already learned about:
+  - the tag test is a 77/23 branch, i.e. MISPREDICTING — and F had just shown a
+    mispredicting branch here is worth ~4%. This added one back.
+  - a miss writes 32 B; 97 M misses = ~3.1 GB of extra stores.
+And the benefit it assumed (an L2->L1 upgrade) evidently was not there, meaning
+the probes were already close to L1-resident.
+
+THE MODEL, CORRECTED. Four memory-shaped interventions have now failed:
+  shrink the entry (B)      time-neutral
+  prefetch (§8i)            -0.7%, and -37% cross-child
+  index-addressed table     -3.5%
+  compact probe cache (H)   -5.8%
+Back-end ("Instruction Processing") is 42.1% of the top-down breakdown, but every
+attempt to attack it AS MEMORY has failed. The conclusion is that those stalls are
+not memory stalls — they are dependency-chain and issue stalls, which Apple's
+"processing" category also covers. That explains the whole pattern: the index
+table lengthened a dependency chain, the cache added a branch and stores, and
+shrinking or prefetching the table changed neither.
+
+Every win in this engine has come from removing OPERATIONS, never from
+rearranging memory:
+  C   division-free demand keys       -4.8%
+  D1  key update as one add           -2.7%
+  A   register-resident cand/minf     -4.0%
+  F   branchless demand predicate     -4.0%
+
+================================================================================
+Round: G1 / G2 / G3 — store-to-load round trips in the child's dependency chain
+Date: 2026-07-29
+Baseline: 2337d77 (flat engine with C + D1 + A + F)
+Bench: solve24 --engine flat --heuristic cwd --prove-at-least 146 on R
+       (exhaust-144, sequential, caffeinate -i). All runs node-identical.
+================================================================================
+
+Hypothesis. build_child passes three values through memory that were live in
+registers a statement earlier, and arena.row / arena.col / arena.hot are three
+separate boxed slices reached through one struct — the shape where field-level
+noalias does not propagate and LLVM cannot forward the store:
+  1. board copy+swap -> read `tile` back out of the copy
+  2. AxisSlot store  -> h_at reads .wd/.surch back
+  3. FrameHot store  -> loop reads .h back
+
+G1 = fix (2) and (3): build_child returns h, built from cell.wd + surch + the
+     untouched axis's term while all are in registers; FrameHot written once
+     with the final h instead of h:0 then patched. Guarded by
+     debug_assert_eq!(h, arena.h_at(d+1)).
+G2 = fix (1): read tile off arena.board[d] before the copy. One line.
+G3 = G2 + compute geom/tile once per candidate in the loop and pass to both
+     child_lb and build_child (54.87% of candidates survive the pre-prune and
+     reached build_child, which recomputed both).
+
+NOTE: G3 CONTAINS G2 by construction — deduplicating the tile read means
+build_child takes it from the caller, which reads it off the parent. G2 isolates
+the reorder; G3 - G2 isolates the dedup. They are not orthogonal.
+
+Results (search time, s; nodes = 422,379,806 in all 12 runs):
+
+  base   15.12  15.01  15.00  15.01  15.02  14.99     mean 15.02   28.1 Mn/s
+  G1     15.32  14.84                                 mean 15.08   +0.1%   REJECT
+  G2     14.65  14.65                                 mean 14.65   -2.4%   
+  G3     14.39  14.61                                 mean 14.50   -3.4%   KEEP
+
+G1 REJECTED. Its two runs straddle the baseline — one above every base run, one
+below every base run — with 0.48s of spread against the baseline's 0.13s. That
+is no effect plus one disturbed run, not a small effect. LLVM was already
+forwarding the tail stores, or the out-of-order core hid them behind the probe.
+
+VERDICT, and the refinement to the model: the store-to-load round trip mattered
+at the HEAD of the dependency chain, where `tile` gates the KEY_DELTA index and
+therefore the probe, and NOT at the TAIL, where `h` feeds a branch the core can
+speculate past. What stalls is the chain's start, not its end. This is the same
+category as C/D1/A/F (remove work / shorten the chain) and NOT the category that
+has failed four times (rearrange memory: shrink entry, prefetch, index table,
+probe cache).
+
+G3 - G2 = -1.0%, but G3's own two runs differ by 0.22s, so the dedup increment
+sits inside its own spread. Not settled by four runs; G3 is the better binary
+either way.
+
+Cumulative for the flat engine on R at exhaust-144:
+  recursive 21.83s (19.35 Mn/s) -> 14.50s (29.1 Mn/s) = -33% time, +50% thpt.
+
+NOT TRIED, and why. The pre-prune's `f > bound` fires on 45.13% of 769,806,911
+candidates — the worst-predicted branch left in the engine. It cannot go
+branchless: it decides whether to do the work it exists to avoid.
+
+================================================================================
+Round: H1 — goal-coded board (store where a tile wants to go, not which it is)
+Date: 2026-07-29
+Baseline: 8fb4363 (flat engine after the recursive-engine deletion)
+Bench: solve24 --position R --prove-at-least 146 (exhaust-144, sequential)
+================================================================================
+
+The board stored tile numbers, so the head of every node's dependency chain was
+
+  geom -> tile = board[geom.from] -> g = GOAL_ROW[tile] -> KEY_DELTA[rf][rt][g]
+       -> key -> fmix64 -> probe
+
+with GOAL_ROW a dependent L1 load. But the engine never needs a tile's identity,
+only its destination. Storing (goal_row << 4) | goal_col per cell makes `g` a
+shift on a byte already in a register, deleting that load from the chain head —
+the same lever G2 pulled for -2.4%.
+
+Encoding is a bijection: tile t has goal cell t-1, and t-1 < 24 covers every
+(row, col) except (4,4). Blank takes 0xFF.
+
+Two effects, both confirmed rather than assumed:
+  * GOAL_ROW and GOAL_COL became DEAD CONSTANTS and were deleted. That is the
+    direct evidence the load is gone, not an inference from timing.
+  * The demand predicate lost its `tile != 0` term. 0xFF's nibbles are both 0xF,
+    which can never equal a line index g in 0..5, so the guard is structurally
+    unnecessary — not merely optimised away.
+
+Results (nodes = 422,379,806 in all four runs):
+
+  base   14.12  14.13     mean 14.125   29.90 Mn/s
+  H1     13.73  13.67     mean 13.700   30.83 Mn/s     -3.0%   KEEP
+
+Both H1 runs below both base runs; baseline spread 0.01s, the tightest pairing
+measured in this engine.
+
+Cumulative on R at exhaust-144, unchanged nodes throughout:
+  recursive 21.83s (19.35 Mn/s) -> 13.70s (30.83 Mn/s) = -37% time, +59% thpt.
+  Landed: C, D1, A, F, G3, H1.
+
+METHOD NOTE. The first release build of H1 FAILED and the script copied the
+stale binary anyway; the A/B would have compared the baseline against itself.
+The failure was real and worth recording: `decode()` was gated on
+cfg(any(test, debug_assertions)), but debug_assert_eq! TYPE-CHECKS its body even
+in release where it compiles the check away, so the method must exist
+unconditionally. Build success is now verified before the binary is copied, and
+the two binaries are hash-checked as distinct.
+
+GATE NOTE. H1 changes the board *representation*, and the frozen oracle caught
+nothing wrong — 180 cases / 37M nodes identical. Worth stating that the previous
+gate (1,570 nodes) would very plausibly have passed a broken encoding.

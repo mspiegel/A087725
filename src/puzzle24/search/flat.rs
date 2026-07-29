@@ -158,28 +158,67 @@ const GEOM: [[Geom; 4]; N_CELLS] = {
     t
 };
 
-/// `GOAL_ROW[t]` / `GOAL_COL[t]` = goal row / column of tile `t` (`t` in `1..=24`;
-/// index 0 is the blank and unused). Replaces `(t-1)/W` and `(t-1)%W`, which
-/// `Cwd::make` computes *both* of per node even though each branch uses one.
-const GOAL_ROW: [u8; N_CELLS] = {
-    let mut t = [0u8; N_CELLS];
+/// A board holding each cell's **goal coordinates** rather than its tile number:
+/// `(goal_row << 4) | goal_col` for a tile, and [`BLANK_CODE`] for the blank.
+///
+/// The engine never needs a tile's *identity*, only where it wants to be. Storing
+/// the destination directly turns `GOAL_ROW[tile]` — a dependent L1 load sitting
+/// at the head of the node's longest chain, right before the `KEY_DELTA` index
+/// and the probe — into a shift on a byte already in a register. That is the same
+/// lever G2 pulled for -2.4%: shorten the *start* of the chain.
+///
+/// The encoding is a bijection on the 24 tiles, since tile `t` has goal cell
+/// `t-1` and `(t-1) < 24` covers every `(row, col)` except `(4,4)`. The blank
+/// takes `0xFF`, whose nibbles are both `0xF` and therefore never equal any
+/// `g ∈ 0..5` — which is what lets the demand predicate drop its `tile != 0`
+/// term entirely.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Coded([u8; N_CELLS]);
+
+/// Code for the blank. Deliberately not `0x44` (the blank's own goal cell), so
+/// that neither nibble can match a real line index.
+const BLANK_CODE: u8 = 0xFF;
+
+/// `TILE_CODE[t]` = the goal-coordinate code of tile `t`; index 0 is the blank.
+const TILE_CODE: [u8; N_CELLS] = {
+    let mut t = [BLANK_CODE; N_CELLS];
     let mut i = 1;
     while i < N_CELLS {
-        t[i] = ((i - 1) / W) as u8;
+        t[i] = (((i - 1) / W) as u8) << 4 | ((i - 1) % W) as u8;
         i += 1;
     }
     t
 };
 
-const GOAL_COL: [u8; N_CELLS] = {
-    let mut t = [0u8; N_CELLS];
-    let mut i = 1;
-    while i < N_CELLS {
-        t[i] = ((i - 1) % W) as u8;
-        i += 1;
+impl Coded {
+    #[inline]
+    fn encode(s: &State) -> Self {
+        let mut a = [BLANK_CODE; N_CELLS];
+        let mut i = 0;
+        while i < N_CELLS {
+            a[i] = TILE_CODE[s.0[i] as usize];
+            i += 1;
+        }
+        Coded(a)
     }
-    t
-};
+
+    /// Inverse of [`encode`](Self::encode). Only *executed* by debug assertions
+    /// and tests, which still want to talk in tile numbers — but it must exist
+    /// in release too, because `debug_assert_eq!` type-checks its body even
+    /// where it compiles the check away.
+    #[inline]
+    fn decode(&self) -> State {
+        let mut a = [0u8; N_CELLS];
+        for (i, &c) in self.0.iter().enumerate() {
+            a[i] = if c == BLANK_CODE {
+                0
+            } else {
+                ((c >> 4) as usize * W + (c & 0xF) as usize + 1) as u8
+            };
+        }
+        State(a)
+    }
+}
 
 /// `CAND[b][m]` = the moves legal from blank cell `b`, minus `m.inverse()` — the
 /// candidate children of a node reached *by* `m`. Folding the immediate-undo
@@ -271,34 +310,43 @@ const KEY_DELTA: [[[u64; W]; W]; W] = {
 ///
 /// Measured −4.8% search time on `R` at exhaust-144, node-for-node.
 #[inline]
-fn demand_row_fast(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+fn demand_row_fast(lut: &[u8; DEMAND_LUT_LEN], s: &Coded, g: usize) -> u8 {
     let mut key = 0usize;
     for c in 0..W {
-        let tile = s.0[g * W + c] as usize;
+        let code = s.0[g * W + c] as usize;
         // Branchless: "is this cell a resident of its own line?" is essentially
-        // random against the board, and CPU-counter sampling attributes a large
-        // share of this engine's mispredicts to it. `&` rather than `&&` so the
-        // predicate itself does not reintroduce a branch; `GOAL_COL[0] == 0`, so
-        // the blank contributes nothing through the multiply.
-        let res = ((tile != 0) & (GOAL_ROW[tile] as usize == g)) as usize;
-        key |= (res * (GOAL_COL[tile] as usize + 1)) << (3 * c);
+        // random against the board, and CPU-counter sampling attributed a large
+        // share of this engine's mispredicts to it. On a goal-coded board the
+        // goal row *is* the high nibble, so this is a shift rather than a table
+        // load — and the blank's `0xF` nibble can never equal `g`, which is what
+        // retires the `tile != 0` term the tile-numbered version needed.
+        let res = ((code >> 4) == g) as usize;
+        key |= (res * ((code & 0xF) + 1)) << (3 * c);
     }
     let d = lut[key];
-    debug_assert_eq!(d, demand_row_line(lut, s, g), "fast row demand key drift");
+    debug_assert_eq!(
+        d,
+        demand_row_line(lut, &s.decode(), g),
+        "fast row demand key drift"
+    );
     d
 }
 
 /// `demand_col_line` without the divisions; see [`demand_row_fast`].
 #[inline]
-fn demand_col_fast(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
+fn demand_col_fast(lut: &[u8; DEMAND_LUT_LEN], s: &Coded, g: usize) -> u8 {
     let mut key = 0usize;
     for r in 0..W {
-        let tile = s.0[r * W + g] as usize;
-        let res = ((tile != 0) & (GOAL_COL[tile] as usize == g)) as usize;
-        key |= (res * (GOAL_ROW[tile] as usize + 1)) << (3 * r);
+        let code = s.0[r * W + g] as usize;
+        let res = ((code & 0xF) == g) as usize;
+        key |= (res * ((code >> 4) + 1)) << (3 * r);
     }
     let d = lut[key];
-    debug_assert_eq!(d, demand_col_line(lut, s, g), "fast col demand key drift");
+    debug_assert_eq!(
+        d,
+        demand_col_line(lut, &s.decode(), g),
+        "fast col demand key drift"
+    );
     d
 }
 
@@ -345,7 +393,7 @@ struct FrameHot {
 /// land at byte offsets `25·i` and most are unaligned.
 #[derive(Clone, Copy)]
 #[repr(align(32))]
-struct BoardSlot(State);
+struct BoardSlot(Coded);
 
 /// One axis's cWD state. A move touches exactly one axis — the same disjointness
 /// that makes `WD_row + WD_col` admissible — so the *other* axis's slot is shared
@@ -408,7 +456,7 @@ impl Arena {
         };
         Arena {
             hot: vec![blank_frame; MAX_DEPTH].into_boxed_slice(),
-            board: vec![BoardSlot(GOAL); MAX_DEPTH].into_boxed_slice(),
+            board: vec![BoardSlot(Coded::encode(&GOAL)); MAX_DEPTH].into_boxed_slice(),
             row: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
             col: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
         }
@@ -545,7 +593,7 @@ fn seed_root(
         #[cfg(debug_assertions)]
         m: m_col,
     };
-    arena.board[0] = BoardSlot(*start);
+    arena.board[0] = BoardSlot(Coded::encode(start));
 
     let blank = start.blank_pos();
     let dfa0 = <MoveDfa as super::move_dfa::MovePruner>::root_state(dfa, blank);
@@ -605,7 +653,7 @@ fn run_iteration(
         return Step::Exhausted(h0);
     }
     if h0 == 0 {
-        debug_assert_eq!(arena.board[0].0, GOAL);
+        debug_assert_eq!(arena.board[0].0.decode(), GOAL);
         return Step::Found(Vec::new());
     }
 
@@ -675,7 +723,7 @@ fn run_iteration(
             // h = 0 ⟺ solved. (Not true of a k-tile PDB, which reads 0 whenever
             // its own pattern is home — this must not migrate to the generic
             // engine.) The assert catches any future change that clamps `h`.
-            debug_assert_eq!(arena.board[d + 1].0, GOAL);
+            debug_assert_eq!(arena.board[d + 1].0.decode(), GOAL);
             let mut path = Vec::with_capacity(d + 1);
             for k in 1..=d + 1 {
                 path.push(arena.hot[k].mv);
@@ -712,13 +760,13 @@ fn child_lb(arena: &Arena, d: usize, m: Move, geom: Geom, tile: usize) -> Option
         (
             &arena.row[f.row_at as usize],
             &arena.col[f.col_at as usize],
-            GOAL_ROW[tile] as usize,
+            tile >> 4,
         )
     } else {
         (
             &arena.col[f.col_at as usize],
             &arena.row[f.row_at as usize],
-            GOAL_COL[tile] as usize,
+            tile & 0xF,
         )
     };
     // `dir` 0 = the blank's index along the axis decreases (Up / Left).
@@ -763,7 +811,7 @@ fn build_child(
 
     let (row_at, col_at) = if geom.vertical {
         // Vertical slide: only the row axis changes; the column axis is shared.
-        let g = GOAL_ROW[tile] as usize;
+        let g = tile >> 4;
         let (rf, rt) = (geom.rf as usize, geom.rt as usize);
         let src = &arena.row[parent.row_at as usize];
         let mut key = src.key;
@@ -798,7 +846,7 @@ fn build_child(
         ((d + 1) as u8, parent.col_at)
     } else {
         // Horizontal slide: only the column axis changes.
-        let g = GOAL_COL[tile] as usize;
+        let g = tile & 0xF;
         let (cf, ct) = (geom.cf as usize, geom.ct as usize);
         let src = &arena.col[parent.col_at as usize];
         let mut key = src.key;
@@ -920,10 +968,42 @@ mod tests {
     }
 
     #[test]
-    fn goal_line_tables_match_arithmetic() {
+    fn goal_code_matches_arithmetic_and_round_trips() {
+        // The code's nibbles must be exactly the goal row/col the tile-numbered
+        // version looked up in a table, since the engine now shifts them out of
+        // the board byte instead.
         for t in 1..N_CELLS {
-            assert_eq!(GOAL_ROW[t] as usize, (t - 1) / W);
-            assert_eq!(GOAL_COL[t] as usize, (t - 1) % W);
+            let c = TILE_CODE[t];
+            assert_eq!((c >> 4) as usize, (t - 1) / W, "goal row of tile {t}");
+            assert_eq!((c & 0xF) as usize, (t - 1) % W, "goal col of tile {t}");
+        }
+        // The blank must not collide with any tile, and neither nibble may equal
+        // a real line index — that is what lets the demand predicate drop its
+        // `tile != 0` term.
+        assert_eq!(TILE_CODE[0], BLANK_CODE);
+        assert!((BLANK_CODE >> 4) as usize >= W && (BLANK_CODE & 0xF) as usize >= W);
+        for t in 1..N_CELLS {
+            assert_ne!(TILE_CODE[t], BLANK_CODE, "tile {t} collides with the blank");
+        }
+        // Injectivity, and encode/decode is the identity on real boards.
+        let mut seen = std::collections::HashSet::new();
+        for t in 0..N_CELLS {
+            assert!(seen.insert(TILE_CODE[t]), "code repeats at tile {t}");
+        }
+        let mut x: u64 = 0x51ED_2704_9C31_A6B5;
+        for _ in 0..2_000 {
+            let mut a = [0u8; N_CELLS];
+            for (i, c) in a.iter_mut().enumerate() {
+                *c = i as u8;
+            }
+            for i in (1..N_CELLS).rev() {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                a.swap(i, (x % (i as u64 + 1)) as usize);
+            }
+            let s = State(a);
+            assert_eq!(Coded::encode(&s).decode(), s, "round trip failed on {a:?}");
         }
     }
 
@@ -972,14 +1052,17 @@ mod tests {
                 a.swap(i, (x % (i as u64 + 1)) as usize);
             }
             let s = State(a);
+            // The fast path takes a goal-coded board; the reference still takes
+            // tile numbers, so the encoding is under test here too.
+            let c = Coded::encode(&s);
             for g in 0..W {
                 assert_eq!(
-                    demand_row_fast(&lut, &s, g),
+                    demand_row_fast(&lut, &c, g),
                     demand_row_line(&lut, &s, g),
                     "row demand differs on line {g} of {a:?}"
                 );
                 assert_eq!(
-                    demand_col_fast(&lut, &s, g),
+                    demand_col_fast(&lut, &c, g),
                     demand_col_line(&lut, &s, g),
                     "col demand differs on line {g} of {a:?}"
                 );
