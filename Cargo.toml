@@ -41,6 +41,11 @@ verifier-stats = []
 # at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
 # `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
 zpdb-locality = []
+# Named CPU performance counters (Apple kperf/kperfdata private API), read at
+# each threshold boundary and printed by solve24. REQUIRES ROOT (sudo). Off by
+# default. Counts are frequency-independent, so unlike timings this is valid on
+# battery, and comparing thresholds within one process removes cross-run drift.
+pmu-counters = []
 # Distribution of the cWD escape-demand vector at each `surcharge_from_curves`
 # call, printed by solve24 at exit. Sizes the "skip the surcharge loop when no
 # line is demanded" early-out (H3). Off by default (a relaxed-atomic bump per

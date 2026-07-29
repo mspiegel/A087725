@@ -11,6 +11,8 @@
 
 pub mod frame;
 pub mod pdb;
+#[cfg(feature = "pmu-counters")]
+pub mod pmu;
 pub mod rank;
 pub mod search;
 pub mod state;
