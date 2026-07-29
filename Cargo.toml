@@ -20,7 +20,11 @@ needless_range_loop = "allow"
 # 15-puzzle (build_pdb15, solve15, verify15) require feature flags.
 
 [features]
-default = []
+# `parallel` and `mmap` are on by default: every driver and almost every example
+# needs them, so a bare `cargo test` / `cargo clippy` builds the whole workspace.
+# Use `--no-default-features` for a lean build; the examples that require them
+# declare `required-features` and are skipped rather than failing to compile.
+default = ["parallel", "mmap"]
 parallel = ["dep:rayon"]
 mmap = ["dep:memmap2"]
 sha = ["dep:sha2"]
@@ -244,3 +248,83 @@ required-features = ["mmap", "parallel"]
 [[example]]
 name = "zpdb_profile15"
 required-features = ["mmap", "parallel"]
+
+[[example]]
+name = "cache_insert"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "d77_sweep"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "d78_outliers"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "pdb_shell_analysis"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "reverse_neighborhood"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "verify_depths"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "cache_diff"
+required-features = ["mmap"]
+
+[[example]]
+name = "d77_frame_complete"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "d77_reflection_closure"
+required-features = ["mmap"]
+
+[[example]]
+name = "d78_clusters"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "list_high_h"
+required-features = ["mmap"]
+
+[[example]]
+name = "residue_analysis"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "show_ranks"
+required-features = ["mmap"]
+
+[[example]]
+name = "d77_maxima"
+required-features = ["mmap"]
+
+[[example]]
+name = "d77_rowcol"
+required-features = ["mmap"]
+
+[[example]]
+name = "export_features_ranks"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "verify_ranks"
+required-features = ["mmap"]
+
+[[example]]
+name = "d75d76_hunt"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "export_depth_features"
+required-features = ["parallel", "mmap"]
+
+[[example]]
+name = "residue_pocket"
+required-features = ["parallel", "mmap"]
