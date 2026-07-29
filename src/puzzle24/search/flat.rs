@@ -931,11 +931,19 @@ pub mod demand_histogram {
 /// |--------:|----:|---------:|
 /// | 1 K | 0.03 MB | 79.6% |
 /// | 16 K | 0.5 MB | 96.3% |
-/// | **64 K** | **2.1 MB** | **99.0%** |
-/// | 256 K | 8.4 MB | 99.5% |
+/// | 64 K | 2.1 MB | 99.0% |
+/// | **256 K** | **8.4 MB** | **99.5%** |
 ///
-/// At 64 K the tag test is a 99/1 branch — predicted, not mispredicted — and
-/// installs happen 20× less often.
+/// At these sizes the tag test is a 99/1 branch — predicted, not mispredicted —
+/// and installs happen ~20× less often than at 1 K.
+///
+/// **256 K beat 64 K by 5.8% at exhaust-146, far more than that 0.55 pp of hit
+/// rate can explain.** The table above comes from a fully-associative LRU
+/// simulation, but this cache is *direct-mapped*, so it also suffers conflict
+/// misses that LRU never sees — two hot keys sharing a slot thrash forever.
+/// Quadrupling the slots cuts those 4×, which is the effect actually being
+/// bought. Do not read the LRU plateau at 99.5% as the top of the curve; it
+/// cannot see the thing that is improving.
 ///
 /// The second reason is spatial. The hot set is tiny in bytes (~64 K entries ≈
 /// 2.1 MB) but hashbrown scatters those 32 B entries across 4.43 GB, so half of
@@ -946,7 +954,7 @@ pub mod demand_histogram {
 ///
 /// Node identity is by construction: this is a pure memo of an immutable table
 /// with an exact key match, so a hit returns precisely what the probe would.
-const CACHE_BITS: u32 = 16;
+const CACHE_BITS: u32 = 18;
 const CACHE_LEN: usize = 1 << CACHE_BITS;
 
 /// Tag and payload interleaved, 32 B aligned, so a hit touches exactly one line

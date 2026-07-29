@@ -906,3 +906,33 @@ that could simply be changed. Two corrections compounded:
 When a reject's recorded cause is a *parameter* rather than a *mechanism*, it is
 not closed. Contrast H5/H5b, where two different mechanisms each exceeded the
 saving — that family really is closed.
+
+--------------------------------------------------------------------------------
+Probe cache sizing: 64 K -> 256 K       *** -5.8% at 146, -1.3% at 144, KEEP ***
+--------------------------------------------------------------------------------
+
+  146-regime portion   64 K   39.57  39.19  39.00   median 39.19
+                      256 K   36.89  36.90  36.94   median 36.90    -5.8%
+  exhausted-144 pass    64 K   13.42  13.52  13.55   median 13.52
+                      256 K   13.31  13.35  13.37   median 13.35    -1.3%
+
+Node-identical at 1,500,000,000 and 422,379,806. 256 K spread 0.05 s; every 256 K
+run below every 64 K run. Cache is now worth ~-15.4% vs no cache at exhaust-146.
+
+*** THE DEPTH SIGNATURE IS INVERTED, and that is the confirmation ***
+Every work-removal win so far was SMALLER at depth (a fixed saving is a smaller
+share of a costlier node): H3 -1.6% at 144 vs -1.4% at 146. This one is 4x LARGER
+at depth. That is what a change targeting MISSES looks like rather than one
+targeting work: a miss at 146 costs a page walk, at 144 mostly not. Independent
+confirmation that the depth slowdown is the TLB effect measured by puzzle24::pmu.
+
+*** THE LRU MODEL UNDERSTATED THIS BY ~14x, and here is why ***
+Predicted from the hit-rate table: 98.96% -> 99.51% is 0.55 pp fewer misses, worth
+maybe 0.4%. Measured: 5.8%. The `probe-locality` simulation is FULLY ASSOCIATIVE
+LRU; the implemented cache is DIRECT-MAPPED, which also suffers conflict misses
+that LRU cannot see — two hot keys sharing a slot thrash indefinitely. So the real
+64 K hit rate was well below 98.96%, and quadrupling the slots cut conflicts 4x.
+Consequence: the LRU plateau at 99.51% (256 K and 1 M identical) is NOT evidence
+that 256 K is the top of the curve. The model is blind to the mechanism that is
+improving. 512 K (16.8 MB, at M2 Pro's 16 MB L2 boundary) is worth one more A/B;
+1 M (33.6 MB) would exceed L2.
