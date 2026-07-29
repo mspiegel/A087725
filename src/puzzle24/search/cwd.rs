@@ -69,6 +69,35 @@ pub(crate) fn surcharge_from_curves(curves: &[u16; W], dem: &[u8; W]) -> u8 {
     best
 }
 
+/// One process-wide merged cWD table for the table-gated tests.
+///
+/// Each `Cwd::new()` builds a ~4.4 GB merged map (65,650,495 entries in
+/// 134,217,728 buckets at 32 B). `cargo test` runs tests in parallel, so N
+/// table-gated tests meant N × 4.4 GB — on this 34 GB machine that produced
+/// **116 GB of swapouts and 907 free pages**, turning a compute-bound suite into
+/// a thrashing one. Sharing one immutable instance makes the cost constant
+/// instead of per-test, and lets the suite run in parallel again.
+///
+/// `Cwd` is plain data with no interior mutability, so a shared `&'static` is
+/// sound and needs no lock.
+#[cfg(all(test, feature = "cwd-table-tests"))]
+pub(crate) fn shared_merged_cwd() -> Option<&'static Cwd> {
+    use std::sync::OnceLock;
+    static SHARED: OnceLock<Option<Cwd>> = OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            if Path::new("data/wd24.bin").exists() && Path::new("data/cwd_single.bin").exists() {
+                let c = Cwd::new().with_neighbor_prune(true);
+                if c.has_overlay() {
+                    return Some(c);
+                }
+            }
+            eprintln!("cWD tables absent — skipping table-gated test");
+            None
+        })
+        .as_ref()
+}
+
 /// Load the surcharge overlay from `data/cwd_single.bin`.
 pub fn load_cwd_overlay(path: &Path) -> std::io::Result<CwdOverlay> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
@@ -805,8 +834,10 @@ mod tests {
     /// choose the bits hashbrown reads, so the variants below fold the high half
     /// down by hand. `mul_only` is the control that should reproduce the
     /// documented blow-up.
+    #[cfg(feature = "cwd-table-tests")]
     type HashFn = fn(u64) -> u64;
 
+    #[cfg(feature = "cwd-table-tests")]
     const HASHES: &[(&str, HashFn)] = &[
         ("fmix64 (current)", |i| {
             let mut x = i;
@@ -835,9 +866,11 @@ mod tests {
     ];
 
     /// hashbrown's SIMD group width.
+    #[cfg(feature = "cwd-table-tests")]
     const GROUP: usize = 16;
 
     /// [`place`] for an arbitrary (possibly non-power-of-two) bucket count.
+    #[cfg(feature = "cwd-table-tests")]
     fn place_mod(slots: &mut [bool], buckets: usize, h1: usize) -> usize {
         let mut pos = h1 % buckets;
         let mut stride = 0usize;
@@ -860,6 +893,7 @@ mod tests {
     /// Insert `h1` into a SwissTable-shaped slot array using hashbrown's
     /// triangular probe sequence, returning the number of **group hops** past
     /// the home group. 0 hops means the key landed in the group its hash chose.
+    #[cfg(feature = "cwd-table-tests")]
     fn place(slots: &mut [bool], mask: usize, h1: usize) -> usize {
         let mut pos = h1 & mask;
         let mut stride = 0usize;
@@ -891,11 +925,12 @@ mod tests {
     /// placement over the real key set at several bucket counts, so the
     /// trade-off is measured rather than assumed: footprint saved on the left,
     /// extra group hops per lookup on the right.
-    #[ignore = "loads the 563 MB + 1.1 GB tables and models placement at several \
-                load factors; run with --ignored --nocapture"]
+    #[cfg(feature = "cwd-table-tests")]
     #[test]
     fn probe_length_vs_load_factor() {
-        let cwd = Cwd::new().with_neighbor_prune(true);
+        let Some(cwd) = shared_merged_cwd() else {
+            return;
+        };
         let Some(merged) = cwd.merged_table() else {
             eprintln!("no merged cWD table — skipping");
             return;
@@ -971,11 +1006,12 @@ mod tests {
     /// mode here is a silent throughput cliff rather than anything that breaks.
     /// If a cheap hash shows displacement comparable to `fmix64` here, a timing
     /// A/B becomes trustworthy; if it blows up, the question is closed cheaply.
-    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s) and models \
-                placement over every merged-table key; run with --ignored --nocapture"]
+    #[cfg(feature = "cwd-table-tests")]
     #[test]
     fn probe_length_distribution_by_hash() {
-        let cwd = Cwd::new().with_neighbor_prune(true);
+        let Some(cwd) = shared_merged_cwd() else {
+            return;
+        };
         let Some(merged) = cwd.merged_table() else {
             eprintln!("no merged cWD table — skipping");
             return;

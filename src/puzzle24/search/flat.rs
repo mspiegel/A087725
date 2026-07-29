@@ -1263,7 +1263,6 @@ fn build_child(
 mod tests {
     use super::*;
     use crate::puzzle24::search::move_dfa::MovePruner;
-    use std::path::Path;
 
     // ------------------------- fast, table-free LUT checks ---------------------
 
@@ -1497,15 +1496,11 @@ mod tests {
 
     // --------------------------- table-gated differential ----------------------
 
-    fn cwd_merged_or_skip() -> Option<Cwd> {
-        if Path::new("data/wd24.bin").exists() && Path::new("data/cwd_single.bin").exists() {
-            let c = Cwd::new().with_neighbor_prune(true);
-            if c.has_overlay() {
-                return Some(c);
-            }
-        }
-        eprintln!("data tables absent — skipping flat-engine differential test");
-        None
+    /// The process-wide shared table (see `cwd::shared_merged_cwd`). Building a
+    /// fresh `Cwd` per test cost ~4.4 GB each and made the parallel suite thrash.
+    #[cfg(feature = "cwd-table-tests")]
+    fn cwd_merged_or_skip() -> Option<&'static Cwd> {
+        super::super::cwd::shared_merged_cwd()
     }
 
     /// **The gate.** The flat engine's tree, compared node-for-node against the
@@ -1532,10 +1527,7 @@ mod tests {
     /// A failure here means the flat engine's tree changed. The fixture is not
     /// refreshable — the engine that produced it is gone — so it is ground
     /// truth, never something to regenerate to make a test pass.
-    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s) and searches ~37M \
-                nodes; run with --ignored, and prefer --release (debug is ~100x slower). The \
-                LUT invariants this engine adds (CAND / GEOM / prune_mask / pop_lowest) are \
-                covered table-free by the fast tests in this module"]
+    #[cfg(feature = "cwd-table-tests")]
     #[test]
     fn flat_matches_frozen_recursive_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
@@ -1550,7 +1542,7 @@ mod tests {
             .enumerate()
         {
             let s = State(c.board);
-            let (fo, fs) = flat_bounded(&s, &cwd, &dfa, c.orbit_split, c.bound);
+            let (fo, fs) = flat_bounded(&s, cwd, &dfa, c.orbit_split, c.bound);
 
             let ok = match &fo {
                 BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
@@ -1594,7 +1586,7 @@ mod tests {
     /// The orbit split must actually reduce the tree. The frozen oracle records
     /// both settings at each bound, so this compares split against unsplit
     /// without needing the deleted engine.
-    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored"]
+    #[cfg(feature = "cwd-table-tests")]
     #[test]
     fn flat_orbit_split_reduces_nodes_against_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
@@ -1621,7 +1613,7 @@ mod tests {
             else {
                 continue;
             };
-            let (_, on_stats) = flat_bounded(&s, &cwd, &dfa, true, c.bound);
+            let (_, on_stats) = flat_bounded(&s, cwd, &dfa, true, c.bound);
             assert_eq!(on_stats.nodes, c.nodes, "split node count differs");
             assert!(
                 c.nodes < off.nodes,
@@ -1636,7 +1628,7 @@ mod tests {
     }
 
     /// The bounded-lower-bound contract, mirroring `tests/puzzle24_bounded.rs`.
-    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s); run with --ignored"]
+    #[cfg(feature = "cwd-table-tests")]
     #[test]
     fn flat_bounded_outcome_contract() {
         let Some(cwd) = cwd_merged_or_skip() else {
@@ -1645,7 +1637,7 @@ mod tests {
         let dfa = MoveDfa::build_default();
 
         // Solved at the goal itself, with an empty path and no search.
-        let (o, s) = flat_bounded(&GOAL, &cwd, &dfa, false, 10);
+        let (o, s) = flat_bounded(&GOAL, cwd, &dfa, false, 10);
         assert_eq!(o, BoundedOutcome::Solved(Vec::new()));
         assert_eq!(s.nodes, 0);
 
@@ -1675,23 +1667,23 @@ mod tests {
             let start = &start;
 
             // bound == depth ⇒ Solved at exactly that length.
-            match flat_bounded(start, &cwd, &dfa, false, d).0 {
+            match flat_bounded(start, cwd, &dfa, false, d).0 {
                 BoundedOutcome::Solved(p) => assert_eq!(p.len() as u8, d),
                 other => panic!("expected Solved at bound {d}, got {other:?}"),
             }
 
             // bound == depth-1 ⇒ ProvedAtLeast(depth): the exhaust is the proof.
             assert_eq!(
-                flat_bounded(start, &cwd, &dfa, false, d - 1).0,
+                flat_bounded(start, cwd, &dfa, false, d - 1).0,
                 BoundedOutcome::ProvedAtLeast(d),
             );
 
             // bound < h0 ⇒ the bound is returned without visiting a single node.
-            let h0 = match flat_bounded(start, &cwd, &dfa, false, 0).0 {
+            let h0 = match flat_bounded(start, cwd, &dfa, false, 0).0 {
                 BoundedOutcome::ProvedAtLeast(k) => k,
                 other => panic!("expected ProvedAtLeast, got {other:?}"),
             };
-            let (o, s) = flat_bounded(start, &cwd, &dfa, false, h0 - 1);
+            let (o, s) = flat_bounded(start, cwd, &dfa, false, h0 - 1);
             assert_eq!(o, BoundedOutcome::ProvedAtLeast(h0));
             assert_eq!(s.nodes, 0, "no node should be visited below h0");
         }

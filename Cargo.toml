@@ -41,6 +41,15 @@ verifier-stats = []
 # at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
 # `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
 zpdb-locality = []
+# Table-gated 24-puzzle tests that build the ~4.4 GB merged cWD map: the flat
+# engine's frozen-oracle node-identity gate and the probe-locality/load-factor
+# instruments. Deliberately a FEATURE and not `#[ignore]` — an ignored test still
+# runs under `cargo test -- --ignored`, whereas these are not even compiled
+# unless asked for. They share one process-wide table (see
+# `cwd::shared_merged_cwd`), so the cost is ~4.4 GB once rather than per test.
+#
+#   cargo test --release --features cwd-table-tests -- --nocapture
+cwd-table-tests = []
 # In-situ hit/miss counters for the direct-mapped probe cache, reported per
 # threshold. Off by default. Needed because the LRU model in `probe-locality` is
 # fully associative and therefore blind to the CONFLICT misses a direct-mapped

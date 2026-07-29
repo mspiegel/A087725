@@ -2,7 +2,8 @@
 
 pub mod cwd;
 pub mod flat;
-#[cfg(test)]
+// Only the `cwd-table-tests` gate consumes the frozen oracle.
+#[cfg(all(test, feature = "cwd-table-tests"))]
 mod flat_oracle;
 pub mod heuristic;
 pub mod idastar;
