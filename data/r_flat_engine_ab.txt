@@ -556,3 +556,57 @@ the two binaries are hash-checked as distinct.
 GATE NOTE. H1 changes the board *representation*, and the frozen oracle caught
 nothing wrong — 180 cases / 37M nodes identical. Worth stating that the previous
 gate (1,570 nodes) would very plausibly have passed a broken encoding.
+
+================================================================================
+Round: widemul-fold hash — replace Murmur3 fmix64 on the probe path
+Date: 2026-07-29
+Baseline: 7511468 (flat engine with C, D1, A, F, G3, H1)
+Bench: solve24 --position R --prove-at-least 146 (exhaust-144, sequential)
+================================================================================
+
+fmix64 (2 muls + 3 xor-shifts, strictly serial) sits directly between the packed
+key and the probe address — the longest single segment on the node's critical
+chain. walking_distance.rs recorded that FxHash had been rejected because a
+single multiply "clusters them in hashbrown's low-bit buckets and probes blow
+up", which looked like it closed the question. It does not: that failure is
+DIRECTIONAL. A multiply propagates entropy upward, so low input bits reach high
+product bits but never the reverse, and SwissTable indexes off the LOW bits.
+Taking the HIGH half of a widening multiply and folding it down fixes exactly
+that.
+
+Settled by instrumentation before any timing run
+(cwd.rs::probe_length_distribution_by_hash), modelling hashbrown placement over
+all 65,650,495 merged-table keys at 49% load:
+
+  hash                 mean hops     p99    max   displaced   ctrl max/mean
+  fmix64 (current)        0.0003       0      2       0.03%       1.005
+  single multiply        79.1746     325    581      98.72%       1.001
+  fib + xorshift32        0.0221       1      5       1.97%       1.001
+  fib + rot32             0.0195       1      6       1.73%       1.101
+  widemul fold            0.0003       0      3       0.03%       1.001
+
+The "single multiply" row REPRODUCES the documented blow-up, which is what
+validates the model rather than leaving it a plausible simulation. widemul fold
+places identically to fmix64 and spreads the control byte slightly better.
+
+Distribution measured first, deliberately: a timing A/B alone conflates "hash got
+cheaper" with "probes got longer", so a null result would not say which, and the
+failure mode is a silent throughput cliff rather than anything that breaks.
+
+Results (nodes = 422,379,806 in all four runs):
+
+  base   13.69  13.71     mean 13.700   30.84 Mn/s
+  wm     13.50  13.32     mean 13.410   31.50 Mn/s     -2.1%   KEEP
+
+Both wm runs below both base runs; baseline spread 0.02s.
+
+PREDICTION MISS, third of its kind. I estimated 4-7% from the latency argument
+(fmix64 ~9-14 serial cycles vs ~5) and measured 2.1%. The isolated length of a
+serial segment overstates its cost here: a node has up to three candidates whose
+chains are independent, so the core overlaps them and shortening one recovers
+less than its length. Same overshoot as the index table and the probe cache.
+Treat isolated-latency arithmetic as an upper bound, not an estimate.
+
+Cumulative on R at exhaust-144, unchanged nodes throughout:
+  recursive 21.83s (19.35 Mn/s) -> 13.41s (31.50 Mn/s) = -39% time, +63% thpt.
+  Landed: C, D1, A, F, G3, H1, widemul.

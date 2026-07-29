@@ -32,11 +32,34 @@ use std::sync::OnceLock;
 /// A 5×5 row-distribution matrix.
 type WdMatrix = [[u8; W]; W];
 
-/// Fast, fully-avalanching hasher for the WD table's `u64` `pack` keys. The keys
-/// are structured (3-bit fields, each 0–5), so a weak-mixing hash like FxHash
-/// (a single multiply) clusters them in hashbrown's low-bit buckets and probes
-/// blow up. This is Murmur3's `fmix64` finalizer — 2 muls + 3 xor-shifts, far
-/// cheaper than the default SipHash yet distributing structured keys uniformly.
+/// Fast, well-distributing hasher for the WD table's `u64` `pack` keys: one
+/// **widening** multiply by 2^64/φ, then xor the two halves together.
+///
+/// The keys are structured (3-bit fields, each 0–5), and a naive single multiply
+/// really does fail on them — a multiply propagates entropy *upward*, so low
+/// input bits reach high product bits but never the reverse, while SwissTable
+/// picks its bucket index from the **low** bits. Taking the high half of a
+/// widening multiply and folding it down is what fixes that, and it is the whole
+/// difference between this and the FxHash-style hash that was rejected here
+/// earlier.
+///
+/// Measured over all 65,650,495 merged-table keys, modelling hashbrown's
+/// placement (`cwd.rs::probe_length_distribution_by_hash`), at 49% load:
+///
+/// | hash                | mean group hops | p99 | max | displaced |
+/// |---------------------|-----------------|-----|-----|-----------|
+/// | Murmur3 `fmix64`    | 0.0003          | 0   | 2   | 0.03%     |
+/// | **this**            | 0.0003          | 0   | 3   | 0.03%     |
+/// | single multiply     | 79.17           | 325 | 581 | 98.72%    |
+///
+/// So this places as well as the `fmix64` it replaces (and spreads the 7-bit
+/// control byte slightly better, 1.001 vs 1.005 max/mean) for roughly half the
+/// work — `mul`/`umulh` issue in parallel, against `fmix64`'s strictly serial
+/// 2 multiplies and 3 xor-shifts. That matters because this sits on the node's
+/// critical dependency chain, between the packed key and the probe address.
+///
+/// The "single multiply" row is not hypothetical: it reproduces the blow-up that
+/// the earlier FxHash rejection recorded, which is what validates the model.
 #[derive(Default)]
 pub struct WdHasher(u64);
 impl Hasher for WdHasher {
@@ -53,13 +76,8 @@ impl Hasher for WdHasher {
     }
     #[inline]
     fn write_u64(&mut self, i: u64) {
-        let mut x = i ^ self.0;
-        x ^= x >> 33;
-        x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
-        x ^= x >> 33;
-        x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
-        x ^= x >> 33;
-        self.0 = x;
+        let p = ((i ^ self.0) as u128).wrapping_mul(0x9E37_79B9_7F4A_7C15_u128);
+        self.0 = (p >> 64) as u64 ^ (p as u64);
     }
 }
 pub type WdBuild = BuildHasherDefault<WdHasher>;

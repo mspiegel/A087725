@@ -789,4 +789,145 @@ mod tests {
             );
         }
     }
+
+    // ------------------------- probe-length instrumentation --------------------
+
+    /// Candidate hash functions for the merged-table probe.
+    ///
+    /// `fmix64` is what ships. The others exist to answer one question: the
+    /// rejection recorded at `walking_distance.rs:36` says a *single multiply*
+    /// (FxHash) "clusters them in hashbrown's low-bit buckets and probes blow
+    /// up". That failure is directional — a multiply propagates entropy
+    /// **upward**, so low input bits reach high product bits but never the
+    /// reverse, and SwissTable picks its bucket index from the **low** bits.
+    /// Fibonacci-style hashing classically reads the *high* bits instead, which
+    /// is exactly where a bare multiply mixes well; as a `Hasher` we cannot
+    /// choose the bits hashbrown reads, so the variants below fold the high half
+    /// down by hand. `mul_only` is the control that should reproduce the
+    /// documented blow-up.
+    type HashFn = fn(u64) -> u64;
+
+    const HASHES: &[(&str, HashFn)] = &[
+        ("fmix64 (current)", |i| {
+            let mut x = i;
+            x ^= x >> 33;
+            x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+            x ^= x >> 33;
+            x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+            x ^= x >> 33;
+            x
+        }),
+        ("mul_only (control)", |i| {
+            i.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        }),
+        ("fib + xorshift32", |i| {
+            let mut x = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            x ^= x >> 32;
+            x
+        }),
+        ("fib + rot32", |i| {
+            i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(32)
+        }),
+        ("widemul fold", |i| {
+            let p = (i as u128).wrapping_mul(0x9E37_79B9_7F4A_7C15_u128);
+            (p >> 64) as u64 ^ (p as u64)
+        }),
+    ];
+
+    /// hashbrown's SIMD group width.
+    const GROUP: usize = 16;
+
+    /// Insert `h1` into a SwissTable-shaped slot array using hashbrown's
+    /// triangular probe sequence, returning the number of **group hops** past
+    /// the home group. 0 hops means the key landed in the group its hash chose.
+    fn place(slots: &mut [bool], mask: usize, h1: usize) -> usize {
+        let mut pos = h1 & mask;
+        let mut stride = 0usize;
+        let mut hops = 0usize;
+        loop {
+            for i in 0..GROUP {
+                let idx = (pos + i) & mask;
+                if !slots[idx] {
+                    slots[idx] = true;
+                    return hops;
+                }
+            }
+            stride += GROUP;
+            pos = (pos + stride) & mask;
+            hops += 1;
+            assert!(hops < 1 << 20, "probe sequence failed to terminate");
+        }
+    }
+
+    /// **Decides whether a cheaper hash is even a candidate.** Models hashbrown's
+    /// placement over the *real* merged-table key set and reports the probe-length
+    /// distribution per hash, plus the hash's own cost.
+    ///
+    /// This is deliberately a distribution measurement, not a timing A/B. A timing
+    /// A/B conflates two opposite effects — the hash got cheaper, the probes may
+    /// have got longer — so a null result would not say which, and the failure
+    /// mode here is a silent throughput cliff rather than anything that breaks.
+    /// If a cheap hash shows displacement comparable to `fmix64` here, a timing
+    /// A/B becomes trustworthy; if it blows up, the question is closed cheaply.
+    #[ignore = "loads the 563 MB + 1.1 GB 24-puzzle WD/cWD tables (~20-30s) and models \
+                placement over every merged-table key; run with --ignored --nocapture"]
+    #[test]
+    fn probe_length_distribution_by_hash() {
+        let cwd = Cwd::new().with_neighbor_prune(true);
+        let Some(merged) = cwd.merged_table() else {
+            eprintln!("no merged cWD table — skipping");
+            return;
+        };
+
+        let mut keys: Vec<u64> = merged.keys().copied().collect();
+        keys.sort_unstable();
+        let n = keys.len();
+
+        // hashbrown grows so that len <= 7/8 * buckets.
+        let buckets = (n * 8 / 7 + 1).next_power_of_two();
+        let mask = buckets - 1;
+        println!(
+            "\nmerged table: {n} keys, modelled at {buckets} buckets (load {:.3})",
+            n as f64 / buckets as f64
+        );
+        println!(
+            "{:<20} {:>10} {:>9} {:>7} {:>7} {:>9} {:>12}",
+            "hash", "mean hops", "p99", "max", "%>0", "ctrl max/mean", "ns/hash"
+        );
+
+        for (name, f) in HASHES {
+            let mut slots = vec![false; buckets];
+            let mut hops = vec![0u32; n];
+            let mut ctrl = [0u64; 128];
+            for (i, &k) in keys.iter().enumerate() {
+                let h = f(k);
+                ctrl[(h >> 57) as usize & 127] += 1;
+                hops[i] = place(&mut slots, mask, h as usize) as u32;
+            }
+            let total: u64 = hops.iter().map(|&h| h as u64).sum();
+            let mean = total as f64 / n as f64;
+            let mut sorted = hops.clone();
+            sorted.sort_unstable();
+            let p99 = sorted[(n as f64 * 0.99) as usize];
+            let max = *sorted.last().unwrap();
+            let nonzero = hops.iter().filter(|&&h| h > 0).count() as f64 / n as f64 * 100.0;
+            let cmax = *ctrl.iter().max().unwrap() as f64;
+            let cmean = n as f64 / 128.0;
+
+            // Hash cost, measured on the same keys so the loads are warm.
+            let t = std::time::Instant::now();
+            let mut acc = 0u64;
+            for &k in keys.iter() {
+                acc = acc.wrapping_add(f(k));
+            }
+            let ns = t.elapsed().as_secs_f64() * 1e9 / n as f64;
+            std::hint::black_box(acc);
+
+            println!(
+                "{name:<20} {mean:>10.4} {p99:>9} {max:>7} {nonzero:>6.2}% {:>9.3} {ns:>12.2}",
+                cmax / cmean
+            );
+        }
+        println!();
+    }
 }
