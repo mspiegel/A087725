@@ -803,6 +803,61 @@ fn run_iteration<const BUDGETED: bool>(
     }
 }
 
+/// Shape of the cWD escape-demand vector, behind the `demand-histogram` feature.
+///
+/// [`surcharge_from_curves`] loops all `W` goal lines and range-checks each one,
+/// on every axis update — and line-level sampling in the exhaust-146 regime puts
+/// it at ~11.7% of samples, the single largest identifiable cost in the node.
+/// The proposed fix is an early-out when no line is demanded. Whether that is
+/// worth writing depends entirely on how often the demand vector is empty, which
+/// is what this measures.
+///
+/// `surcharge_from_curves` only reacts to `1 <= d <= 4`, so "demanded" means
+/// exactly that; `d == 0` and `d >= 5` contribute nothing.
+#[cfg(feature = "demand-histogram")]
+pub mod demand_histogram {
+    use super::W;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    static NONZERO_SURCH: AtomicU64 = AtomicU64::new(0);
+    /// `LINES[k]` = calls whose demand vector had exactly `k` demanded lines.
+    static LINES: [AtomicU64; W + 1] = [const { AtomicU64::new(0) }; W + 1];
+
+    #[inline]
+    pub fn note(dem: &[u8; W], surch: u8) {
+        let k = dem.iter().filter(|&&d| (1..=4).contains(&d)).count();
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        LINES[k].fetch_add(1, Ordering::Relaxed);
+        if surch > 0 {
+            NONZERO_SURCH.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn report() -> String {
+        let calls = CALLS.load(Ordering::Relaxed).max(1);
+        let mut s = format!("demand-histogram: {calls} surcharge calls\n");
+        for (k, c) in LINES.iter().enumerate() {
+            let v = c.load(Ordering::Relaxed);
+            s += &format!(
+                "  {k} demanded line(s): {v:>15} ({:>6.2}%)\n",
+                v as f64 / calls as f64 * 100.0
+            );
+        }
+        let nz = NONZERO_SURCH.load(Ordering::Relaxed);
+        s += &format!(
+            "  surcharge > 0     : {nz:>15} ({:>6.2}%)\n",
+            nz as f64 / calls as f64 * 100.0
+        );
+        let empty = LINES[0].load(Ordering::Relaxed);
+        s += &format!(
+            "  => an empty-demand early-out would skip {:.2}% of the loops",
+            empty as f64 / calls as f64 * 100.0
+        );
+        s
+    }
+}
+
 /// Cheap admissible lower bound on the `h` of the child reached by `m`, read from
 /// the parent's cached neighbour-WD — the port of
 /// [`Cwd::child_h_lb`](super::cwd::Cwd). The moved axis contributes its cached
@@ -895,7 +950,12 @@ fn build_child(
             dem,
             nbr: cell.nbr_wd,
             wd: cell.wd,
-            surch: surcharge_from_curves(&cell.curves, &dem),
+            surch: {
+                let s = surcharge_from_curves(&cell.curves, &dem);
+                #[cfg(feature = "demand-histogram")]
+                demand_histogram::note(&dem, s);
+                s
+            },
             #[cfg(debug_assertions)]
             m: mat,
         };
@@ -927,7 +987,12 @@ fn build_child(
             dem,
             nbr: cell.nbr_wd,
             wd: cell.wd,
-            surch: surcharge_from_curves(&cell.curves, &dem),
+            surch: {
+                let s = surcharge_from_curves(&cell.curves, &dem);
+                #[cfg(feature = "demand-histogram")]
+                demand_histogram::note(&dem, s);
+                s
+            },
             #[cfg(debug_assertions)]
             m: mat,
         };

@@ -189,6 +189,11 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
             st.nodes as f64 / secs / 1e6
         );
     }
+    #[cfg(feature = "demand-histogram")]
+    println!(
+        "{}",
+        puzzle8::puzzle24::search::flat::demand_histogram::report()
+    );
 }
 
 fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
