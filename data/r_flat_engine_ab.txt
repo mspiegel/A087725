@@ -956,3 +956,37 @@ constraint is documented at CACHE_BITS so it cannot be inherited silently.
 Also corrected while checking: this machine's cache line is 128 B, not 64. No
 conclusion changes (a 32 B slot aligned to 32 still never straddles a 128 B line;
 24 B entries still straddle sometimes) but the earlier reasoning used 64.
+
+--------------------------------------------------------------------------------
+build_child #[inline(always)]           *** REJECTED, +14.4% at 146 ***
+--------------------------------------------------------------------------------
+
+Post-cache profiling found build_child holding 66.9% of samples as a REAL
+out-of-line function. Before the probe cache it was inlined automatically with no
+symbol at all; adding the `cache` parameter pushed it past LLVM's threshold. At
+~1.5e9 calls the call overhead looked like an easy few percent.
+
+  146-regime portion   noinl  37.39  38.04  38.77   median 38.04
+                       inl    43.19  43.52  45.92   median 43.52   +14.4%
+  exhausted-144 pass   noinl  13.34  13.42  14.02   median 13.42
+                       inl    15.53  15.77  15.92   median 15.77   +17.5%
+
+LLVM'S HEURISTIC WAS CORRECT. build_child is ~2.5 KB of code; inlining it into
+the loop bloats the body and raises register pressure — the same mechanism that
+made H5b (+12.7%) fail. The reasoning "it used to be inlined, so restoring that
+helps" ignored that the FUNCTION CHANGED SIZE when the cache was added. What was
+worth inlining at its old size is not at its new one.
+
+Useful corollary: this rules out the un-inlining as a drag on the cache's win.
+The cache's -15.4% is not being held back by it.
+
+*** THE TAXONOMY NOW HAS THREE CLASSES, not two ***
+  WINS, remove operations from the dependency chain:
+    C, D1, A, F, G3, H1, widemul, H3
+  WINS, remove MISSES (new class, found via the TLB attribution):
+    probe cache 64 K (-10.2%), 256 K (-5.8%)   <- identified by the INVERTED
+    depth signature: larger at 146 than at 144
+  LOSSES, restructure the loop or override codegen:
+    prefetch -37%, index table -3.5%, probe cache at 1 K +5.8%, H5 +16%,
+    H5b +12.7%, build_child inline(always) +14.4%
+Six for six on the loss side. Overriding LLVM's inlining belongs in that class.
