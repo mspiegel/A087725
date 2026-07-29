@@ -1112,3 +1112,40 @@ REMAINING LEVERS on this profile, with honest sizes:
     the cache cannot grow within the 8-thread L2 budget.
   * everything else on the profile is <1% or closed.
   * parallelism: ~8x. That is where the leverage is.
+
+================================================================================
+Item 3: does the profile shift through a threshold pass?   *** NO ***
+Date: 2026-07-29   (full exhaust-146, two 35 s windows from ONE process)
+================================================================================
+
+Every 146 profile so far sampled the first ~1e9 nodes, because --max-nodes
+truncates from the start. This took two counter windows from the SAME run — at 3%
+and 71% through the pass — so power state, cache warmth, ASLR and session drift
+are all held constant and the only variable is depth into the pass.
+
+                             early        late     ratio
+  IPC                        3.156       3.173     1.005
+  useful / retiring          36.9%       36.3%     -0.6pp
+  discarded / bad spec       23.4%       23.6%     +0.2pp
+  back-end                   39.7%       40.0%     +0.3pp
+  cycles / 1000 insn        316.845     315.133    0.995
+
+Flat. The profile is STABLE through a pass, so all prior 146 profiling
+generalises and a budgeted window is representative of its threshold.
+
+*** THIS CORRECTS AN EARLIER CLAIM IN THIS FILE AND IN FINDINGS_R §8x ***
+I wrote that the depth degradation "deepens progressively WITHIN a threshold
+rather than stepping between thresholds", inferred from a budgeted run at -10.6%
+versus a full pass at -17.7%. If that were true IPC would fall between 3% and 71%
+through the pass. It does not.
+
+What IS established, within this single run: 144 at 31.74 Mn/s vs 146 at
+27.75 Mn/s = -12.6%, a STEP between thresholds. The budgeted-vs-full gap must
+arise in the first few percent of the pass (before the 20 s window) or be
+cross-run noise; those cannot be separated from the data, so neither should be
+asserted.
+
+Full-pass numbers from the same run: 17,767,093,830 nodes in 640.27s = 27.75 Mn/s
+for the 146 pass (xctrace attached for 70 of those seconds, so slightly
+pessimistic); 18,189,473,636 nodes total, node-identical to the pre-cache full
+run, proving depth >= 148.

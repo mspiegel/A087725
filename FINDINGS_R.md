@@ -1222,6 +1222,19 @@ in both directions: it understates the next step and overstates the one after.
 
 **2. Throughput degrades with depth — same binary, same board.**
 
+*(Corrected 2026-07-29, later the same day: this section originally claimed the
+degradation is progressive **within** a threshold, inferred from a budgeted run
+showing −10.6% against a full pass showing −17.7%. A cleaner measurement refutes
+that. Two 35 s counter windows taken from the **same process**, at 3% and 71%
+through a full exhaust-146 pass, show IPC 3.156 → 3.173 — flat to 0.5%, and no
+top-down category moving more than 0.6pp. The effect is a **step between
+thresholds**, not a drift within one: same run, 144 at 31.74 Mn/s vs 146 at
+27.75 Mn/s = −12.6%. Whatever produced the budgeted-vs-full gap happens in the
+first few percent of the pass or is cross-run noise; the two cannot be separated
+from the data. The practical consequence is the opposite of what the original
+text implied: a budgeted `--max-nodes` window IS representative of its
+threshold, so profiling need not chase the deep tail.)*
+
 | exhausts | search time | throughput |
 |---|---:|---:|
 | 144 | 13.41 s | **31.50 Mn/s** |
