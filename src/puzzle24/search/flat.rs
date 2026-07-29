@@ -266,9 +266,13 @@ fn demand_row_fast(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
     let mut key = 0usize;
     for c in 0..W {
         let tile = s.0[g * W + c] as usize;
-        if tile != 0 && GOAL_ROW[tile] as usize == g {
-            key |= (GOAL_COL[tile] as usize + 1) << (3 * c);
-        }
+        // Branchless: "is this cell a resident of its own line?" is essentially
+        // random against the board, and CPU-counter sampling attributes a large
+        // share of this engine's mispredicts to it. `&` rather than `&&` so the
+        // predicate itself does not reintroduce a branch; `GOAL_COL[0] == 0`, so
+        // the blank contributes nothing through the multiply.
+        let res = ((tile != 0) & (GOAL_ROW[tile] as usize == g)) as usize;
+        key |= (res * (GOAL_COL[tile] as usize + 1)) << (3 * c);
     }
     let d = lut[key];
     debug_assert_eq!(d, demand_row_line(lut, s, g), "fast row demand key drift");
@@ -281,9 +285,8 @@ fn demand_col_fast(lut: &[u8; DEMAND_LUT_LEN], s: &State, g: usize) -> u8 {
     let mut key = 0usize;
     for r in 0..W {
         let tile = s.0[r * W + g] as usize;
-        if tile != 0 && GOAL_COL[tile] as usize == g {
-            key |= (GOAL_ROW[tile] as usize + 1) << (3 * r);
-        }
+        let res = ((tile != 0) & (GOAL_COL[tile] as usize == g)) as usize;
+        key |= (res * (GOAL_ROW[tile] as usize + 1)) << (3 * r);
     }
     let d = lut[key];
     debug_assert_eq!(d, demand_col_line(lut, s, g), "fast col demand key drift");
@@ -921,6 +924,48 @@ mod tests {
                     (mask >> (m as u8)) & 1 == 1,
                     dfa.is_pruned(st, m),
                     "prune_mask disagrees at state {st}, {m:?}"
+                );
+            }
+        }
+    }
+
+    /// The branchless demand key must equal the branched reference on every line
+    /// of arbitrary boards.
+    ///
+    /// This is the right gate for changes to the demand path. `demand_*_fast` is
+    /// reached only from `build_child`, so before this test the sole coverage was
+    /// the 5-minute full-search differential — which is the wrong instrument for a
+    /// value-preserving rewrite. The demand LUT is 32 KiB built in-process, so this
+    /// needs no data files and runs in about a second.
+    ///
+    /// It earns its keep in **release** especially: `demand_*_fast`'s own
+    /// `debug_assert` against the reference vanishes there, and this does not.
+    #[test]
+    fn demand_fast_matches_reference_on_random_boards() {
+        let lut = super::super::cwd::build_demand_lut();
+        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+        for _ in 0..20_000 {
+            let mut a = [0u8; N_CELLS];
+            for (i, c) in a.iter_mut().enumerate() {
+                *c = i as u8;
+            }
+            for i in (1..N_CELLS).rev() {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                a.swap(i, (x % (i as u64 + 1)) as usize);
+            }
+            let s = State(a);
+            for g in 0..W {
+                assert_eq!(
+                    demand_row_fast(&lut, &s, g),
+                    demand_row_line(&lut, &s, g),
+                    "row demand differs on line {g} of {a:?}"
+                );
+                assert_eq!(
+                    demand_col_fast(&lut, &s, g),
+                    demand_col_line(&lut, &s, g),
+                    "col demand differs on line {g} of {a:?}"
                 );
             }
         }
