@@ -603,11 +603,29 @@ where
             )
         };
         match step {
-            Step::BudgetOut => return (BoundedOutcome::BudgetExhausted(bound), stats),
+            Step::BudgetOut => {
+                #[cfg(feature = "probe-cache-stats")]
+                {
+                    let (h, m) = cache.stats();
+                    eprintln!(
+                        "    probe-cache @thr {bound} (truncated): cumulative {h} hits /                          {m} misses = {:.3}% hit",
+                        h as f64 / (h + m).max(1) as f64 * 100.0
+                    );
+                }
+                return (BoundedOutcome::BudgetExhausted(bound), stats);
+            }
             Step::Found(path) => return (BoundedOutcome::Solved(path), stats),
             Step::Exhausted(next) => {
                 if next == u8::MAX {
                     return (BoundedOutcome::Unsolvable, stats);
+                }
+                #[cfg(feature = "probe-cache-stats")]
+                {
+                    let (h, m) = cache.stats();
+                    eprintln!(
+                        "    probe-cache @thr {bound}: cumulative {h} hits / {m} misses                          = {:.3}% hit",
+                        h as f64 / (h + m).max(1) as f64 * 100.0
+                    );
                 }
                 on_iter(bound, &stats, iter_start.elapsed());
                 bound = next;
@@ -988,6 +1006,10 @@ struct CacheSlot {
 
 pub(crate) struct ProbeCache {
     slots: Box<[CacheSlot]>,
+    #[cfg(feature = "probe-cache-stats")]
+    hits: u64,
+    #[cfg(feature = "probe-cache-stats")]
+    misses: u64,
 }
 
 impl ProbeCache {
@@ -1005,7 +1027,19 @@ impl ProbeCache {
                 CACHE_LEN
             ]
             .into_boxed_slice(),
+            #[cfg(feature = "probe-cache-stats")]
+            hits: 0,
+            #[cfg(feature = "probe-cache-stats")]
+            misses: 0,
         }
+    }
+
+    /// `(hits, misses)` so far. The LRU model cannot predict this: it is fully
+    /// associative, so it sees only capacity misses, while a direct-mapped cache
+    /// also thrashes when two hot keys share a slot.
+    #[cfg(feature = "probe-cache-stats")]
+    pub(crate) fn stats(&self) -> (u64, u64) {
+        (self.hits, self.misses)
     }
 
     /// Index from a single multiply-shift. The keys are structured (packed 3-bit
@@ -1025,6 +1059,15 @@ impl ProbeCache {
         if self.slots[i].tag != key {
             let cell = *merged.get(&key).expect("state reachable");
             self.slots[i] = CacheSlot { tag: key, cell };
+            #[cfg(feature = "probe-cache-stats")]
+            {
+                self.misses += 1;
+            }
+        } else {
+            #[cfg(feature = "probe-cache-stats")]
+            {
+                self.hits += 1;
+            }
         }
         debug_assert_eq!(
             self.slots[i].cell.wd,

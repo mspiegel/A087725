@@ -1034,3 +1034,41 @@ minutes and avoided building something with a correctness hazard for ~0.4%.
 Stores retire in the background on an out-of-order core: a timer sample landing on
 a store records where the PC was, not that anything waited. Treat store-heavy
 sample shares as upper bounds and probe the sensitivity before optimising.
+
+================================================================================
+Probe cache: REAL in-situ hit rate (direct-mapped, 256 K)
+Date: 2026-07-29
+================================================================================
+
+The `probe-locality` LRU model is FULLY ASSOCIATIVE, so it sees only capacity
+misses. A direct-mapped cache also thrashes when two hot keys share a slot, and
+that blindness is why the model under-predicted the 64K->256K win by ~14x. New
+`probe-cache-stats` feature counts the real thing, reported per threshold:
+
+  threshold        hits        misses    hit rate   miss rate
+     144    420,963,312     1,416,493    99.665%     0.335%
+     146  1,558,225,522    19,394,671    98.771%     1.229%   (derived slice)
+
+  LRU model at 256 K predicted 99.51% / 0.49% miss.
+  Real is 1.229% miss — 2.5x worse. That gap IS the conflict misses.
+
+Also: the miss rate is 3.7x higher at 146 than at 144, the same working-set
+growth that drives the rest of the depth slowdown.
+
+HEADROOM, calibrated empirically rather than modelled. The 64K->256K step cut the
+miss rate ~2.3 pp (LRU-implied ~3.5% -> measured 1.23%) and bought 5.8%, i.e.
+~2.5% of runtime per pp of miss rate. Closing the conflict gap (1.229% toward the
+associative floor ~0.49%) is ~0.6 pp => ~1.5% optimistically; call it under 1%
+given this session's over-prediction record.
+
+The mechanism would be 2-WAY ASSOCIATIVITY, which costs ZERO extra memory — the
+binding constraint, since 256 K x 4 threads/cluster already exceeds the 16 MB L2.
+Two adjacent 32 B slots span 64 B and fit inside one 128 B line, so a 2-way lookup
+touches the same single line and compares two tags; replacement needs a victim
+rule (1 bit per set is enough). NOT BUILT — recorded as the last known lever on
+this profile.
+
+METHOD NOTE. I had added these counters when building the cache and then removed
+them as "redundant with the LRU model". That was wrong, and the 14x prediction
+miss is the cost of it: a model of a different associativity is not a substitute
+for measuring the structure you actually built.

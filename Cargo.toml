@@ -41,6 +41,11 @@ verifier-stats = []
 # at exit. Off by default (a relaxed-atomic bump per probe). Pairs with
 # `/usr/bin/time -l` page deltas to derive the exact probe->page reuse ratio.
 zpdb-locality = []
+# In-situ hit/miss counters for the direct-mapped probe cache, reported per
+# threshold. Off by default. Needed because the LRU model in `probe-locality` is
+# fully associative and therefore blind to the CONFLICT misses a direct-mapped
+# cache suffers — it under-predicted the 64K->256K win by ~14x.
+probe-cache-stats = []
 # Page-locality of the merged-table probe: records the 16 KiB page of every
 # probed cell and runs it through fixed-size LRUs to produce a TLB hit-rate vs
 # reach curve. Off by default (an LRU probe per node). No root needed.
