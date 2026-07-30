@@ -145,3 +145,34 @@ Estimated lever value: ~20-30 ns/node (~a quarter of the k8 layer) at 87-92%
 hit — enough to flip the 0.05% tie at 148, far short of the cWD cache's win.
 Not built yet; the A/B cycle is ~40 min (memo in k8_child, regate 269,180,917 /
 8,539,130,554, race 146 W=8).
+
+Extended memo sizing: miss decomposition (2026-07-30, same 1.8B-node slice)
+---------------------------------------------------------------------------
+  distinct idx (HLL +/-0.8%): 58,788,203  -> mean reuse 47.2x, compulsory
+  floor 2.117%. The working set is ~470 MB at 8 B/slot — reuse is HIGH but the
+  live key set dwarfs any practical cache. (Prediction check: the "locally
+  novel stream / single-digit reuse" hypothesis was WRONG; recorded so the
+  reasoning isn't reused.)
+
+  Associativity at equal capacity (LRU-in-set):
+    2 MB:  dm 81.29 / 2-way 83.24 / 4-way 84.04
+    32 MB: dm 91.87 / 2-way 93.04 / 4-way 93.50
+  -> conflicts are +1.2-2.8pp; the misses are CAPACITY. Only size helps, and
+  the flat ~5pp/4x slope is a skewed reuse tail: 1M slots (1.8% of the working
+  set) already catch 87%.
+
+  Per-table dm@20: a 90.09%, b 96.19%, c 86.51% — group c both recurs least
+  and touches the most pages (3.78 GB): the workload scrambles c's tiles most.
+
+  Warm-up: window hit rates flat from the first 512M probes
+  (87.4/88.0/86.3/87.3/87.6) — sustained steady state, no cold-start artifact.
+
+Design consequences:
+  1. Key the memo by PACKED POSITIONS, not idx: bijective with idx (perfect
+     ranking) so these hit rates transfer, and a hit then skips the rank AND
+     the table touch — roughly doubling the lever (~40-50 ns/node of the 82 ns
+     layer). That is enough to turn the measured 148 tie into a clear win.
+  2. Direct-mapped, 22 bits (32 MB/worker), no associativity (capacity-bound).
+  3. Caveat: sequential-stream rates are OPTIMISTIC for W=8 private caches —
+     cross-subtree transposition reuse fragments across workers; expect high
+     80s, not 92, per worker.

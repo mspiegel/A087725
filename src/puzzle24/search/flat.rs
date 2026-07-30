@@ -583,9 +583,77 @@ mod k8_locality {
 
     const BITS: [u32; 6] = [14, 16, 18, 20, 22, 24];
 
+    /// Set-associative variant at the same total capacity, LRU within the set
+    /// (MRU-first ordering of the ways). Separates CONFLICT misses (which
+    /// associativity fixes) from capacity/compulsory misses (which it cannot).
+    struct Assoc {
+        ways: usize,
+        set_shift: u32,
+        tags: Vec<u64>, // sets * ways, MRU first within a set
+        hits: u64,
+    }
+
+    impl Assoc {
+        fn new(total_bits: u32, ways: usize) -> Self {
+            Assoc {
+                ways,
+                set_shift: 64 - (total_bits - ways.trailing_zeros()),
+                tags: vec![0; 1usize << total_bits],
+                hits: 0,
+            }
+        }
+        fn probe(&mut self, key: u64, h: u64) {
+            let set = (h >> self.set_shift) as usize * self.ways;
+            let w = &mut self.tags[set..set + self.ways];
+            if let Some(i) = w.iter().position(|&t| t == key) {
+                self.hits += 1;
+                w[..=i].rotate_right(1); // move to MRU
+            } else {
+                w.rotate_right(1);
+                w[0] = key;
+            }
+        }
+    }
+
+    /// ~16 KB HyperLogLog (2^14 registers, ~0.8% error) for the distinct-idx
+    /// count — the compulsory-miss floor no finite cache can beat.
+    struct Hll {
+        reg: Vec<u8>,
+    }
+    impl Hll {
+        fn new() -> Self {
+            Hll { reg: vec![0; 1 << 14] }
+        }
+        fn add(&mut self, h: u64) {
+            let i = (h >> 50) as usize;
+            let z = (h << 14).leading_zeros() as u8 + 1;
+            if z > self.reg[i] {
+                self.reg[i] = z;
+            }
+        }
+        fn estimate(&self) -> f64 {
+            let m = self.reg.len() as f64;
+            let sum: f64 = self.reg.iter().map(|&r| 2f64.powi(-(r as i32))).sum();
+            let e = 0.7213 / (1.0 + 1.079 / m) * m * m / sum;
+            if e <= 2.5 * m {
+                let zeros = self.reg.iter().filter(|&&r| r == 0).count();
+                if zeros > 0 {
+                    return m * (m / zeros as f64).ln();
+                }
+            }
+            e
+        }
+    }
+
     struct Sim {
         tags: Vec<Vec<u64>>,      // per BITS entry: 1 << bits tag slots, 0 = empty
         hits: [u64; BITS.len()],
+        assoc: Vec<(u32, Assoc)>, // (total_bits, sim) for 2- and 4-way
+        per_table_dm20: [(u64, u64); 3], // (hits, probes) at 20 bits, per table
+        table_tags20: Vec<Vec<u64>>,
+        quarters: Vec<(u64, u64)>, // cumulative (hits@dm20agg, probes) checkpoints
+        dm20_hits: u64,
+        hll: Hll,
         probes: u64,
         per_table: [u64; 3],
         pages: [std::collections::HashSet<u32>; 3],
@@ -598,6 +666,17 @@ mod k8_locality {
         let sim = g.get_or_insert_with(|| Sim {
             tags: BITS.iter().map(|b| vec![0u64; 1usize << b]).collect(),
             hits: [0; BITS.len()],
+            assoc: vec![
+                (18, Assoc::new(18, 2)),
+                (18, Assoc::new(18, 4)),
+                (22, Assoc::new(22, 2)),
+                (22, Assoc::new(22, 4)),
+            ],
+            per_table_dm20: [(0, 0); 3],
+            table_tags20: (0..3).map(|_| vec![0u64; 1 << 20]).collect(),
+            quarters: Vec::new(),
+            dm20_hits: 0,
+            hll: Hll::new(),
             probes: 0,
             per_table: [0; 3],
             pages: Default::default(),
@@ -607,13 +686,34 @@ mod k8_locality {
         sim.pages[table].insert((idx >> 17) as u32);
         let key = idx * 3 + table as u64 + 1; // +1 so 0 stays "empty"
         let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        sim.hll.add(h);
         for (i, b) in BITS.iter().enumerate() {
             let slot = (h >> (64 - b)) as usize;
             if sim.tags[i][slot] == key {
                 sim.hits[i] += 1;
+                if *b == 20 {
+                    sim.dm20_hits += 1;
+                }
             } else {
                 sim.tags[i][slot] = key;
             }
+        }
+        for (_, a) in sim.assoc.iter_mut() {
+            a.probe(key, h);
+        }
+        // per-table direct-mapped at 20 bits (each table gets its own array)
+        let pt = &mut sim.per_table_dm20[table];
+        pt.1 += 1;
+        let slot = (h >> 44) as usize; // 64 - 20
+        let t = &mut sim.table_tags20[table][slot];
+        if *t == key {
+            pt.0 += 1;
+        }
+        *t = key;
+        // checkpoint every 512M probes for the warm-up curve
+        if sim.probes % (512 << 20) == 0 {
+            let ck = (sim.dm20_hits, sim.probes);
+            sim.quarters.push(ck);
         }
     }
 
@@ -645,6 +745,42 @@ mod k8_locality {
                 sim.probes - sim.hits[i],
                 (1u64 << b) * 8 / (1 << 20),
             );
+        }
+        eprintln!("  set-associative at equal capacity (LRU in set):");
+        for (b, a) in &sim.assoc {
+            eprintln!(
+                "    bits={b:2} {}-way  {:7.3}% hit",
+                a.ways,
+                100.0 * a.hits as f64 / sim.probes as f64
+            );
+        }
+        eprintln!("  per-table direct-mapped @20 bits:");
+        for t in 0..3 {
+            let (h, p) = sim.per_table_dm20[t];
+            eprintln!(
+                "    table {}  {:7.3}% hit  ({} probes)",
+                (b'a' + t as u8) as char,
+                100.0 * h as f64 / p.max(1) as f64,
+                p
+            );
+        }
+        let distinct = sim.hll.estimate();
+        eprintln!(
+            "  distinct idx (HLL ±0.8%): {:.0}  ->  mean reuse {:.1}x, compulsory floor {:.3}%",
+            distinct,
+            sim.probes as f64 / distinct,
+            100.0 * distinct / sim.probes as f64
+        );
+        eprintln!("  dm@20 cumulative hit rate at 512M-probe checkpoints (warm-up curve):");
+        let mut prev = (0u64, 0u64);
+        for &(h, p) in &sim.quarters {
+            eprintln!(
+                "    at {:>5}M probes: cumulative {:6.3}%   window {:6.3}%",
+                p / 1_000_000,
+                100.0 * h as f64 / p as f64,
+                100.0 * (h - prev.0) as f64 / (p - prev.1) as f64
+            );
+            prev = (h, p);
         }
     }
 }
