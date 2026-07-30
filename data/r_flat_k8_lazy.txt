@@ -205,3 +205,33 @@ HIT RATE != SAVINGS. The sizing measurement answered "would it hit" (yes,
 89%) — only the A/B could answer "does a hit save more than the probe costs"
 (no). Reverted to v2's direct rank+diff path; the k8-probe-locality
 instrumentation and this record are kept.
+
+*** MEASUREMENT CONTAMINATION FLAG (2026-07-30 afternoon) ***
+-------------------------------------------------------------
+The memo-cache A/B, its size sweep, the madvise(MADV_RANDOM) A/B, and the
+revert-confirmation run (16:09-16:58 UTC) ran on a CONTENDED box: rust-analyzer
+was re-running clippy-driver at ~98% CPU after each code edit (caught by ps
+during the diagnosis), plus interactive foreground load — unlike the overnight
+window, which was idle. Symptom that exposed it: 178 -> 200 -> 211 s monotone
+degradation ACROSS a code revert, then a cWD-only canary at 108.7 s vs its
+clean 91.5-92.2 s baseline (+18%) despite touching no k8 state.
+
+Status of afternoon conclusions:
+- Memo cache reject: size ordering (32 MB > 8 MB > 2 MB cost, non-monotone in
+  run order) tracks the parameter, and the mechanism argument stands; but the
+  "+13%" magnitude is NOT defensible. Needs one clean interleaved confirmation
+  before being cited.
+- madvise(MADV_RANDOM): UNRESOLVED, not rejected — most contaminated runs of
+  the afternoon. Re-A/B cleanly. (The spatial-locality mechanism argued from
+  the cohort-contiguous rank layout remains plausible in both directions.)
+- ALL overnight results (148 race, cut ratios, v2 gates, 133.65 s, E4) were on
+  an idle box and stand.
+
+Lesson, again, sharper: "back-to-back, same session" is not sufficient — the
+box must also be IDLE, and a canary run of the UNTOUCHED engine belongs in
+every A/B batch, because it distinguishes environment drift from the change
+under test in one run. The 108.7 s canary did in 2 minutes what three
+mutually-confounded k8 runs could not.
+
+Queued for the next idle window: interleaved v2-baseline / memo-18 / madvise
+batch, with a cWD-only canary bracketing it.
