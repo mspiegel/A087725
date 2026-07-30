@@ -515,6 +515,9 @@ pub struct K8Ctx {
     dbs: [crate::puzzle24::pdb::ZPatternDb; 3],
     /// `group_of[t]` = which of the three patterns holds tile `t` (1..=24).
     group_of: [u8; N_CELLS],
+    /// The 8 tiles of each pattern, ascending (instrumentation: per-group MD).
+    #[cfg(feature = "k8-probe-locality")]
+    tiles: [[u8; 8]; 3],
 }
 
 impl K8Ctx {
@@ -544,14 +547,28 @@ impl K8Ctx {
             return Err(format!("k8 patterns do not cover tiles 1..=24 (union {union:#x})"));
         }
         let mut group_of = [0u8; N_CELLS];
+        #[cfg(feature = "k8-probe-locality")]
+        let mut tiles = [[0u8; 8]; 3];
+        #[cfg(feature = "k8-probe-locality")]
+        let mut tn = [0usize; 3];
         for (gi, db) in dbs.iter().enumerate() {
             for t in 1..N_CELLS {
                 if db.pattern().contains(t as u8) {
                     group_of[t] = gi as u8;
+                    #[cfg(feature = "k8-probe-locality")]
+                    {
+                        tiles[gi][tn[gi]] = t as u8;
+                        tn[gi] += 1;
+                    }
                 }
             }
         }
-        Ok(K8Ctx { dbs, group_of })
+        Ok(K8Ctx {
+            dbs,
+            group_of,
+            #[cfg(feature = "k8-probe-locality")]
+            tiles,
+        })
     }
 }
 
@@ -905,6 +922,142 @@ mod k8_locality {
 #[cfg(feature = "k8-probe-locality")]
 pub fn k8_locality_report() {
     k8_locality::report();
+}
+
+/// Partial-PDB ("winner set") feasibility instrumentation.
+///
+/// At every consult the engine already knows each group-view's true `h` (the
+/// diff-chain maintains it) and can compute the group's Manhattan distance from
+/// the same positions. This module accumulates, online:
+///
+/// - the **prune-survival curve**: for each surplus threshold `s`, would this
+///   consult still have pruned if every group with `h − MD < s` were served MD
+///   instead of its table value (i.e. only "winner" configs kept)?
+/// - the **map hit-rate curve**: the surplus distribution of the two *changed*
+///   group-views — the probes a sparse winner-map would actually receive.
+///
+/// Sequential runs only; counts, so valid under load.
+#[cfg(feature = "k8-probe-locality")]
+mod k8_surplus {
+    use std::sync::Mutex;
+
+    const SMAX: usize = 16;
+
+    struct Sim {
+        consults: u64,
+        actual_prunes: u64,
+        /// simulated prunes with only surplus>=s configs kept, s in 0..SMAX
+        sim_prunes: [u64; SMAX],
+        /// prunes with MD alone (s = infinity)
+        md_prunes: u64,
+        /// surplus histogram of the two changed group-views per consult
+        changed_surplus: [u64; 64],
+        /// surplus histogram over all six group-views (background)
+        all_surplus: [u64; 64],
+    }
+
+    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record(h: &[[u8; 3]; 2], md: &[[u8; 3]; 2], gi: usize, gj: usize, need: u8) {
+        let mut g = SIM.lock().unwrap();
+        let sim = g.get_or_insert_with(|| Sim {
+            consults: 0,
+            actual_prunes: 0,
+            sim_prunes: [0; SMAX],
+            md_prunes: 0,
+            changed_surplus: [0; 64],
+            all_surplus: [0; 64],
+        });
+        sim.consults += 1;
+        let sur = |v: usize, k: usize| (h[v][k] - md[v][k]) as usize; // admissible: h >= MD
+        for v in 0..2 {
+            for k in 0..3 {
+                sim.all_surplus[sur(v, k).min(63)] += 1;
+            }
+        }
+        sim.changed_surplus[sur(0, gi).min(63)] += 1;
+        sim.changed_surplus[sur(1, gj).min(63)] += 1;
+
+        let need = need as u16;
+        for (s, slot) in sim.sim_prunes.iter_mut().enumerate() {
+            let mut best = 0u16;
+            for v in 0..2 {
+                let mut t = 0u16;
+                for k in 0..3 {
+                    t += if sur(v, k) >= s { h[v][k] } else { md[v][k] } as u16;
+                }
+                best = best.max(t);
+            }
+            if best > need {
+                *slot += 1;
+            }
+        }
+        // s = 0 keeps everything == the actual consult outcome.
+        sim.actual_prunes = sim.sim_prunes[0];
+        let mut md_best = 0u16;
+        for v in 0..2 {
+            let t: u16 = (0..3).map(|k| md[v][k] as u16).sum();
+            md_best = md_best.max(t);
+        }
+        if md_best > need {
+            sim.md_prunes += 1;
+        }
+    }
+
+    pub(super) fn report() {
+        let g = SIM.lock().unwrap();
+        let Some(sim) = g.as_ref() else {
+            return;
+        };
+        eprintln!("k8 partial-PDB (winner-set) feasibility:");
+        eprintln!(
+            "  consults {}   actual k8 prunes {} ({:.3}%)   MD-only prunes {} ({:.1}% of actual)",
+            sim.consults,
+            sim.actual_prunes,
+            100.0 * sim.actual_prunes as f64 / sim.consults as f64,
+            sim.md_prunes,
+            100.0 * sim.md_prunes as f64 / sim.actual_prunes.max(1) as f64,
+        );
+        let changed_total: u64 = sim.changed_surplus.iter().sum();
+        eprintln!("    s   prunes-kept   map-hit-rate (changed probes with surplus >= s)");
+        let mut tail: u64 = changed_total;
+        for s in 0..SMAX {
+            if s > 0 {
+                tail -= sim.changed_surplus[s - 1];
+            }
+            eprintln!(
+                "   {s:2}     {:6.2}%        {:6.2}%",
+                100.0 * sim.sim_prunes[s] as f64 / sim.actual_prunes.max(1) as f64,
+                100.0 * tail as f64 / changed_total.max(1) as f64,
+            );
+        }
+        eprint!("  all-view surplus histogram (0..15,16+):");
+        let hi: u64 = sim.all_surplus[16..].iter().sum();
+        for v in sim.all_surplus[..16].iter() {
+            eprint!(" {v}");
+        }
+        eprintln!(" {hi}");
+    }
+}
+
+/// Print the k8 partial-PDB feasibility report.
+#[cfg(feature = "k8-probe-locality")]
+pub fn k8_surplus_report() {
+    k8_surplus::report();
+}
+
+/// Manhattan distance of one group-view's pattern tiles (goal cell of tile `t`
+/// is `t − 1`; holds for the reflected view too, since σ fixes GOAL).
+#[cfg(feature = "k8-probe-locality")]
+fn k8_group_md(proj: &crate::puzzle24::pdb::ProjectedState, tiles: &[u8; 8]) -> u8 {
+    let mut md = 0u16;
+    for &t in tiles {
+        let p = proj.pos_of(t) as u16;
+        let g = (t - 1) as u16;
+        md += (p / 5).abs_diff(g / 5) + (p % 5).abs_diff(g % 5);
+    }
+    md.min(255) as u8
 }
 
 /// Seed depth-0 k8 state from `board`: 6 projections + 6 cold lookups (O(h)
@@ -1988,6 +2141,22 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
         // Compiles away entirely when `K8` is false.
         if K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
+            #[cfg(feature = "k8-probe-locality")]
+            {
+                let ctx = k8ctx.unwrap();
+                let t = TILE_OF_CODE[tile] as usize;
+                let gi = ctx.group_of[t] as usize;
+                let gj = ctx.group_of[symmetry::TAU[t] as usize] as usize;
+                let slot = &arena.k8[d + 1];
+                let mut md = [[0u8; 3]; 2];
+                for v in 0..2 {
+                    for k in 0..3 {
+                        md[v][k] = k8_group_md(&slot.views[v][k], &ctx.tiles[k]);
+                    }
+                }
+                // f2 = g_next + H > bound  <=>  H > bound - g_next
+                k8_surplus::record(&slot.h, &md, gi, gj, bound - g_next);
+            }
             if hk8 > h {
                 let f2 = g_next.saturating_add(hk8);
                 if f2 > bound {

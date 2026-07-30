@@ -358,3 +358,39 @@ The 82 ns on-core consult therefore splits: ranks 28-40, remainder 42-54
 call overhead, absorbed L1D/TLB latency). Consequence: dropping the reflected
 view removes ~14 ns of rank + one probe + one slide, NOT half the layer — its
 case now rests mainly on halving the blocked/probe side and the node arithmetic.
+
+Partial-PDB ("winner set") feasibility — DEAD in one count-based run (2026-07-30)
+---------------------------------------------------------------------------------
+Idea: keep only configurations whose table value beats a cheap admissible
+fallback (group Manhattan), store them sparsely (absolute values, hashed
+positions — no rank, no diff-chain, no 32.8 GB residency). Instrumented the
+live engine (it already carries true h per group-view; MD computed from the
+same positions): per consult, all six (h, MD) pairs + the prune bound, with the
+prune test replayed at every surplus threshold s.
+
+  1.15 B consults, 14.95% actual prunes. Surplus is parity-locked (even only).
+
+  s   prunes kept   changed-probe hit rate
+  2     100.00%       62.33%     <- only cut-preserving threshold; "winner set"
+                                    ~ 60% of the space = hundreds of GB. Dead.
+  4      25.45%       27.17%     <- first set that shrinks; cut collapses. Dead.
+  6       2.48%        3.51%
+  MD-only  0.00%                 <- the fallback floor is ZERO.
+
+  Surplus histogram (all six views): 42% at 0, 32% at 2, 24% at 4, 1.7% at 6.
+
+Verdicts:
+1. k8's edge over Manhattan is BROAD AND SHALLOW: +2 almost everywhere, prunes
+   assembled from six small surpluses summing. No elite exists to keep.
+2. MD-only retains zero prunes, forced in hindsight: a prune must beat cWD and
+   cWD >= WD >= sum of group MDs by construction.
+3. The structural root: "beats cWD" does not factor across the partition — cWD
+   is a whole-board value, so no per-group keep/drop rule can align with the
+   prune condition. Same diffuseness the cache sims measured (47x thin reuse,
+   no knee), now at the value level.
+
+Global cold_lookup sampling harness skipped — no viable s to size.
+
+k8 lever ledger: memo DEAD, madvise DEAD, slot sharing WASH, partial-PDB DEAD.
+Open: reflection drop (full-exhaust node ratios needed at 146/148), k7 shadow,
+W=12. Rank term now measured (~14 ns hot, ablation above).
