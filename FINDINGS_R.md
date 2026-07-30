@@ -1486,6 +1486,54 @@ contention. The decomposition `B × c₁/c_p` is what made that visible; the agg
 speedup number pointed at the scheduler, which was innocent at every depth and
 every worker count. Full log: `data/r_flat_parallel_efficiency.txt`.
 
+## 8z. The lazy k8 tier on the flat engine — iso-time at 148 again; adopted for the R ≥ 152 run (2026-07-30)
+
+§8k measured the k8 trade iso-time on the recursive engine; §8y's flat engine
+then made cWD 1.73× faster, which should have buried k8. Measured, it did not —
+the crossing moved with it.
+
+**The build.** `solve24 --zpdb8`: `max(cWD, k8)` with the three 8-tile ZPDBs
+(32.8 GB mmap'd), consulted only at children cWD fails to prune. The recursive
+`LazyMaxInc` deferral glue (8% of §8l's samples) is replaced by an arena
+invariant — a child's k8 slot is written at the consult, every entered node has
+therefore a current slot, and no catch-up can ever be needed. Two further flat-era
+cuts: only the two cost-1 group-views are slid per consult (the projected-edge
+law makes the four cost-0 slides no-ops; the stale blank is healed just before
+that group's next rank), and the reflected view needs no `transpose_move` — its
+cells and cost-1 group come from the σ maps directly. Consult = one slot copy +
+2 slides + 2 ranks + 2 O(1) `diff_lookup`s. A from-scratch design is impossible,
+not just slow: the zbins are differential, and `cold_lookup` reconstructs an
+absolute value in O(h) graph-descent steps (§8u's retraction, sharpened).
+
+**Gates.** Threshold 146: **8,539,130,554 — bit-for-bit** the recorded recursive
+2-tier tree (§8j), sequential and parallel. Threshold 144: 269,180,917 vs the
+recorded 269,180,930 — 13 nodes *smaller*, confined to the first iteration
+(attributed to the deleted lazy driver's Lipschitz-deferred values; not chased,
+since the 8.5 B-decision gate rules out any systematic h error). And the race
+below reproduced the cWD-only 148 tree exactly (577,673,506,215; §8b's
+595,862,979,851 total), extending flat-engine node identity to 600 B scale.
+
+**The race (W=8, back-to-back, AC):**
+
+| exhausts | 2-tier | cWD-only | verdict |
+|---|---:|---:|---|
+| 146 | 133.7 s | 91.5 s | loses 1.46× |
+| **148** | 193.31 B / **3254.78 s** | 577.67 B / **3256.50 s** | **dead heat, 0.05%** |
+
+The recursive engines tied at 148 too (5630.91 vs 5633 s). Both engines got
+~1.73× faster, and the iso-time crossing stayed planted at exhaust-148 — the
+cut ratio's growth with depth (1.57× → 2.03× → **2.99×** measured) exactly
+paces the layer's cost through one full engine generation.
+
+**Adopted for R ≥ 152.** Break-even at exhaust-150 requires the cut ratio to
+stop growing *entirely*; every measured rung grew it ×1.29–1.47. Projected:
+~3.8 T nodes / ~19.3 h with `--zpdb8` against ~16.8 T / ~28.6 h without —
+**~9 h saved**, with the unmeasured 150 cut ratio the only soft spot.
+Constraints that stand: the tables oversubscribe RAM (RSS plateaus at 19.9 GB
+of 37.8 GB mapped; parallel contention +13.6% vs cWD's +7.7%), and the unpulled
+levers — a per-worker (idx → h) memo cache, k8 slot sharing, W=12 — would each
+convert the 148 tie into a win. Full program log: `data/r_flat_k8_lazy.txt`.
+
 ## 9. Summary
 
 Starting from a classical baseline of 204 moves, a sequence of measured

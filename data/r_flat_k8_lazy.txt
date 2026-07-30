@@ -72,3 +72,38 @@ re-faults clean pages continuously. Parallel per-node contention at 146 is
 probes are exactly the scattered access §8y's memory term punishes.
 
 E3: exhaust-148 race at W=8 — IN FLIGHT (2-tier then cWD-only).
+
+E3 — the exhaust-148 race, W=8, back-to-back (2026-07-30, AC)
+-------------------------------------------------------------
+  engine       thr-148 nodes        thr-148 time    rate        total
+  2-tier v2    193,311,603,634      3254.78 s       59.4 Mn/s   proves R>=150
+  cWD-only     577,673,506,215      3256.50 s      177.4 Mn/s   proves R>=150
+
+A DEAD HEAT: 0.05%. The recursive engines also tied at 148 (5630.91 vs 5633 s,
+r_k8lazy_ex148.txt vs §8b) — both engines got ~1.73x faster and the §8k
+iso-time crossing stayed planted at exhaust-148.
+
+Free validation: the flat cWD-only 148 tree reproduces §8b's recorded count
+EXACTLY (595,862,979,851 total), extending node identity to 600 B scale.
+Measured cut ratio at 148: 577.67/193.31 = 2.99x (E0 estimated 3.03 from the
+3-tier files). Depth degradation 146->148 is the same for both engines (-8.3%
+vs -7.9%), so the E4 paging steady-state does not worsen relatively with depth.
+
+Verdict for R >= 152 (exhaust-150)
+----------------------------------
+Cut-ratio ladder: 1.57 -> 2.03 -> 2.99 (x1.29, x1.47 per rung, rising).
+Break-even at 150 requires the ratio to stop growing ENTIRELY (2.99 again);
+the trend continuing gives cut ~4.4x and
+
+  cWD-only @150:  ~16.8 T nodes / ~163 Mn/s  ~= 28.6 h
+  2-tier   @150:  ~3.8 T nodes  / ~54.5 Mn/s ~= 19.3 h   (~33% faster)
+
+RECOMMENDATION: run the R >= 152 attempt with `--parallel --zpdb8`. Projected
+~19 h vs ~29 h; the projection's only soft spot is the unmeasured 150 cut
+ratio, and every measured rung has moved it further in k8's favour.
+
+Levers not yet pulled (would convert the 148 tie into a win and widen 150):
+  - memoize (idx -> h) per worker to cut the 2 diff-probe faults (the tables
+    oversubscribe RAM; a small cache attacks refaults the way CACHE_BITS did);
+  - slot sharing (k8_at indices) to kill the 306 B copy;
+  - W=12 (the +21% E-core option, declined for interactive use).
