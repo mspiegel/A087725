@@ -303,3 +303,38 @@ in this log all along.
 k8 lever ledger after this: memo cache DEAD (mechanism), madvise DEAD (counts),
 slot sharing WASH (store law). Open: k7-as-replacement shadow count; W=12.
 The engine for the R >= 152 run remains gated v2.
+
+PMU decomposition of the k8 layer (sudo, sequential, budgeted 146 window, 2026-07-30)
+-------------------------------------------------------------------------------------
+Thread-scoped counters (CORE_ACTIVE_CYCLE / INST_ALL / L1D_CACHE_MISS_LD_NONSPEC /
+L2_TLB_MISS_DATA), --max-nodes 1.5B, idle box. Partial-146 windows:
+
+  per node          cWD-only    2-tier     delta (the layer)
+  cycles            127.41      341.67     214.3
+  instructions      455.9       1195.9     740
+  L1D miss          1.433       5.332      3.90
+  L2 TLB miss       0.023       0.559      0.536  (24x the whole cWD engine)
+  IPC               3.58        3.50       ~unchanged
+
+Validity: cWD 127.4 cyc / 3.4 GHz = 37.5 ns vs 38.0 measured wall (agrees; cWD
+spends ~nothing off-core). Layer per consult: 279 cycles ~= 962 instructions at
+the same IPC (self-consistent).
+
+THE MEASURED SPLIT of the ~110 ns consult:
+  ~82 ns  on-core, THROUGHPUT-BOUND: 962 instructions/consult — more than 2x
+          cWD's entire node (456) — at undiminished IPC 3.5. The added L1D/TLB
+          misses are absorbed by the OoO core.
+  ~28 ns  off-core, BLOCKED: active cycles cover only ~100 ns/node of the
+          2-tier's 122.6 ns wall; the ~22 ns/node gap is hard-page-fault
+          deschedule time (cWD-only shows ~0.5). The cold tail, measured
+          directly: ~26% of the layer.
+
+Consequences:
+1. Guess scorecard (vs the retracted estimates): ranks ~45 plausible (inside
+   the 962-inst budget; duplicate-rank ablation to pin), probes ~25 ~= the
+   28 ns blocked term, carriage ~15 WRONG (near-free, store law).
+2. k7 lever priced before its shadow count: fully-resident tables delete the
+   ~28 ns blocked term + most of the 24x TLB multiplier => ~25-30% of the
+   layer, IF k7's cut ratio holds. The cut stays the only decisive unknown.
+3. Any further shave of the ON-CORE 82 ns must remove instructions from a
+   3.5-IPC stream — the §8i law's territory, where five levers have now died.
