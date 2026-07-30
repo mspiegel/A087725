@@ -430,3 +430,35 @@ no value-defined elite exists (surplus broad+shallow), no workload-defined
 stable core exists (harvest subtree-local+conjunctive). The tier is
 irreducibly dense, diffuse, and conjunctive. Open levers unchanged:
 reflection-drop (needs full-exhaust node ratios), k7 shadow, W=12.
+
+Pruner tile-structure — the edge is NOT conflict-shaped; family fully closed (2026-07-30)
+-----------------------------------------------------------------------------------------
+656M load-bearing pruner configs vs a 1/64 background sample (91.8M configs).
+
+  surplus x lc-pairs cross-tab (% of load-bearing configs):
+              lc=0    lc=1   lc=2   lc=3+
+  surplus 2   44.92   6.61   0.09   0.00
+  surplus 4   36.05   6.13   0.57   0.06
+  surplus 6+   3.37   1.90   0.23   0.06
+
+84% of surplus-carrying configs have ZERO linear conflicts — including 36% of
+mass at +4-with-no-conflict. The classic LC mechanism explains <=15% of k8's
+edge; no MD+2LC-style per-group formula can substitute for the table. The
+surplus is irreducibly zero-aware interaction information.
+
+Commonalities found (real, not exploitable):
+  - group b carries the surplus: a/b/c = 18.1/52.3/29.5 vs uniform 33/33/33
+    background (b was also the most cacheable group in the memo sims);
+  - the blank sits at corners, above all its goal corner: cell 24 holds 10.4%
+    of pruner configs vs 2.4% background (pruner heat edge-skewed, background
+    center-heavy) — i.e. the found structure IS the zero-aware region
+    constraint, the very thing the table adds over blank-agnostic PDBs;
+  - pruners slightly more ordered than background (displaced-of-8: 77.9% vs
+    84.8% fully displaced).
+
+This completes the k8 characterization: dense, diffuse, conjunctive, and
+formula-resistant. Every sparse/cheap substitute is now measured dead:
+memo, madvise, slot sharing, surplus-defined sets, harvested sets, LC-family
+formulas. What the tier costs (110 ns/consult: 82 on-core throughput-bound +
+28 blocked) is what its information costs. Open levers unchanged: reflection
+drop (full-exhaust ratios), k7 shadow, W=12.

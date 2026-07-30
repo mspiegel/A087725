@@ -1324,6 +1324,175 @@ pub fn k8_harvest_report() {
     k8_harvest::report();
 }
 
+/// Tile-level structure of pruning configurations, against a 1/64 background
+/// sample of non-pruning consults. The payload is the surplus × linear-conflict
+/// cross-tab: if the table's edge over Manhattan is mostly LC-shaped, a cheap
+/// computable-per-group refinement exists; if surplus appears without conflicts,
+/// the edge is deeper interaction structure no simple formula captures.
+#[cfg(feature = "k8-probe-locality")]
+mod k8_struct {
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Feat {
+        configs: u64,
+        blank: [u64; 25],
+        displaced: [u64; 9],
+        lc: [u64; 4],
+        group: [u64; 3],
+    }
+
+    #[derive(Default)]
+    struct Sim {
+        pruner: Feat,
+        background: Feat,
+        /// pruners only: surplus bucket {2,4,6+} × lc pairs {0,1,2,3+}
+        joint: [[u64; 4]; 3],
+        bg_tick: u64,
+    }
+
+    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
+
+    /// Per-config features from the projection: displaced count, per-line
+    /// linear-conflict pairs (rows + cols), given the view-correct blank.
+    fn features(
+        proj: &crate::puzzle24::pdb::ProjectedState,
+        tiles: &[u8; 8],
+    ) -> (u32, u32) {
+        let mut displaced = 0u32;
+        let mut lc = 0u32;
+        let pos: Vec<(u8, u8)> = tiles.iter().map(|&t| (proj.pos_of(t), t - 1)).collect();
+        for &(p, g) in &pos {
+            if p != g {
+                displaced += 1;
+            }
+        }
+        for i in 0..8 {
+            for j in i + 1..8 {
+                let (pi, gi) = pos[i];
+                let (pj, gj) = pos[j];
+                // row conflict: same current row == both goal rows, reversed order
+                if pi / 5 == pj / 5 && gi / 5 == pi / 5 && gj / 5 == pi / 5 {
+                    let inv = (pi % 5 < pj % 5) != (gi % 5 < gj % 5);
+                    if inv {
+                        lc += 1;
+                    }
+                }
+                // column conflict
+                if pi % 5 == pj % 5 && gi % 5 == pi % 5 && gj % 5 == pi % 5 {
+                    let inv = (pi / 5 < pj / 5) != (gi / 5 < gj / 5);
+                    if inv {
+                        lc += 1;
+                    }
+                }
+            }
+        }
+        (displaced, lc)
+    }
+
+    fn tally(
+        f: &mut Feat,
+        proj: &crate::puzzle24::pdb::ProjectedState,
+        tiles: &[u8; 8],
+        blank: usize,
+        group: usize,
+    ) -> u32 {
+        let (displaced, lc) = features(proj, tiles);
+        f.configs += 1;
+        f.blank[blank] += 1;
+        f.displaced[displaced.min(8) as usize] += 1;
+        f.lc[lc.min(3) as usize] += 1;
+        f.group[group] += 1;
+        lc
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record(
+        slot_views: &[[crate::puzzle24::pdb::ProjectedState; 3]; 2],
+        h: &[[u8; 3]; 2],
+        md: &[[u8; 3]; 2],
+        tiles: &[[u8; 8]; 3],
+        n: usize,
+        rn: usize,
+        prune: bool,
+    ) {
+        let mut g = SIM.lock().unwrap();
+        let sim = g.get_or_insert_with(Sim::default);
+        if prune {
+            for v in 0..2 {
+                let blank = if v == 0 { n } else { rn };
+                for k in 0..3 {
+                    if h[v][k] > md[v][k] {
+                        let lc = tally(&mut sim.pruner, &slot_views[v][k], &tiles[k], blank, k);
+                        let sb = (((h[v][k] - md[v][k]) / 2).min(3) as usize).saturating_sub(1);
+                        sim.joint[sb][lc.min(3) as usize] += 1;
+                    }
+                }
+            }
+        } else {
+            sim.bg_tick += 1;
+            if sim.bg_tick % 64 == 0 {
+                for v in 0..2 {
+                    let blank = if v == 0 { n } else { rn };
+                    for k in 0..3 {
+                        tally(&mut sim.background, &slot_views[v][k], &tiles[k], blank, k);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn report() {
+        let g = SIM.lock().unwrap();
+        let Some(sim) = g.as_ref() else {
+            return;
+        };
+        let pct = |f: &Feat, c: u64| 100.0 * c as f64 / f.configs.max(1) as f64;
+        eprintln!("k8 pruner tile-structure (load-bearing configs vs 1/64 background):");
+        for (name, f) in [("pruners", &sim.pruner), ("background", &sim.background)] {
+            eprintln!("  {name}: {} configs", f.configs);
+            eprint!("    displaced-of-8:");
+            for d in &f.displaced {
+                eprint!(" {:.1}", pct(f, *d));
+            }
+            eprintln!();
+            eprint!("    lc-pairs [0,1,2,3+]:");
+            for d in &f.lc {
+                eprint!(" {:.1}", pct(f, *d));
+            }
+            eprintln!();
+            eprint!("    group a/b/c:");
+            for d in &f.group {
+                eprint!(" {:.1}", pct(f, *d));
+            }
+            eprintln!();
+            eprintln!("    blank heat (rows of 5, %):");
+            for r in 0..5 {
+                eprint!("     ");
+                for c in 0..5 {
+                    eprint!(" {:5.1}", pct(f, f.blank[r * 5 + c]));
+                }
+                eprintln!();
+            }
+        }
+        eprintln!("  pruners: surplus x lc-pairs cross-tab (rows: surplus 2/4/6+; cols: lc 0,1,2,3+; %):");
+        let tot: u64 = sim.joint.iter().flatten().sum();
+        for row in &sim.joint {
+            eprint!("   ");
+            for cell in row {
+                eprint!(" {:6.2}", 100.0 * *cell as f64 / tot.max(1) as f64);
+            }
+            eprintln!();
+        }
+    }
+}
+
+/// Print the tile-structure report.
+#[cfg(feature = "k8-probe-locality")]
+pub fn k8_struct_report() {
+    k8_struct::report();
+}
+
 /// Manhattan distance of one group-view's pattern tiles (goal cell of tile `t`
 /// is `t − 1`; holds for the reflected view too, since σ fixes GOAL).
 #[cfg(feature = "k8-probe-locality")]
@@ -2433,6 +2602,15 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
                 }
                 // f2 = g_next + H > bound  <=>  H > bound - g_next
                 k8_surplus::record(&slot.h, &md, gi, gj, bound - g_next);
+                k8_struct::record(
+                    &slot.views,
+                    &slot.h,
+                    &md,
+                    &ctx.tiles,
+                    geom.from as usize,
+                    symmetry::SIGMA[geom.from as usize] as usize,
+                    hk8 > bound - g_next,
+                );
                 // Harvest only actual prune events (hk8 > need).
                 if hk8 > bound - g_next {
                     let n = geom.from as usize;
