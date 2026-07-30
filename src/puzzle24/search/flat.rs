@@ -645,6 +645,64 @@ mod k8_locality {
         }
     }
 
+    /// Readahead-value probe: page-fault stream analysis at one eviction
+    /// horizon. A "fault" is a page whose last touch is older than `horizon`
+    /// page-events (`u64::MAX` horizon = first-touch only). `coverage` counts
+    /// faults with a recent prior fault within ±8 pages of the same table —
+    /// the faults default cluster-fill readahead would have absorbed.
+    struct FaultProbe {
+        horizon: u64,
+        faults: u64,
+        cov4: u64,
+        cov8: u64,
+        /// |Δpage| to the nearest same-table fault in the ring:
+        /// buckets [1, 2-4, 5-8, 9-64, >64/none]
+        dist: [u64; 5],
+        ring: [(u8, u32); 512],
+        ring_pos: usize,
+    }
+
+    impl FaultProbe {
+        fn new(horizon: u64) -> Self {
+            FaultProbe {
+                horizon,
+                faults: 0,
+                cov4: 0,
+                cov8: 0,
+                dist: [0; 5],
+                ring: [(255, 0); 512],
+                ring_pos: 0,
+            }
+        }
+        fn on_fault(&mut self, table: u8, page: u32) {
+            self.faults += 1;
+            let mut best = u32::MAX;
+            for &(t, p) in &self.ring {
+                if t == table {
+                    let d = page.abs_diff(p);
+                    if d > 0 && d < best {
+                        best = d;
+                    }
+                }
+            }
+            match best {
+                1 => self.dist[0] += 1,
+                2..=4 => self.dist[1] += 1,
+                5..=8 => self.dist[2] += 1,
+                9..=64 => self.dist[3] += 1,
+                _ => self.dist[4] += 1,
+            }
+            if best <= 4 {
+                self.cov4 += 1;
+            }
+            if best <= 8 {
+                self.cov8 += 1;
+            }
+            self.ring[self.ring_pos] = (table, page);
+            self.ring_pos = (self.ring_pos + 1) % self.ring.len();
+        }
+    }
+
     struct Sim {
         tags: Vec<Vec<u64>>,      // per BITS entry: 1 << bits tag slots, 0 = empty
         hits: [u64; BITS.len()],
@@ -657,6 +715,14 @@ mod k8_locality {
         probes: u64,
         per_table: [u64; 3],
         pages: [std::collections::HashSet<u32>; 3],
+        // ---- readahead-value analysis ----
+        /// last page probed per table, for consecutive-dedupe.
+        last_page: [u32; 3],
+        /// same-page streak stat: probes collapsed by the dedupe.
+        page_events: u64,
+        /// last-touch epoch per (table, page); 666,368 pages/table.
+        last_touch: Vec<Vec<u64>>,
+        fault_probes: Vec<FaultProbe>,
     }
 
     static SIM: Mutex<Option<Sim>> = Mutex::new(None);
@@ -680,10 +746,35 @@ mod k8_locality {
             probes: 0,
             per_table: [0; 3],
             pages: Default::default(),
+            last_page: [u32::MAX; 3],
+            page_events: 0,
+            last_touch: (0..3).map(|_| vec![0u64; 670_000]).collect(),
+            fault_probes: vec![
+                FaultProbe::new(50_000),
+                FaultProbe::new(200_000),
+                FaultProbe::new(1_000_000),
+                FaultProbe::new(u64::MAX),
+            ],
         });
         sim.probes += 1;
         sim.per_table[table] += 1;
-        sim.pages[table].insert((idx >> 17) as u32);
+        let page = (idx >> 17) as u32;
+        sim.pages[table].insert(page);
+        // Readahead-value analysis, on the page-event stream (consecutive
+        // probes to the same page collapse — those never fault).
+        if sim.last_page[table] != page {
+            sim.last_page[table] = page;
+            sim.page_events += 1;
+            let epoch = sim.page_events;
+            let last = sim.last_touch[table][page as usize];
+            for fp in sim.fault_probes.iter_mut() {
+                let is_fault = last == 0 || epoch - last > fp.horizon;
+                if is_fault {
+                    fp.on_fault(table as u8, page);
+                }
+            }
+            sim.last_touch[table][page as usize] = epoch;
+        }
         let key = idx * 3 + table as u64 + 1; // +1 so 0 stays "empty"
         let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
         sim.hll.add(h);
@@ -771,6 +862,31 @@ mod k8_locality {
             sim.probes as f64 / distinct,
             100.0 * distinct / sim.probes as f64
         );
+        eprintln!(
+            "  readahead value (page-event stream: {} events = {:.1}% of probes changed page):",
+            sim.page_events,
+            100.0 * sim.page_events as f64 / sim.probes as f64
+        );
+        eprintln!("    horizon      faults      cov±4    cov±8    Δ=1 | 2-4 | 5-8 | 9-64 | far");
+        for fp in &sim.fault_probes {
+            let h = if fp.horizon == u64::MAX {
+                "first-touch".to_string()
+            } else {
+                format!("{:>7}", fp.horizon)
+            };
+            let pct = |x: u64| 100.0 * x as f64 / fp.faults.max(1) as f64;
+            eprintln!(
+                "    {h:>11}  {:>10}  {:6.2}%  {:6.2}%   {:4.1} | {:4.1} | {:4.1} | {:4.1} | {:4.1}",
+                fp.faults,
+                pct(fp.cov4),
+                pct(fp.cov8),
+                pct(fp.dist[0]),
+                pct(fp.dist[1]),
+                pct(fp.dist[2]),
+                pct(fp.dist[3]),
+                pct(fp.dist[4]),
+            );
+        }
         eprintln!("  dm@20 cumulative hit rate at 512M-probe checkpoints (warm-up curve):");
         let mut prev = (0u64, 0u64);
         for &(h, p) in &sim.quarters {
