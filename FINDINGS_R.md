@@ -1396,6 +1396,47 @@ run 0.0034 at 144 against **0.0141 at 146**, 4.2× — the same collapse in prob
 locality §8x measured from the TLB side. It saturates by W=4 at both depths, so it
 is a shared-memory-hierarchy effect, not a per-core-count one.
 
+**The residual splits 50/50 between clock and memory — and only half is
+addressable.** `powermetrics` under root, sampling inside the 146 threshold with
+both runs back-to-back in one script (necessary: sequential exhaust-146 has ranged
+over 640–680 s across sessions, so only a within-script pairing is sound):
+
+| | P0-Cluster | P1-Cluster | E-Cluster | ns/node |
+|---|---:|---:|---:|---:|
+| sequential | 3399.3 MHz | 3441.2 MHz | 972 MHz @ 54% | 37.44 |
+| W=8 | **3264.0** MHz | **3264.0** MHz | 1075 MHz @ 55% | 41.12 |
+
+Since `cycles/node = ns/node × GHz` is frequency-independent, this separates the
+two: clock 3420 → 3264 MHz inflates ns by **4.8%**, and cycles/node rises 128.1 →
+134.2, another **4.8%**. `1.0482 × 1.0478 = 1.0983` reproduces the measured ns ratio
+exactly; taking the clusters as bounds rather than averaging gives clock 4.2–5.4%
+and memory 4.2–5.5%, so the even split is robust.
+
+Two things follow. First, **linear speedup is unattainable here by construction**:
+eight busy P-cores run 4.6% below one *migrating* thread — the sequential baseline
+gets the higher one-core-per-cluster boost, and its per-cluster residency visibly
+swings 1.8%→100% as the OS moves it — so the ceiling is `8 × 0.9544 × 0.994 ≈
+7.6×`. The measured 7.26× is ~96% of that, and only the 4.8% memory term is
+software-addressable at all.
+
+Second, **the memory term is purely a depth effect.** Applying the same measured
+clocks to exhaust-144 (`c₁` 34.22, `c_p` 35.59) gives 117.0 → 116.2 cycles/node —
+zero, arguably slightly negative:
+
+| exhausts | ns/node penalty | of which clock | of which memory |
+|---|---:|---:|---:|
+| 144 | +4.0% | +4.8% | ~0 |
+| 146 | +9.8% | +4.8% | +4.8% |
+
+The clock term is depth-independent, being a function of how many cores are busy;
+the memory term tracks footprint, with the sequential miss counters supplying the
+mechanism. So parallel efficiency will keep sliding as the proof goes deeper, which
+makes the projection below optimistic beyond §8x's existing fixed-rate warning.
+
+The E-cluster reads the same ~54–55% residency in *both* runs — background OS work
+plus `powermetrics` itself — so no rayon thread migrated to an E-core at W=8,
+independently confirming the per-thread ns/node table above.
+
 **Final state** (this session, AC; note it ran ~8% slow against the §8x session,
 so compare only within the table):
 
@@ -1404,8 +1445,8 @@ so compare only within the table):
 | 144 | 14.45 s / 29.22 Mn/s | **1.90 s / 221.8 Mn/s** | 7.61× | 95.1% |
 | 146 | 675.43 s / 26.30 Mn/s | **91.52 s / 194.1 Mn/s** | 7.38× | 92.2% |
 
-The residual 7.7% at 146 is 0.6% scheduling, 0.0% granularity, and 7.2% per-node
-contention. Against the **recursive** engine's 8-thread figures at §8b — 3.31 s /
+The residual at 146 is 0.6% scheduling, 0.0% granularity, 4.8% all-core clock and
+4.8% memory contention — see the split above. Against the **recursive** engine's 8-thread figures at §8b — 3.31 s /
 128 Mn/s at 144 and 157.8 s / 115 Mn/s at 146 — this is **1.74× and 1.72×**. It
 also exceeds the recursive engine's best throughput ever recorded in any
 configuration (146 Mn/s, `FINDINGS_HUNT.md:135`, on the far cheaper WD heuristic
@@ -1435,13 +1476,15 @@ single-threaded and `PUZZLE24.md`'s original 75-day WD-era figure. The 150 row i
 an extrapolation twice over (the ratio is still falling and the rate at that depth
 is a guess); treat it as an order of magnitude.
 
-**The reusable finding.** Three of the four candidate causes of sub-linear speedup
-were measured to be *zero or near-zero* — granularity exactly 0.00 s, scheduling
-~1%, E-core placement absent — and the entire loss was per-node cost, from a cache
-lifetime bug and a sizing constant justified by the wrong constraint. The
-decomposition `B × c₁/c_p` is what made that visible; the aggregate speedup number
-pointed at the scheduler, which was innocent at every depth. Full log:
-`data/r_flat_parallel_efficiency.txt`.
+**The reusable finding.** Every candidate cause of sub-linear speedup except one
+measured to be *zero or near-zero* — granularity exactly 0.00 s, scheduling ~1%,
+E-core placement absent, redundant work nil, and cache *misses* at parity with
+sequential once sized right. The loss was per-node cost throughout: first a cache
+lifetime bug, then a sizing constant justified by the wrong constraint, and finally
+an irreducible floor that is half all-core clock and half depth-driven memory
+contention. The decomposition `B × c₁/c_p` is what made that visible; the aggregate
+speedup number pointed at the scheduler, which was innocent at every depth and
+every worker count. Full log: `data/r_flat_parallel_efficiency.txt`.
 
 ## 9. Summary
 

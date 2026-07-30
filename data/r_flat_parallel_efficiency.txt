@@ -237,3 +237,80 @@ measurement.
 2-way associativity on the probe cache is not worth pursuing: at 18 bits the
 direct-mapped hit rate is already 98.592% and the remaining 250 M misses match what
 a warm sequential cache takes, so there is under 1% to recover.
+
+
+================================================================================
+PART 3 — the residual split: clock vs memory (root, powermetrics, 2026-07-29)
+================================================================================
+
+Question: Part 2 left 7-9% of per-node cost inflation at exhaust-146 unattributed
+between the all-core clock drop and memory-hierarchy contention. Settled with
+  cycles/node = ns/node x GHz
+which is frequency-independent, so a flat cycles/node means the whole residual is
+clock.
+
+Protocol: one root script, both runs BACK TO BACK (this matters — sequential
+exhaust-146 has come in at 640.27 / 665.19 / 675.43 / 679.94 s across sessions, a
+~6% spread, so only a within-script pairing is trustworthy). powermetrics
+-i 5000 -n 10 --samplers cpu_power, sampling started 60 s in so it lands inside
+the 146 threshold, which is the SUSTAINED clock state; exhaust-144 lasts 2-15 s and
+would be sampled at burst boost.
+
+Measured
+--------
+                  P0-Cluster    P1-Cluster    E-Cluster        ns/node @146
+  sequential      3399.3 MHz    3441.2 MHz    972 MHz @54%     37.44
+  W=8             3264.0 MHz    3264.0 MHz   1075 MHz @55%     41.12
+
+W=8 is textbook: both P-clusters pinned at 3264 MHz, 100% residency, all ten
+samples identical. The sequential run's per-cluster residency swings 1.8% -> 100%
+sample to sample because the OS MIGRATES the single thread between clusters; each
+cluster boosts higher with one core active, so the sequential baseline gets the
+favourable clock. That makes the comparison generous to sequential, i.e. it
+overstates rather than understates the parallel penalty.
+
+Split
+-----
+  ns/node            37.44 -> 41.12   = +9.83%
+  clock              3420 -> 3264 MHz = +4.78% on ns
+  cycles/node        128.1 -> 134.2   = +4.82%
+  check: 1.0482 x 1.0478 = 1.0983     = the measured ns ratio, exactly
+
+Taking the two clusters as bounds instead of averaging: clock 4.2-5.4%, memory
+4.2-5.5%. The 50/50 split holds either way.
+
+Full accounting of sublinear speedup, exhaust-146, W=8, 18-bit caches
+---------------------------------------------------------------------
+  scheduling                  0.6%
+  split granularity           0.0%
+  all-core clock              4.8%   <- not addressable in software
+  memory-hierarchy contention 4.8%   <- the only software-addressable term
+
+LINEAR SPEEDUP IS UNATTAINABLE ON THIS MACHINE BY CONSTRUCTION. Eight busy
+P-cores run 4.6% slower than one migrating thread, so the ceiling is
+8 x 0.9544 x 0.994 = 7.6x, not 8x. Measured 665.19/91.63 = 7.26x is ~96% of that
+ceiling.
+
+The memory term is PURELY a depth effect
+----------------------------------------
+Applying the same measured clocks to exhaust-144 (c_1 = 34.22, c_p = 35.59
+ns/node): 117.0 -> 116.2 cycles/node, i.e. ZERO, arguably slightly negative.
+
+  exhausts   ns/node penalty   of which clock   of which memory
+  144        +4.0%             +4.8%            ~0
+  146        +9.8%             +4.8%            +4.8%
+
+So at 144 the entire parallel penalty is clock, and at 146 it is half clock, half
+memory. The clock term is depth-independent (it is a function of how many cores
+are busy); the memory term tracks footprint, and the sequential miss counters give
+the mechanism (0.0034 misses/node at 144 vs 0.0141 at 146).
+
+CONSEQUENCE FOR THE PROJECTION: parallel efficiency will keep falling with depth as
+the memory term grows. §8y's ~1.3 days for R >= 152 (exhaust-150) assumes the
+exhaust-146 ratio and is therefore optimistic, on top of §8x's existing warning
+that every fixed-rate extrapolation in this repo is.
+
+Side result: E-cluster residency is the SAME (~54-55%) in both runs, so it is
+background OS work plus powermetrics itself — no rayon thread migrated to an
+E-core at W=8. That independently confirms the per-thread ns/node reading in Part
+1, which had shown a ±1.5% spread with no slow outlier.
