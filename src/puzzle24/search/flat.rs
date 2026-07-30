@@ -651,15 +651,38 @@ enum Step {
 #[cfg(feature = "parallel")]
 const SPLIT_TARGET: usize = 4096;
 
-/// Probe-cache size for a *worker*, in bits.
+/// Probe-cache size for a *worker*, in bits. Same as the sequential
+/// [`CACHE_BITS`], and that is not a coincidence — see below.
 ///
-/// Deliberately smaller than the sequential [`CACHE_BITS`]. On this machine 4
-/// P-cores share one 16 MB L2, so per-thread caches contend: at 18 bits (8.4 MB)
-/// four workers want 33.6 MB of a 16 MB L2. 16 bits is 2.1 MB each, 8.4 MB per
-/// cluster — the sizing recorded at [`CACHE_BITS`]. Re-A/B if the thread count
-/// or the machine changes.
+/// This was 16 bits (2.1 MB) on the theory that per-thread caches must share an
+/// L2: 4 P-cores share 16 MB here, so 8 threads at 18 bits want 67 MB of a 32 MB
+/// total. **Measured at exhaust-146, W=8, that reasoning is wrong** — 18 bits wins
+/// by 5.7% over 16 despite overflowing L2 several times over:
+///
+/// | bits | per thread | hit rate | misses  | ns/node | span    |
+/// |------|------------|----------|---------|---------|---------|
+/// | 16   | 2.1 MB     | 96.026%  | 706.1 M | 43.07   | 96.77 s |
+/// | 17   | 4.2 MB     | 97.617%  | 423.4 M | 42.14   | 94.73 s |
+/// | 18   | 8.4 MB     | 98.592%  | 250.1 M | 40.96   | 91.52 s |
+/// | 19   | 16.8 MB    | 99.265%  | 130.6 M | 40.20   | 91.96 s |
+///
+/// What the cache buys is not L2 residency but *not probing the 4.4 GB merged
+/// table*: a miss is a SwissTable lookup that TLB-misses into multi-GB territory,
+/// which costs far more than an L2 miss on the cache itself. So the figure to
+/// minimise is misses, and the L2 budget is not the binding constraint.
+///
+/// 18 also happens to be where eight per-worker caches together cover the same
+/// ~250 M misses one sequential 256 K cache does (249.7 M measured), which drops
+/// the parallel driver's per-node contention from +13.3% to +7.7% over sequential.
+/// 19 bits lowers ns/node further but ties on wall clock for 2x the memory, so 18
+/// is the knee.
+///
+/// Re-measure at exhaust-146 or deeper if the thread count or machine changes;
+/// exhaust-144 cannot see this (there the same sweep spans only 1.2%, because
+/// misses at that depth are 4.2x rarer per node and land in cache rather than
+/// DRAM).
 #[cfg(feature = "parallel")]
-const WORKER_CACHE_BITS: u32 = 16;
+const WORKER_CACHE_BITS: u32 = 18;
 
 /// Both tuning constants, overridable from the environment so that a sweep costs
 /// runs rather than rebuilds. Gated behind the profile feature, so the default
@@ -1576,8 +1599,9 @@ struct CacheSlot {
 pub(crate) struct ProbeCache {
     slots: Box<[CacheSlot]>,
     /// `64 - bits`, so the index is the high `bits` of one multiply. Held as a
-    /// field rather than a const because the right size depends on how many
-    /// threads share an L2 — see the note at [`CACHE_BITS`].
+    /// field rather than a const so the parallel driver can size worker caches
+    /// independently of the sequential default, and so a sweep costs runs rather
+    /// than rebuilds — see [`WORKER_CACHE_BITS`].
     shift: u32,
     #[cfg(feature = "probe-cache-stats")]
     hits: u64,
@@ -1590,8 +1614,9 @@ impl ProbeCache {
         Self::with_bits(CACHE_BITS)
     }
 
-    /// A cache of `1 << bits` slots. The parallel driver uses fewer bits than the
-    /// sequential default: per-thread caches contend for a shared L2.
+    /// A cache of `1 << bits` slots. Sequential and per-worker caches are both
+    /// [`CACHE_BITS`]/[`WORKER_CACHE_BITS`] = 18; the note there records why the
+    /// worker cache is *not* sized down to fit a shared L2.
     fn with_bits(bits: u32) -> Self {
         assert!((8..=24).contains(&bits), "implausible probe-cache size");
         ProbeCache {

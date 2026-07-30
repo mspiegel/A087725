@@ -131,3 +131,109 @@ Open, needs AC power
 3. Separate the clock term from the contention term inside the +4.9%: PMU
    CORE_ACTIVE_CYCLE per node is frequency-independent, so cycles/node at W=1 vs
    W=8 splits it. Needs sudo.
+
+
+================================================================================
+PART 2 — exhaust-146, ON AC POWER (2026-07-29, same session throughout)
+================================================================================
+
+Caveat on absolutes: the battery was at 30% and CHARGING, which shares the SoC
+power budget. Sequential exhaust-144 came in at 14.45s here against 13.31s in the
+earlier AC session (-8.6%), and 14.38s on battery. So compare only WITHIN this
+part; the ratios are sound, the absolute ns/node are not comparable to
+r_flat_engine_ab.txt.
+
+Every run below is `--prove-at-least 148`, which exhausts 144 then 146 and reports
+both, so one run yields the depth comparison. Node counts identical everywhere:
+422,379,806 at 144 and 17,767,093,830 at 146.
+
+Baseline (sequential, no --parallel)
+------------------------------------
+  exhausts   time       Mn/s     ns/node   cache hit   misses/node
+  144        14.45s     29.22    34.22     99.665%     0.0034
+  146       675.43s     26.30    38.02     98.627%     0.0141
+
+The 4.2x rise in misses/node is the depth penalty's mechanism, and it is why the
+144 regime cannot decide any memory-shaped question: see §8x's TLB numbers from
+the other side.
+
+Worker count, 16-bit caches, exhaust-146
+----------------------------------------
+  W    ns/node   busy    sched   span      Mn/s     speedup vs seq
+  4    43.73     98.2%   1.8%    197.85s    89.79    3.41x
+  8    43.07     98.9%   1.1%     96.77s   183.61    6.98x
+  10   48.33     93.3%   6.7%     92.08s   192.95    7.33x
+  12   53.62     99.4%   0.6%     79.93s   222.28    8.45x
+
+W=4's ns/node is 1.5% ABOVE W=8's, which is inside this session's drift — read it
+as contention saturating by W=4 at depth, matching the 144 curve in Part 1, not as
+W=8 being genuinely cheaper.
+
+W=10 is the ragged point: 8 P-cores + 2 E-cores is the asymmetric case where
+stealing cannot hide two threads running ~2x slow, so the busy fraction collapses
+to 93.3%. At W=12 all four E-cores participate and it rebalances to 99.4%.
+
+W=12 is +21.1% over W=8 and was DECLINED — it saturates the machine and leaves
+nothing for interactive use. Available on demand via RAYON_NUM_THREADS=12. Note
+rayon's own default pool on this box is 8, not 12.
+
+Per-worker cache size, W=8, exhaust-146   *** DECIDED: 18 bits ***
+------------------------------------------------------------------
+  bits   per thread   hit rate   misses    ns/node   busy    span     Mn/s
+  16     2.1 MB       96.026%    706.1 M   43.07     98.9%   96.77s   183.61
+  17     4.2 MB       97.617%    423.4 M   42.14     98.8%   94.73s   187.55
+  18     8.4 MB       98.592%    250.1 M   40.96     99.4%   91.52s   194.12
+  19    16.8 MB       99.265%    130.6 M   40.20     97.1%   91.96s   193.20
+
++5.7% from 16 -> 18. This REFUTES the L2-budget reasoning in the old
+WORKER_CACHE_BITS doc comment: 8 threads x 8.4 MB = 67 MB against 32 MB of total
+L2, and it still wins. What the cache buys is not L2 residency, it is not probing
+the 4.4 GB merged table — a miss is a SwissTable lookup that TLB-misses into
+multi-GB territory and costs far more than an L2 miss on the cache itself. Minimise
+misses; the L2 budget is not the binding constraint.
+
+At 18 bits the eight per-worker caches take 250.1 M misses in aggregate against one
+sequential 256 K cache's 249.7 M — parity — and contention falls from +13.3% to
++7.7%. That is the confirmation that the miss gap WAS most of the contention.
+
+19 bits has the lower ns/node but ties on wall clock for 2x the memory (busy
+fraction fell to 97.1%, scheduling rose to 2.9%). 18 is the knee.
+
+Contrast with Part 1's identical sweep at exhaust-144: 16->18 was worth only +1.2%
+there and I recorded it as inconclusive. That was correct — at 144 the misses are
+4.2x rarer per node and land in cache rather than DRAM. Had the constant been set
+from the 144 data, the 5.7% would have been left on the floor.
+
+Final state, W=8, 18 bits
+-------------------------
+  exhausts   sequential            parallel W=8          speedup   efficiency
+  144        14.45s / 29.22 Mn/s   1.90s / 221.8 Mn/s    7.61x     95.1%
+  146       675.43s / 26.30 Mn/s  91.52s / 194.1 Mn/s    7.38x     92.2%
+
+Residual at 146: 0.6% scheduling + 0.0% granularity + 7.2% per-node contention.
+Identity check: B x c_1/c_p = 0.994 x (38.02/40.96) = 0.9226 vs a measured
+675.43/(91.52 x 8) = 0.9226.
+
+Granularity is EXACTLY 0.00s at both depths — LPT == work/W on a tree 43x larger
+with the same 4096 units, largest unit 3.9% of span. SPLIT_TARGET is closed as a
+lever; no runs were spent sweeping it.
+
+vs the recursive engine (FINDINGS_R §8b, 8 threads, same heuristic stack):
+  144:   3.31s / 128 Mn/s  ->  1.90s / 221.8 Mn/s   = 1.74x
+  146: 157.80s / 115 Mn/s  -> 91.52s / 194.1 Mn/s   = 1.72x
+This also passes the recursive engine's best throughput ever recorded in ANY
+configuration (146 Mn/s, FINDINGS_HUNT.md:135, on the much cheaper WD heuristic
+over a 55x larger tree).
+
+Still open
+----------
+Splitting the clock term out of the 7.2% residual contention needs root:
+`sudo powermetrics --samplers cpu_power` for P-cluster frequency at W=1 vs W=8, or
+PMU CORE_ACTIVE_CYCLE per node (frequency-independent). Not run. Given contention
+saturates by W=4 while clock would keep falling toward W=8, most of the 7.2% is
+likely memory hierarchy rather than clock, but that is an inference, not a
+measurement.
+
+2-way associativity on the probe cache is not worth pursuing: at 18 bits the
+direct-mapped hit rate is already 98.592% and the remaining 250 M misses match what
+a warm sequential cache takes, so there is under 1% to recover.

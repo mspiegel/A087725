@@ -1263,7 +1263,15 @@ split, and this engine.
 work-removal wins (C, D1, A, F, G3, H1, widemul-fold hash): 21.83 s → 13.41 s at
 exhaust-144, **−39% search time / +63% throughput**, unchanged nodes. Five
 loop-*restructuring* attempts all lost (prefetch −37%, index table −3.5%, probe
-cache −5.8%, H5 +16%, H5b +12.7%). Full log: `data/r_flat_engine_ab.txt`.
+cache **at 1 K** +5.8%, H5 +16%, H5b +12.7%). Full log:
+`data/r_flat_engine_ab.txt`.
+
+*(Corrected 2026-07-29: this list previously read "probe cache −5.8%", which
+inverted the sign and dropped the size qualifier. −5.8% is the **winning** 64 K →
+256 K sizing delta (`data/r_flat_engine_ab.txt:911`); the reject was the 1 K
+variant at +5.8%, i.e. slower (`:990`). The engine ships a 256 K probe cache and
+§8y makes it the single largest lever in the parallel regime, so listing "probe
+cache" among the failures was actively misleading.)*
 
 **Scope, and it matters.** Every one of those A/Bs ran at **exhaust-144**. The
 counters above show the regime changes with depth — back-end share rises, IPC
@@ -1278,6 +1286,162 @@ the engine has: 18,189,473,636 nodes matching the pure-cWD figure recorded at
 §8c bit-for-bit, ~500× the coverage of the 180-case frozen oracle
 (`src/puzzle24/search/flat_oracle.rs`) and at a depth the oracle's 200–700-step
 walk boards never reach.
+
+## 8y. The parallel flat engine — 7.4× on 8 threads; the loss is per-node, never the schedule (2026-07-29)
+
+*(Numbering: the unmerged `blank-tour-disjunction` branch also uses §8y…§8y-2 for
+the quotient budget-ladder work, per the note at §8x. Neither carries performance
+changes; if that branch is revived its sections need renumbering, not these.)*
+
+§8x left the R proof single-threaded: 675 s to exhaust 146. This section
+parallelises it and, more usefully, **measures where the missing speedup goes** —
+because the first answer (6.33×) was wrong about the cause, and acting on the
+obvious suspicion would have wasted the runs.
+
+**The driver.** Tree-splitting plus work-stealing: a cheap sequential expansion
+grows a frontier of ~4096 subtree roots, then rayon runs the *unmodified*
+sequential loop on each and the results reduce (SUM the stats, MIN the next
+threshold, first `Solved` wins). A worker searches its subtree at `bound − g`,
+since `g + d + h ≤ bound ⟺ d + h ≤ bound − g`, so it needs no notion of the depth
+it sits at. Exhausting a threshold in parallel still proves `dist ≥ next`: MIN is
+order-independent and every node with `f ≤ bound` is visited exactly once. Node
+counts are identical to the sequential engine at every worker count and cache
+size tested — 422,379,806 at 144 and 17,767,093,830 at 146.
+
+**The instrument** (`--features parallel-profile`). Parallel efficiency factors
+exactly:
+
+```
+    speedup / W  =  B  ×  (c₁ / c_p)
+```
+
+`B` = busy fraction = Σ(unit wall time) / (W × span); `c_p` = worker ns/node. The
+two have unrelated fixes — `B` is the split policy and scheduler, `c_p` is
+contention, cache sizing and clock — so **a lone speedup number cannot say which
+to attack.** Validated on the first W=8 run: `0.977 × 0.794 = 0.776` against a
+measured 0.777, and again at 146 post-fix: `0.989 × 0.883 = 0.873` against 0.8727.
+
+It also prints three makespan bounds — `work/W` (perfectly divisible), **LPT**
+(best possible given that a unit is *indivisible*: a worker drawing a huge subtree
+runs it to completion), and actual — so `LPT − work/W` is the split's granularity
+cost and `actual − LPT` is scheduling loss. Plus per-thread ns/node, because the
+busy fraction is **blind to core heterogeneity**: a thread parked on an E-core
+still reads as busy while its nodes cost 2–3× more.
+
+**What was ruled out, and this is the finding.** At *both* thresholds (W=8, final
+18-bit configuration):
+
+| | exhaust-144 | exhaust-146 |
+|---|---:|---:|
+| busy fraction `B` | 98.6% | 99.4% |
+| granularity (LPT − work/W) | **0.00 s** | **0.00 s** |
+| scheduling (actual − LPT) | 1.4% | 0.6% |
+| serial split phase | 0.00 s | 0.00 s |
+| largest unit, as % of span | 4.1% | 3.9% |
+| per-thread ns/node spread | 35.0–36.0 | 40.3–41.5 |
+
+Granularity is **exactly zero** — LPT equals `work/W` — on a tree 43× larger with
+the same 4096 units. `SPLIT_TARGET` is therefore **closed as a lever**; the
+going-in suspicion (one giant indivisible subtree holding the tail) is refuted,
+and no runs were spent sweeping it. No thread lands on an E-core at W=8. The
+schedule was never the problem at any depth.
+
+**The defect it found instead: the probe cache was rebuilt per *work unit*.**
+`Arena::new()` and `ProbeCache::with_bits()` sat inside the `map` closure, so both
+were discarded and re-zeroed 4096 times per threshold. A unit averages ~100 K
+nodes; the cache is direct-mapped and warms over millions of probes. It never
+warmed.
+
+| exhaust-144, W=1 | hit rate | misses | ns/node | setup |
+|---|---:|---:|---:|---:|
+| sequential, 256 K | 99.665% | 1.42 M | 34.04 | — |
+| per-unit, 64 K | 95.147% | 20.50 M | 37.97 | 1.3% |
+| per-unit, 256 K | 95.495% | 19.03 M | 40.59 | 4.6% |
+| per-unit, 1 M | 95.613% | 18.53 M | 50.03 | 15.2% |
+
+14.5× the misses — and enlarging the cache 16× moved the hit rate 0.47 pp while
+re-zeroing pushed setup from 1.3% to 15.2%. That shape is the signature of
+**compulsory** misses (first touch per unit), which no capacity can fix, and it is
+why §8i's sequential 64 K→256 K result did not transfer: that measured capacity
+misses, and these are not those. Fixed with one `thread_local!` per rayon worker,
+reused across units and thresholds — not `map_init`, which re-runs its initialiser
+once per producer-split leaf rather than once per thread. **+10.2%**, and W=1 came
+within 0.6% of the sequential engine, i.e. closed rather than reduced.
+
+**Then cache sizing, which refuted its own design note.** `WORKER_CACHE_BITS` was
+16, reasoned from the L2 budget: 4 P-cores share 16 MB, so 8 threads at 18 bits
+want 67 MB of a 32 MB total. Measured at exhaust-146, W=8:
+
+| bits | per thread | hit rate | misses | ns/node | span |
+|---|---|---:|---:|---:|---:|
+| 16 | 2.1 MB | 96.026% | 706.1 M | 43.07 | 96.77 s |
+| 17 | 4.2 MB | 97.617% | 423.4 M | 42.14 | 94.73 s |
+| **18** | 8.4 MB | 98.592% | 250.1 M | 40.96 | **91.52 s** |
+| 19 | 16.8 MB | 99.265% | 130.6 M | 40.20 | 91.96 s |
+
+18 bits wins by **5.7%** while overflowing L2 several times over. What the cache
+buys is not L2 residency but *not probing the 4.4 GB merged table* — a miss is a
+SwissTable lookup that TLB-misses into multi-GB territory, costing far more than
+an L2 miss on the cache itself. So the quantity to minimise is misses and the L2
+budget is not the binding constraint. At 18 bits the eight per-worker caches
+together take 250.1 M misses against one sequential 256 K cache's 249.7 M — parity
+— which drops per-node contention from **+13.3% to +7.7%**. 19 bits lowers ns/node
+further but ties on wall clock for 2× the memory, so 18 is the knee.
+
+**Contention roughly doubles with depth**, which is why none of this was decidable
+at 144: `c_p/c₁ − 1` is +5.8% at 144 against +13.3% at 146 with 16-bit caches, and
++3.8% against +7.7% with 18-bit ones. The mechanism is in the sequential cache
+counters — misses per node
+run 0.0034 at 144 against **0.0141 at 146**, 4.2× — the same collapse in probe
+locality §8x measured from the TLB side. It saturates by W=4 at both depths, so it
+is a shared-memory-hierarchy effect, not a per-core-count one.
+
+**Final state** (this session, AC; note it ran ~8% slow against the §8x session,
+so compare only within the table):
+
+| exhausts | sequential | W=8, 18 bits | speedup | efficiency |
+|---|---:|---:|---:|---:|
+| 144 | 14.45 s / 29.22 Mn/s | **1.90 s / 221.8 Mn/s** | 7.61× | 95.1% |
+| 146 | 675.43 s / 26.30 Mn/s | **91.52 s / 194.1 Mn/s** | 7.38× | 92.2% |
+
+The residual 7.7% at 146 is 0.6% scheduling, 0.0% granularity, and 7.2% per-node
+contention. Against the **recursive** engine's 8-thread figures at §8b — 3.31 s /
+128 Mn/s at 144 and 157.8 s / 115 Mn/s at 146 — this is **1.74× and 1.72×**. It
+also exceeds the recursive engine's best throughput ever recorded in any
+configuration (146 Mn/s, `FINDINGS_HUNT.md:135`, on the far cheaper WD heuristic
+over a 55× larger tree).
+
+**Declined: the E-cores.** W=12 exhausts 146 in **79.93 s / 222.3 Mn/s**, a further
+**+21.1%** over W=8, with a 99.4% busy fraction — the four E-cores pay for
+themselves even though `c_p` rises 24.5% (43.07 → 53.62). Not adopted: it saturates
+the machine and leaves nothing for interactive use. W=10 is the worst of both
+(93.3% busy, 6.7% scheduling) — 8 P + 2 E is the asymmetric case where stealing
+cannot hide two slow threads, while at 12 all four participate and it rebalances.
+Note rayon's default pool here is **8**, not 12, so W=12 needs
+`RAYON_NUM_THREADS=12` and is available on demand for a run nobody needs to share.
+
+**Revised projection.** Exhaust-148 was measured at 595.86 B nodes (§8b).
+Extrapolating this engine's depth trend (−12.5% throughput per +2, so ~170 Mn/s at
+148 and ~149 at 150) against §8x's ~28× ladder ratio:
+
+| exhausts | proves | nodes | W=8 estimate |
+|---|---|---:|---:|
+| 148 | R ≥ 150 | 595.86 B (measured) | **~1 h** |
+| 150 | R ≥ 152 | ~17 T (extrapolated) | **~1.3 days** |
+
+R ≥ 150 becomes an hour rather than §8b's 1.56 h recursive, and **R ≥ 152 — the
+published floor — becomes an overnight-to-weekend run**, against §8x's ~8 days
+single-threaded and `PUZZLE24.md`'s original 75-day WD-era figure. The 150 row is
+an extrapolation twice over (the ratio is still falling and the rate at that depth
+is a guess); treat it as an order of magnitude.
+
+**The reusable finding.** Three of the four candidate causes of sub-linear speedup
+were measured to be *zero or near-zero* — granularity exactly 0.00 s, scheduling
+~1%, E-core placement absent — and the entire loss was per-node cost, from a cache
+lifetime bug and a sizing constant justified by the wrong constraint. The
+decomposition `B × c₁/c_p` is what made that visible; the aggregate speedup number
+pointed at the scheduler, which was innocent at every depth. Full log:
+`data/r_flat_parallel_efficiency.txt`.
 
 ## 9. Summary
 
