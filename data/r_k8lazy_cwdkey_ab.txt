@@ -1,0 +1,8 @@
+# warmup
+# exhaust-144: incremental cWD key vs repack baseline
+base-1    nodes=268071922 search=6.31s thr=42.48 Mn/s
+ikey-1    nodes=268071922 search=5.92s thr=45.26 Mn/s
+base-2    nodes=268071922 search=6.11s thr=43.88 Mn/s
+ikey-2    nodes=268071922 search=5.98s thr=44.81 Mn/s
+base-3    nodes=268071922 search=6.13s thr=43.73 Mn/s
+ikey-3    nodes=268071922 search=6.00s thr=44.69 Mn/s

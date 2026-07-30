@@ -1,0 +1,8 @@
+# warmup
+# exhaust-144: h==0 goal gate vs baseline
+base-1    nodes=268071922 search=5.98s thr=44.86 Mn/s
+gate-1    nodes=268071922 search=5.95s thr=45.03 Mn/s
+base-2    nodes=268071922 search=5.94s thr=45.11 Mn/s
+gate-2    nodes=268071922 search=5.97s thr=44.94 Mn/s
+base-3    nodes=268071922 search=5.99s thr=44.72 Mn/s
+gate-3    nodes=268071922 search=5.92s thr=45.28 Mn/s

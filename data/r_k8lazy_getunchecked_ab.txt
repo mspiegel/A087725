@@ -1,0 +1,8 @@
+# warmup
+# exhaust-144: get_unchecked rank/apply vs bounds-checked baseline
+base-1    nodes=268071922 search=6.16s thr=43.52 Mn/s
+gu-1      nodes=268071922 search=6.19s thr=43.29 Mn/s
+base-2    nodes=268071922 search=6.08s thr=44.09 Mn/s
+gu-2      nodes=268071922 search=6.28s thr=42.71 Mn/s
+base-3    nodes=268071922 search=6.12s thr=43.81 Mn/s
+gu-3      nodes=268071922 search=6.22s thr=43.11 Mn/s

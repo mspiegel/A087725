@@ -1,0 +1,10 @@
+=== A: full heuristic (reflection ON) ===
+[reflect-ON]
+  Lower bound: depth >= 146
+  nodes=267026914  search=49.73s
+  zpdb-locality: k8 makes=317223133 probes=634446266 probes/make=2.000 | korf_max evals=317247575 reflected-wins=72728741 (22.925%) no_reflect=false
+=== B: reflected view DROPPED ===
+[reflect-OFF]
+  Lower bound: depth >= 146
+  nodes=295567265  search=54.58s
+  zpdb-locality: k8 makes=347554161 probes=695108322 probes/make=2.000 | korf_max evals=347578603 reflected-wins=87503079 (25.175%) no_reflect=true

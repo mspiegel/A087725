@@ -1,0 +1,12 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children (parallel driver)
+cWD+k6+k8 (lazy cascade): loading cWD tables…
+cWD+k6+k8 (lazy cascade) ready: k6 advanced only where cWD fails to prune, k8 (30.5 GiB) only where max(cWD,k6) fails; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[06:29:08.836 UTC] search: start  (setup 25.82s)
+[06:33:17.776 UTC] search: end    (248.94s in search)
+Lower bound: depth >= 148
+Wall-clock     : 274.76s
+Nodes          : 8683214709
+Iterations     : 2
+Search time    : 248.94s
+Throughput     : 34.88 Mnodes/s

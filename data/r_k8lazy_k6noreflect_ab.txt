@@ -1,0 +1,8 @@
+# warmup (discarded)
+# exhaust-144 A/B (warm):
+baseline-1         nodes=267026914  search=7.82s  thr=34.16 Mn/s
+k6-noreflect-1     nodes=268071922  search=6.86s  thr=39.09 Mn/s
+baseline-2         nodes=267026914  search=7.80s  thr=34.24 Mn/s
+k6-noreflect-2     nodes=268071922  search=6.88s  thr=38.97 Mn/s
+baseline-3         nodes=267026914  search=7.94s  thr=33.64 Mn/s
+k6-noreflect-3     nodes=268071922  search=6.96s  thr=38.52 Mn/s

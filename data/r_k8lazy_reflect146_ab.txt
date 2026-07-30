@@ -1,0 +1,3 @@
+# exhaust-146 (proves depth >= 148), full speed:
+[reflect-ON ] Lower bound: depth >= 148 | nodes=8683214709 search=300.42s thr=28.90 Mn/s
+[reflect-OFF] Lower bound: depth >= 148 | nodes=10189647684 search=355.50s thr=28.66 Mn/s

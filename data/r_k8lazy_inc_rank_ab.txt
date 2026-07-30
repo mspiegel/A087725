@@ -1,0 +1,8 @@
+# warmup
+# exhaust-144 A/B (warm): incremental-rank cursor vs from-scratch rank
+nocursor-1     nodes=268071922  search=6.95s  thr=38.58 Mn/s
+cursor-1       nodes=268071922  search=7.01s  thr=38.26 Mn/s
+nocursor-2     nodes=268071922  search=6.89s  thr=38.89 Mn/s
+cursor-2       nodes=268071922  search=7.00s  thr=38.31 Mn/s
+nocursor-3     nodes=268071922  search=6.94s  thr=38.62 Mn/s
+cursor-3       nodes=268071922  search=7.07s  thr=37.94 Mn/s

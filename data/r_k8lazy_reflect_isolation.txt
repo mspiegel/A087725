@@ -1,0 +1,8 @@
+waiting for exhaust-146 job to finish...
+clear; building isolation binary...
+# warmup (discarded)
+# exhaust-144 reflection isolation sweep (warm):
+reflect-ON (both)      nodes=267026914  search=7.96s  thr=33.55 Mn/s
+reflect-OFF (both)     nodes=295567265  search=8.81s  thr=33.55 Mn/s
+k6-reflect-OFF only    nodes=268071922  search=8.28s  thr=32.38 Mn/s
+k8-reflect-OFF only    nodes=291475351  search=8.78s  thr=33.21 Mn/s

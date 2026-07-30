@@ -1,0 +1,8 @@
+# warmup
+# exhaust-144: hoisted apply_in_place vs baseline
+base-1      nodes=268071922 search=6.95s thr=38.58 Mn/s
+hoist-1     nodes=268071922 search=6.10s thr=43.95 Mn/s
+base-2      nodes=268071922 search=6.82s thr=39.30 Mn/s
+hoist-2     nodes=268071922 search=6.13s thr=43.72 Mn/s
+base-3      nodes=268071922 search=7.04s thr=38.07 Mn/s
+hoist-3     nodes=268071922 search=6.05s thr=44.32 Mn/s

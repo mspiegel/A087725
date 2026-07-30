@@ -1,0 +1,9 @@
+=== reflect sweep: waiting for first sweep to complete 2026-07-19T05:04:34Z ===
+=== reflect sweep: first sweep done, starting 2026-07-19T06:28:07Z ===
+=== [reflect] exhaust 144 (prove-at-least 146) START 2026-07-19T06:28:07Z ===
+=== [reflect] exhaust 144 DONE rc=0 2026-07-19T06:28:43Z -> data/r_k8lazy_ex144_reflect.txt ===
+=== [reflect] exhaust 146 (prove-at-least 148) START 2026-07-19T06:28:43Z ===
+=== [reflect] exhaust 146 DONE rc=0 2026-07-19T06:33:18Z -> data/r_k8lazy_ex146_reflect.txt ===
+=== [reflect] exhaust 148 (prove-at-least 150) START 2026-07-19T06:33:18Z ===
+=== [reflect] exhaust 148 DONE rc=0 2026-07-19T08:15:54Z -> data/r_k8lazy_ex148_reflect.txt ===
+=== reflect sweep complete 2026-07-19T08:15:54Z ===

@@ -1,0 +1,60 @@
+=== R board, 8 threads, warm, node-identical A/B: 2-tier cwd-zpdb8-lazy vs 3-tier cwd-zpdb6-zpdb8-lazy ===
+--- exhaust-144 (proves >=146) ---
+###### RUN A: cwd-zpdb8-lazy (2-tier max(cWD,k8)) ######
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children (parallel driver)
+cWD+k8 (lazy): loading cWD tables…
+cWD+k8 (lazy) ready: k8 (30.5 GiB) advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[18:04:00.058 UTC] search: start  (setup 24.95s)
+[18:04:04.861 UTC] search: end    (4.80s in search)
+Lower bound: depth >= 146
+Wall-clock     : 29.75s
+Nodes          : 269180930
+Iterations     : 1
+Search time    : 4.80s
+Throughput     : 56.04 Mnodes/s
+
+###### RUN B: cwd-zpdb6-zpdb8-lazy (3-tier max(cWD,k6,k8)) ######
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children (parallel driver)
+cWD+k6+k8 (lazy cascade): loading cWD tables…
+cWD+k6+k8 (lazy cascade) ready: k6 advanced only where cWD fails to prune, k8 (30.5 GiB) only where max(cWD,k6) fails; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[18:04:29.625 UTC] search: start  (setup 24.64s)
+[18:04:35.552 UTC] search: end    (5.93s in search)
+Lower bound: depth >= 146
+Wall-clock     : 30.57s
+Nodes          : 268071922
+Iterations     : 1
+Search time    : 5.93s
+Throughput     : 45.23 Mnodes/s
+###### DONE ######
+
+--- exhaust-146 (proves >=148) ---
+###### RUN A: cwd-zpdb8-lazy (2-tier max(cWD,k8)) --max-bound 146 ######
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children (parallel driver)
+cWD+k8 (lazy): loading cWD tables…
+cWD+k8 (lazy) ready: k8 (30.5 GiB) advanced only on children cWD fails to prune; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[18:07:02.897 UTC] search: start  (setup 24.71s)
+[18:10:03.657 UTC] search: end    (180.78s in search)
+Lower bound: depth >= 148
+Wall-clock     : 205.48s
+Nodes          : 8808311484
+Iterations     : 2
+Search time    : 180.78s
+Throughput     : 48.73 Mnodes/s
+
+###### RUN B: cwd-zpdb6-zpdb8-lazy (3-tier max(cWD,k6,k8)) --max-bound 146 ######
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children (parallel driver)
+cWD+k6+k8 (lazy cascade): loading cWD tables…
+cWD+k6+k8 (lazy cascade) ready: k6 advanced only where cWD fails to prune, k8 (30.5 GiB) only where max(cWD,k6) fails; neighbor-prune ON
+move-pruning DFA: 41396 states, 687 KiB (L2-resident)
+[18:10:29.467 UTC] search: start  (setup 25.69s)
+[18:14:10.511 UTC] search: end    (221.04s in search)
+Lower bound: depth >= 148
+Wall-clock     : 246.73s
+Nodes          : 8742025201
+Iterations     : 2
+Search time    : 221.04s
+Throughput     : 39.55 Mnodes/s
+###### DONE ######

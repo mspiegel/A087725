@@ -1,0 +1,7 @@
+=== exhaust 144 (prove-at-least 146) START 2026-07-19T04:48:47Z ===
+=== exhaust 144 DONE rc=0 2026-07-19T04:49:25Z -> data/r_k8lazy_ex144.txt ===
+=== exhaust 146 (prove-at-least 148) START 2026-07-19T04:49:25Z ===
+=== exhaust 146 DONE rc=0 2026-07-19T04:53:43Z -> data/r_k8lazy_ex146.txt ===
+=== exhaust 148 (prove-at-least 150) START 2026-07-19T04:53:43Z ===
+=== exhaust 148 DONE rc=0 2026-07-19T06:28:00Z -> data/r_k8lazy_ex148.txt ===
+=== sweep complete 2026-07-19T06:28:00Z ===
