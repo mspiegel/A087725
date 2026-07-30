@@ -1,0 +1,74 @@
+Flat-engine lazy k8 tier (--zpdb8) — E1-E4 feasibility program (2026-07-30)
+===========================================================================
+
+Goal: decide whether max(cWD, k8) can beat cWD-only for the R >= 152 run
+(exhaust-150), now that the flat engine made cWD 1.7x faster than the recursive
+engine the recorded k8 results were measured on.
+
+E0 (from records, no runs)
+--------------------------
+Threshold-level node-cut ratios, k8-stack tree vs cWD-only tree:
+  144: 1.57x   146: 2.03x   148: 3.03x (r_k8lazy_ex148.txt vs §8b)  ~1.5x/rung
+The recursive 3-tier TIED cWD-only at 148 in wall time (5630.91 vs 5633 s).
+Budget for the whole k8 layer = cwd_ns x (cut - 1) per built node:
+  ~22 ns @144, ~39 @146, ~77 @148, ~130 @150(extrap).
+
+E1 (by code inspection — decisive without a bench)
+--------------------------------------------------
+The zbins are 1-bit DIFFERENTIAL tables: absolute values exist only via
+ZPatternDb::cold_lookup, which descends the abstract graph one step per unit of
+h — O(h) ranks+probes, tens of us for k8-scale h. So a from-scratch consult
+design is dead on arrival (this is §8u's retraction, sharpened), and no value
+cache can rescue it (a miss costs us). The only viable design is incremental:
+maintain (ProjectedState, h) per group per view, diff_lookup O(1) on cost-1
+edges. Design A' (flat): consult = advance-by-one-move from the parent's slot,
+done ONLY for children that pass cWD's f-test. Every entered node has a current
+slot, so there is NEVER a catch-up — the entire recursive LazyMaxInc deferral
+machinery (8% of samples, §8l) dissolves into the arena invariant.
+
+E2 (built; node-identity gates)
+-------------------------------
+`solve24 --zpdb8`: mmap pdb24_k8_{a,b,c}.zbin (32.8 GB), consult at
+cWD-survivors, h = max(sum normal, sum reflected), both drivers.
+
+Node identity vs the recorded recursive 2-tier trees (§8j):
+  threshold 146:  8,539,130,554  EXACT (sequential AND parallel)
+  threshold 144:  269,180,917 vs recorded 269,180,930 — Δ = 13 (5e-8),
+                  ours SMALLER (stronger tree), confined to the first
+                  iteration; the 146 iteration matches bit-for-bit, which rules
+                  out any systematic h error. Attributed to a first-iteration
+                  convention quirk of the deleted lazy driver (its deferred
+                  values used a Lipschitz bound v-k-1; deferred moves popped
+                  before catch-up never saw true k8). Not chased further: 8.5B
+                  matching decisions is the strongest available gate.
+
+v1 consult: copy 306B slot + 6 apply_in_place slides + 2 rank + 2 diff_lookup.
+v2 consult: the projected-edge law (cost-0 slides leave index and h unchanged)
+means the four cost-0 group-views need not be slid AT ALL. Their stored blank
+goes stale; healed via set_blank_pos immediately before that group-view's next
+cost-1 apply+rank. Sound because rank reads pattern-tile positions, the blank,
+and cells[] only at occupied pattern cells. Reflected view needs no
+transpose_move: sigma-image cells + TAU-relabelled tile pick its cost-1 group.
+Gotcha found by panic: the engine's boards are goal-CODED (H1), so the moved
+"tile" is a code; TILE_OF_CODE decodes it for the PDB machinery.
+v2 gated EXACT on both counts.
+
+Measured, R, exhaust-146 threshold alone (this session, AC):
+                          seq            W=8
+  cWD-only                675.4 s        91.5 s
+  2-tier v1              1047.1 s       148.7 s
+  2-tier v2                 —           133.7 s  (63.9 Mn/s; -10.1% vs v1)
+
+Per-node W=8 CPU at 146: cWD 42.9 ns; 2-tier v2 125.2 ns. The k8 layer costs
+~82 ns/built-node amortized — vs the 39 ns break-even at 146 (LOSES 1.46x, as
+E0 predicted) and ~115 ns at 148 (dead heat predicted; E3 racing now).
+
+E4 (memory, measured mid-run)
+-----------------------------
+37.8 GB mapped (32.8 k8 + 4.4 cWD HashMap + 0.6 wd24) on the 34 GB box:
+RSS plateaus at 19.9 GB, ~165 MB free — the k8 working set does NOT fit and
+re-faults clean pages continuously. Parallel per-node contention at 146 is
++13.6% (2-tier) vs +7.7% (cWD-only, §8y). This is the structural headwind: k8
+probes are exactly the scattered access §8y's memory term punishes.
+
+E3: exhaust-148 race at W=8 — IN FLIGHT (2-tier then cWD-only).

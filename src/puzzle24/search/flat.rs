@@ -179,6 +179,20 @@ struct Coded([u8; N_CELLS]);
 /// that neither nibble can match a real line index.
 const BLANK_CODE: u8 = 0xFF;
 
+/// Inverse of [`TILE_CODE`]: `TILE_OF_CODE[code]` = the tile number, for the k8
+/// tier, which must talk to the PDB machinery in tile numbers while the engine's
+/// boards are goal-coded. Codes are `(goal_row << 4) | goal_col`, so the table
+/// is 256 entries with only the 24 real codes populated.
+const TILE_OF_CODE: [u8; 256] = {
+    let mut t = [0u8; 256];
+    let mut k = 1;
+    while k < N_CELLS {
+        t[TILE_CODE[k] as usize] = k as u8;
+        k += 1;
+    }
+    t
+};
+
 /// `TILE_CODE[t]` = the goal-coordinate code of tile `t`; index 0 is the blank.
 const TILE_CODE: [u8; N_CELLS] = {
     let mut t = [BLANK_CODE; N_CELLS];
@@ -441,6 +455,9 @@ struct Arena {
     board: Box<[BoardSlot]>,
     row: Box<[AxisSlot]>,
     col: Box<[AxisSlot]>,
+    /// k8 tier state, written only on consults; untouched (dead weight, ~64 KB)
+    /// when the tier is off.
+    k8: Box<[K8Slot]>,
 }
 
 impl Arena {
@@ -465,11 +482,19 @@ impl Arena {
             col_at: 0,
             dfa: 0,
         };
+        let blank_k8 = K8Slot {
+            views: [[crate::puzzle24::pdb::ProjectedState::from_state(
+                &GOAL,
+                crate::puzzle24::pdb::Pattern(0),
+            ); 3]; 2],
+            h: [[0; 3]; 2],
+        };
         Arena {
             hot: vec![blank_frame; MAX_DEPTH].into_boxed_slice(),
             board: vec![BoardSlot(Coded::encode(&GOAL)); MAX_DEPTH].into_boxed_slice(),
             row: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
             col: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
+            k8: vec![blank_k8; MAX_DEPTH].into_boxed_slice(),
         }
     }
 
@@ -480,6 +505,148 @@ impl Arena {
         debug_assert!(f.row_at as usize <= d && f.col_at as usize <= d);
         self.row[f.row_at as usize].term() + self.col[f.col_at as usize].term()
     }
+}
+
+// ------------------------------ lazy k8 tier ---------------------------------
+
+/// The three disjoint 8-tile zero-aware PDBs, mmap'd. Loaded only when the
+/// `--zpdb8` flag asks for the 2-tier `max(cWD, k8)` stack.
+pub struct K8Ctx {
+    dbs: [crate::puzzle24::pdb::ZPatternDb; 3],
+    /// `group_of[t]` = which of the three patterns holds tile `t` (1..=24).
+    group_of: [u8; N_CELLS],
+}
+
+impl K8Ctx {
+    /// Load `pdb24_k8_{a,b,c}.zbin` from `dir` and verify the patterns are
+    /// pairwise disjoint and cover all 24 tiles (Korf–Felner additivity).
+    pub fn load_mmap(dir: &std::path::Path) -> Result<Self, String> {
+        let names = ["pdb24_k8_a.zbin", "pdb24_k8_b.zbin", "pdb24_k8_c.zbin"];
+        let mut dbs = Vec::with_capacity(3);
+        for n in names {
+            let path = dir.join(n);
+            dbs.push(
+                crate::puzzle24::pdb::ZPatternDb::load_mmap(&path)
+                    .map_err(|e| format!("{}: {e:?}", path.display()))?,
+            );
+        }
+        let dbs: [crate::puzzle24::pdb::ZPatternDb; 3] =
+            dbs.try_into().map_err(|_| "expected 3 dbs".to_string())?;
+        let mut union: u32 = 0;
+        for db in &dbs {
+            let p = db.pattern().0;
+            if union & p != 0 {
+                return Err("k8 patterns are not pairwise disjoint".into());
+            }
+            union |= p;
+        }
+        if union != ((1u32 << 25) - 2) {
+            return Err(format!("k8 patterns do not cover tiles 1..=24 (union {union:#x})"));
+        }
+        let mut group_of = [0u8; N_CELLS];
+        for (gi, db) in dbs.iter().enumerate() {
+            for t in 1..N_CELLS {
+                if db.pattern().contains(t as u8) {
+                    group_of[t] = gi as u8;
+                }
+            }
+        }
+        Ok(K8Ctx { dbs, group_of })
+    }
+}
+
+/// Per-depth k8 state: the three groups' projections in the normal and
+/// σ-reflected views, plus each group's absolute `h`. ~306 B; copied whole from
+/// the parent at each consult, so there is no sharing subtlety and no staleness.
+///
+/// The invariant mirroring the recursive lazy combiner: this slot is written for
+/// a child **only after the child passes cWD's bound test** (the consult point).
+/// Every *entered* node passed that test, so a consulting child always finds its
+/// parent's slot current — single-step laziness with no deferral bookkeeping,
+/// which is the entire benefit the recursive `LazyMaxInc` glue existed to buy.
+#[derive(Clone, Copy)]
+struct K8Slot {
+    /// `[normal, reflected]` × 3 groups.
+    views: [[crate::puzzle24::pdb::ProjectedState; 3]; 2],
+    h: [[u8; 3]; 2],
+}
+
+/// Seed depth-0 k8 state from `board`: 6 projections + 6 cold lookups (O(h)
+/// each — this is the once-per-subtree cost, never the per-node cost). Returns
+/// `max` of the two views' additive sums.
+fn seed_k8(arena: &mut Arena, board: &State, ctx: &K8Ctx) -> u8 {
+    let rs = symmetry::reflect(board);
+    let slot = &mut arena.k8[0];
+    let (mut s0, mut s1) = (0u16, 0u16);
+    for i in 0..3 {
+        let db = &ctx.dbs[i];
+        slot.views[0][i] = crate::puzzle24::pdb::ProjectedState::from_state(board, db.pattern());
+        slot.views[1][i] = crate::puzzle24::pdb::ProjectedState::from_state(&rs, db.pattern());
+        slot.h[0][i] = db.cold_lookup(board);
+        slot.h[1][i] = db.cold_lookup(&rs);
+        s0 += slot.h[0][i] as u16;
+        s1 += slot.h[1][i] as u16;
+    }
+    s0.max(s1).min(255) as u8
+}
+
+/// Advance the k8 state across move `m` from depth `d` to `d+1` and return the
+/// child's `h_k8 = max(Σ normal, Σ reflected)`.
+///
+/// Exactly one group is cost-1 per view (the 3 patterns partition the 24 tiles),
+/// and by the projected-edge law the old `ZpdbInc` documented, **cost-0 slides
+/// leave the index and `h` unchanged** — so the four cost-0 group-views are not
+/// slid at all. Their stored blank goes stale; it is healed by
+/// [`ProjectedState::set_blank_pos`] the next time that group-view is cost-1,
+/// which is sound because `rank` reads pattern-tile positions, the blank, and
+/// `cells` only at occupied pattern cells — all maintained. Net cost per
+/// consult: one slot copy + **2 slides + 2 ranks + 2 `diff_lookup`s** (the
+/// recorded recursive figure, probes/make = 2.000, §8i).
+///
+/// The reflected view needs no `transpose_move`: its blank/target cells are the
+/// σ-images of the board's, and its cost-1 group is the σ-relabelled tile's.
+#[inline]
+fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -> u8 {
+    let (lo, hi) = arena.k8.split_at_mut(d + 1);
+    let parent = &lo[d];
+    let child = &mut hi[0];
+    *child = *parent;
+    let b = arena.hot[d].blank as usize; // pre-move blank cell
+    let n = geom.from as usize; // the moved tile's cell = blank destination
+    // `tile` arrives goal-coded (the engine's boards are `Coded`); the PDB
+    // machinery talks tile numbers.
+    let tile = TILE_OF_CODE[tile] as usize;
+
+    // Normal view.
+    let gi = ctx.group_of[tile] as usize;
+    {
+        let db = &ctx.dbs[gi];
+        let v = &mut child.views[0][gi];
+        v.set_blank_pos(b as u8);
+        let cost = v.apply_in_place_at(b, n);
+        debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
+        let idx = db.layout().rank(v, db.pattern());
+        child.h[0][gi] = db.diff_lookup(idx, parent.h[0][gi]);
+    }
+
+    // Reflected view: σ-image cells, σ-relabelled tile.
+    let rt = symmetry::TAU[tile] as usize;
+    let gj = ctx.group_of[rt] as usize;
+    {
+        let db = &ctx.dbs[gj];
+        let rb = symmetry::SIGMA[b] as usize;
+        let rn = symmetry::SIGMA[n] as usize;
+        let v = &mut child.views[1][gj];
+        v.set_blank_pos(rb as u8);
+        let cost = v.apply_in_place_at(rb, rn);
+        debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
+        let idx = db.layout().rank(v, db.pattern());
+        child.h[1][gj] = db.diff_lookup(idx, parent.h[1][gj]);
+    }
+
+    let s0 = child.h[0][0] as u16 + child.h[0][1] as u16 + child.h[0][2] as u16;
+    let s1 = child.h[1][0] as u16 + child.h[1][1] as u16 + child.h[1][2] as u16;
+    s0.max(s1).min(255) as u8
 }
 
 // -------------------------------- the engine ----------------------------------
@@ -511,6 +678,25 @@ pub fn flat_bounded(
     flat_bounded_telemetry(start, cwd, dfa, orbit_split, max_bound, |_, _, _| {})
 }
 
+/// [`flat_bounded_telemetry`] with the lazy k8 tier: `max(cWD, k8)` consulted at
+/// cWD-survivors, node-identical to the recorded 2-tier trees (§8j:
+/// 269,180,930 at exhaust-144; 8,808,311,484 at exhaust-146).
+pub fn flat_bounded_k8_telemetry<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    k8: &K8Ctx,
+    orbit_split: bool,
+    max_bound: u8,
+    max_nodes: u64,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), orbit_split, max_bound, max_nodes, on_iter)
+}
+
 /// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
 /// return [`BoundedOutcome::BudgetExhausted`].
 ///
@@ -535,7 +721,7 @@ pub fn flat_bounded_budgeted<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner(start, cwd, dfa, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, orbit_split, max_bound, max_nodes, on_iter)
 }
 
 /// [`flat_bounded`] with a per-iteration callback, mirroring
@@ -552,13 +738,15 @@ pub fn flat_bounded_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner(start, cwd, dfa, orbit_split, max_bound, u64::MAX, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, orbit_split, max_bound, u64::MAX, on_iter)
 }
 
-fn flat_bounded_inner<F>(
+#[allow(clippy::too_many_arguments)]
+fn flat_bounded_inner_k8<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
+    k8: Option<&K8Ctx>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -582,7 +770,10 @@ where
     }
 
     let mut arena = Arena::new();
-    let h0 = seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
+    let mut h0 = seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
+    if let Some(ctx) = k8 {
+        h0 = h0.max(seed_k8(&mut arena, start, ctx));
+    }
     let mut bound = h0;
 
     loop {
@@ -593,14 +784,19 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        let step = if budget == u64::MAX {
-            run_iteration::<false>(
-                &mut arena, &mut cache, cwd, merged, dfa, bound, &mut stats, budget,
-            )
-        } else {
-            run_iteration::<true>(
-                &mut arena, &mut cache, cwd, merged, dfa, bound, &mut stats, budget,
-            )
+        let step = match (budget == u64::MAX, k8) {
+            (true, None) => run_iteration::<false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, bound, &mut stats, budget,
+            ),
+            (false, None) => run_iteration::<true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, bound, &mut stats, budget,
+            ),
+            (true, Some(_)) => run_iteration::<false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, bound, &mut stats, budget,
+            ),
+            (false, Some(_)) => run_iteration::<true, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, bound, &mut stats, budget,
+            ),
         };
         match step {
             Step::BudgetOut => {
@@ -784,10 +980,12 @@ thread_local! {
 /// scratch arena rather than reimplementing them, so its pruning decisions cannot
 /// drift from the sequential engine's.
 #[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
 pub fn flat_bounded_parallel<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
+    k8: Option<&K8Ctx>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -818,7 +1016,10 @@ where
     let mut split_arena = Arena::new();
     let mut split_cache = ProbeCache::with_bits(12);
 
-    let h0 = seed_root(&mut split_arena, start, cwd, merged, dfa, orbit_split);
+    let mut h0 = seed_root(&mut split_arena, start, cwd, merged, dfa, orbit_split);
+    if let Some(ctx) = k8 {
+        h0 = h0.max(seed_k8(&mut split_arena, start, ctx));
+    }
     let mut bound = h0;
 
     loop {
@@ -861,6 +1062,9 @@ where
             } else {
                 seed_subtree(&mut split_arena, &u.board, u.dfa, u.last, merged, dfa);
             }
+            if let Some(ctx) = k8 {
+                seed_k8(&mut split_arena, &u.board, ctx);
+            }
             let mut cand = split_arena.hot[0].cand;
             let g_next = u.g + 1;
             while !cand.is_empty() {
@@ -897,6 +1101,21 @@ where
                         min_f = f;
                     }
                     continue;
+                }
+                // Lazy k8 consult at cWD-survivors — must mirror run_iteration
+                // exactly or the split's tree diverges from the sequential one.
+                if let Some(ctx) = k8 {
+                    let hk8 = k8_child(&mut split_arena, ctx, 0, geom, tile);
+                    if hk8 > h {
+                        let f2 = g_next.saturating_add(hk8);
+                        if f2 > bound {
+                            stats.nodes += 1; // counted, same as the cWD over-bound arm
+                            if f2 < min_f {
+                                min_f = f2;
+                            }
+                            continue;
+                        }
+                    }
                 }
                 let mut prefix = u.prefix.clone();
                 prefix.push(m);
@@ -945,21 +1164,23 @@ where
                     let c0 = cache.stats();
                     let mut st = SearchStats::default();
                     seed_subtree(arena, &u.board, u.dfa, u.last, merged, dfa);
+                    if let Some(ctx) = k8 {
+                        seed_k8(arena, &u.board, ctx);
+                    }
                     let _setup_ns = unit_start.elapsed().as_nanos() as u64;
                     // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
-                    let step = run_iteration::<false>(
-                        arena,
-                        cache,
-                        cwd,
-                        merged,
-                        dfa,
-                        reduced,
-                        &mut st,
-                        u64::MAX,
-                    );
+                    let step = if k8.is_some() {
+                        run_iteration::<false, true>(
+                            arena, cache, cwd, merged, dfa, k8, reduced, &mut st, u64::MAX,
+                        )
+                    } else {
+                        run_iteration::<false, false>(
+                            arena, cache, cwd, merged, dfa, None, reduced, &mut st, u64::MAX,
+                        )
+                    };
                     let wr = match step {
                         Step::Found(mut path) => {
                             let mut full = u.prefix.clone();
@@ -1317,12 +1538,13 @@ fn seed_root(
 // Same convention as `build_child` and the sibling engine's search functions:
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
-fn run_iteration<const BUDGETED: bool>(
+fn run_iteration<const BUDGETED: bool, const K8: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
     merged: &CwdMerged,
     dfa: &MoveDfa,
+    k8ctx: Option<&K8Ctx>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -1418,6 +1640,23 @@ fn run_iteration<const BUDGETED: bool>(
                 path.push(arena.hot[k].mv);
             }
             return Step::Found(path);
+        }
+
+        // The lazy k8 tier: consulted exactly at cWD-survivors (the recorded
+        // recursive convention, so the tree matches §8j's node counts). The
+        // child is already counted; a k8 prune folds its full f and moves on.
+        // Compiles away entirely when `K8` is false.
+        if K8 {
+            let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
+            if hk8 > h {
+                let f2 = g_next.saturating_add(hk8);
+                if f2 > bound {
+                    if f2 < minf {
+                        minf = f2;
+                    }
+                    continue;
+                }
+            }
         }
 
         // Descend: park this frame's live values, then take the child's.

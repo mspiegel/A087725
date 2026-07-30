@@ -223,6 +223,18 @@ impl ProjectedState {
         self.apply_in_place_at(b, n)
     }
 
+    /// Overwrite the stored blank cell. For callers that *skip* cost-0 slides
+    /// (the projected-edge law: a blank-only slide leaves the PDB index and `h`
+    /// unchanged) and therefore hold a stale blank: heal it from the board's
+    /// true blank immediately before an [`apply_in_place_at`](Self::apply_in_place_at)
+    /// + rank. The pattern-tile entries of `cells`/`pos_of` stay correct without
+    /// healing, because every move of a pattern tile is cost-1 and is applied;
+    /// the stale non-pattern `cells` entries are never read by `rank`.
+    #[inline]
+    pub fn set_blank_pos(&mut self, c: u8) {
+        self.pos_of[0] = c;
+    }
+
     /// The blank's current cell `b` and its destination `n` under move `m` — the
     /// `(b, n)` pair that every group of one projection *view* shares (all its
     /// projections hold the blank at the same board cell). A caller sliding many

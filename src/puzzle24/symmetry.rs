@@ -19,7 +19,7 @@ use crate::puzzle24::state::{Move, State, N_CELLS, W};
 /// Position permutation: `SIGMA[p]` is the position whose value lands at index
 /// `p` after reflection. For `p = r*W + c`, the transpose gives
 /// `σ(p) = c*W + r`. σ is self-inverse.
-const SIGMA: [u8; N_CELLS] = {
+pub(crate) const SIGMA: [u8; N_CELLS] = {
     let mut t = [0u8; N_CELLS];
     let mut p = 0;
     while p < N_CELLS {
@@ -37,7 +37,7 @@ const SIGMA: [u8; N_CELLS] = {
 /// `GOAL[i] = i+1` for `i < 24` and `GOAL[24] = 0`, so the goal value at
 /// position `q` is `0` when `q = 24` and `q+1` otherwise. The blank (`t = 0`)
 /// is fixed because `σ(24) = 24`.
-const TAU: [u8; N_CELLS] = {
+pub(crate) const TAU: [u8; N_CELLS] = {
     let mut t = [0u8; N_CELLS];
     let mut k = 1;
     while k < N_CELLS {
