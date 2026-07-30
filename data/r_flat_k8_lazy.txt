@@ -338,3 +338,23 @@ Consequences:
    layer, IF k7's cut ratio holds. The cut stays the only decisive unknown.
 3. Any further shave of the ON-CORE 82 ns must remove instructions from a
    3.5-IPC stream — the §8i law's territory, where five levers have now died.
+
+Duplicate-rank ablation — the rank term measured (2026-07-30, CLEAN window)
+---------------------------------------------------------------------------
+Canary-bracketed (94.00 / 91.44 s vs the 91.5-92.2 clean band — first valid
+timing window since overnight; the v2 arms also reproduce the overnight
+baseline: 133.90/131.09 vs 133.65 s, which retroactively firms the memo-reject
+magnitudes). Ablation binary = v2 + one extra black_box'd rank per view per
+consult; node-identical by construction and verified (both counts exact).
+
+  v2 mean 132.5 s | +2-ranks mean 155.8 s | delta 23.3 s at W=8 over 8.539B
+  => 21.8 ns/node CPU => 28.4 ns/consult for TWO hot ranks => ~14 ns/rank
+
+FLOOR caveat: the duplicate rank runs on just-ranked hot data (shape_info line
+resident); the real first rank pays that fetch. Real pair in [28, ~40] ns.
+
+The 82 ns on-core consult therefore splits: ranks 28-40, remainder 42-54
+(slides, 306 B copy [~free, store law], diff bit-decode, TAU/SIGMA/group glue,
+call overhead, absorbed L1D/TLB latency). Consequence: dropping the reflected
+view removes ~14 ns of rank + one probe + one slide, NOT half the layer — its
+case now rests mainly on halving the blocked/probe side and the node arithmetic.
