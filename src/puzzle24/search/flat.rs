@@ -641,11 +641,6 @@ enum Step {
     BudgetOut,
 }
 
-/// Project `start` into both axes, probe the merged table once per axis, and lay
-/// the result down as depth 0. Also seeds the DFA state and the root's candidate
-/// set (where the σ-orbit filter applies — it is a `g == 0`-only rule, so it
-/// belongs here rather than in the loop).
-
 // ============================ parallel driver =================================
 
 /// Grow the frontier to about this many subtree roots before going parallel.
@@ -666,6 +661,37 @@ const SPLIT_TARGET: usize = 4096;
 #[cfg(feature = "parallel")]
 const WORKER_CACHE_BITS: u32 = 16;
 
+/// Both tuning constants, overridable from the environment so that a sweep costs
+/// runs rather than rebuilds. Gated behind the profile feature, so the default
+/// build reads no environment and keeps the constants.
+#[cfg(feature = "parallel-profile")]
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+#[cfg(feature = "parallel-profile")]
+fn split_target() -> usize {
+    env_usize("FLAT_SPLIT_TARGET", SPLIT_TARGET)
+}
+
+#[cfg(all(feature = "parallel", not(feature = "parallel-profile")))]
+fn split_target() -> usize {
+    SPLIT_TARGET
+}
+
+#[cfg(feature = "parallel-profile")]
+fn worker_cache_bits() -> u32 {
+    env_usize("FLAT_WORKER_CACHE_BITS", WORKER_CACHE_BITS as usize) as u32
+}
+
+#[cfg(all(feature = "parallel", not(feature = "parallel-profile")))]
+fn worker_cache_bits() -> u32 {
+    WORKER_CACHE_BITS
+}
+
 /// One subtree-root work unit: enough to reseed a worker's arena, plus the
 /// move-prefix that reaches it so a worker finding the goal can return a full
 /// path from `start`.
@@ -682,6 +708,32 @@ struct Unit {
     last: Move,
     prefix: Vec<Move>,
     h: u8,
+}
+
+#[cfg(feature = "parallel")]
+thread_local! {
+    /// One arena and one probe cache per **rayon worker thread**, reused across every
+    /// unit that thread draws and across thresholds.
+    ///
+    /// Building these inside the `map` closure — i.e. once per work unit — is what
+    /// cost the parallel driver 20% per node against the sequential engine at equal
+    /// thread count. The probe cache is direct-mapped and warms over millions of
+    /// probes, but a unit averages only ~100 K nodes, so a per-unit cache never
+    /// warms: measured at exhaust-144 the hit rate was 95.15% against the sequential
+    /// engine's 99.665%, a 14.5x increase in misses into the 4.4 GB table. Those are
+    /// *compulsory* misses, so enlarging the cache cannot help — going 64 K -> 1 M
+    /// moved the hit rate 0.47 pp while re-zeroing pushed setup from 1.3% to 15.2% of
+    /// worker time.
+    ///
+    /// A thread-local rather than rayon's `map_init`, because `map_init` re-runs its
+    /// initialiser once per producer-split leaf, which is not once per thread.
+    ///
+    /// Reuse is sound: [`seed_subtree`] rewrites depth 0 in full and
+    /// [`run_iteration`] only reads arena depths it has written, which is already why
+    /// the sequential engine can reuse one arena across thresholds. The cache is
+    /// transparent by construction — it returns exactly what `merged.get` returns.
+    static WORKER: std::cell::RefCell<Option<(Arena, ProbeCache)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// [`flat_bounded`] with each threshold iteration parallelised by
@@ -766,7 +818,7 @@ where
         let mut min_f = u8::MAX;
         let mut found: Option<Vec<Move>> = None;
 
-        while frontier.len() < SPLIT_TARGET {
+        while frontier.len() < split_target() {
             let Some(u) = frontier.pop_front() else { break };
             stats.nodes += 1; // counted here because it is expanded, not searched
             if u.h > bound {
@@ -855,43 +907,70 @@ where
             Bound(u8),
         }
         let units: Vec<Unit> = frontier.into_iter().collect();
-        let results: Vec<(Wr, SearchStats)> = units
+        let _split_span = iter_start.elapsed();
+        let _par_start = std::time::Instant::now();
+        let results: Vec<(Wr, SearchStats, UnitProf)> = units
             .par_iter()
             .map(|u| {
-                let mut arena = Arena::new();
-                let mut cache = ProbeCache::with_bits(WORKER_CACHE_BITS);
-                let mut st = SearchStats::default();
-                seed_subtree(&mut arena, &u.board, u.dfa, u.last, merged, dfa);
-                // f = g + d + h <= bound  <=>  d + h <= bound - g, so the worker
-                // searches its own subtree with a reduced threshold and needs no
-                // notion of the depth it sits at.
-                let reduced = bound - u.g;
-                let step = run_iteration::<false>(
-                    &mut arena,
-                    &mut cache,
-                    cwd,
-                    merged,
-                    dfa,
-                    reduced,
-                    &mut st,
-                    u64::MAX,
-                );
-                let wr = match step {
-                    Step::Found(mut path) => {
-                        let mut full = u.prefix.clone();
-                        full.append(&mut path);
-                        Wr::Found(full)
-                    }
-                    // Back into absolute terms.
-                    Step::Exhausted(n) => Wr::Bound(n.saturating_add(u.g)),
-                    Step::BudgetOut => unreachable!("the parallel driver sets no budget"),
-                };
-                (wr, st)
+                let unit_start = std::time::Instant::now();
+                WORKER.with(|slot| {
+                    let mut slot = slot.borrow_mut();
+                    let (arena, cache) = slot.get_or_insert_with(|| {
+                        (Arena::new(), ProbeCache::with_bits(worker_cache_bits()))
+                    });
+                    #[cfg(feature = "probe-cache-stats")]
+                    let c0 = cache.stats();
+                    let mut st = SearchStats::default();
+                    seed_subtree(arena, &u.board, u.dfa, u.last, merged, dfa);
+                    let _setup_ns = unit_start.elapsed().as_nanos() as u64;
+                    // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
+                    // worker searches its own subtree with a reduced threshold and
+                    // needs no notion of the depth it sits at.
+                    let reduced = bound - u.g;
+                    let step = run_iteration::<false>(
+                        arena,
+                        cache,
+                        cwd,
+                        merged,
+                        dfa,
+                        reduced,
+                        &mut st,
+                        u64::MAX,
+                    );
+                    let wr = match step {
+                        Step::Found(mut path) => {
+                            let mut full = u.prefix.clone();
+                            full.append(&mut path);
+                            Wr::Found(full)
+                        }
+                        // Back into absolute terms.
+                        Step::Exhausted(n) => Wr::Bound(n.saturating_add(u.g)),
+                        Step::BudgetOut => unreachable!("the parallel driver sets no budget"),
+                    };
+                    (
+                        wr,
+                        st,
+                        UnitProf {
+                            ns: unit_start.elapsed().as_nanos() as u64,
+                            setup_ns: _setup_ns,
+                            thread: rayon::current_thread_index().unwrap_or(usize::MAX),
+                            // Delta, not cumulative: the cache now outlives the unit.
+                            #[cfg(feature = "probe-cache-stats")]
+                            cache: {
+                                let c1 = cache.stats();
+                                (c1.0 - c0.0, c1.1 - c0.1)
+                            },
+                        },
+                    )
+                })
             })
             .collect();
+        let _par_span = _par_start.elapsed();
 
         let mut found: Option<Vec<Move>> = None;
-        for (wr, st) in results {
+        let mut _prof: Vec<(UnitProf, u64)> = Vec::with_capacity(results.len());
+        for (wr, st, p) in results {
+            _prof.push((p, st.nodes));
             stats.nodes += st.nodes;
             match wr {
                 Wr::Found(p) => {
@@ -912,9 +991,182 @@ where
         if min_f == u8::MAX {
             return (BoundedOutcome::Unsolvable, stats);
         }
+        #[cfg(feature = "parallel-profile")]
+        report_parallel_profile(bound, &_prof, _split_span, _par_span);
         on_iter(bound, &stats, iter_start.elapsed());
         bound = min_f;
     }
+}
+
+/// What one work unit cost, and which rayon thread paid it.
+///
+/// `thread` exists because the busy fraction is **blind to core heterogeneity**:
+/// this machine has 8 P-cores and 4 E-cores, rayon asks the OS for threads
+/// without pinning, and a thread parked on an E-core still reads as busy while
+/// its nodes cost 2-3x more. Per-thread ns/node is what exposes that.
+#[cfg(feature = "parallel")]
+#[cfg_attr(not(feature = "parallel-profile"), allow(dead_code))]
+struct UnitProf {
+    ns: u64,
+    /// Arena + probe-cache allocation and [`seed_subtree`], i.e. everything
+    /// before the search loop starts. Charged to worker busy time, so it inflates
+    /// `c_p` without touching the busy fraction.
+    setup_ns: u64,
+    thread: usize,
+    /// Probe-cache hits/misses for this unit's own cache. The cache is built
+    /// inside the closure, so these expose whether it ever warms up.
+    #[cfg(feature = "probe-cache-stats")]
+    cache: (u64, u64),
+}
+
+/// Makespan of a greedy longest-processing-time-first schedule of `desc` (unit
+/// times, **already sorted descending**) onto `w` machines.
+///
+/// This is the reference point that separates the two halves of the imbalance
+/// question. `busy / w` is the makespan a perfectly divisible workload would
+/// reach; LPT is the best a *good* scheduler can do given that a unit is
+/// indivisible — a worker that draws a huge subtree runs it to completion. So
+/// `LPT - busy/w` is the cost of the split's granularity (fix: more units, or a
+/// second split level) and `actual - LPT` is scheduling loss (steal latency,
+/// pool spin-up, the serial reduce).
+///
+/// LPT is a 4/3-approximation, so it is an upper bound on the optimal makespan,
+/// not the optimum itself; with thousands of units the gap is negligible.
+#[cfg(feature = "parallel-profile")]
+fn lpt_makespan(desc: &[u64], w: usize) -> u64 {
+    let mut load = vec![0u64; w.max(1)];
+    for &t in desc {
+        // w <= 16 here, so a linear scan for the least-loaded machine is fine.
+        let i = load
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, l)| *l)
+            .map(|(i, _)| i)
+            .unwrap();
+        load[i] += t;
+    }
+    load.into_iter().max().unwrap_or(0)
+}
+
+/// Decompose one threshold's parallel efficiency and print it to stderr.
+///
+/// `prof` is one `(wall_ns, nodes)` pair per work unit. The identity being
+/// instrumented is
+///
+/// ```text
+///   speedup / W  =  B  x  (c_1 / c_p)
+/// ```
+///
+/// with `B` the busy fraction (`busy / (W * span)`) and `c_p` the worker's
+/// ns/node. The two factors have unrelated fixes — `B` is the split policy and
+/// the scheduler, `c_p` is memory contention, probe-cache size and clock — so a
+/// single speedup number cannot tell you which to attack.
+#[cfg(feature = "parallel-profile")]
+fn report_parallel_profile(
+    bound: u8,
+    prof: &[(UnitProf, u64)],
+    split: std::time::Duration,
+    span: std::time::Duration,
+) {
+    let w = rayon::current_num_threads();
+    let busy: u64 = prof.iter().map(|p| p.0.ns).sum();
+    let setup: u64 = prof.iter().map(|p| p.0.setup_ns).sum();
+    let nodes: u64 = prof.iter().map(|p| p.1).sum();
+    let span_ns = span.as_nanos().max(1) as u64;
+    let secs = |ns: u64| ns as f64 / 1e9;
+
+    let mut desc: Vec<u64> = prof.iter().map(|p| p.0.ns).collect();
+    desc.sort_unstable_by(|a, b| b.cmp(a));
+    let n = desc.len();
+    let max_unit = desc[0];
+    let top_w: u64 = desc.iter().take(w).sum();
+
+    let div_bound = busy / w as u64;
+    let lpt = lpt_makespan(&desc, w);
+    let busy_frac = busy as f64 / (w as u64 * span_ns) as f64;
+    let ns_per_node = if nodes > 0 {
+        busy as f64 / nodes as f64
+    } else {
+        0.0
+    };
+
+    eprintln!("[par-profile] bound={bound} W={w} units={n}");
+    eprintln!(
+        "  split (serial) : {:.2}s   parallel span: {:.2}s",
+        split.as_secs_f64(),
+        secs(span_ns)
+    );
+    eprintln!(
+        "  worker busy    : {:.2}s  ->  busy fraction {:.1}%",
+        secs(busy),
+        100.0 * busy_frac
+    );
+    eprintln!(
+        "  per-node cost  : {ns_per_node:.2} ns/node   ({nodes} nodes, unit setup {:.2}s = {:.1}% of busy)",
+        secs(setup),
+        100.0 * setup as f64 / busy as f64
+    );
+    eprintln!(
+        "  unit wall time : max {:.2}s ({:.1}% of span)  p50 {:.3}s  p90 {:.3}s  p99 {:.3}s  top-{w} sum {:.2}s",
+        secs(max_unit),
+        100.0 * max_unit as f64 / span_ns as f64,
+        secs(desc[n / 2]),
+        secs(desc[n / 10]),
+        secs(desc[n / 100]),
+        secs(top_w),
+    );
+    eprintln!(
+        "  makespan bounds: work/W {:.2}s | max-unit {:.2}s | LPT {:.2}s | actual {:.2}s",
+        secs(div_bound),
+        secs(max_unit),
+        secs(lpt),
+        secs(span_ns)
+    );
+    eprintln!(
+        "  attribution    : granularity {:+.2}s ({:+.1}%)   scheduling {:+.2}s ({:+.1}%)",
+        secs(lpt.saturating_sub(div_bound)),
+        100.0 * lpt.saturating_sub(div_bound) as f64 / span_ns as f64,
+        secs(span_ns.saturating_sub(lpt)),
+        100.0 * span_ns.saturating_sub(lpt) as f64 / span_ns as f64,
+    );
+
+    #[cfg(feature = "probe-cache-stats")]
+    {
+        let h: u64 = prof.iter().map(|p| p.0.cache.0).sum();
+        let m: u64 = prof.iter().map(|p| p.0.cache.1).sum();
+        eprintln!(
+            "  probe cache    : {h} hits / {m} misses = {:.3}% hit  ({:.0} misses/unit)",
+            100.0 * h as f64 / (h + m).max(1) as f64,
+            m as f64 / n as f64
+        );
+    }
+
+    // Per-thread ns/node. A spread here is core heterogeneity (E-core placement)
+    // or L2-cluster asymmetry, neither of which the busy fraction can see.
+    let mut per: Vec<(u64, u64, u64)> = vec![(0, 0, 0); w + 1]; // (ns, nodes, units)
+    for (p, nd) in prof {
+        let i = if p.thread < w { p.thread } else { w };
+        per[i].0 += p.ns;
+        per[i].1 += nd;
+        per[i].2 += 1;
+    }
+    eprint!("  per-thread     :");
+    for (i, &(ns, nd, u)) in per.iter().enumerate() {
+        if u == 0 {
+            continue;
+        }
+        let tag = if i == w {
+            "?".to_string()
+        } else {
+            i.to_string()
+        };
+        eprint!(
+            " t{tag}={:.1}ns/n({:.0}s,{u}u)",
+            if nd > 0 { ns as f64 / nd as f64 } else { 0.0 },
+            secs(ns)
+        );
+    }
+    eprintln!();
 }
 
 /// Lay a **subtree root** down at arena depth 0.
@@ -985,6 +1237,10 @@ fn seed_axes(arena: &mut Arena, board: &State, merged: &CwdMerged) {
     arena.board[0] = BoardSlot(Coded::encode(board));
 }
 
+/// Project `start` into both axes, probe the merged table once per axis, and lay
+/// the result down as depth 0. Also seeds the DFA state and the root's candidate
+/// set (where the σ-orbit filter applies — it is a `g == 0`-only rule, so it
+/// belongs here rather than in the loop).
 fn seed_root(
     arena: &mut Arena,
     start: &State,

@@ -69,6 +69,12 @@ pmu-counters = []
 # line is demanded" early-out (H3). Off by default (a relaxed-atomic bump per
 # axis update, so it perturbs timing — it is a shape measurement, not a bench).
 demand-histogram = []
+# Per-threshold decomposition of the flat parallel driver's efficiency: busy
+# fraction, worker ns/node, and the unit-time distribution against three makespan
+# bounds (work/W, LPT, actual). Off by default. The measurement itself is free
+# (two `Instant::now()` per work unit, ~4096 per threshold), so this feature gates
+# only the stderr report.
+parallel-profile = ["parallel"]
 # Per-depth cWD-vs-k8 prune histogram for cwd-zpdb8-lazy (diagnostic, off by
 # default; a relaxed-atomic bump per prune decision). Printed by solve24 at exit.
 prune-histogram = []

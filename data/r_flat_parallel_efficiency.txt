@@ -1,0 +1,133 @@
+Flat parallel driver — where the speedup goes
+=============================================
+
+Machine: Mac14,10 (M2 Pro), 8 P-cores in 2 clusters of 4 (16 MB L2 each),
+4 E-cores, 34 GB. All runs below are exhaust-144 on R, node-identical at
+422,379,806, single session.
+
+*** ON BATTERY. Absolute ns/node here are NOT comparable with the AC baselines
+*** in r_flat_engine_ab.txt (AC sequential was 13.31s / 31.5 ns/node; the
+*** battery sequential in this session was 14.38s / 34.04 ns/node, -7.5%).
+*** Every conclusion below rests on a RATIO measured within this session, or on
+*** a frequency-independent counter (cache hit rate), so the battery state does
+*** not affect them.
+
+The instrument
+--------------
+`--features parallel-profile` (see Cargo.toml) times every work unit and prints,
+per threshold:
+
+    speedup / W  =  B  x  (c_1 / c_p)
+
+with B = busy fraction = sum(unit wall time) / (W * parallel span), and
+c_p = sum(unit wall time) / sum(nodes) = worker ns/node. The two factors have
+unrelated fixes — B is the split policy and the scheduler, c_p is memory
+contention, cache sizing and clock — so a lone speedup number cannot say which
+to attack.
+
+It also prints three makespan bounds. work/W is what a perfectly divisible
+workload would reach; LPT is the best a good scheduler can do given that a unit
+is INDIVISIBLE (a worker drawing a huge subtree runs it to completion); actual
+is measured. So LPT - work/W is granularity cost from the split, and
+actual - LPT is scheduling loss.
+
+Validation of the identity, exhaust-144, W=8, per-unit caches (the original
+code): B = 0.977, c_1 = 31.51, c_p = 39.70 -> 0.977 * 0.794 = 0.776. Measured
+efficiency 13.31/2.14/8 = 0.777. Closes to 0.1%.
+
+Result 1 — it is not the schedule, and it is not core heterogeneity
+------------------------------------------------------------------
+  busy fraction        99.5-100.0% at every W from 1 to 8
+  granularity cost     +0.00s (LPT == work/W exactly)
+  scheduling cost      +0.01s (0.5% of span), 0.09s (4.7%) only at W=12
+  serial split phase   0.00s
+  max unit             0.08s = 4.0% of a 2.12s span
+  unit counts          382-735 across 8 threads (work-stealing balancing)
+  per-thread ns/node   39.2-40.4, a +/-1.5% spread
+
+The per-thread column is there because the busy fraction is BLIND to core
+heterogeneity: a thread parked on an E-core still reads as busy while its nodes
+cost 2-3x more. At W=8 no thread is on an E-core. At W=12 all twelve degrade
+together (47.4-54.1 ns/node) rather than splitting into two groups, so the E-core
+cost is not isolable to four threads — it is a whole-machine effect.
+
+SPLIT_TARGET = 4096 is therefore already more than enough at this depth. Do not
+spend runs tuning it against a 0.00s granularity cost.
+
+Result 2 — ns/node vs W, same code path (so contention is isolated)
+------------------------------------------------------------------
+  W    ns/node   vs W=1   span     speedup   efficiency
+  1    37.95      --      16.05s   1.00x      --
+  2    38.94     +2.6%     8.23s   1.95x     97.5%
+  4    39.83     +5.0%     4.22s   3.80x     95.1%
+  8    39.80     +4.9%     2.11s   7.61x     95.1%
+  12   49.84    +31.4%     1.84s   8.72x     (E-cores)
+
+Multicore contention is +4.9% and SATURATES AT W=4 — identical at 4 and 8. So
+shared-L2 / bandwidth / TLB-walker contention across the 4.4 GB table is close to
+nil, and the whole-machine clock drop is inside this figure too.
+
+Within its own code path the driver was already 95% efficient. The missing 20
+points were entirely a W=1 defect: 37.95 ns/node against the sequential engine's
+34.04 in the same session, with zero threads to contend with.
+
+Result 3 — the defect: the probe cache was rebuilt once per WORK UNIT
+--------------------------------------------------------------------
+`ProbeCache::with_bits()` and `Arena::new()` were constructed inside the `map`
+closure, so both were discarded and re-zeroed 4096 times per threshold. A unit
+averages ~103 K nodes; the cache is direct-mapped and warms over millions of
+probes. It never warmed.
+
+  config                      hit rate   misses    ns/node   setup %
+  sequential, 256K            99.665%     1.42 M    34.04      --
+  parallel W=1, 64K           95.147%    20.50 M    37.97     1.3%
+  parallel W=1, 256K          95.495%    19.03 M    40.59     4.6%
+  parallel W=1, 1M            95.613%    18.53 M    50.03    15.2%
+
+14.5x the misses. Enlarging the cache 16x moved the hit rate 0.47 pp while
+re-zeroing pushed setup from 1.3% to 15.2% of worker time — the signature of
+COMPULSORY misses (first touch per unit), which no cache size can fix. This is
+also why the earlier sequential 64K->256K A/B (-5.8%) did not transfer to the
+parallel driver: it was measuring capacity misses, and these are not that.
+
+Fix: hoist both to a `thread_local!`, one per rayon worker, reused across every
+unit and across thresholds. Not `map_init` — that re-runs its initialiser once
+per producer-split leaf, which is not once per thread.
+
+  exhaust-144            W=1 ns/node   hit rate   setup   W=8 span   W=8 Mn/s
+  per-unit    (before)      37.95      95.147%    1.3%     2.11s      200.4
+  per-worker  (after)       34.25      98.914%    0.0%     1.91s      220.8
+
++10.2% throughput at W=8. W=1 is now within 0.6% of the sequential engine
+(34.25 vs 34.04), so the penalty is closed rather than merely reduced.
+Efficiency vs sequential at W=8: 14.38/1.91/8 = 94.1%.
+
+Node identity held at every step: 422,379,806 at W = 1, 2, 4, 8, 12 and for
+every cache size. Reuse is sound because `seed_subtree` rewrites arena depth 0 in
+full and `run_iteration` only reads depths it has written — already why the
+sequential engine reuses one arena across thresholds — and the cache is
+transparent by construction.
+
+Result 4 — per-worker cache size, W=8 (inconclusive at this depth)
+-----------------------------------------------------------------
+  bits   entries   per thread   hit rate   misses    Mn/s
+  16      64 K      2.1 MB      98.850%    4.86 M   218.48
+  17     128 K      4.2 MB      99.351%    2.74 M   219.79
+  18     256 K      8.4 MB      99.578%    1.78 M   221.00
+
+Monotone but only +1.2% across a 16x size range, while misses fall 2.7x — i.e.
+at exhaust-144 the surviving misses are cheap. Not decided here: 144 understates
+memory pressure (the depth study in FINDINGS_R §8x showed L2_TLB_MISS_DATA per
+node rising 52.7% from 144 to 146), so the sizing must be re-measured at 146.
+Left at 16 bits, which is the L2-budget figure (4 threads/cluster x 2.1 MB =
+8.4 MB of 16 MB).
+
+Open, needs AC power
+--------------------
+1. Rerun the whole decomposition at exhaust-146 — the proof regime. Everything
+   above is a 144 measurement; the pre-fix 146 figure was 6.33x vs sequential
+   (101.15s vs 640.27s).
+2. Re-A/B the cache bits at 146, where misses are more expensive.
+3. Separate the clock term from the contention term inside the +4.9%: PMU
+   CORE_ACTIVE_CYCLE per node is frequency-independent, so cycles/node at W=1 vs
+   W=8 splits it. Needs sudo.
