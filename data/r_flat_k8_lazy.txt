@@ -176,3 +176,32 @@ Design consequences:
   3. Caveat: sequential-stream rates are OPTIMISTIC for W=8 private caches —
      cross-subtree transposition reuse fragments across workers; expect high
      80s, not 92, per worker.
+
+Positions-keyed memo cache — REJECTED at every size (2026-07-30)
+----------------------------------------------------------------
+Built as sized: direct-mapped (packed 8 positions + blank cell + table) -> h,
+per arena, hits skipping BOTH rank and diff_lookup. Node-identical at every
+size (269,180,917 / 8,539,130,554). Real hit rate 89.451% at 22 bits — only
+2.4pp under the idx-keyed sim, so the blank-fineness cost was minor and the
+sim's cacheability verdict was correct. And yet, W=8 exhaust-146:
+
+  none (v2)   133.65 s          <- stands
+  2 MB        138.44 s  +3.6%
+  8 MB        148.69 s  +11.3%
+  32 MB       151.4-155.7 s  +13-16%
+
+MECHANISM (not a parameter): a memo must be cheaper to consult than what it
+memoizes. The consult's average probe is ~25 ns — rank is the tight cache-hot
+loop §8i measured (no cycle win from shaving), diff_lookup's HOT page subset
+stays resident (1.8% of recursive samples) — while a random 8-B read into even
+a 2 MB array costs comparable-or-more, and at 32 MB adds its own TLB misses
+(2048 pages/worker vs ~3000-entry L2 TLB) plus 256 MB of RAM pressure evicting
+table pages. The expensive table touches are the non-resident TAIL, and a
+front-cache cannot pay only on the tail — it pays on every probe.
+
+The reusable law, third form: sample share != reclaimable time (§8i);
+LRU-model hits != direct-mapped hits (probe-cache-stats note); and now
+HIT RATE != SAVINGS. The sizing measurement answered "would it hit" (yes,
+89%) — only the A/B could answer "does a hit save more than the probe costs"
+(no). Reverted to v2's direct rank+diff path; the k8-probe-locality
+instrumentation and this record are kept.

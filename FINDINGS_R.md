@@ -1530,9 +1530,14 @@ stop growing *entirely*; every measured rung grew it ×1.29–1.47. Projected:
 ~3.8 T nodes / ~19.3 h with `--zpdb8` against ~16.8 T / ~28.6 h without —
 **~9 h saved**, with the unmeasured 150 cut ratio the only soft spot.
 Constraints that stand: the tables oversubscribe RAM (RSS plateaus at 19.9 GB
-of 37.8 GB mapped; parallel contention +13.6% vs cWD's +7.7%), and the unpulled
-levers — a per-worker (idx → h) memo cache, k8 slot sharing, W=12 — would each
-convert the 148 tie into a win. Full program log: `data/r_flat_k8_lazy.txt`.
+of 37.8 GB mapped; parallel contention +13.6% vs cWD's +7.7%). Of the candidate
+levers, the **value-memo cache is measured dead** — despite an 89.45% real hit
+rate, every size lost (2 MB +3.6%, 8 MB +11.3%, 32 MB +13%, W=8 at 146),
+because the work it memoizes (a cache-hot rank + mostly-resident byte read,
+~25 ns) is cheaper than any random memo lookup large enough to hit; hit rate is
+not savings, the cache-side sibling of §8i's sample-share law. Still unpulled:
+k8 slot sharing (~5–10% of the layer) and W=12 (+21%, machine-saturating).
+Full program log: `data/r_flat_k8_lazy.txt`.
 
 ## 9. Summary
 
