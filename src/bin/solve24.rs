@@ -48,6 +48,10 @@ struct Args {
     /// Stop after this many nodes. Benchmarking only — a truncated run proves
     /// nothing. `u64::MAX` = no budget.
     max_nodes: u64,
+    /// Use the tree-splitting parallel driver. Thread count comes from rayon,
+    /// i.e. `RAYON_NUM_THREADS` or the core count — matching how the deleted
+    /// recursive driver was invoked (`PUZZLE24.md:484`).
+    parallel: bool,
 }
 
 const USAGE: &str = "\
@@ -59,6 +63,10 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           dist >= T. omit to solve optimally with no cap.
   --no-root-orbit-split   disable the σ-orbit split (auto-on when the board is
                           σ-symmetric). use to cross-check a proof.
+  --parallel              split each threshold into subtrees and search them on
+                          rayon workers. Node counts are identical to the
+                          sequential driver. Thread count from RAYON_NUM_THREADS
+                          (default: core count).
   --max-nodes N           stop after N nodes. BENCHMARKING ONLY — the result is
                           not a proof, and is reported as such. Useful because
                           the engine is node-identical across variants, so a
@@ -70,6 +78,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut max_bound = None;
     let mut root_orbit_split = None;
     let mut max_nodes = u64::MAX;
+    let mut parallel = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -91,6 +100,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 max_bound = Some(t - 1);
             }
             "--no-root-orbit-split" => root_orbit_split = Some(false),
+            "--parallel" => parallel = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -116,6 +126,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         max_bound,
         root_orbit_split,
         max_nodes,
+        parallel,
     })
 }
 
@@ -320,58 +331,84 @@ fn main() -> ExitCode {
         0u64, // nodes at the last threshold boundary
     ));
 
+    if args.parallel && args.max_nodes != u64::MAX {
+        eprintln!("error: --max-nodes is not supported with --parallel");
+        eprintln!("       (the budget would cut each worker independently, so the");
+        eprintln!("        truncation point would not be reproducible)");
+        return ExitCode::FAILURE;
+    }
+
+    if args.parallel {
+        eprintln!(
+            "parallel: tree-splitting driver on {} rayon workers (RAYON_NUM_THREADS to change)",
+            rayon::current_num_threads()
+        );
+    }
+
     let ((outcome, st), search_dt) = timed_search(t0.elapsed(), || {
         let mut prev_nodes = 0u64;
-        flat_bounded_budgeted(
-            &start,
-            &cwd,
-            &dfa,
-            orbit,
-            args.max_bound.unwrap_or(u8::MAX),
-            args.max_nodes,
-            |bound, stats, iter_dt| {
-                let nodes = stats.nodes - prev_nodes;
-                prev_nodes = stats.nodes;
-                let secs = iter_dt.as_secs_f64();
-                let rate = if secs > 0.0 {
-                    nodes as f64 / secs / 1e6
-                } else {
-                    0.0
-                };
-                eprintln!(
-                    "[{}] threshold {bound:>3} exhausted: {nodes:>15} nodes in {iter_dt:.2?} \
+        let on_iter = |bound: u8, stats: &SearchStats, iter_dt: std::time::Duration| {
+            let nodes = stats.nodes - prev_nodes;
+            prev_nodes = stats.nodes;
+            let secs = iter_dt.as_secs_f64();
+            let rate = if secs > 0.0 {
+                nodes as f64 / secs / 1e6
+            } else {
+                0.0
+            };
+            eprintln!(
+                "[{}] threshold {bound:>3} exhausted: {nodes:>15} nodes in {iter_dt:.2?} \
                      ({rate:.2} Mn/s)",
-                    now_hms()
-                );
-                // Per-node event rates for this threshold alone. Counts are
-                // frequency-independent, so these are comparable across
-                // thresholds even on battery.
-                // Start recording when the FIRST threshold finishes — that is
-                // the moment the deeper pass begins. Keying on the deeper bound
-                // instead would never fire, because a budgeted run never
-                // exhausts it.
-                #[cfg(feature = "probe-locality")]
-                if prev_nodes == nodes {
-                    eprintln!("    probe-locality: recording the next 40M probes of the next pass");
-                    puzzle8::puzzle24::probe_locality::start(40_000_000);
+                now_hms()
+            );
+            // Per-node event rates for this threshold alone. Counts are
+            // frequency-independent, so these are comparable across
+            // thresholds even on battery.
+            // Start recording when the FIRST threshold finishes — that is
+            // the moment the deeper pass begins. Keying on the deeper bound
+            // instead would never fire, because a budgeted run never
+            // exhausts it.
+            #[cfg(feature = "probe-locality")]
+            if prev_nodes == nodes {
+                eprintln!("    probe-locality: recording the next 40M probes of the next pass");
+                puzzle8::puzzle24::probe_locality::start(40_000_000);
+            }
+            #[cfg(feature = "pmu-counters")]
+            if let Some(p) = pmu.as_ref() {
+                let now = p.read();
+                let mut st = pmu_state.borrow_mut();
+                for (i, name) in p.names().iter().enumerate() {
+                    let d = now.get(i).copied().unwrap_or(0) - st.0.get(i).copied().unwrap_or(0);
+                    eprintln!(
+                        "    pmu {name:<28} {d:>18}  {:>8.3} /node",
+                        d as f64 / nodes as f64
+                    );
                 }
-                #[cfg(feature = "pmu-counters")]
-                if let Some(p) = pmu.as_ref() {
-                    let now = p.read();
-                    let mut st = pmu_state.borrow_mut();
-                    for (i, name) in p.names().iter().enumerate() {
-                        let d =
-                            now.get(i).copied().unwrap_or(0) - st.0.get(i).copied().unwrap_or(0);
-                        eprintln!(
-                            "    pmu {name:<28} {d:>18}  {:>8.3} /node",
-                            d as f64 / nodes as f64
-                        );
-                    }
-                    st.0 = now;
-                    st.1 = stats.nodes;
-                }
-            },
-        )
+                st.0 = now;
+                st.1 = stats.nodes;
+            }
+        };
+
+        if args.parallel {
+            puzzle8::puzzle24::search::flat::flat_bounded_parallel(
+                &start,
+                &cwd,
+                &dfa,
+                orbit,
+                args.max_bound.unwrap_or(u8::MAX),
+                on_iter,
+            )
+        } else {
+            flat_bounded_budgeted(
+                &start,
+                &cwd,
+                &dfa,
+                orbit,
+                args.max_bound.unwrap_or(u8::MAX),
+                args.max_nodes,
+                on_iter,
+            )
+        }
     });
     let elapsed = t0.elapsed();
 

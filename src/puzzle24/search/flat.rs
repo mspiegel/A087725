@@ -645,20 +645,323 @@ enum Step {
 /// the result down as depth 0. Also seeds the DFA state and the root's candidate
 /// set (where the σ-orbit filter applies — it is a `g == 0`-only rule, so it
 /// belongs here rather than in the loop).
-fn seed_root(
-    arena: &mut Arena,
+
+// ============================ parallel driver =================================
+
+/// Grow the frontier to about this many subtree roots before going parallel.
+///
+/// Far more than the core count, because subtree sizes vary by orders of
+/// magnitude and rayon's work-stealing needs slack to balance them. The deleted
+/// recursive driver used the same figure for the same reason.
+#[cfg(feature = "parallel")]
+const SPLIT_TARGET: usize = 4096;
+
+/// Probe-cache size for a *worker*, in bits.
+///
+/// Deliberately smaller than the sequential [`CACHE_BITS`]. On this machine 4
+/// P-cores share one 16 MB L2, so per-thread caches contend: at 18 bits (8.4 MB)
+/// four workers want 33.6 MB of a 16 MB L2. 16 bits is 2.1 MB each, 8.4 MB per
+/// cluster — the sizing recorded at [`CACHE_BITS`]. Re-A/B if the thread count
+/// or the machine changes.
+#[cfg(feature = "parallel")]
+const WORKER_CACHE_BITS: u32 = 16;
+
+/// One subtree-root work unit: enough to reseed a worker's arena, plus the
+/// move-prefix that reaches it so a worker finding the goal can return a full
+/// path from `start`.
+#[cfg(feature = "parallel")]
+struct Unit {
+    board: State,
+    /// Depth of this node below the true root. A worker searches with
+    /// `bound - g`, which is why `run_iteration` needs no depth offset.
+    g: u8,
+    /// Move-DFA state, and the move that reached this node. Both are *carried*,
+    /// never recomputed: re-seeding the DFA here would forget the prefix and
+    /// admit sequences the sequential engine prunes.
+    dfa: u32,
+    last: Move,
+    prefix: Vec<Move>,
+    h: u8,
+}
+
+/// [`flat_bounded`] with each threshold iteration parallelised by
+/// **tree-splitting + work-stealing**.
+///
+/// A cheap sequential expansion grows a frontier of ~[`SPLIT_TARGET`] subtree
+/// roots, then rayon runs the *unmodified* sequential loop on each subtree and the
+/// results are reduced: SUM the stats, MIN the next threshold, first `Solved`
+/// wins.
+///
+/// # Why this is sound
+///
+/// Exhausting a threshold in parallel still proves `dist ≥ next`, because MIN is
+/// order-independent and every node with `f ≤ bound` is visited by exactly one
+/// worker. IDA\* stays memory-light — a worker holds one arena (~21 KB) plus its
+/// probe cache — so this does not blow up the way parallel A\* does.
+///
+/// # Node identity
+///
+/// The total node count must equal the sequential engine's exactly, which
+/// constrains the accounting. Each node is counted **once**: on pop when it is
+/// expanded during the split, immediately when it is built and found over-bound
+/// (it is never popped), and by its own worker's root-count when it survives into
+/// the frontier. The split reuses [`child_lb`] and [`build_child`] through a
+/// scratch arena rather than reimplementing them, so its pruning decisions cannot
+/// drift from the sequential engine's.
+#[cfg(feature = "parallel")]
+pub fn flat_bounded_parallel<F>(
     start: &State,
     cwd: &Cwd,
-    merged: &CwdMerged,
     dfa: &MoveDfa,
     orbit_split: bool,
+    max_bound: u8,
+    mut on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    use rayon::prelude::*;
+    use std::collections::VecDeque;
+
+    let merged = cwd
+        .merged_table()
+        .expect("flat_bounded needs the merged cWD table (data/cwd_single.bin)");
+    let lut = cwd.demand_lut();
+    let neighbor_prune = cwd.neighbor_prune_enabled();
+    debug_assert!(
+        !orbit_split || symmetry::is_symmetric(start),
+        "root orbit-split is only sound on a σ-fixed board"
+    );
+
+    let mut stats = SearchStats::default();
+    if start == &GOAL {
+        return (BoundedOutcome::Solved(Vec::new()), stats);
+    }
+
+    // Scratch arena/cache for the sequential split. Small cache: the split visits
+    // only a few thousand nodes, so a big one would be cold anyway.
+    let mut split_arena = Arena::new();
+    let mut split_cache = ProbeCache::with_bits(12);
+
+    let h0 = seed_root(&mut split_arena, start, cwd, merged, dfa, orbit_split);
+    let mut bound = h0;
+
+    loop {
+        if bound > max_bound {
+            return (BoundedOutcome::ProvedAtLeast(bound), stats);
+        }
+        stats.iterations += 1;
+        let iter_start = std::time::Instant::now();
+
+        // ---- split: sequential expansion into a frontier of subtree roots ----
+        let mut frontier: VecDeque<Unit> = VecDeque::new();
+        frontier.push_back(Unit {
+            board: *start,
+            g: 0,
+            dfa: <MoveDfa as super::move_dfa::MovePruner>::root_state(dfa, start.blank_pos()),
+            last: Move::Up, // unused at the root; `seed_root` supplies its cand set
+            prefix: Vec::new(),
+            h: h0,
+        });
+        let mut min_f = u8::MAX;
+        let mut found: Option<Vec<Move>> = None;
+
+        while frontier.len() < SPLIT_TARGET {
+            let Some(u) = frontier.pop_front() else { break };
+            stats.nodes += 1; // counted here because it is expanded, not searched
+            if u.h > bound {
+                if u.h < min_f {
+                    min_f = u.h;
+                }
+                continue;
+            }
+            if u.h == 0 {
+                found = Some(u.prefix);
+                break;
+            }
+            // Reseed the scratch arena at this node. The root keeps `seed_root`'s
+            // candidate set, which carries the σ-orbit filter.
+            if u.g == 0 {
+                seed_root(&mut split_arena, &u.board, cwd, merged, dfa, orbit_split);
+            } else {
+                seed_subtree(&mut split_arena, &u.board, u.dfa, u.last, merged, dfa);
+            }
+            let mut cand = split_arena.hot[0].cand;
+            let g_next = u.g + 1;
+            while !cand.is_empty() {
+                let m = pop_lowest(&mut cand);
+                let geom = GEOM[split_arena.hot[0].blank as usize][m as usize];
+                let tile = split_arena.board[0].0 .0[geom.from as usize] as usize;
+                if neighbor_prune {
+                    if let Some(lb) = child_lb(&split_arena, 0, m, geom, tile) {
+                        let f = g_next.saturating_add(lb);
+                        if f > bound {
+                            if f < min_f {
+                                min_f = f;
+                            }
+                            continue; // pre-pruned: not counted, as sequentially
+                        }
+                    }
+                }
+                build_child(
+                    &mut split_arena,
+                    &mut split_cache,
+                    0,
+                    m,
+                    geom,
+                    tile,
+                    merged,
+                    lut,
+                    dfa,
+                );
+                let h = split_arena.hot[1].h;
+                let f = g_next.saturating_add(h);
+                if f > bound {
+                    stats.nodes += 1; // over-bound: counted, never popped
+                    if f < min_f {
+                        min_f = f;
+                    }
+                    continue;
+                }
+                let mut prefix = u.prefix.clone();
+                prefix.push(m);
+                frontier.push_back(Unit {
+                    board: split_arena.board[1].0.decode(),
+                    g: g_next,
+                    dfa: split_arena.hot[1].dfa,
+                    last: m,
+                    prefix,
+                    h,
+                });
+            }
+        }
+
+        if let Some(path) = found {
+            return (BoundedOutcome::Solved(path), stats);
+        }
+        if frontier.is_empty() {
+            // The whole threshold fitted inside the split.
+            if min_f == u8::MAX {
+                return (BoundedOutcome::Unsolvable, stats);
+            }
+            on_iter(bound, &stats, iter_start.elapsed());
+            bound = min_f;
+            continue;
+        }
+
+        // ---- parallel: the sequential loop on each subtree, then reduce ----
+        enum Wr {
+            Found(Vec<Move>),
+            Bound(u8),
+        }
+        let units: Vec<Unit> = frontier.into_iter().collect();
+        let results: Vec<(Wr, SearchStats)> = units
+            .par_iter()
+            .map(|u| {
+                let mut arena = Arena::new();
+                let mut cache = ProbeCache::with_bits(WORKER_CACHE_BITS);
+                let mut st = SearchStats::default();
+                seed_subtree(&mut arena, &u.board, u.dfa, u.last, merged, dfa);
+                // f = g + d + h <= bound  <=>  d + h <= bound - g, so the worker
+                // searches its own subtree with a reduced threshold and needs no
+                // notion of the depth it sits at.
+                let reduced = bound - u.g;
+                let step = run_iteration::<false>(
+                    &mut arena,
+                    &mut cache,
+                    cwd,
+                    merged,
+                    dfa,
+                    reduced,
+                    &mut st,
+                    u64::MAX,
+                );
+                let wr = match step {
+                    Step::Found(mut path) => {
+                        let mut full = u.prefix.clone();
+                        full.append(&mut path);
+                        Wr::Found(full)
+                    }
+                    // Back into absolute terms.
+                    Step::Exhausted(n) => Wr::Bound(n.saturating_add(u.g)),
+                    Step::BudgetOut => unreachable!("the parallel driver sets no budget"),
+                };
+                (wr, st)
+            })
+            .collect();
+
+        let mut found: Option<Vec<Move>> = None;
+        for (wr, st) in results {
+            stats.nodes += st.nodes;
+            match wr {
+                Wr::Found(p) => {
+                    if found.is_none() {
+                        found = Some(p);
+                    }
+                }
+                Wr::Bound(n) => {
+                    if n < min_f {
+                        min_f = n;
+                    }
+                }
+            }
+        }
+        if let Some(p) = found {
+            return (BoundedOutcome::Solved(p), stats);
+        }
+        if min_f == u8::MAX {
+            return (BoundedOutcome::Unsolvable, stats);
+        }
+        on_iter(bound, &stats, iter_start.elapsed());
+        bound = min_f;
+    }
+}
+
+/// Lay a **subtree root** down at arena depth 0.
+///
+/// Generalises [`seed_root`] for the parallel driver. The cWD axis state is
+/// recomputed from the board — one `project` plus two probes — rather than
+/// threaded through the frontier, which keeps a work unit small; at a few
+/// thousand units that cost is nothing.
+///
+/// What must NOT be recomputed is the move-history state. `dfa_state` and `last`
+/// are carried from the split, because re-seeding the DFA at a subtree root would
+/// forget the prefix that reached it and admit move sequences the sequential
+/// engine prunes — changing the tree, which is the one thing this may not do.
+#[cfg(feature = "parallel")]
+fn seed_subtree(
+    arena: &mut Arena,
+    board: &State,
+    dfa_state: u32,
+    last: Move,
+    merged: &CwdMerged,
+    dfa: &MoveDfa,
 ) -> u8 {
-    let (m_row, br, dem_row, m_col, bc, dem_col) = project(start);
+    seed_axes(arena, board, merged);
+    let blank = board.blank_pos();
+    arena.hot[0] = FrameHot {
+        cand: MoveSet(CAND[blank as usize][last as usize].0 & !dfa.prune_mask(dfa_state)),
+        minf: u8::MAX,
+        blank,
+        h: 0,
+        mv: last,
+        row_at: 0,
+        col_at: 0,
+        dfa: dfa_state,
+    };
+    let h = arena.h_at(0);
+    arena.hot[0].h = h;
+    h
+}
+
+/// Project `board` into both axes and lay the result down at arena depth 0.
+/// Shared by [`seed_root`] and [`seed_subtree`].
+fn seed_axes(arena: &mut Arena, board: &State, merged: &CwdMerged) {
+    let (m_row, br, dem_row, m_col, bc, dem_col) = project(board);
     let key_row = pack(&m_row, br);
     let key_col = pack(&m_col, bc);
-    let r = merged.get(&key_row).expect("root row state reachable");
-    let c = merged.get(&key_col).expect("root col state reachable");
-
+    let r = merged.get(&key_row).expect("row state reachable");
+    let c = merged.get(&key_col).expect("col state reachable");
     arena.row[0] = AxisSlot {
         key: key_row,
         dem: dem_row,
@@ -679,7 +982,18 @@ fn seed_root(
         #[cfg(debug_assertions)]
         m: m_col,
     };
-    arena.board[0] = BoardSlot(Coded::encode(start));
+    arena.board[0] = BoardSlot(Coded::encode(board));
+}
+
+fn seed_root(
+    arena: &mut Arena,
+    start: &State,
+    cwd: &Cwd,
+    merged: &CwdMerged,
+    dfa: &MoveDfa,
+    orbit_split: bool,
+) -> u8 {
+    seed_axes(arena, start, merged);
 
     let blank = start.blank_pos();
     let dfa0 = <MoveDfa as super::move_dfa::MovePruner>::root_state(dfa, blank);
@@ -991,7 +1305,6 @@ pub mod demand_histogram {
 /// when parallelism lands this must be re-sized, most likely back to 16 bits.
 /// Re-run the A/B at the target thread count rather than inheriting this value.
 const CACHE_BITS: u32 = 18;
-const CACHE_LEN: usize = 1 << CACHE_BITS;
 
 /// Tag and payload interleaved, 32 B aligned, so a hit touches exactly one line
 /// and a slot never straddles two.
@@ -1006,6 +1319,10 @@ struct CacheSlot {
 
 pub(crate) struct ProbeCache {
     slots: Box<[CacheSlot]>,
+    /// `64 - bits`, so the index is the high `bits` of one multiply. Held as a
+    /// field rather than a const because the right size depends on how many
+    /// threads share an L2 — see the note at [`CACHE_BITS`].
+    shift: u32,
     #[cfg(feature = "probe-cache-stats")]
     hits: u64,
     #[cfg(feature = "probe-cache-stats")]
@@ -1014,7 +1331,15 @@ pub(crate) struct ProbeCache {
 
 impl ProbeCache {
     fn new() -> Self {
+        Self::with_bits(CACHE_BITS)
+    }
+
+    /// A cache of `1 << bits` slots. The parallel driver uses fewer bits than the
+    /// sequential default: per-thread caches contend for a shared L2.
+    fn with_bits(bits: u32) -> Self {
+        assert!((8..=24).contains(&bits), "implausible probe-cache size");
         ProbeCache {
+            shift: 64 - bits,
             slots: vec![
                 CacheSlot {
                     tag: 0,
@@ -1024,7 +1349,7 @@ impl ProbeCache {
                         nbr_wd: [255; 2 * W],
                     },
                 };
-                CACHE_LEN
+                1usize << bits
             ]
             .into_boxed_slice(),
             #[cfg(feature = "probe-cache-stats")]
@@ -1047,15 +1372,15 @@ impl ProbeCache {
     /// of a multiply spreads them, the same reason the table's own hash folds the
     /// high half down.
     #[inline(always)]
-    fn slot_of(key: u64) -> usize {
-        ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - CACHE_BITS)) as usize
+    fn slot_of(&self, key: u64) -> usize {
+        ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize
     }
 
     /// Memoised probe. Returns exactly what `merged.get(&key)` would.
     #[inline(always)]
     fn get<'a>(&'a mut self, merged: &'a CwdMerged, key: u64) -> &'a super::cwd::CwdCell {
         debug_assert_ne!(key, 0, "key 0 collides with the empty-slot sentinel");
-        let i = Self::slot_of(key);
+        let i = self.slot_of(key);
         if self.slots[i].tag != key {
             let cell = *merged.get(&key).expect("state reachable");
             self.slots[i] = CacheSlot { tag: key, cell };
@@ -1580,6 +1905,87 @@ mod tests {
         assert!(
             nodes_total > 30_000_000,
             "oracle got weaker: only {nodes_total} nodes searched"
+        );
+    }
+
+    /// **The parallel gate.** The tree-splitting driver must reproduce the frozen
+    /// oracle exactly — same outcomes, same node counts, same iteration counts.
+    ///
+    /// Node identity is the correctness argument for the parallel driver — but it
+    /// holds only for an **exhausted** threshold, and the distinction is not a
+    /// technicality:
+    ///
+    /// * **Exhausted** (`ProvedAtLeast`): every node with `f ≤ bound` is visited by
+    ///   exactly one worker whatever the order, so the count is order-independent
+    ///   and must match to the node. Any drift in the split's pruning or
+    ///   accounting shows up here.
+    /// * **Solving** (`Solved`): the search short-circuits on the goal. The
+    ///   sequential engine is depth-first and returns the moment it hits `h == 0`,
+    ///   never building shallower siblings; the split expands breadth-first and
+    ///   builds nodes the DFS never reached. Counts legitimately differ — only the
+    ///   solution *length* is invariant, and that is what optimality means. The
+    ///   deleted recursive driver documented the same caveat.
+    ///
+    /// This matters for the `R` program not at all, since it is exhaust-only, and
+    /// the two production checks are both exhausts: 422,379,806 at exhaust-144 and
+    /// 18,189,473,636 at exhaust-146, both reproduced exactly.
+    ///
+    /// Most oracle cases are small enough to finish inside the split, which
+    /// exercises the "threshold fitted inside the split" path a large board never
+    /// reaches.
+    #[cfg(all(feature = "cwd-table-tests", feature = "parallel"))]
+    #[test]
+    fn flat_parallel_matches_frozen_oracle() {
+        let Some(cwd) = cwd_merged_or_skip() else {
+            return;
+        };
+        let dfa = MoveDfa::build_default();
+        let mut checked = 0usize;
+        let mut exhausts = 0usize;
+        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
+            .iter()
+            .enumerate()
+        {
+            let s = State(c.board);
+            let (po, ps) =
+                flat_bounded_parallel(&s, cwd, &dfa, c.orbit_split, c.bound, |_, _, _| {});
+            let ok = match &po {
+                BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
+                BoundedOutcome::ProvedAtLeast(k) => c.tag == 1 && *k == c.val,
+                BoundedOutcome::Unsolvable => c.tag == 2,
+                BoundedOutcome::BudgetExhausted(_) => {
+                    panic!("the parallel driver sets no budget")
+                }
+            };
+            assert!(
+                ok,
+                "case {i}: parallel outcome differs: {po:?} vs frozen tag={} val={}",
+                c.tag, c.val
+            );
+            // Counts are comparable only on an exhausted threshold (see above): a
+            // solving run short-circuits, and DFS versus split-BFS reach the goal
+            // after different amounts of work.
+            if c.tag == 1 {
+                assert_eq!(
+                    ps.nodes, c.nodes,
+                    "case {i}: parallel node count differs on an EXHAUST \
+                     (board {:?}, bound {})",
+                    c.board, c.bound
+                );
+                assert_eq!(
+                    ps.iterations, c.iterations,
+                    "case {i}: iteration count differs"
+                );
+                exhausts += 1;
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 180, "oracle case count changed");
+        // Guard the guard: if the oracle ever lost its exhaust cases, the
+        // node-identity assertion above would become vacuous.
+        assert!(
+            exhausts >= 100,
+            "expected ~117 exhausted-threshold cases, got {exhausts}"
         );
     }
 
