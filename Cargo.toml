@@ -55,6 +55,13 @@ cwd-table-tests = []
 # fully associative and therefore blind to the CONFLICT misses a direct-mapped
 # cache suffers — it under-predicted the 64K->256K win by ~14x.
 probe-cache-stats = []
+# Locality of the k8 zPDB diff_lookup stream (--zpdb8, sequential only): online
+# direct-mapped (idx -> h) memo-cache simulation at several sizes, plus the
+# distinct 16 KiB page set per table. Sizes the k8 memo cache the same way the
+# probe-locality + probe-cache-stats pair sized CACHE_BITS — but simulating the
+# direct-mapped structure itself, since the LRU model's 14x under-prediction of
+# conflict misses is a recorded lesson. Off by default (a sim update per probe).
+k8-probe-locality = []
 # Page-locality of the merged-table probe: records the 16 KiB page of every
 # probed cell and runs it through fixed-size LRUs to produce a TLB hit-rate vs
 # reach curve. Off by default (an LRU probe per node). No root needed.

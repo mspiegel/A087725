@@ -450,6 +450,9 @@ fn main() -> ExitCode {
     });
     let elapsed = t0.elapsed();
 
+    #[cfg(feature = "k8-probe-locality")]
+    puzzle8::puzzle24::search::flat::k8_locality_report();
+
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.
     #[cfg(feature = "pmu-counters")]

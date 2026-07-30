@@ -571,6 +571,90 @@ struct K8Slot {
     h: [[u8; 3]; 2],
 }
 
+/// Online locality instrumentation for the k8 `diff_lookup` stream.
+///
+/// Simulates the candidate **(idx → h) memo cache** directly — direct-mapped at
+/// several sizes, keyed `idx * 3 + table` with the same multiply-shift index as
+/// [`ProbeCache`] — and tracks the distinct 16 KiB pages touched per table
+/// (131,072 one-bit entries per page on this machine). Sequential runs only.
+#[cfg(feature = "k8-probe-locality")]
+mod k8_locality {
+    use std::sync::Mutex;
+
+    const BITS: [u32; 6] = [14, 16, 18, 20, 22, 24];
+
+    struct Sim {
+        tags: Vec<Vec<u64>>,      // per BITS entry: 1 << bits tag slots, 0 = empty
+        hits: [u64; BITS.len()],
+        probes: u64,
+        per_table: [u64; 3],
+        pages: [std::collections::HashSet<u32>; 3],
+    }
+
+    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
+
+    pub fn record(table: usize, idx: u64) {
+        let mut g = SIM.lock().unwrap();
+        let sim = g.get_or_insert_with(|| Sim {
+            tags: BITS.iter().map(|b| vec![0u64; 1usize << b]).collect(),
+            hits: [0; BITS.len()],
+            probes: 0,
+            per_table: [0; 3],
+            pages: Default::default(),
+        });
+        sim.probes += 1;
+        sim.per_table[table] += 1;
+        sim.pages[table].insert((idx >> 17) as u32);
+        let key = idx * 3 + table as u64 + 1; // +1 so 0 stays "empty"
+        let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        for (i, b) in BITS.iter().enumerate() {
+            let slot = (h >> (64 - b)) as usize;
+            if sim.tags[i][slot] == key {
+                sim.hits[i] += 1;
+            } else {
+                sim.tags[i][slot] = key;
+            }
+        }
+    }
+
+    pub fn report() {
+        let g = SIM.lock().unwrap();
+        let Some(sim) = g.as_ref() else {
+            eprintln!("k8-probe-locality: no probes recorded");
+            return;
+        };
+        eprintln!("k8 probe locality (diff_lookup stream, sequential):");
+        eprintln!(
+            "  probes: {}  (a {}, b {}, c {})",
+            sim.probes, sim.per_table[0], sim.per_table[1], sim.per_table[2]
+        );
+        for t in 0..3 {
+            let pg = sim.pages[t].len();
+            eprintln!(
+                "  table {}: {} distinct 16KiB pages = {:.2} GB touched (of 10.9 GB)",
+                (b'a' + t as u8) as char,
+                pg,
+                pg as f64 * 16384.0 / 1e9
+            );
+        }
+        eprintln!("  direct-mapped (idx -> h) memo, 8 B/slot tags+val:");
+        for (i, b) in BITS.iter().enumerate() {
+            eprintln!(
+                "    bits={b:2}  {:7.3}% hit  ({} misses, {:>4} MB/worker)",
+                100.0 * sim.hits[i] as f64 / sim.probes as f64,
+                sim.probes - sim.hits[i],
+                (1u64 << b) * 8 / (1 << 20),
+            );
+        }
+    }
+}
+
+/// Print the k8 probe-locality report (see [`k8_locality`]).
+#[cfg(feature = "k8-probe-locality")]
+pub fn k8_locality_report() {
+    k8_locality::report();
+}
+
 /// Seed depth-0 k8 state from `board`: 6 projections + 6 cold lookups (O(h)
 /// each — this is the once-per-subtree cost, never the per-node cost). Returns
 /// `max` of the two views' additive sums.
@@ -626,6 +710,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         let cost = v.apply_in_place_at(b, n);
         debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
         let idx = db.layout().rank(v, db.pattern());
+        #[cfg(feature = "k8-probe-locality")]
+        k8_locality::record(gi, idx);
         child.h[0][gi] = db.diff_lookup(idx, parent.h[0][gi]);
     }
 
@@ -641,6 +727,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         let cost = v.apply_in_place_at(rb, rn);
         debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
         let idx = db.layout().rank(v, db.pattern());
+        #[cfg(feature = "k8-probe-locality")]
+        k8_locality::record(gj, idx);
         child.h[1][gj] = db.diff_lookup(idx, parent.h[1][gj]);
     }
 

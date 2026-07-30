@@ -107,3 +107,41 @@ Levers not yet pulled (would convert the 148 tie into a win and widen 150):
     oversubscribe RAM; a small cache attacks refaults the way CACHE_BITS did);
   - slot sharing (k8_at indices) to kill the 306 B copy;
   - W=12 (the +21% E-core option, declined for interactive use).
+
+Memo-cache sizing measurement (k8-probe-locality feature, 2026-07-30)
+---------------------------------------------------------------------
+Method: mirror of the cWD probe-cache sizing, but simulating the candidate
+structure ITSELF — an (idx -> h) direct-mapped memo, key = idx*3+table, same
+multiply-shift index as ProbeCache — online during a budgeted sequential run
+(--zpdb8 --max-nodes 1.8B: all of 144 plus ~1.5B nodes of the 146 pass; ~9% of
+the stream is the 144 regime). Hooked at k8_child's two diff_lookup sites; seed
+cold_lookups excluded. An (idx -> h) hit is sound path-independently because
+diff_lookup's old_h argument only disambiguates the 1-bit encoding — h is a
+function of idx alone. NOTE: the memo key is idx, which is computed by rank —
+so a hit skips the TABLE TOUCH only, not the rank.
+
+  probes: 2,776,598,476 (1.55/node; tables a/b/c 36%/31%/33%)
+  distinct 16 KiB pages: a 2.86 GB, b 2.26 GB, c 3.78 GB = 8.9 GB in one slice
+
+  bits  /worker   hit      misses/node
+  14    128 KB    63.76%   0.56
+  16    512 KB    73.49%   0.41
+  18      2 MB    81.29%   0.29     (cWD probe cache at ~this size: 98.6%)
+  20      8 MB    87.31%   0.20
+  22     32 MB    91.87%   0.13
+  24    128 MB    95.14%   0.075
+
+Findings:
+1. Cacheable, but 20x weaker locality than cWD's stream (0.29 vs 0.0141
+   misses/node at 18 bits). The aggregate ~2000x reuse is spread thin.
+2. NO KNEE: ~5pp per 4x of size to 128 MB. Sizing is a budget call; 20-22 bits
+   is the sensible range (64-256 MB total at W=8, noise next to 32.8 GB of
+   tables).
+3. The 8.9 GB page set in one slice confirms E4: the k8 working set can never
+   be resident (~14 GB of RAM left after cWD + OS), so memo misses keep paying
+   refault-class costs. No residency tuning escapes this.
+
+Estimated lever value: ~20-30 ns/node (~a quarter of the k8 layer) at 87-92%
+hit — enough to flip the 0.05% tie at 148, far short of the cWD cache's win.
+Not built yet; the A/B cycle is ~40 min (memo in k8_child, regate 269,180,917 /
+8,539,130,554, race 146 W=8).
