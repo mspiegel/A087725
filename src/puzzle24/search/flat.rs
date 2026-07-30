@@ -1047,6 +1047,283 @@ pub fn k8_surplus_report() {
     k8_surplus::report();
 }
 
+/// Prune-config **harvest**: which configurations participate in successful
+/// prunes, how many distinct ones there are, and whether a set harvested at
+/// one threshold / time-slice covers the prunes of the next.
+///
+/// Phase A = the first bound seen (full 144 iteration): harvest every
+/// load-bearing config (surplus ≥ 2 at a pruning consult) into a Bloom set.
+/// Phase B = the next bound: the first `SPLIT_AT` prune events harvest a
+/// second set; all later events are held out and replayed against both sets —
+/// an event is "reproduced" if serving map-hits their `h` and misses their MD
+/// still clears the prune bound. Count-based; sequential runs only.
+#[cfg(feature = "k8-probe-locality")]
+mod k8_harvest {
+    use std::sync::Mutex;
+
+    const SPLIT_AT: u64 = 50_000_000;
+
+    struct Hll {
+        reg: Vec<u8>,
+    }
+    impl Hll {
+        fn new() -> Self {
+            Hll { reg: vec![0; 1 << 14] }
+        }
+        fn add(&mut self, h: u64) {
+            let i = (h >> 50) as usize;
+            let z = (h << 14).leading_zeros() as u8 + 1;
+            if z > self.reg[i] {
+                self.reg[i] = z;
+            }
+        }
+        fn estimate(&self) -> f64 {
+            let m = self.reg.len() as f64;
+            let sum: f64 = self.reg.iter().map(|&r| 2f64.powi(-(r as i32))).sum();
+            let e = 0.7213 / (1.0 + 1.079 / m) * m * m / sum;
+            if e <= 2.5 * m {
+                let zeros = self.reg.iter().filter(|&&r| r == 0).count();
+                if zeros > 0 {
+                    return m * (m / zeros as f64).ln();
+                }
+            }
+            e
+        }
+    }
+
+    /// 512 MB Bloom filter (2^32 bits, 4 double-hashed probes): for even 300 M
+    /// inserts the false-positive rate is well under 1%, and false positives
+    /// only *overstate* coverage — flagged in the report.
+    struct Bloom {
+        bits: Vec<u64>,
+    }
+    impl Bloom {
+        fn new() -> Self {
+            Bloom { bits: vec![0u64; 1 << 26] }
+        }
+        #[inline]
+        fn idx(key: u64, i: u64) -> usize {
+            let h1 = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let h2 = key.wrapping_mul(0xC2B2_AE3D_27D4_EB4F) | 1;
+            (h1.wrapping_add(i.wrapping_mul(h2)) >> 32) as usize
+        }
+        fn insert(&mut self, key: u64) {
+            for i in 0..4 {
+                let b = Self::idx(key, i);
+                self.bits[b >> 6] |= 1u64 << (b & 63);
+            }
+        }
+        fn contains(&self, key: u64) -> bool {
+            (0..4).all(|i| {
+                let b = Self::idx(key, i);
+                self.bits[b >> 6] & (1u64 << (b & 63)) != 0
+            })
+        }
+    }
+
+    struct Sim {
+        first_bound: u8,
+        a_events: u64,
+        a_inserts: u64,
+        a_hll: Hll,
+        a_bloom: Bloom,
+        b_events: u64,
+        b_inserts: u64,
+        b_hll_half: Hll,
+        b_bloom: Bloom,
+        b_hll_all: Hll,
+        test_events: u64,
+        covered_by_a: u64,
+        covered_by_b: u64,
+        cfg_total: u64,
+        cfg_in_a: u64,
+        lb_hist: [u64; 7],
+        view_win: [u64; 3],
+        depth_hist: [u64; 16],
+    }
+
+    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record(
+        h: &[[u8; 3]; 2],
+        md: &[[u8; 3]; 2],
+        keys: &[[u64; 3]; 2],
+        need: u8,
+        bound: u8,
+        depth: u8,
+    ) {
+        let mut g = SIM.lock().unwrap();
+        let sim = g.get_or_insert_with(|| Sim {
+            first_bound: bound,
+            a_events: 0,
+            a_inserts: 0,
+            a_hll: Hll::new(),
+            a_bloom: Bloom::new(),
+            b_events: 0,
+            b_inserts: 0,
+            b_hll_half: Hll::new(),
+            b_bloom: Bloom::new(),
+            b_hll_all: Hll::new(),
+            test_events: 0,
+            covered_by_a: 0,
+            covered_by_b: 0,
+            cfg_total: 0,
+            cfg_in_a: 0,
+            lb_hist: [0; 7],
+            view_win: [0; 3],
+            depth_hist: [0; 16],
+        });
+
+        // Features.
+        let mut lb = 0usize;
+        for v in 0..2 {
+            for k in 0..3 {
+                if h[v][k] > md[v][k] {
+                    lb += 1;
+                }
+            }
+        }
+        sim.lb_hist[lb] += 1;
+        let need16 = need as u16;
+        let sum = |v: usize| (0..3).map(|k| h[v][k] as u16).sum::<u16>();
+        let (p0, p1) = (sum(0) > need16, sum(1) > need16);
+        sim.view_win[if p0 && p1 { 2 } else if p0 { 0 } else { 1 }] += 1;
+        sim.depth_hist[((depth / 4) as usize).min(15)] += 1;
+
+        let khash = |key: u64| key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let phase_a = bound == sim.first_bound;
+        if phase_a {
+            sim.a_events += 1;
+            for v in 0..2 {
+                for k in 0..3 {
+                    if h[v][k] > md[v][k] {
+                        sim.a_bloom.insert(keys[v][k]);
+                        sim.a_hll.add(khash(keys[v][k]));
+                        sim.a_inserts += 1;
+                    }
+                }
+            }
+        } else {
+            sim.b_events += 1;
+            for v in 0..2 {
+                for k in 0..3 {
+                    if h[v][k] > md[v][k] {
+                        sim.b_hll_all.add(khash(keys[v][k]));
+                    }
+                }
+            }
+            if sim.b_events <= SPLIT_AT {
+                for v in 0..2 {
+                    for k in 0..3 {
+                        if h[v][k] > md[v][k] {
+                            sim.b_bloom.insert(keys[v][k]);
+                            sim.b_hll_half.add(khash(keys[v][k]));
+                            sim.b_inserts += 1;
+                        }
+                    }
+                }
+            } else {
+                sim.test_events += 1;
+                let served = |bloom: &Bloom| -> u16 {
+                    (0..2)
+                        .map(|v| {
+                            (0..3)
+                                .map(|k| {
+                                    if h[v][k] == md[v][k] || bloom.contains(keys[v][k]) {
+                                        h[v][k] as u16
+                                    } else {
+                                        md[v][k] as u16
+                                    }
+                                })
+                                .sum::<u16>()
+                        })
+                        .max()
+                        .unwrap()
+                };
+                // borrow dance: read blooms via raw refs before mutating counters
+                let (ca, cb) = {
+                    let sa = served(&sim.a_bloom) > need16;
+                    let sb = served(&sim.b_bloom) > need16;
+                    (sa, sb)
+                };
+                if ca {
+                    sim.covered_by_a += 1;
+                }
+                if cb {
+                    sim.covered_by_b += 1;
+                }
+                for v in 0..2 {
+                    for k in 0..3 {
+                        if h[v][k] > md[v][k] {
+                            sim.cfg_total += 1;
+                            if sim.a_bloom.contains(keys[v][k]) {
+                                sim.cfg_in_a += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn report() {
+        let g = SIM.lock().unwrap();
+        let Some(sim) = g.as_ref() else {
+            return;
+        };
+        eprintln!("k8 prune-config harvest:");
+        eprintln!(
+            "  phase A (bound {}): {} prune events, {} load-bearing inserts, distinct ~{:.2e} (reuse {:.1}x)",
+            sim.first_bound,
+            sim.a_events,
+            sim.a_inserts,
+            sim.a_hll.estimate(),
+            sim.a_inserts as f64 / sim.a_hll.estimate().max(1.0),
+        );
+        eprintln!(
+            "  phase B: {} prune events; harvest half {} inserts, distinct ~{:.2e}; all-B distinct ~{:.2e}",
+            sim.b_events,
+            sim.b_inserts,
+            sim.b_hll_half.estimate(),
+            sim.b_hll_all.estimate(),
+        );
+        eprintln!(
+            "  held-out coverage ({} events; Bloom fp inflates these slightly):",
+            sim.test_events
+        );
+        eprintln!(
+            "    by phase-A set (prev threshold): {:6.2}% events reproduced; {:.2}% of load-bearing configs present",
+            100.0 * sim.covered_by_a as f64 / sim.test_events.max(1) as f64,
+            100.0 * sim.cfg_in_a as f64 / sim.cfg_total.max(1) as f64,
+        );
+        eprintln!(
+            "    by B-first-half set (same threshold): {:6.2}% events reproduced",
+            100.0 * sim.covered_by_b as f64 / sim.test_events.max(1) as f64,
+        );
+        eprint!("  load-bearing group-views per prune event [0..6]:");
+        for v in &sim.lb_hist {
+            eprint!(" {v}");
+        }
+        eprintln!();
+        eprintln!(
+            "  winning view: normal {} reflected {} both {}",
+            sim.view_win[0], sim.view_win[1], sim.view_win[2]
+        );
+        eprint!("  prune depth (buckets of 4 plies):");
+        for v in &sim.depth_hist {
+            eprint!(" {v}");
+        }
+        eprintln!();
+    }
+}
+
+/// Print the harvest report.
+#[cfg(feature = "k8-probe-locality")]
+pub fn k8_harvest_report() {
+    k8_harvest::report();
+}
+
 /// Manhattan distance of one group-view's pattern tiles (goal cell of tile `t`
 /// is `t − 1`; holds for the reflected view too, since σ fixes GOAL).
 #[cfg(feature = "k8-probe-locality")]
@@ -2156,6 +2433,22 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
                 }
                 // f2 = g_next + H > bound  <=>  H > bound - g_next
                 k8_surplus::record(&slot.h, &md, gi, gj, bound - g_next);
+                // Harvest only actual prune events (hk8 > need).
+                if hk8 > bound - g_next {
+                    let n = geom.from as usize;
+                    let mut keys = [[0u64; 3]; 2];
+                    for v in 0..2 {
+                        let blank = if v == 0 { n } else { symmetry::SIGMA[n] as usize };
+                        for k in 0..3 {
+                            let mut key = 0u64;
+                            for (j, &t) in ctx.tiles[k].iter().enumerate() {
+                                key |= (slot.views[v][k].pos_of(t) as u64) << (5 * j);
+                            }
+                            keys[v][k] = key | (blank as u64) << 40 | (k as u64) << 45;
+                        }
+                    }
+                    k8_harvest::record(&slot.h, &md, &keys, bound - g_next, bound, g_next);
+                }
             }
             if hk8 > h {
                 let f2 = g_next.saturating_add(hk8);

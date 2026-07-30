@@ -394,3 +394,39 @@ Global cold_lookup sampling harness skipped — no viable s to size.
 k8 lever ledger: memo DEAD, madvise DEAD, slot sharing WASH, partial-PDB DEAD.
 Open: reflection drop (full-exhaust node ratios needed at 146/148), k7 shadow,
 W=12. Rank term now measured (~14 ns hot, ablation above).
+
+Prune-config harvest — workload-defined sparse sets also DEAD (2026-07-30)
+--------------------------------------------------------------------------
+Question: do the configs participating in successful prunes form a small,
+stable set we could keep sparsely (absolute values, hashed positions — no
+rank/1-bit chain)? Two-phase single-process measurement: phase A harvests the
+full 144 iteration's load-bearing configs (surplus >= 2 at a prune) into a
+Bloom set; phase B (146 slice) harvests its first 50M prune events into a
+second set and replays all later events against both (event "reproduced" iff
+serving map-hits h and misses MD still clears the bound).
+
+  phase A (144): 22.4M prune events, distinct load-bearing configs ~8.8M (10.3x reuse)
+  phase B: 149.6M prune events in 1.23B nodes; half-set distinct ~18.3M;
+           all-B distinct ~41.4M AND STILL CLIMBING (1/7 of the threshold)
+  held-out coverage:           events    configs
+    by 144 complete set        39.86%    65.83%
+    by B-first-half set        35.37%
+  load-bearing views/event [1..6]: 0.07M / 9.4M / 66.7M / 51.2M / 35.9M / 8.8M
+  winning view: normal 98.5M, reflected-only 46.1M (26.8%!), both 27.4M
+  prune depth: peak plies 32-44
+
+Verdicts:
+1. THE CEILING IS 35%: a set harvested minutes earlier in the SAME threshold
+   misses 2/3 of later prunes. Pruning configs are SUBTREE-LOCAL — the DFS
+   suffix visits fresh ones (which is also why the complete-144 set beats the
+   B-prefix set despite the threshold gap).
+2. Prunes are CONJUNCTIONS: median 4 of 6 group-views load-bearing, so event
+   coverage (~40%) collapses far below config coverage (~66%).
+3. Bonus datum for the reflection lever: 26.8% of prunes come ONLY from the
+   reflected view — consistent with the recorded +17.3%-nodes cost of dropping it.
+
+With the surplus experiment this closes the sparse-k8 family from both ends:
+no value-defined elite exists (surplus broad+shallow), no workload-defined
+stable core exists (harvest subtree-local+conjunctive). The tier is
+irreducibly dense, diffuse, and conjunctive. Open levers unchanged:
+reflection-drop (needs full-exhaust node ratios), k7 shadow, W=12.
