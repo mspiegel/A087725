@@ -274,3 +274,32 @@ edit, exactly as the sizing sim preceded the memo build — it costs one
 budgeted run, is valid under load, and would have prevented a wasted A/B and
 the contamination mess. Ahead-of-time pattern measurement now demonstrated on
 both cache-shaped levers.
+
+Slot sharing (v3) — WASH, reverted; the arena-store law predicted it (2026-07-30)
+---------------------------------------------------------------------------------
+Built the row_at/col_at-style sharing for the six k8 group-views: per-depth
+GroupSlot (51 B) arrays + K8Frame{at, incremental view-sums}; a consult copies
+only the two cost-1 group-views (306 B bulk copy -> 2x51 B + 10 B frame).
+GATED EXACT on both counts, twice (269,180,917 / 8,539,130,554).
+
+Canary-bracketed interleaved A/B (v2/v3/v2/v3), W=8, exhaust-146. Canaries
+106.0/108.3 s vs the clean 91.5-92.2 s baseline: a STEADY +15-18% tax (a
+videoconference), stable to 2% — so paired deltas are suggestive, not bankable:
+
+  pair A: v2 182.96  v3 181.31   (-0.9%)
+  pair B: v2 181.28  v3 183.83   (+1.4%)
+
+A wash. And the recorded arena-store measurement from the flat-engine session
+(~0.04%/byte; "10.5% share = 0.4% recoverable") already predicted it: the 306 B
+copy costs ~1-2 ns, not the 10-20 the lever was scoped against. v3 swapped
+nearly-free bulk stores for index bookkeeping plus SCATTERED reads (the shared
+slot lives at an ancestor depth, off the contiguous parent line). Reverted to
+v2 — simpler, gated, and the same speed. Clean-window re-measure declined: the
+prior explains the wash, and +-2% would not justify six index invariants.
+
+Lesson: scope levers against RECORDED costs, not estimates — the store law was
+in this log all along.
+
+k8 lever ledger after this: memo cache DEAD (mechanism), madvise DEAD (counts),
+slot sharing WASH (store law). Open: k7-as-replacement shadow count; W=12.
+The engine for the R >= 152 run remains gated v2.
