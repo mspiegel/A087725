@@ -346,6 +346,99 @@ pub fn build_zpdb_2bit_packed(pattern: Pattern) -> (Vec<u8>, ZpdbLayout, u8) {
 
 #[cfg(test)]
 mod tests {
+    /// Probe: does a blank-centric pattern (goal cells hugging the blank's home
+    /// corner) carry more zero-aware surplus over its own group-Manhattan than a
+    /// distant or scattered one? Full-space exact measurement at k=6 (~181 M
+    /// entries per pattern, built in memory). Global-space geometry probe — the
+    /// workload weighting is a separate question.
+    ///
+    ///   cargo test --release -p puzzle8 probe_blank_centric -- --ignored --nocapture
+    #[test]
+    #[ignore = "builds five k=6 ZPDBs in memory (~minutes each); run explicitly"]
+    #[cfg(feature = "parallel")]
+    fn probe_blank_centric_partitions() {
+        use rayon::prelude::*;
+        let cases: [(&str, [u8; 6]); 13] = [
+            // quadrant partition (existing pdb24_a..d); total 5.773
+            ("QUAD-A/FAR {1,2,3,6,7,8}", [1, 2, 3, 6, 7, 8]),
+            ("QUAD-B {4,5,9,10,14,15}", [4, 5, 9, 10, 14, 15]),
+            ("QUAD-C {11,12,16,17,21,22}", [11, 12, 16, 17, 21, 22]),
+            ("QUAD-D {13,18,19,20,23,24}", [13, 18, 19, 20, 23, 24]),
+            // row-band partition (existing pdb24_rb_a..d); total 4.776
+            ("BAND-A {1..6}", [1, 2, 3, 4, 5, 6]),
+            ("BAND-B {7..12}", [7, 8, 9, 10, 11, 12]),
+            ("BAND-C {13..18}", [13, 14, 15, 16, 17, 18]),
+            ("BAND-D {19..24}", [19, 20, 21, 22, 23, 24]),
+            // distance-ring partition around the blank's corner; total 4.886
+            ("RING-1/CORNER {14,15,19,20,23,24}", [14, 15, 19, 20, 23, 24]),
+            ("RING-2 {9,10,13,17,18,22}", [9, 10, 13, 17, 18, 22]),
+            ("RING-3 {4,5,8,12,16,21}", [4, 5, 8, 12, 16, 21]),
+            ("RING-4 {1,2,3,6,7,11}", [1, 2, 3, 6, 7, 11]),
+            // hybrid = CORNER + QUAD-A + QUAD-C + this leftover; total 5.976 (best)
+            ("HYBRID-LEFTOVER {4,5,9,10,13,18}", [4, 5, 9, 10, 13, 18]),
+        ];
+        for (name, tiles) in cases {
+            let mut mask = 0u32;
+            for &t in &tiles {
+                mask |= 1 << t;
+            }
+            let pattern = Pattern(mask);
+            let t0 = std::time::Instant::now();
+            let (dist, layout) = build_zpdb_parallel(pattern);
+            let built = t0.elapsed();
+            let total = layout.total();
+            // Exact surplus histogram over every entry.
+            const CHUNK: u64 = 1 << 20;
+            let hist = (0..total.div_ceil(CHUNK))
+                .into_par_iter()
+                .map(|c| {
+                    let mut h = [0u64; 32];
+                    let lo = c * CHUNK;
+                    let hi = (lo + CHUNK).min(total);
+                    for idx in lo..hi {
+                        let d = dist[idx as usize];
+                        if d == UNVISITED {
+                            continue;
+                        }
+                        let proj = layout.unrank_representative(idx);
+                        let mut md = 0u16;
+                        for &t in &tiles {
+                            let p = proj.pos_of(t) as u16;
+                            let g = (t - 1) as u16;
+                            md += (p / 5).abs_diff(g / 5) + (p % 5).abs_diff(g % 5);
+                        }
+                        let s = (d as u16).saturating_sub(md).min(31);
+                        h[s as usize] += 1;
+                    }
+                    h
+                })
+                .reduce(
+                    || [0u64; 32],
+                    |mut a, b| {
+                        for i in 0..32 {
+                            a[i] += b[i];
+                        }
+                        a
+                    },
+                );
+            let n: u64 = hist.iter().sum();
+            let tail = |s: usize| -> f64 {
+                100.0 * hist[s..].iter().sum::<u64>() as f64 / n as f64
+            };
+            let mean: f64 =
+                hist.iter().enumerate().map(|(s, &c)| s as f64 * c as f64).sum::<f64>() / n as f64;
+            println!(
+                "{name}: {n} entries (built {:.0?})  surplus>=2: {:6.2}%  >=4: {:5.2}%  >=6: {:5.2}%  >=8: {:5.2}%  mean {:.3}",
+                built,
+                tail(2),
+                tail(4),
+                tail(6),
+                tail(8),
+                mean
+            );
+        }
+    }
+
     use super::super::zpdb::{regions, OCCUPIED};
     use super::*;
     use crate::puzzle24::pdb::build;

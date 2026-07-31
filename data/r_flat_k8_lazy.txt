@@ -462,3 +462,48 @@ memo, madvise, slot sharing, surplus-defined sets, harvested sets, LC-family
 formulas. What the tier costs (110 ns/consult: 82 on-core throughput-bound +
 28 blocked) is what its information costs. Open levers unchanged: reflection
 drop (full-exhaust ratios), k7 shadow, W=12.
+
+Blank-centric partition probe — k=6, full-space, exact (2026-07-31)
+-------------------------------------------------------------------
+Question (from the tile-structure findings): does partition geometry relative
+to the blank's goal corner concentrate zero-aware surplus? Probe: build k=6
+ZPDBs in memory (~29 s each, 181,008,000 entries) and measure the EXACT
+full-space surplus (dist - group-MD) distribution per pattern. Test:
+`cargo test --release probe_blank_centric -- --ignored --nocapture`
+(kept in zbuild.rs with the canonical 13-pattern list).
+
+  pattern                          >=2      >=4     >=6    mean
+  RING-1/CORNER (2x3 at home)     89.79%   44.33%  8.05%  2.853
+  ROWBAND-D (bottom band)         84.14%   27.87%  3.64%  2.317
+  QUAD-D (corner quad)            83.72%   27.83%  2.86%  2.290
+  QUAD-A/B/C (far compact blocks) 47.01%    9.96%  1.03%  1.161  (identical x3
+                                                          — sigma-congruent)
+  BAND-A/B/C                      31-40%   3-6%    <1%    0.68-0.90
+  RING-2/3 (thin shells)          20-27%   1-2%    ~0%    0.43-0.57
+  SCATTER (diagonal control)      16.53%    0.68%  0.01%  0.344
+
+  Partition totals (sum of group means — the additive currency):
+    HYBRID  (CORNER + QUAD-A + QUAD-C + serpent{4,5,9,10,13,18})  5.976  BEST
+    QUADRANTS (existing pdb24_a..d)                               5.773
+    RINGS   (pure blank-centric)                                  4.886
+    ROW-BANDS (existing rb_a..d)                                  4.776
+
+Findings:
+1. Blank proximity concentrates surplus in a GROUP: 2.5x mean, 4.4x tail vs
+   the congruent far block (CORNER vs FAR isolates geometry from compactness;
+   compactness itself is worth 3.4x over scatter).
+2. A PURE blank-centric partition loses: thin-shell complements collapse to
+   near-scatter. Every group's compactness dominates one group's corner.
+3. The HYBRID (compact blocks everywhere, tightest block on the blank's home)
+   beats the best existing partition by +3.5% total surplus.
+
+Scope: k=6, global-space, surplus vs group-MD — not workload-weighted and not
+prune power vs cWD. Reasons to expect the workload effect to be LARGER: the
+proof contour parks the blank at its goal corner 4x over background (measured,
+tile-structure run), weighting exactly the group the hybrid strengthens.
+
+k8 implication, unbuilt: the analogous move is one tight 8-tile corner block
+{13,14,15,18,19,20,23,24} (the 3x3-minus-blank at bottom-right) replacing the
+current right-edge snake as group b, complements re-compacted. Costs ~26 h of
+table builds to test for real; the cheap intermediate is a k=7-scale probe
+(~3.4 GB in memory) or workload-shadowing the k6 hybrid in the engine.
