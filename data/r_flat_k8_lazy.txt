@@ -828,3 +828,18 @@ and that population is the f <= 144 contour of a 152 tree (~40x shrink per
 +2 threshold) — negligible forever. Side-finding: lm2 cache hit 99.811% @144
 degrades to 99.007% @146 (137.6M misses) — the 2^17 front cache is
 undersized for deep thresholds; FLAT_LM2_CACHE_BITS sweep is a live lever.
+
+Profile (sample, 30 s inside sequential exhaust-146, profiling build):
+run_iteration 40.0%, build_child 28.7%, lm2_child 18.2%, child_lb 10.2%,
+hashbrown get_inner (front-cache misses) 3.0%. The lm2 tier costs ~21% of
+sequential time (consult + misses) for the 1.98x cut. Profile-driven
+shortlist, in rank order:
+  1. row-first early-out: branch A needs only the rkey probe; if
+     A <= h_cwd then heff = h_cwd and the ckey probe + B/C/D compose can
+     be skipped. Node-identical by construction. Fraction of consults
+     eligible unknown — A/B directly.
+  2. FLAT_LM2_CACHE_BITS 17 -> 18/19: hit 99.007% @146 (137.6M misses);
+     LM's measured size curve suggests roughly halving misses per
+     doubling. Attacks the 3% hashbrown share + 64B fill traffic.
+  3. extract values inside the cache probe (return the 3 needed bytes,
+     not the 29-byte slot copy) — stack-traffic trim, likely small.
