@@ -461,6 +461,9 @@ struct Arena {
     /// Last-Move tier: per-depth (row of tile 20, col of tile 24), written at
     /// the consult like the k8 slots (every entered node has a current entry).
     lmpos: Box<[[u8; 2]]>,
+    /// LM front cache, allocated on first [`seed_lm`] (4 MB default); persists
+    /// across units and thresholds like the worker [`ProbeCache`].
+    lmcache: Option<Box<LmCache>>,
 }
 
 impl Arena {
@@ -499,6 +502,7 @@ impl Arena {
             col: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
             k8: vec![blank_k8; MAX_DEPTH].into_boxed_slice(),
             lmpos: vec![[0u8; 2]; MAX_DEPTH].into_boxed_slice(),
+            lmcache: None,
         }
     }
 
@@ -1755,8 +1759,91 @@ pub fn load_cwd_lm(path: &std::path::Path) -> std::io::Result<super::cwd_lm::Cwd
     super::cwd_lm::CwdLm::load(path)
 }
 
+/// Direct-mapped front cache for the LM table: axis key → the four queryable
+/// branch values (lines 0–3; line 4 is the free-ride degeneracy and is never
+/// looked up). One miss fills all four lines from a single map probe, so a
+/// row-key miss also warms the same key's future queries.
+///
+/// Sized by measured priors, not a fresh sim: LM probes are axis keys — the
+/// exact population the cWD [`ProbeCache`] serves at a measured in-situ
+/// 98.9–99.7% across 64 K–256 K entries — and the LM stream is the hotter
+/// survivor subset of it. Default 18 bits (16 B slots → 4 MB/worker, half the
+/// cWD cache); `FLAT_LM_CACHE_BITS` overrides for sweeps (read once, at
+/// allocation).
+struct LmCache {
+    slots: Box<[LmSlot]>,
+    shift: u32,
+}
+
+#[repr(align(16))]
+#[derive(Clone, Copy)]
+struct LmSlot {
+    /// Axis key, or 0 for empty (a real key always has nonzero matrix bits).
+    tag: u64,
+    vals: [u8; 4],
+}
+
+#[cfg(feature = "probe-cache-stats")]
+static LM_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LM_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Print the LM front cache's aggregate hit/miss counters (all workers).
+#[cfg(feature = "probe-cache-stats")]
+pub fn lm_cache_stats_report() {
+    let h = LM_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed);
+    let m = LM_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed);
+    if h + m > 0 {
+        eprintln!(
+            "    lm cache: {h} hits / {m} misses = {:.3}% hit",
+            100.0 * h as f64 / (h + m) as f64
+        );
+    }
+}
+
+fn lm_cache_bits() -> u32 {
+    static BITS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *BITS.get_or_init(|| {
+        std::env::var("FLAT_LM_CACHE_BITS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(18)
+    })
+}
+
+impl LmCache {
+    fn new() -> Self {
+        let bits = lm_cache_bits();
+        assert!((8..=24).contains(&bits), "implausible LM cache size");
+        LmCache {
+            slots: vec![LmSlot { tag: 0, vals: [0xFF; 4] }; 1usize << bits].into_boxed_slice(),
+            shift: 64 - bits,
+        }
+    }
+
+    /// The four branch values for `key`, via the cache.
+    #[inline(always)]
+    fn get(&mut self, lm: &super::cwd_lm::CwdLm, key: u64) -> [u8; 4] {
+        let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
+        if self.slots[i].tag != key {
+            let mut vals = [0xFFu8; 4];
+            if let Some(v) = lm.get_all(key) {
+                vals.copy_from_slice(&v[..4]);
+            }
+            self.slots[i] = LmSlot { tag: key, vals };
+            #[cfg(feature = "probe-cache-stats")]
+            LM_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            #[cfg(feature = "probe-cache-stats")]
+            LM_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.slots[i].vals
+    }
+}
+
 /// Seed depth-0 last-move positions from the board.
 fn seed_lm(arena: &mut Arena, board: &State) {
+    arena.lmcache.get_or_insert_with(|| Box::new(LmCache::new()));
     let p20 = board.0.iter().position(|&t| t == 20).unwrap();
     let p24 = board.0.iter().position(|&t| t == 24).unwrap();
     arena.lmpos[0] = [(p20 / W_LM) as u8, (p24 % W_LM) as u8];
@@ -1806,21 +1893,27 @@ fn lm_child(
     let cslot = &arena.col[f.col_at as usize];
     let rterm = rslot.term();
     let cterm = cslot.term();
+    let (rkey, ckey) = (rslot.key, cslot.key);
+    let cache = arena
+        .lmcache
+        .as_mut()
+        .expect("seed_lm allocates the cache")
+        .as_mut();
 
     let b20 = if lp[0] >= 4 {
         h_cwd
     } else {
-        match lm.get(rslot.key, lp[0] as usize) {
-            Some(d20) => d20.saturating_add(cterm),
-            None => h_cwd,
+        match cache.get(lm, rkey)[lp[0] as usize] {
+            0xFF => h_cwd,
+            d20 => d20.saturating_add(cterm),
         }
     };
     let b24 = if lp[1] >= 4 {
         h_cwd
     } else {
-        match lm.get(cslot.key, lp[1] as usize) {
-            Some(d24) => d24.saturating_add(rterm),
-            None => h_cwd,
+        match cache.get(lm, ckey)[lp[1] as usize] {
+            0xFF => h_cwd,
+            d24 => d24.saturating_add(rterm),
         }
     };
     h_cwd.max(b20.min(b24))

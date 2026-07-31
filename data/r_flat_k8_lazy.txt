@@ -652,3 +652,29 @@ cost is dominated by two raw probes into the separate 1.2 GB LM map per
 consult — SAME axis keys as the engine's cWD probes, so cWD-class locality.
 Next: a direct-mapped LM front cache (ProbeCache design); expected cost ratio
 ~1.1-1.2x -> ~1.3-1.4x wall win at every threshold, no depth extrapolation.
+
+LM front cache: the cut converts to wall time (2026-07-31)
+----------------------------------------------------------
+Direct-mapped key -> [4 branch values], one map probe fills all lines; 18 bits
+= 4 MB/worker, FLAT_LM_CACHE_BITS overridable; in-situ counters from birth.
+Sizing taken from measured priors (LM probes = the axis-key population the
+cWD ProbeCache serves at 98.9-99.7%), not a fresh sim — and the in-situ rate
+confirmed it: 99.588% at the default size.
+
+Canary-bracketed W=8 A/B (canaries 91.72/90.90 s; node counts byte-identical
+to the uncached runs — transparent cache verified):
+
+           144                 146
+  base     1.89-1.94 s         90.90-93.86 s
+  +LM      1.30 / 1.31 s       69.28 / 69.67 s
+  speedup  1.47x               1.32x
+
+Per-node 41.3 -> 49.5 ns (cost 1.20x) against the flat 1.586x cut. The
+cWD-only configuration's improvement is in hand: depth-independent by
+construction (the last-move obligation binds identically at every threshold),
+853 MB + 4 MB resident, ~24 s off every exhaust-146.
+
+Open, unbuilt: joint-form tables (66% vs 43% certification), corner-tile
+analogues for the other corners (each costs a x5 state dimension), --lm with
+--zpdb8 (cascade wiring), and a 148 run to confirm the flat-cut claim one
+rung deeper.

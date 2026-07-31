@@ -29,7 +29,7 @@ use crate::puzzle24::state::W;
 /// Tracked token type: goal-line 3 (tiles 20 / 24).
 const TT: usize = 3;
 
-use super::cwd::{goal_key, pack, unpack, Matrix};
+use super::cwd::{pack, unpack};
 
 /// The refined table: `key → D(key, line)` for the crossing-not-yet-made
 /// layer, `0xFF` = line unreachable for the tracked tile in this key (no
@@ -45,6 +45,14 @@ impl CwdLm {
     pub fn get(&self, key: u64, tile_line: usize) -> Option<u8> {
         let v = self.map.get(&key)?[tile_line];
         (v != 0xFF).then_some(v)
+    }
+
+    /// All five line values for `key` (0xFF = invalid line), or `None` if the
+    /// key is unknown. One map probe; used by the engine's front cache to fill
+    /// every line at once.
+    #[inline]
+    pub fn get_all(&self, key: u64) -> Option<&[u8; 5]> {
+        self.map.get(&key)
     }
 
     pub fn len(&self) -> usize {
@@ -205,6 +213,7 @@ pub fn build_cwd_lm(goal_key: u64) -> CwdLm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::puzzle24::search::cwd::goal_key;
 
     /// Build the Last-Move Escape-Constrained WD table and save it.
     ///
