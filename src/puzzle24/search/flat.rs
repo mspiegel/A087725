@@ -2003,7 +2003,7 @@ fn lm2_cache_bits() -> u32 {
         std::env::var("FLAT_LM2_CACHE_BITS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(17)
+            .unwrap_or(19)
     })
 }
 

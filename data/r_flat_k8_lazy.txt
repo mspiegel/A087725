@@ -843,3 +843,27 @@ shortlist, in rank order:
      doubling. Attacks the 3% hashbrown share + 64B fill traffic.
   3. extract values inside the cache probe (return the 3 needed bytes,
      not the 29-byte slot copy) — stack-traffic trim, likely small.
+
+Profile shortlist A/B'd (canary-bracketed x3, idle box; one batch retracted
+for a stats-binary mixup — the saved "plain" reference was actually the
+probe-cache-stats build, whose shared atomic counters ping-pong under 8
+workers for a 4-5x slowdown (lm2_child 59% of samples vs 18% sequential);
+lesson: never time the stats build in parallel, and verify binary identity
+by strings before an A/B. One batch retracted for a mid-batch Microsoft
+Defender vulnerability sweep (find_jar_packages.py + epsext, ~2 cores;
+canary1 drifted 64.2 -> 68.1 s).
+
+Clean results (146 wall, canaries 64.23/64.96/64.59 s):
+  row-first early-out:  64.14 s vs 64.23 s baseline — NEUTRAL as measured
+    (skipped col probe is a cheap predictable hit; consistent with the
+    dead-ends law). REVERTED.
+  FLAT_LM2_CACHE_BITS:  17: 64.2-65.0 | 18: 61.86 | 19: 61.82-60.97 |
+    20: 60.88. 17->18 is the solid step (-2.4 s, 3.6%); 18/19/20 cluster
+    within ~1 s (noise band ~0.7 s). Slot 64 B, so 17/18/19/20 = 8/16/32/64
+    MiB per worker.
+  Default set 17 -> 19 (32 MiB/worker, 256 MiB total at 8 workers): captures
+  the full measured gain with margin for the deep-threshold working-set
+  growth (hit rate fell 99.81% @144 -> 99.01% @146; expect worse at 148+;
+  FLAT_LM2_CACHE_BITS=20 is a free knob for the 152-scale runs).
+
+Net --lm2 @146: 60.9-61.9 s vs base 91.0 s = 1.47-1.49x wall (was 1.41x).
