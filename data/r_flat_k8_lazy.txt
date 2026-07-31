@@ -604,3 +604,23 @@ directions (additive: absorption leak; demanded: absorption pricing).
 
 Engineering track unchanged: reflection-drop A/B, partition qualifiers, k7
 shadow, and the R >= 152 run itself.
+
+cwd_lm table built and verified (2026-07-31)
+--------------------------------------------
+Enlarged sample first: 507 workload prune boards — V6 joint certifies 65.7%,
+table-design (separable) form 43.2% +/- 4.3 of k8's +2s. Above threshold; built.
+
+src/puzzle24/search/cwd_lm.rs: backward BFS over (WD key x tile-line x
+crossed-flag) from the goal (tile home, crossing made). Reached exactly
+65,650,495 keys = the full known WD state space (structural validation);
+118 s build; D(goal, line 3) = 2 sanity passed; data/cwd_lm.bin = 853 MB
+(one table serves both axes).
+
+Cross-validation: worktree `lmcheck` compares table values against the
+independent refined_axis A* on the 507 boards — 1013 branch values, 0
+mismatches.
+
+Next: flat-engine integration (track row(20)/col(24) incrementally; h =
+max(cWD, min(branch20, branch24)) with line-4 degeneracies), gate on frozen
+oracle optimal lengths, then the node/wall A/B at 144/146 vs 422,379,806 /
+91.5 s.

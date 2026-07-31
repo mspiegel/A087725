@@ -150,7 +150,7 @@ pub(crate) const fn key_bit(r: usize, c: usize) -> u64 {
 /// The blank field's bit offset (the top 3 bits, above the `W*(W-1)` cells).
 pub(crate) const KEY_BLANK_BIT: u64 = (W * (W - 1) * 3) as u64;
 
-fn unpack(key: u64) -> (Matrix, u8) {
+pub(crate) fn unpack(key: u64) -> (Matrix, u8) {
     let blank = ((key >> 60) & 0x7) as u8;
     let mut m = [[0u8; W]; W];
     let mut k = key;

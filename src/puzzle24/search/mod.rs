@@ -1,6 +1,7 @@
 //! Optimal search algorithms over [`crate::puzzle24::state::State`].
 
 pub mod cwd;
+pub mod cwd_lm;
 pub mod flat;
 // Only the `cwd-table-tests` gate consumes the frozen oracle.
 #[cfg(all(test, feature = "cwd-table-tests"))]

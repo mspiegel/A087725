@@ -954,12 +954,33 @@ mod k8_surplus {
         changed_surplus: [u64; 64],
         /// surplus histogram over all six group-views (background)
         all_surplus: [u64; 64],
+        /// (hk8 − h_cwd) advantage histograms: at pruning consults and at
+        /// consults where the advantage did not suffice.
+        adv_prune: [u64; 64],
+        adv_noprune: [u64; 64],
+        /// prunes retained under capped-surplus encoding h' = MD + 2·min(surplus/2, cap),
+        /// for cap = 1, 2, 3.
+        cap_retained: [u64; 3],
+        /// absolute scores at pruning consults, bucketed by 4: hk8 and h_cwd.
+        abs_hk8: [u64; 40],
+        abs_hcwd: [u64; 40],
+        /// slack = need − h_cwd over ALL consults — the gate-rate denominator.
+        slack_hist: [u64; 32],
     }
 
     static SIM: Mutex<Option<Sim>> = Mutex::new(None);
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn record(h: &[[u8; 3]; 2], md: &[[u8; 3]; 2], gi: usize, gj: usize, need: u8) {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record(
+        h: &[[u8; 3]; 2],
+        md: &[[u8; 3]; 2],
+        gi: usize,
+        gj: usize,
+        need: u8,
+        h_cwd: u8,
+        hk8: u8,
+    ) {
         let mut g = SIM.lock().unwrap();
         let sim = g.get_or_insert_with(|| Sim {
             consults: 0,
@@ -968,6 +989,12 @@ mod k8_surplus {
             md_prunes: 0,
             changed_surplus: [0; 64],
             all_surplus: [0; 64],
+            adv_prune: [0; 64],
+            adv_noprune: [0; 64],
+            cap_retained: [0; 3],
+            abs_hk8: [0; 40],
+            abs_hcwd: [0; 40],
+            slack_hist: [0; 32],
         });
         sim.consults += 1;
         let sur = |v: usize, k: usize| (h[v][k] - md[v][k]) as usize; // admissible: h >= MD
@@ -995,6 +1022,34 @@ mod k8_surplus {
         }
         // s = 0 keeps everything == the actual consult outcome.
         sim.actual_prunes = sim.sim_prunes[0];
+        sim.slack_hist[(need.saturating_sub(h_cwd as u16) as usize).min(31)] += 1;
+        // Advantage histogram: hk8 − h_cwd, split by whether this consult pruned.
+        let adv = hk8.saturating_sub(h_cwd) as usize;
+        let pruned = hk8 as u16 > need;
+        if pruned {
+            sim.adv_prune[adv.min(63)] += 1;
+            sim.abs_hk8[(hk8 as usize / 4).min(39)] += 1;
+            sim.abs_hcwd[(h_cwd as usize / 4).min(39)] += 1;
+            // Capped-surplus retention: would this prune survive the O(1)-cold
+            // encoding h' = MD + 2·min(surplus/2, cap)?
+            for (ci, cap) in [1u16, 2, 3].iter().enumerate() {
+                let mut best = 0u16;
+                for v in 0..2 {
+                    let t: u16 = (0..3)
+                        .map(|k| {
+                            let sur2 = ((h[v][k] - md[v][k]) / 2) as u16;
+                            md[v][k] as u16 + 2 * sur2.min(*cap)
+                        })
+                        .sum();
+                    best = best.max(t);
+                }
+                if best > need {
+                    sim.cap_retained[ci] += 1;
+                }
+            }
+        } else {
+            sim.adv_noprune[adv.min(63)] += 1;
+        }
         let mut md_best = 0u16;
         for v in 0..2 {
             let t: u16 = (0..3).map(|k| md[v][k] as u16).sum();
@@ -1030,6 +1085,52 @@ mod k8_surplus {
                 "   {s:2}     {:6.2}%        {:6.2}%",
                 100.0 * sim.sim_prunes[s] as f64 / sim.actual_prunes.max(1) as f64,
                 100.0 * tail as f64 / changed_total.max(1) as f64,
+            );
+        }
+        eprintln!("  advantage (hk8 − h_cwd) at PRUNING consults [0..15,16+]:");
+        let dump = |hist: &[u64; 64]| {
+            let n: u64 = hist.iter().sum::<u64>().max(1);
+            eprint!("   ");
+            for v in hist[..16].iter() {
+                eprint!(" {:.2}", 100.0 * *v as f64 / n as f64);
+            }
+            eprintln!(" {:.2}   (n={n})", 100.0 * hist[16..].iter().sum::<u64>() as f64 / n as f64);
+        };
+        dump(&sim.adv_prune);
+        eprintln!("  advantage at NON-pruning consults [0..15,16+]:");
+        dump(&sim.adv_noprune);
+        eprintln!("  slack (need − h_cwd) over ALL consults [0..15,16+] (%):");
+        {
+            let n: u64 = sim.slack_hist.iter().sum::<u64>().max(1);
+            eprint!("   ");
+            for v in sim.slack_hist[..16].iter() {
+                eprint!(" {:.2}", 100.0 * *v as f64 / n as f64);
+            }
+            eprintln!(
+                " {:.2}",
+                100.0 * sim.slack_hist[16..].iter().sum::<u64>() as f64 / n as f64
+            );
+        }
+        eprintln!("  ABSOLUTE hk8 at pruning consults (buckets of 4, % — first nonzero..last):");
+        let dump_abs = |hist: &[u64; 40]| {
+            let n: u64 = hist.iter().sum::<u64>().max(1);
+            let lo = hist.iter().position(|&v| v > 0).unwrap_or(0);
+            let hi = hist.iter().rposition(|&v| v > 0).unwrap_or(0);
+            eprint!("   ");
+            for (i, v) in hist.iter().enumerate().take(hi + 1).skip(lo) {
+                eprint!(" {}:{:.1}", i * 4, 100.0 * *v as f64 / n as f64);
+            }
+            eprintln!();
+        };
+        dump_abs(&sim.abs_hk8);
+        eprintln!("  ABSOLUTE h_cwd at the same consults:");
+        dump_abs(&sim.abs_hcwd);
+        eprintln!("  capped-surplus prune retention (h' = MD + 2*min(surplus/2, cap)):");
+        for (ci, cap) in [1, 2, 3].iter().enumerate() {
+            eprintln!(
+                "    cap +{}: {:6.2}% of prunes retained",
+                2 * cap,
+                100.0 * sim.cap_retained[ci] as f64 / sim.actual_prunes.max(1) as f64
             );
         }
         eprint!("  all-view surplus histogram (0..15,16+):");
@@ -1349,6 +1450,14 @@ mod k8_struct {
         /// pruners only: surplus bucket {2,4,6+} × lc pairs {0,1,2,3+}
         joint: [[u64; 4]; 3],
         bg_tick: u64,
+        /// tile-position distributions in the BOARD frame (reflected views
+        /// mapped back through σ/τ): `[tile-1][cell]` counts for three
+        /// populations — P: load-bearing at pruning consults; N: load-bearing
+        /// at non-pruning consults (sampled 1/64); B: all configs at
+        /// non-pruning consults (sampled 1/64).
+        tc_p: Vec<[u64; 25]>,
+        tc_n: Vec<[u64; 25]>,
+        tc_b: Vec<[u64; 25]>,
     }
 
     static SIM: Mutex<Option<Sim>> = Mutex::new(None);
@@ -1406,6 +1515,27 @@ mod k8_struct {
         lc
     }
 
+    /// Accumulate one group-view's 8 tile positions into a `[tile-1][cell]`
+    /// matrix, mapping reflected-view (v=1) labels/cells back to the board
+    /// frame through τ/σ.
+    fn tally_tc(
+        m: &mut [[u64; 25]],
+        proj: &crate::puzzle24::pdb::ProjectedState,
+        tiles: &[u8; 8],
+        v: usize,
+    ) {
+        use crate::puzzle24::symmetry::{SIGMA, TAU};
+        for &t in tiles {
+            let c = proj.pos_of(t) as usize;
+            let (bt, bc) = if v == 0 {
+                (t as usize, c)
+            } else {
+                (TAU[t as usize] as usize, SIGMA[c] as usize)
+            };
+            m[bt - 1][bc] += 1;
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn record(
         slot_views: &[[crate::puzzle24::pdb::ProjectedState; 3]; 2],
@@ -1418,6 +1548,11 @@ mod k8_struct {
     ) {
         let mut g = SIM.lock().unwrap();
         let sim = g.get_or_insert_with(Sim::default);
+        if sim.tc_p.is_empty() {
+            sim.tc_p = vec![[0u64; 25]; 24];
+            sim.tc_n = vec![[0u64; 25]; 24];
+            sim.tc_b = vec![[0u64; 25]; 24];
+        }
         if prune {
             for v in 0..2 {
                 let blank = if v == 0 { n } else { rn };
@@ -1426,6 +1561,7 @@ mod k8_struct {
                         let lc = tally(&mut sim.pruner, &slot_views[v][k], &tiles[k], blank, k);
                         let sb = (((h[v][k] - md[v][k]) / 2).min(3) as usize).saturating_sub(1);
                         sim.joint[sb][lc.min(3) as usize] += 1;
+                        tally_tc(&mut sim.tc_p, &slot_views[v][k], &tiles[k], v);
                     }
                 }
             }
@@ -1436,6 +1572,10 @@ mod k8_struct {
                     let blank = if v == 0 { n } else { rn };
                     for k in 0..3 {
                         tally(&mut sim.background, &slot_views[v][k], &tiles[k], blank, k);
+                        tally_tc(&mut sim.tc_b, &slot_views[v][k], &tiles[k], v);
+                        if h[v][k] > md[v][k] {
+                            tally_tc(&mut sim.tc_n, &slot_views[v][k], &tiles[k], v);
+                        }
                     }
                 }
             }
@@ -1484,6 +1624,17 @@ mod k8_struct {
             }
             eprintln!();
         }
+        // Raw tile-position matrices, one line per (population, tile), for
+        // offline analysis: "TC <pop> <tile>: c0 c1 ... c24".
+        for (tag, m) in [("P", &sim.tc_p), ("N", &sim.tc_n), ("B", &sim.tc_b)] {
+            for (ti, row) in m.iter().enumerate() {
+                eprint!("TC {tag} {}:", ti + 1);
+                for c in row {
+                    eprint!(" {c}");
+                }
+                eprintln!();
+            }
+        }
     }
 }
 
@@ -1492,6 +1643,11 @@ mod k8_struct {
 pub fn k8_struct_report() {
     k8_struct::report();
 }
+
+/// Autopsy sampling: every Nth prune event dumps the full board + per-view
+/// group values, for offline reconstruction of the abstract plans.
+#[cfg(feature = "k8-probe-locality")]
+static AUTOPSY_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Manhattan distance of one group-view's pattern tiles (goal cell of tile `t`
 /// is `t − 1`; holds for the reflected view too, since σ fixes GOAL).
@@ -2601,7 +2757,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
                     }
                 }
                 // f2 = g_next + H > bound  <=>  H > bound - g_next
-                k8_surplus::record(&slot.h, &md, gi, gj, bound - g_next);
+                k8_surplus::record(&slot.h, &md, gi, gj, bound - g_next, h, hk8);
                 k8_struct::record(
                     &slot.views,
                     &slot.h,
@@ -2613,6 +2769,15 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
                 );
                 // Harvest only actual prune events (hk8 > need).
                 if hk8 > bound - g_next {
+                    // ~500 samples over a 1.5 B-node budgeted run.
+                    let t = AUTOPSY_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if t % 340_000 == 0 {
+                        let b = arena.board[d + 1].0.decode();
+                        eprintln!(
+                            "AUTOPSY bound={bound} g={g_next} hcwd={h} hk8={hk8} h={:?} md={:?} board={:?}",
+                            slot.h, md, b.0
+                        );
+                    }
                     let n = geom.from as usize;
                     let mut keys = [[0u64; 3]; 2];
                     for v in 0..2 {
@@ -3305,6 +3470,159 @@ mod tests {
 
     /// Consuming a `MoveSet` lowest-bit-first must reproduce `MoveSetIter`'s
     /// order, which is what keeps child order — and the tree — identical.
+    /// Prune-event autopsy: reconstruct the winning view's abstract group plans
+    /// for dumped prune boards and extract the AWAY-moves (steps that increase a
+    /// tile's Manhattan-to-goal) — the concrete carriers of the surplus, i.e.
+    /// the "+2 over cWD". Reads `AUTOPSY_FILE` (lines from the instrumented
+    /// run). Greedy descent picks one optimal plan among many; classification
+    /// is over that canonical plan (caveat noted in the report).
+    ///
+    ///   AUTOPSY_FILE=... cargo test --release --features k8-probe-locality \
+    ///       k8_prune_autopsy -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the 32.8 GB k8 tables and an AUTOPSY_FILE dump"]
+    fn k8_prune_autopsy() {
+        use crate::puzzle24::pdb::ProjectedState;
+        use crate::puzzle24::symmetry;
+        let path = std::env::var("AUTOPSY_FILE").expect("set AUTOPSY_FILE");
+        let text = std::fs::read_to_string(&path).expect("read dump");
+        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("k8 tables");
+        let nums = |seg: &str| -> Vec<i64> {
+            seg.chars()
+                .map(|c| if c.is_ascii_digit() || c == '-' { c } else { ' ' })
+                .collect::<String>()
+                .split_whitespace()
+                .map(|w| w.parse().unwrap())
+                .collect()
+        };
+        // aggregates: away-move counts by board-frame (tile, direction), and
+        // by tile alone; direction: 0=up,1=down,2=left,3=right (board frame).
+        let mut by_tile = [0u32; 25];
+        let mut by_dir = [0u32; 4];
+        let mut by_cell_from = [0u32; 25];
+        let mut boards = 0;
+        let mut plans = 0;
+        let mut aways = 0;
+        for (bi, line) in text.lines().filter(|l| l.starts_with("AUTOPSY")).enumerate() {
+            let hseg = &line[line.find("h=[").unwrap()..line.find(" md=").unwrap()];
+            let mseg = &line[line.find("md=[").unwrap()..line.find(" board=").unwrap()];
+            let bseg = &line[line.find("board=[").unwrap()..];
+            let hv = nums(hseg);
+            let mv = nums(mseg);
+            let bv = nums(bseg);
+            assert_eq!(hv.len(), 6);
+            assert_eq!(bv.len(), 25);
+            let mut cells = [0u8; 25];
+            for (i, &x) in bv.iter().enumerate() {
+                cells[i] = x as u8;
+            }
+            let board = State(cells);
+            let rboard = symmetry::reflect(&board);
+            boards += 1;
+            // winning view = larger sum
+            let s0: i64 = hv[..3].iter().sum();
+            let s1: i64 = hv[3..].iter().sum();
+            let v = usize::from(s1 > s0);
+            let vb = if v == 0 { board } else { rboard };
+            for k in 0..3 {
+                let h0 = hv[v * 3 + k] as u8;
+                let md0 = mv[v * 3 + k] as u8;
+                if h0 <= md0 + 1 {
+                    continue; // no surplus to explain
+                }
+                let db = &ctx.dbs[k];
+                let pattern = db.pattern();
+                let tiles: Vec<u8> = (1u8..25).filter(|&t| pattern.contains(t)).collect();
+                let mut cur = ProjectedState::from_state(&vb, pattern);
+                let mut h_cur = h0;
+                let mut succ: Vec<ProjectedState> = Vec::new();
+                let mut away_this = 0u32;
+                let mut steps = 0u32;
+                while h_cur > 0 && steps < 200 {
+                    steps += 1;
+                    succ.clear();
+                    crate::puzzle24::pdb::zbuild::gen_moves(db.layout(), &cur, &mut succ);
+                    let mut advanced = false;
+                    for ns in succ.iter() {
+                        let idx = db.layout().rank(ns, pattern);
+                        let nh = db.diff_lookup(idx, h_cur);
+                        if nh + 1 == h_cur {
+                            // which tile moved?
+                            for &t in &tiles {
+                                let (a, b) = (cur.pos_of(t), ns.pos_of(t));
+                                if a != b {
+                                    let (gr, gc) = (((t - 1) / 5) as i32, ((t - 1) % 5) as i32);
+                                    let d_old = ((a / 5) as i32 - gr).abs() + ((a % 5) as i32 - gc).abs();
+                                    let d_new = ((b / 5) as i32 - gr).abs() + ((b % 5) as i32 - gc).abs();
+                                    if d_new > d_old {
+                                        // AWAY move — map to board frame
+                                        let (bt, ba, bb) = if v == 0 {
+                                            (t, a, b)
+                                        } else {
+                                            (
+                                                symmetry::TAU[t as usize],
+                                                symmetry::SIGMA[a as usize],
+                                                symmetry::SIGMA[b as usize],
+                                            )
+                                        };
+                                        let dir = if bb == ba + 5 {
+                                            1
+                                        } else if ba == bb + 5 {
+                                            0
+                                        } else if bb == ba + 1 {
+                                            3
+                                        } else {
+                                            2
+                                        };
+                                        by_tile[bt as usize] += 1;
+                                        by_dir[dir] += 1;
+                                        by_cell_from[ba as usize] += 1;
+                                        aways += 1;
+                                        away_this += 1;
+                                        if bi < 8 {
+                                            println!(
+                                                "  board {bi} view {v} grp {k}: AWAY tile {bt} {ba}->{bb} (step {}/{h0}, blank@{})",
+                                                h0 - h_cur + 1,
+                                                if v == 0 { cur.blank_pos() } else { symmetry::SIGMA[cur.blank_pos() as usize] }
+                                            );
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                            cur = *ns;
+                            h_cur = nh;
+                            advanced = true;
+                            break;
+                        }
+                    }
+                    assert!(advanced, "descent stuck at h={h_cur} (board {bi} grp {k})");
+                }
+                plans += 1;
+                let expect = ((h0 - md0) / 2) as u32;
+                assert_eq!(
+                    away_this, expect,
+                    "away-count {} != surplus/2 {} (board {bi} grp {k})",
+                    away_this, expect
+                );
+            }
+        }
+        println!("=== autopsy aggregate: {boards} boards, {plans} plans, {aways} away-moves ===");
+        println!("away-moves by board-frame tile:");
+        for t in 1..25 {
+            if by_tile[t] > 0 {
+                println!("  tile {t:2}: {}", by_tile[t]);
+            }
+        }
+        println!("by direction u/d/l/r: {:?}", by_dir);
+        println!("by from-cell:");
+        for c in 0..25 {
+            if by_cell_from[c] > 0 {
+                println!("  cell {c:2} (r{},c{}): {}", c / 5, c % 5, by_cell_from[c]);
+            }
+        }
+    }
+
     #[test]
     fn pop_lowest_matches_moveset_iter_order() {
         for bits in 0u8..16 {
