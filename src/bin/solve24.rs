@@ -434,6 +434,8 @@ fn main() -> ExitCode {
                      ({rate:.2} Mn/s)",
                 now_hms()
             );
+            #[cfg(feature = "probe-cache-stats")]
+            puzzle8::puzzle24::search::flat::lm2_slack_report_reset();
             // Per-node event rates for this threshold alone. Counts are
             // frequency-independent, so these are comparable across
             // thresholds even on battery.

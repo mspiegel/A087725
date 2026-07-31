@@ -817,3 +817,14 @@ The cWD-only configuration for deep thresholds is now --parallel --lm2.
 Untried within the family: last-THREE-moves (16 branches, triple tracking,
 x5 state again); joint-form tables; pairwise-(1,1) cWD overlay (stacks with
 LM2's un-refined-axis terms).
+
+Slack gate: measured DEAD. Consult-slack histogram (need - h_cwd at every
+LM2 consult, stats build): exhaust-144: 151,492,026 consults, 100.000% at
+slack 0 (forced: at bound = h0 consistency pins every survivor to f = bound).
+exhaust-146: 6,779,472,719 consults, 95.41% slack 0 / 4.59% slack 2, 0 at
+>= 4. Gateable (>= 7, the +6 splice cap) = 0.000% at both. Parity makes this
+permanent: slack steps by 2 from 0, so >= 8 first exists at bound h0+8 = 152,
+and that population is the f <= 144 contour of a 152 tree (~40x shrink per
++2 threshold) — negligible forever. Side-finding: lm2 cache hit 99.811% @144
+degrades to 99.007% @146 (137.6M misses) — the 2^17 front cache is
+undersized for deep thresholds; FLAT_LM2_CACHE_BITS sweep is a live lever.

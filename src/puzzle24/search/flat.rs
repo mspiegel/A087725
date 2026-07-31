@@ -1970,6 +1970,33 @@ pub fn lm2_cache_stats_report() {
     }
 }
 
+/// Consult-slack histogram: `need − h_cwd` at every LM2 consult, clamped to
+/// 15. Slack ≥ 7 consults are provably unable to prune (branch gain is
+/// capped at +6 by the excursion-splice bound), so this measures what a
+/// slack gate could skip.
+#[cfg(feature = "probe-cache-stats")]
+static LM2_SLACK_HIST: [std::sync::atomic::AtomicU64; 16] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 16];
+
+/// Print the LM2 consult-slack histogram and reset it (per-threshold use).
+#[cfg(feature = "probe-cache-stats")]
+pub fn lm2_slack_report_reset() {
+    let counts: Vec<u64> = LM2_SLACK_HIST
+        .iter()
+        .map(|c| c.swap(0, std::sync::atomic::Ordering::Relaxed))
+        .collect();
+    let tot: u64 = counts.iter().sum();
+    if tot == 0 {
+        return;
+    }
+    let gateable: u64 = counts[7..].iter().sum();
+    eprintln!(
+        "    lm2 consult slack: total {tot}; >=7 (gateable) {gateable} ({:.3}%); hist {:?}",
+        100.0 * gateable as f64 / tot as f64,
+        counts
+    );
+}
+
 fn lm2_cache_bits() -> u32 {
     static BITS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *BITS.get_or_init(|| {
@@ -3267,6 +3294,9 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // child is already counted; a k8 prune folds its full f and moves on.
         // Compiles away entirely when `K8` is false.
         if LM2 {
+            #[cfg(feature = "probe-cache-stats")]
+            LM2_SLACK_HIST[((bound - g_next - h) as usize).min(15)]
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let t = TILE_OF_CODE[tile] as usize;
             let heff = lm2_child(arena, lmctx.unwrap(), lm2ctx.unwrap(), d, t, h);
             if heff > h {
