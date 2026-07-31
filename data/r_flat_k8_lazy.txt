@@ -678,3 +678,36 @@ Open, unbuilt: joint-form tables (66% vs 43% certification), corner-tile
 analogues for the other corners (each costs a x5 state dimension), --lm with
 --zpdb8 (cascade wiring), and a 148 run to confirm the flat-cut claim one
 rung deeper.
+
+Joint-vs-single-line-max cWD gap — measured, RECORDED, not pursued (2026-07-31)
+-------------------------------------------------------------------------------
+Production cWD's surcharge is the single-line-MAX of the per-line marginals
+(the cwd_single fast path); the reference vector-constrained A* prices the
+demand vector jointly. Measured (harness `jointgap`, 30K random len-55 +
+507 workload prune boards, no exact solving needed):
+
+  population   multi-demand axes   gap|multi   boards w/ gap   gap sizes
+  random             6.49%           73.0%        9.37%        91% +2, 9% +4
+  workload           5.23%           60.4%        6.31%        all +2
+
+Pre-registered predictions, graded: P1 (multi-demand 8-15%) close, low side.
+P2 (gap|multi 10-30%) BADLY WRONG at 73% — the V5-absorption reasoning does
+not transfer: two demanded escapes are separate mandatory excursions of
+different tiles; absorption needs slack for both, max() bills only one.
+P3 wrong on random (9.4% vs 1-4%), in-band on workload; the contour-enrichment
+hypothesis REVERSED (random > workload — the contour is demand-sparser).
+Gap-size prediction right.
+
+Meaning: production cWD is provably loose by +2 on ~6.3% of real workload
+boards. Rescue architectures, sorted by this data:
+  - runtime joint-A* fallback: DEAD (~10 ms/eval vs 50 ns nodes);
+  - full pairwise curves: ~21 GB, not warranted;
+  - pairwise-(1,1) overlay: joint marginal per state per line-pair at demand
+    (1,1) — ~10 B/state ~= 656 MB, ten cwd_single-style sweeps, same
+    key/cache path. Expected ~1.1x further node cut, stacking with LM's
+    1.586x (and lifting LM's own branch values, which use the fast-path
+    surcharge on the un-refined axis).
+
+DELIBERATELY NOT PURSUED for now (user decision 2026-07-31). If revived, the
+first step is the (1,1)-dominance check: what fraction of gap-bearing states
+have both demands at level 1 (one-line extension of the jointgap mode).
