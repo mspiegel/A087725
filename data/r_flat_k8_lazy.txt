@@ -711,3 +711,61 @@ boards. Rescue architectures, sorted by this data:
 DELIBERATELY NOT PURSUED for now (user decision 2026-07-31). If revived, the
 first step is the (1,1)-dominance check: what fraction of gap-bearing states
 have both demands at level 1 (one-line extension of the jointgap mode).
+
+================================================================================
+LM2: last-TWO-moves certification probe (harness lm2test / lm2boards)
+================================================================================
+
+Extension of LM one step deeper into the endgame. Every optimal solution's
+final two moves pin the blank's suffix to one of four cell paths
+(14>19>24, 18>19>24, 18>23>24, 22>23>24), giving a 4-branch disjunction of
+per-axis obligations:
+
+  A: row pair  -- tile 20 (type-3: cross 3>4, end 3) + tile 15 (type-2:
+                  cross 2>3, end 2) + full col term
+  B: row(20) + col(19)   -- tile 19 is type-3 in BOTH axes (goal cell 18),
+  C: row(19) + col(24)      so B/C reuse the existing single-tracked form
+  D: col pair  -- tile 24 + tile 23 + full row term
+
+lm2 = max(cWD, min(A,B,C,D)) >= LM by construction (each branch dominates
+an LM branch). Per-branch degeneracies (tracked tile already at/past its
+crossing line) drop that tile's constraint, mirroring the p20-row-4 rule.
+Length-<=1 guard: goal and the two pre-goal states take h_cwd (no
+penultimate-move obligation exists there).
+
+Implementation: refined_axis2 (slack_anatomy.rs, worktree) -- refined_axis
+generalised to track up to two tiles (type-3 + type-2) in one axis;
+refined_axis2(Some(l), None) == refined_axis(l) asserted on sample boards.
+
+Soundness (lm2test, 3000 random len-55 boards, exact solve, both forms):
+  0/3000 unsound (joint and table forms); 0 budget fallbacks.
+  Binds on randoms: joint 20.43% (+2.04 mean), table 10.50% (+2.05 mean).
+
+Certification (lm2boards, the 507 k8-prune-event autopsy boards; baselines
+reproduce prior v6boards numbers exactly):
+
+  form    LM cert      LM2 cert     beyond-LM boards   hist(lm2-h0)
+  joint   333 (65.7%)  378 (74.6%)       45            129x0, 368x+2, 10x+4
+  table   219 (43.2%)  295 (58.2%)       76            212x0, 285x+2, 10x+4
+
+Table-realizable certification of k8's prune events rises 43.2% -> 58.2%
+(+15.0 pts, a 1.35x rate increase); 10 boards (2.0%) now reach +4 --
+DEEPER than k8's own +2 on those events. The buildable shape:
+
+  - branches B/C: served by the EXISTING cwd_lm.bin -- the table is
+    identity-generic over type-3 tokens, so tile 19's line indexes the same
+    5-value record. Zero new build; engine change = 4 extra cache probes.
+  - branches A/D: one new pair table D(key, line3, line2) with both
+    crossing flags folded at build -- 25 values/key, ~2.2 GB at the CWLM
+    record shape, same backward-BFS builder with a 100x state multiplier
+    (~656M x ~10 effective; build est. tens of minutes).
+
+NOTE a B/C-only integration (skipping the pair table) is NOT an option:
+the disjunction is a min over exhaustive endgame scenarios, so branches
+A/D degrade to single-tracked b20/b24 -- which undercut B/C (B = r20+c19
+>= r20+cc = b20), collapsing the whole bound to LM identically. The pair
+table is the price of any gain.
+
+Not yet decided; recorded for ranking against the parked pairwise-(1,1)
+cWD overlay (~656 MB, ~1.1x est.). Untried within this family:
+last-THREE-moves (16 branches, triple tracking, x5 state again).
