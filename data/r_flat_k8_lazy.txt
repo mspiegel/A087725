@@ -561,3 +561,27 @@ lengths vs the frozen oracle's Solved cases — node identity does not apply to
 a changed heuristic); (c) node-count + wall A/B at 144/146, including the
 2-tier interaction (V4d overlaps k8's +2 territory, so it shifts iso-time for
 the tier too).
+
+Leak #2 diagnosed; V5 defined: Last-Move Escape-Constrained Walking Distance (2026-07-31)
+-----------------------------------------------------------------------------------------
+Leak #2 (V4d's 1/30,000): dumped counterexample has dr = dc = ALL ZERO and
+d = h0 exactly — the rotation's two moves ride transfers plain WD's own
+blank-routing accounting already billed. WD-INTERNAL ABSORPTION: the sharing
+lives inside the table value, invisible to any board-feature predicate. This
+closes the guard-based (V4) family with a mechanism: the 0.1% -> 0.003% guard
+trajectory was converging to this floor, not to zero.
+
+V5 — named "Last-Move Escape-Constrained Walking Distance" (code: cwd-lm):
+    h = min( cWD(dem, dem_col[3]+1),  cWD(dem_row[3]+1, dem) )
+with a branch degenerating to h0 when its tile (24 / 20) already sits in its
+goal or free-ride line. The last-move disjunction (every solution sends tile
+24 or tile 20 through cell 24, forcing a goal-line-3 escape) enters as a
+PRICED DEMAND through the constrained A* — the same machinery as cWD's LIS
+demands — so a pre-billed excursion returns marginal 0 and double-billing is
+impossible by construction. The leak-#2 board is V5's thesis case: tile 24 in
+col 3 degenerates that branch; tile 20's branch prices at 0 (absorbed);
+charge 0; sound.
+
+Certification pipeline queued: 3K fast check, then 30K on the seed base that
+caught both prior leaks. Pass = 0 unsound + corridor bind retained (V4 bound
+57/157 states, +114).
