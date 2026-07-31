@@ -534,3 +534,30 @@ corridor; every static line-local charge for it tested so far is unsound.
 The information's sound carriers remain the tables (exhaustive BFS) — or an
 O(1)-cold encoding that would make table consults gateable (see the
 capped-surplus proposal below, unmeasured).
+
+V4: last-moves/corner-tiles (Korf-Taylor) vs cWD — FIRST SOUND+BINDING RULE (2026-07-31)
+----------------------------------------------------------------------------------------
+Motivated by the prune autopsy (the +2 is corner-rotation cost; tile 24's
+23->24 overshoot the dominant motif). Classic K&T charges tested on the
+3000-board protocol:
+
+  V4a last-moves:        binds 57/157 corridor (+114); unsound 3/3000 — leak
+                         diagnosed: charge-sharing with the LIS escape demand
+                         (same excursion billed twice).
+  V4b corner-tiles:      sound 0/3000; zero corridor bind (R1's fate).
+  V4d last-moves + guard (fire only when dem_row[3]==0 and dem_col[3]==0):
+                         SOUND 0/3000 AND full 57-state/+114 corridor bind
+                         retained — the guard excises exactly the three
+                         counterexamples, none of the corridor.
+
+Status: empirically sound at 0.1% resolution (same standard that certified
+R1); not a proof. O(1)/node: positions of tiles 20/24 (maintainable
+incrementally) + dem[3] per axis (already in the axis slots). Fires on 14% of
+random boards, 36% of R's corridor states, +2 each.
+
+Next: (a) 30K-board soundness run to tighten the bound; (b) integrate into
+the flat engine as h = cWD + charge behind a flag (validity gate: optimal
+lengths vs the frozen oracle's Solved cases — node identity does not apply to
+a changed heuristic); (c) node-count + wall A/B at 144/146, including the
+2-tier interaction (V4d overlaps k8's +2 territory, so it shifts iso-time for
+the tier too).
