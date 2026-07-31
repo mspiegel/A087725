@@ -507,3 +507,30 @@ k8 implication, unbuilt: the analogous move is one tight 8-tile corner block
 current right-edge snake as group b, complements re-compacted. Costs ~26 h of
 table builds to test for real; the cheap intermediate is a k=7-scale probe
 (~3.4 GB in memory) or workload-shadowing the k6 hybrid in the engine.
+
+Blank-aware demand candidates — tested on the yielddiag protocol (2026-07-31)
+-----------------------------------------------------------------------------
+Harness: slack_anatomy `blankdiag` (new mode, branch `blank-aware-demand`,
+worktree of pre-deletion main), 3000 exact-solved len-55 boards + R 156-path
+bind analysis — §8p/§8q's exact protocol.
+
+  V1 dem>=1 & blank-out (+1):  unsound 24/3000 (0.80%) — dead (8x R2's rate).
+  V2 blank-out & e>f (+e-f):   fires NEVER — vacuous by identity (blank out
+                               => every missing resident's cell is foreign,
+                               f >= e always). Design error, recorded.
+  V3 pocket (blank in home line, residents missing, +1):
+      binds 64/157 R-corridor states, total +142 (~2.2 each) — NOT
+      LIS-subsumed, the first rule to genuinely bind since R1;
+      unsound 4/3000 (0.133%, overshoot 2.0) — DEAD as stated (GB died
+      at 0.07%).
+      Counterexample mechanism (4/4 identical, all row 4): the blank's own
+      goal is IN the home line, so endgame entries interleave with foreign
+      ejections at zero waste; the rule charges the finale. Obstructive vs
+      scheduled occupancy is choreography-global — line-local predicates
+      cannot see it (§8p's free-slot law, blank-side form).
+
+Net: the pocket INFORMATION is confirmed real and binding on the proof
+corridor; every static line-local charge for it tested so far is unsound.
+The information's sound carriers remain the tables (exhaustive BFS) — or an
+O(1)-cold encoding that would make table consults gateable (see the
+capped-surplus proposal below, unmeasured).
