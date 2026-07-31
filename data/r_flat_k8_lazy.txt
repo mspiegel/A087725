@@ -585,3 +585,22 @@ charge 0; sound.
 Certification pipeline queued: 3K fast check, then 30K on the seed base that
 caught both prior leaks. Pass = 0 unsound + corridor bind retained (V4 bound
 57/157 states, +114).
+
+V5 certification: SOUND AND EMPTY — the family closes both ways (2026-07-31)
+----------------------------------------------------------------------------
+V5 (Last-Move Escape-Constrained Walking Distance): unsound 0/30,000 — and
+fires on 0/157 corridor states, 1% of random boards (V4d: 57 states, 14%).
+The constrained A* prices the extra escape at ZERO nearly everywhere: the
+token relaxation's routing freedom absorbs one added line-3 escape at no
+cost. Same fact as leak #2 from the other side — WD-internal absorption is
+not a rare edge, it is the norm at the abstraction level; reality just
+usually cannot exploit it (V4's +2 held on all but 1/30,000 fired boards).
+
+Verdict: the last-move +2 is (a) true on ~all fired boards, (b) unprovable at
+the WD abstraction — assertable only unsoundly, priceable only at ~0. Its
+proof requires finer-than-WD structure: exactly what the 8-tile tables carry.
+Rule-based capture of the PDB's +2 is closed with mechanisms in both
+directions (additive: absorption leak; demanded: absorption pricing).
+
+Engineering track unchanged: reflection-drop A/B, partition qualifiers, k7
+shadow, and the R >= 152 run itself.
