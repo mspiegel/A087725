@@ -52,6 +52,9 @@ struct Args {
     /// i.e. `RAYON_NUM_THREADS` or the core count — matching how the deleted
     /// recursive driver was invoked (`PUZZLE24.md:484`).
     parallel: bool,
+    /// Enable the Last-Move tier (cwd-lm): max(cWD, min of the two last-move
+    /// branch values) from data/cwd_lm.bin (~850 MB, resident).
+    lm: bool,
     /// Enable the lazy k8 tier: `max(cWD, k8)` with the three 8-tile ZPDBs
     /// (`data/pdb24_k8_{a,b,c}.zbin`, ~32.8 GB mmap'd), consulted only at
     /// children cWD fails to prune.
@@ -71,6 +74,9 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           rayon workers. Node counts are identical to the
                           sequential driver. Thread count from RAYON_NUM_THREADS
                           (default: core count).
+  --lm                    add the Last-Move tier (cwd-lm): max(cWD, last-move
+                          branch min) from data/cwd_lm.bin. Sound; not
+                          node-identical to plain cWD (stronger heuristic).
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~32.8 GB mmap'd),
                           consulted only at children cWD fails to prune. Cuts
@@ -88,6 +94,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut max_nodes = u64::MAX;
     let mut parallel = false;
     let mut zpdb8 = false;
+    let mut lm = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -111,6 +118,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--no-root-orbit-split" => root_orbit_split = Some(false),
             "--parallel" => parallel = true,
             "--zpdb8" => zpdb8 = true,
+            "--lm" => lm = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -138,6 +146,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         max_nodes,
         parallel,
         zpdb8,
+        lm,
     })
 }
 
@@ -305,6 +314,22 @@ fn main() -> ExitCode {
 
     eprintln!("cWD: loading tables…");
     let cwd = Cwd::new().with_neighbor_prune(true);
+    let lmt = if args.lm {
+        eprintln!("cwd-lm: loading data/cwd_lm.bin…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm(std::path::Path::new("data/cwd_lm.bin")) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("error: --lm: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
+    if args.lm && args.zpdb8 {
+        eprintln!("error: --lm with --zpdb8 is not wired yet; pick one");
+        return ExitCode::FAILURE;
+    }
     let k8 = if args.zpdb8 {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
         match puzzle8::puzzle24::search::flat::K8Ctx::load_mmap(std::path::Path::new("data")) {
@@ -421,8 +446,20 @@ fn main() -> ExitCode {
                 &cwd,
                 &dfa,
                 k8.as_ref(),
+                lmt.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
+                on_iter,
+            )
+        } else if let Some(t) = lmt.as_ref() {
+            puzzle8::puzzle24::search::flat::flat_bounded_lm_telemetry(
+                &start,
+                &cwd,
+                &dfa,
+                t,
+                orbit,
+                args.max_bound.unwrap_or(u8::MAX),
+                args.max_nodes,
                 on_iter,
             )
         } else if let Some(ctx) = k8.as_ref() {

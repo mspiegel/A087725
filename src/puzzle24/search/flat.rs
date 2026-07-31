@@ -458,6 +458,9 @@ struct Arena {
     /// k8 tier state, written only on consults; untouched (dead weight, ~64 KB)
     /// when the tier is off.
     k8: Box<[K8Slot]>,
+    /// Last-Move tier: per-depth (row of tile 20, col of tile 24), written at
+    /// the consult like the k8 slots (every entered node has a current entry).
+    lmpos: Box<[[u8; 2]]>,
 }
 
 impl Arena {
@@ -495,6 +498,7 @@ impl Arena {
             row: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
             col: vec![blank_axis; MAX_DEPTH].into_boxed_slice(),
             k8: vec![blank_k8; MAX_DEPTH].into_boxed_slice(),
+            lmpos: vec![[0u8; 2]; MAX_DEPTH].into_boxed_slice(),
         }
     }
 
@@ -1744,6 +1748,84 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     s0.max(s1).min(255) as u8
 }
 
+// ------------------------- last-move (cwd-lm) tier ----------------------------
+
+/// Load the Last-Move Escape-Constrained WD table (`data/cwd_lm.bin`).
+pub fn load_cwd_lm(path: &std::path::Path) -> std::io::Result<super::cwd_lm::CwdLm> {
+    super::cwd_lm::CwdLm::load(path)
+}
+
+/// Seed depth-0 last-move positions from the board.
+fn seed_lm(arena: &mut Arena, board: &State) {
+    let p20 = board.0.iter().position(|&t| t == 20).unwrap();
+    let p24 = board.0.iter().position(|&t| t == 24).unwrap();
+    arena.lmpos[0] = [(p20 / W_LM) as u8, (p24 % W_LM) as u8];
+}
+
+const W_LM: usize = 5;
+
+/// Price the last-move branches for the child at depth `d+1` and return its
+/// effective heuristic `max(h_cwd, min(branch20, branch24))`.
+///
+/// branch20 = refined row distance (tile 20 obligated to cross row 3→4 and
+/// return) + the child's FULL column term (wd + surcharge — sound to combine
+/// because vertical and horizontal moves are disjoint move sets); branch24 is
+/// the mirror. A branch degenerates to `h_cwd` when its tile is already in
+/// line 4 (free ride) or the table has no entry (invalid/unreached state).
+#[inline]
+fn lm_child(
+    arena: &mut Arena,
+    lm: &super::cwd_lm::CwdLm,
+    d: usize,
+    tile_decoded: usize,
+    h_cwd: u8,
+) -> u8 {
+    // Update the child's tracked positions: the moved tile lands on the
+    // parent's blank cell.
+    let mut lp = arena.lmpos[d];
+    let bcell = arena.hot[d].blank as usize;
+    if tile_decoded == 20 {
+        lp[0] = (bcell / W_LM) as u8;
+    } else if tile_decoded == 24 {
+        lp[1] = (bcell % W_LM) as u8;
+    }
+    arena.lmpos[d + 1] = lp;
+    debug_assert_eq!(
+        {
+            let b = arena.board[d + 1].0.decode();
+            let p20 = b.0.iter().position(|&t| t == 20).unwrap();
+            let p24 = b.0.iter().position(|&t| t == 24).unwrap();
+            [(p20 / W_LM) as u8, (p24 % W_LM) as u8]
+        },
+        lp,
+        "incremental lmpos drifted from the board"
+    );
+
+    let f = &arena.hot[d + 1];
+    let rslot = &arena.row[f.row_at as usize];
+    let cslot = &arena.col[f.col_at as usize];
+    let rterm = rslot.term();
+    let cterm = cslot.term();
+
+    let b20 = if lp[0] >= 4 {
+        h_cwd
+    } else {
+        match lm.get(rslot.key, lp[0] as usize) {
+            Some(d20) => d20.saturating_add(cterm),
+            None => h_cwd,
+        }
+    };
+    let b24 = if lp[1] >= 4 {
+        h_cwd
+    } else {
+        match lm.get(cslot.key, lp[1] as usize) {
+            Some(d24) => d24.saturating_add(rterm),
+            None => h_cwd,
+        }
+    };
+    h_cwd.max(b20.min(b24))
+}
+
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -1773,6 +1855,25 @@ pub fn flat_bounded(
     flat_bounded_telemetry(start, cwd, dfa, orbit_split, max_bound, |_, _, _| {})
 }
 
+/// [`flat_bounded_telemetry`] with the Last-Move tier (`cwd-lm`):
+/// `h = max(cWD, min(branch20, branch24))`, priced lazily at cWD-survivors.
+#[allow(clippy::too_many_arguments)]
+pub fn flat_bounded_lm_telemetry<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    lm: &super::cwd_lm::CwdLm,
+    orbit_split: bool,
+    max_bound: u8,
+    max_nodes: u64,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner_k8(start, cwd, dfa, None, Some(lm), orbit_split, max_bound, max_nodes, on_iter)
+}
+
 /// [`flat_bounded_telemetry`] with the lazy k8 tier: `max(cWD, k8)` consulted at
 /// cWD-survivors, node-identical to the recorded 2-tier trees (§8j:
 /// 269,180,930 at exhaust-144; 8,808,311,484 at exhaust-146).
@@ -1789,7 +1890,7 @@ pub fn flat_bounded_k8_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), None, orbit_split, max_bound, max_nodes, on_iter)
 }
 
 /// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
@@ -1816,7 +1917,7 @@ pub fn flat_bounded_budgeted<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, None, orbit_split, max_bound, max_nodes, on_iter)
 }
 
 /// [`flat_bounded`] with a per-iteration callback, mirroring
@@ -1833,7 +1934,7 @@ pub fn flat_bounded_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, orbit_split, max_bound, u64::MAX, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, None, orbit_split, max_bound, u64::MAX, on_iter)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1842,6 +1943,7 @@ fn flat_bounded_inner_k8<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
+    lm: Option<&super::cwd_lm::CwdLm>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -1869,6 +1971,9 @@ where
     if let Some(ctx) = k8 {
         h0 = h0.max(seed_k8(&mut arena, start, ctx));
     }
+    if lm.is_some() {
+        seed_lm(&mut arena, start);
+    }
     let mut bound = h0;
 
     loop {
@@ -1879,18 +1984,24 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        let step = match (budget == u64::MAX, k8) {
-            (true, None) => run_iteration::<false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, bound, &mut stats, budget,
+        let step = match (budget == u64::MAX, k8.is_some(), lm.is_some()) {
+            (true, false, false) => run_iteration::<false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, bound, &mut stats, budget,
             ),
-            (false, None) => run_iteration::<true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, bound, &mut stats, budget,
+            (false, false, false) => run_iteration::<true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, bound, &mut stats, budget,
             ),
-            (true, Some(_)) => run_iteration::<false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, bound, &mut stats, budget,
+            (true, true, _) => run_iteration::<false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, bound, &mut stats, budget,
             ),
-            (false, Some(_)) => run_iteration::<true, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, bound, &mut stats, budget,
+            (false, true, _) => run_iteration::<true, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, bound, &mut stats, budget,
+            ),
+            (true, false, true) => run_iteration::<false, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, bound, &mut stats, budget,
+            ),
+            (false, false, true) => run_iteration::<true, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, bound, &mut stats, budget,
             ),
         };
         match step {
@@ -2081,6 +2192,7 @@ pub fn flat_bounded_parallel<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
+    lm: Option<&super::cwd_lm::CwdLm>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -2114,6 +2226,9 @@ where
     let mut h0 = seed_root(&mut split_arena, start, cwd, merged, dfa, orbit_split);
     if let Some(ctx) = k8 {
         h0 = h0.max(seed_k8(&mut split_arena, start, ctx));
+    }
+    if lm.is_some() {
+        seed_lm(&mut split_arena, start);
     }
     let mut bound = h0;
 
@@ -2160,6 +2275,9 @@ where
             if let Some(ctx) = k8 {
                 seed_k8(&mut split_arena, &u.board, ctx);
             }
+            if lm.is_some() {
+                seed_lm(&mut split_arena, &u.board);
+            }
             let mut cand = split_arena.hot[0].cand;
             let g_next = u.g + 1;
             while !cand.is_empty() {
@@ -2196,6 +2314,20 @@ where
                         min_f = f;
                     }
                     continue;
+                }
+                if let Some(lmt) = lm {
+                    let t = TILE_OF_CODE[tile] as usize;
+                    let heff = lm_child(&mut split_arena, lmt, 0, t, h);
+                    if heff > h {
+                        let f2 = g_next.saturating_add(heff);
+                        if f2 > bound {
+                            stats.nodes += 1; // counted, same as the cWD over-bound arm
+                            if f2 < min_f {
+                                min_f = f2;
+                            }
+                            continue;
+                        }
+                    }
                 }
                 // Lazy k8 consult at cWD-survivors — must mirror run_iteration
                 // exactly or the split's tree diverges from the sequential one.
@@ -2262,18 +2394,25 @@ where
                     if let Some(ctx) = k8 {
                         seed_k8(arena, &u.board, ctx);
                     }
+                    if lm.is_some() {
+                        seed_lm(arena, &u.board);
+                    }
                     let _setup_ns = unit_start.elapsed().as_nanos() as u64;
                     // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
                     let step = if k8.is_some() {
-                        run_iteration::<false, true>(
-                            arena, cache, cwd, merged, dfa, k8, reduced, &mut st, u64::MAX,
+                        run_iteration::<false, true, false>(
+                            arena, cache, cwd, merged, dfa, k8, None, reduced, &mut st, u64::MAX,
+                        )
+                    } else if lm.is_some() {
+                        run_iteration::<false, false, true>(
+                            arena, cache, cwd, merged, dfa, None, lm, reduced, &mut st, u64::MAX,
                         )
                     } else {
-                        run_iteration::<false, false>(
-                            arena, cache, cwd, merged, dfa, None, reduced, &mut st, u64::MAX,
+                        run_iteration::<false, false, false>(
+                            arena, cache, cwd, merged, dfa, None, None, reduced, &mut st, u64::MAX,
                         )
                     };
                     let wr = match step {
@@ -2633,13 +2772,15 @@ fn seed_root(
 // Same convention as `build_child` and the sibling engine's search functions:
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
-fn run_iteration<const BUDGETED: bool, const K8: bool>(
+#[allow(clippy::too_many_arguments)]
+fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
     merged: &CwdMerged,
     dfa: &MoveDfa,
     k8ctx: Option<&K8Ctx>,
+    lmctx: Option<&super::cwd_lm::CwdLm>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -2741,6 +2882,19 @@ fn run_iteration<const BUDGETED: bool, const K8: bool>(
         // recursive convention, so the tree matches §8j's node counts). The
         // child is already counted; a k8 prune folds its full f and moves on.
         // Compiles away entirely when `K8` is false.
+        if LM {
+            let t = TILE_OF_CODE[tile] as usize;
+            let heff = lm_child(arena, lmctx.unwrap(), d, t, h);
+            if heff > h {
+                let f2 = g_next.saturating_add(heff);
+                if f2 > bound {
+                    if f2 < minf {
+                        minf = f2;
+                    }
+                    continue;
+                }
+            }
+        }
         if K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
             #[cfg(feature = "k8-probe-locality")]
