@@ -464,6 +464,12 @@ struct Arena {
     /// LM front cache, allocated on first [`seed_lm`] (4 MB default); persists
     /// across units and thresholds like the worker [`ProbeCache`].
     lmcache: Option<Box<LmCache>>,
+    /// LM2 tier: per-depth tracked lines
+    /// [row20, col24, row15, row19, col19, col23], written at the consult.
+    lm2pos: Box<[[u8; 6]]>,
+    /// LM2 combined front cache (single + pair values under one tag),
+    /// allocated on first [`seed_lm2`].
+    lm2cache: Option<Box<Lm2Cache>>,
 }
 
 impl Arena {
@@ -503,6 +509,8 @@ impl Arena {
             k8: vec![blank_k8; MAX_DEPTH].into_boxed_slice(),
             lmpos: vec![[0u8; 2]; MAX_DEPTH].into_boxed_slice(),
             lmcache: None,
+            lm2pos: vec![[0u8; 6]; MAX_DEPTH].into_boxed_slice(),
+            lm2cache: None,
         }
     }
 
@@ -1919,6 +1927,212 @@ fn lm_child(
     h_cwd.max(b20.min(b24))
 }
 
+// ----------------------- last-two-moves (cwd-lm2) tier ------------------------
+
+/// Load the last-two-moves pair table (`data/cwd_lm2.bin`).
+pub fn load_cwd_lm2(path: &std::path::Path) -> std::io::Result<super::cwd_lm::CwdLm2> {
+    super::cwd_lm::CwdLm2::load(path)
+}
+
+/// Combined front cache for the LM2 tier: one tag per axis key serving both
+/// the four single-tracked line values AND the 25 pair values, filled from
+/// two map probes on a miss. The LM2 tier probes only this cache, leaving
+/// [`LmCache`] (and the `--lm` path's layout) untouched.
+struct Lm2Cache {
+    slots: Box<[Lm2Slot]>,
+    shift: u32,
+}
+
+#[repr(align(64))]
+#[derive(Clone, Copy)]
+struct Lm2Slot {
+    /// Axis key, or 0 for empty (a real key always has nonzero matrix bits).
+    tag: u64,
+    single: [u8; 4],
+    pair: [u8; 25],
+}
+
+#[cfg(feature = "probe-cache-stats")]
+static LM2_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LM2_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Print the LM2 front cache's aggregate hit/miss counters (all workers).
+#[cfg(feature = "probe-cache-stats")]
+pub fn lm2_cache_stats_report() {
+    let h = LM2_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed);
+    let m = LM2_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed);
+    if h + m > 0 {
+        eprintln!(
+            "    lm2 cache: {h} hits / {m} misses = {:.3}% hit",
+            100.0 * h as f64 / (h + m) as f64
+        );
+    }
+}
+
+fn lm2_cache_bits() -> u32 {
+    static BITS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *BITS.get_or_init(|| {
+        std::env::var("FLAT_LM2_CACHE_BITS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(17)
+    })
+}
+
+impl Lm2Cache {
+    fn new() -> Self {
+        let bits = lm2_cache_bits();
+        assert!((8..=22).contains(&bits), "implausible LM2 cache size");
+        Lm2Cache {
+            slots: vec![
+                Lm2Slot {
+                    tag: 0,
+                    single: [0xFF; 4],
+                    pair: [0xFF; 25]
+                };
+                1usize << bits
+            ]
+            .into_boxed_slice(),
+            shift: 64 - bits,
+        }
+    }
+
+    /// Single + pair values for `key`, via the cache.
+    #[inline(always)]
+    fn get(
+        &mut self,
+        lm: &super::cwd_lm::CwdLm,
+        lm2: &super::cwd_lm::CwdLm2,
+        key: u64,
+    ) -> ([u8; 4], [u8; 25]) {
+        let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
+        if self.slots[i].tag != key {
+            let mut single = [0xFFu8; 4];
+            if let Some(v) = lm.get_all(key) {
+                single.copy_from_slice(&v[..4]);
+            }
+            let pair = *lm2.get_all(key).unwrap_or(&[0xFFu8; 25]);
+            self.slots[i] = Lm2Slot { tag: key, single, pair };
+            #[cfg(feature = "probe-cache-stats")]
+            LM2_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            #[cfg(feature = "probe-cache-stats")]
+            LM2_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        (self.slots[i].single, self.slots[i].pair)
+    }
+}
+
+/// Seed depth-0 tracked lines for the LM2 tier.
+fn seed_lm2(arena: &mut Arena, board: &State) {
+    arena.lm2cache.get_or_insert_with(|| Box::new(Lm2Cache::new()));
+    let pos = |t: u8| board.0.iter().position(|&x| x == t).unwrap();
+    let (p20, p24, p15, p19, p23) = (pos(20), pos(24), pos(15), pos(19), pos(23));
+    arena.lm2pos[0] = [
+        (p20 / W_LM) as u8,
+        (p24 % W_LM) as u8,
+        (p15 / W_LM) as u8,
+        (p19 / W_LM) as u8,
+        (p19 % W_LM) as u8,
+        (p23 % W_LM) as u8,
+    ];
+}
+
+/// Price the four last-two-moves endgame branches for the child at depth
+/// `d+1` and return `max(h_cwd, min(A, B, C, D))`.
+///
+/// Every optimal solution's final two moves pin the blank's suffix to one of
+/// 14→19→24 (A: row pair 20+15), 18→19→24 (B: row 20 + col 19),
+/// 18→23→24 (C: row 19 + col 24), 22→23→24 (D: col pair 24+23). Tile 19 is
+/// type-3 in both axes, so B/C read the same single-tracked table as LM. A
+/// tile past its crossing line (or a missing table entry) degrades that
+/// constraint to the axis's baseline term, so a fully degenerate branch
+/// equals `h_cwd`. Like the LM tier, inadmissible only at the goal board
+/// itself (obligations presume ≥ 2 remaining moves), which the exhaust
+/// regime never consults; the two pre-goal states are safe because their
+/// in-line-4 tile degenerates one branch to `h_cwd` = d*.
+#[inline]
+fn lm2_child(
+    arena: &mut Arena,
+    lm: &super::cwd_lm::CwdLm,
+    lm2: &super::cwd_lm::CwdLm2,
+    d: usize,
+    tile_decoded: usize,
+    h_cwd: u8,
+) -> u8 {
+    // Update the child's tracked lines: the moved tile lands on the parent's
+    // blank cell.
+    let mut lp = arena.lm2pos[d];
+    let bcell = arena.hot[d].blank as usize;
+    match tile_decoded {
+        20 => lp[0] = (bcell / W_LM) as u8,
+        24 => lp[1] = (bcell % W_LM) as u8,
+        15 => lp[2] = (bcell / W_LM) as u8,
+        19 => {
+            lp[3] = (bcell / W_LM) as u8;
+            lp[4] = (bcell % W_LM) as u8;
+        }
+        23 => lp[5] = (bcell % W_LM) as u8,
+        _ => {}
+    }
+    arena.lm2pos[d + 1] = lp;
+    debug_assert_eq!(
+        {
+            let b = arena.board[d + 1].0.decode();
+            let pos = |t: u8| b.0.iter().position(|&x| x == t).unwrap();
+            [
+                (pos(20) / W_LM) as u8,
+                (pos(24) % W_LM) as u8,
+                (pos(15) / W_LM) as u8,
+                (pos(19) / W_LM) as u8,
+                (pos(19) % W_LM) as u8,
+                (pos(23) % W_LM) as u8,
+            ]
+        },
+        lp,
+        "incremental lm2pos drifted from the board"
+    );
+
+    let f = &arena.hot[d + 1];
+    let rslot = &arena.row[f.row_at as usize];
+    let cslot = &arena.col[f.col_at as usize];
+    let rterm = rslot.term();
+    let cterm = cslot.term();
+    let (rkey, ckey) = (rslot.key, cslot.key);
+    let cache = arena
+        .lm2cache
+        .as_mut()
+        .expect("seed_lm2 allocates the cache")
+        .as_mut();
+    let (vr, pr_all) = cache.get(lm, lm2, rkey);
+    let (vc, pc_all) = cache.get(lm, lm2, ckey);
+
+    let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
+    let r20 = sv(&vr, lp[0]);
+    let c24 = sv(&vc, lp[1]);
+    let r19 = sv(&vr, lp[3]);
+    let c19 = sv(&vc, lp[4]);
+    let pr = if lp[0] < 4 && lp[2] < 3 {
+        pr_all[lp[0] as usize * W_LM + lp[2] as usize]
+    } else {
+        0xFF
+    };
+    let pc = if lp[1] < 4 && lp[5] < 3 {
+        pc_all[lp[1] as usize * W_LM + lp[5] as usize]
+    } else {
+        0xFF
+    };
+    let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+    let r20f = or_(r20, rterm);
+    let c24f = or_(c24, cterm);
+    let ba = or_(pr, r20f).saturating_add(cterm);
+    let bb = r20f.saturating_add(or_(c19, cterm));
+    let bc = or_(r19, rterm).saturating_add(c24f);
+    let bd = rterm.saturating_add(or_(pc, c24f));
+    h_cwd.max(ba.min(bb).min(bc).min(bd))
+}
+
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -1964,7 +2178,40 @@ pub fn flat_bounded_lm_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, Some(lm), orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, Some(lm), None, orbit_split, max_bound, max_nodes, on_iter)
+}
+
+/// [`flat_bounded_telemetry`] with the last-two-moves tier (`cwd-lm2`):
+/// `h = max(cWD, min(A, B, C, D))` over the four endgame branches, priced
+/// lazily at cWD-survivors. Needs BOTH tables — the pair table serves
+/// branches A/D, the single table serves B/C and the pair fallbacks.
+#[allow(clippy::too_many_arguments)]
+pub fn flat_bounded_lm2_telemetry<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    lm: &super::cwd_lm::CwdLm,
+    lm2: &super::cwd_lm::CwdLm2,
+    orbit_split: bool,
+    max_bound: u8,
+    max_nodes: u64,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        None,
+        Some(lm),
+        Some(lm2),
+        orbit_split,
+        max_bound,
+        max_nodes,
+        on_iter,
+    )
 }
 
 /// [`flat_bounded_telemetry`] with the lazy k8 tier: `max(cWD, k8)` consulted at
@@ -1983,7 +2230,7 @@ pub fn flat_bounded_k8_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), None, None, orbit_split, max_bound, max_nodes, on_iter)
 }
 
 /// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
@@ -2010,7 +2257,7 @@ pub fn flat_bounded_budgeted<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, None, None, orbit_split, max_bound, max_nodes, on_iter)
 }
 
 /// [`flat_bounded`] with a per-iteration callback, mirroring
@@ -2027,7 +2274,7 @@ pub fn flat_bounded_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, None, orbit_split, max_bound, u64::MAX, on_iter)
+    flat_bounded_inner_k8(start, cwd, dfa, None, None, None, orbit_split, max_bound, u64::MAX, on_iter)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2037,6 +2284,7 @@ fn flat_bounded_inner_k8<F>(
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLm>,
+    lm2: Option<&super::cwd_lm::CwdLm2>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -2064,7 +2312,9 @@ where
     if let Some(ctx) = k8 {
         h0 = h0.max(seed_k8(&mut arena, start, ctx));
     }
-    if lm.is_some() {
+    if lm2.is_some() {
+        seed_lm2(&mut arena, start);
+    } else if lm.is_some() {
         seed_lm(&mut arena, start);
     }
     let mut bound = h0;
@@ -2077,24 +2327,38 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        let step = match (budget == u64::MAX, k8.is_some(), lm.is_some()) {
-            (true, false, false) => run_iteration::<false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, bound, &mut stats, budget,
+        let step = match (budget == u64::MAX, k8.is_some(), lm2.is_some(), lm.is_some()) {
+            (true, false, false, false) => run_iteration::<false, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+                budget,
             ),
-            (false, false, false) => run_iteration::<true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, bound, &mut stats, budget,
+            (false, false, false, false) => run_iteration::<true, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+                budget,
             ),
-            (true, true, _) => run_iteration::<false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, bound, &mut stats, budget,
+            (true, true, _, _) => run_iteration::<false, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats,
+                budget,
             ),
-            (false, true, _) => run_iteration::<true, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, bound, &mut stats, budget,
+            (false, true, _, _) => run_iteration::<true, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats,
+                budget,
             ),
-            (true, false, true) => run_iteration::<false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, bound, &mut stats, budget,
+            (true, false, true, _) => run_iteration::<false, false, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats,
+                budget,
             ),
-            (false, false, true) => run_iteration::<true, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, bound, &mut stats, budget,
+            (false, false, true, _) => run_iteration::<true, false, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats,
+                budget,
+            ),
+            (true, false, false, true) => run_iteration::<false, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats,
+                budget,
+            ),
+            (false, false, false, true) => run_iteration::<true, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats,
+                budget,
             ),
         };
         match step {
@@ -2286,6 +2550,7 @@ pub fn flat_bounded_parallel<F>(
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLm>,
+    lm2: Option<&super::cwd_lm::CwdLm2>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -2368,7 +2633,9 @@ where
             if let Some(ctx) = k8 {
                 seed_k8(&mut split_arena, &u.board, ctx);
             }
-            if lm.is_some() {
+            if lm2.is_some() {
+                seed_lm2(&mut split_arena, &u.board);
+            } else if lm.is_some() {
                 seed_lm(&mut split_arena, &u.board);
             }
             let mut cand = split_arena.hot[0].cand;
@@ -2408,7 +2675,20 @@ where
                     }
                     continue;
                 }
-                if let Some(lmt) = lm {
+                if let Some(lm2t) = lm2 {
+                    let t = TILE_OF_CODE[tile] as usize;
+                    let heff = lm2_child(&mut split_arena, lm.unwrap(), lm2t, 0, t, h);
+                    if heff > h {
+                        let f2 = g_next.saturating_add(heff);
+                        if f2 > bound {
+                            stats.nodes += 1; // counted, same as the cWD over-bound arm
+                            if f2 < min_f {
+                                min_f = f2;
+                            }
+                            continue;
+                        }
+                    }
+                } else if let Some(lmt) = lm {
                     let t = TILE_OF_CODE[tile] as usize;
                     let heff = lm_child(&mut split_arena, lmt, 0, t, h);
                     if heff > h {
@@ -2487,7 +2767,9 @@ where
                     if let Some(ctx) = k8 {
                         seed_k8(arena, &u.board, ctx);
                     }
-                    if lm.is_some() {
+                    if lm2.is_some() {
+                        seed_lm2(arena, &u.board);
+                    } else if lm.is_some() {
                         seed_lm(arena, &u.board);
                     }
                     let _setup_ns = unit_start.elapsed().as_nanos() as u64;
@@ -2496,16 +2778,24 @@ where
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
                     let step = if k8.is_some() {
-                        run_iteration::<false, true, false>(
-                            arena, cache, cwd, merged, dfa, k8, None, reduced, &mut st, u64::MAX,
+                        run_iteration::<false, true, false, false>(
+                            arena, cache, cwd, merged, dfa, k8, None, None, reduced, &mut st,
+                            u64::MAX,
+                        )
+                    } else if lm2.is_some() {
+                        run_iteration::<false, false, false, true>(
+                            arena, cache, cwd, merged, dfa, None, lm, lm2, reduced, &mut st,
+                            u64::MAX,
                         )
                     } else if lm.is_some() {
-                        run_iteration::<false, false, true>(
-                            arena, cache, cwd, merged, dfa, None, lm, reduced, &mut st, u64::MAX,
+                        run_iteration::<false, false, true, false>(
+                            arena, cache, cwd, merged, dfa, None, lm, None, reduced, &mut st,
+                            u64::MAX,
                         )
                     } else {
-                        run_iteration::<false, false, false>(
-                            arena, cache, cwd, merged, dfa, None, None, reduced, &mut st, u64::MAX,
+                        run_iteration::<false, false, false, false>(
+                            arena, cache, cwd, merged, dfa, None, None, None, reduced, &mut st,
+                            u64::MAX,
                         )
                     };
                     let wr = match step {
@@ -2866,7 +3156,7 @@ fn seed_root(
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool>(
+fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
@@ -2874,6 +3164,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool>(
     dfa: &MoveDfa,
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLm>,
+    lm2ctx: Option<&super::cwd_lm::CwdLm2>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -2975,7 +3266,19 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool>(
         // recursive convention, so the tree matches §8j's node counts). The
         // child is already counted; a k8 prune folds its full f and moves on.
         // Compiles away entirely when `K8` is false.
-        if LM {
+        if LM2 {
+            let t = TILE_OF_CODE[tile] as usize;
+            let heff = lm2_child(arena, lmctx.unwrap(), lm2ctx.unwrap(), d, t, h);
+            if heff > h {
+                let f2 = g_next.saturating_add(heff);
+                if f2 > bound {
+                    if f2 < minf {
+                        minf = f2;
+                    }
+                    continue;
+                }
+            }
+        } else if LM {
             let t = TILE_OF_CODE[tile] as usize;
             let heff = lm_child(arena, lmctx.unwrap(), d, t, h);
             if heff > h {

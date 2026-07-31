@@ -769,3 +769,51 @@ table is the price of any gain.
 Not yet decided; recorded for ranking against the parked pairwise-(1,1)
 cWD overlay (~656 MB, ~1.1x est.). Untried within this family:
 last-THREE-moves (16 branches, triple tracking, x5 state again).
+
+--------------------------------------------------------------------------------
+LM2 BUILT, VALIDATED, INTEGRATED, A/B'd (decision: build — user 2026-07-31)
+--------------------------------------------------------------------------------
+
+Build (cwd_lm.rs build_cwd_lm2, backward BFS over key x la x ca x lb x cb,
+bitmap frontier over key indices, per-key edge work amortised across the 100
+tracked codes): 65,650,495 keys, 2,346,712,861 reachable pair states (of
+6.57B nominal), depth 72, 203 s single-thread, data/cwd_lm2.bin 2.17 GB
+(CWL2, 33 B records). In-build checks: D2(goal,3,2) = 4; pair >= single
+dominance on 1.79M placements.
+
+Cross-validation (harness lm2check): table vs independent refined_axis2 A*
+on the 507 workload boards, engine query shape (row key, l20, l15) /
+(col key, l24, l23): 851 pair values, 0 mismatches, 0 defined/undefined skews.
+
+Engine (--lm2, flat.rs lm2_child + Lm2Cache): four-branch min over the
+endgame suffixes; B/C read the single table (tile 19 is type-3 in both
+axes); pair probes only for A/D. Combined front cache (one tag -> 4 single
++ 25 pair values, 64 B slots, 2^17 default, FLAT_LM2_CACHE_BITS): 99.811%
+in-situ hit at exhaust-144 (vs LM cache's 99.588%). --lm path untouched
+(separate cache + position arrays). Degenerate branches fall back
+pair -> single -> axis term, so a fully degenerate branch equals h_cwd.
+Same goal-board caveat as LM (obligations presume >= 2 remaining moves;
+exhaust regime never consults there; both pre-goal states safe by the
+line-4 degeneracy). Debug lm2pos-drift assert clean over 2M nodes.
+
+A/B (canary-bracketed, idle box, parallel, R, exhaust-144 + 146; canaries
+91.28 / 90.98 / 90.78 s — clean):
+
+            nodes@144     cut    nodes@146      cut    wall@146   vs base  vs LM
+  base    422,379,806      1x  17,767,093,830    1x    91.0 s       1x      —
+  --lm    267,641,675  1.578x  11,198,907,473  1.586x  70.6 s     1.29x     1x
+  --lm2   216,158,191  1.954x   8,975,456,521  1.980x  64.6 s     1.41x   1.094x
+  (k8     269,180,917  1.57x    8,539,130,554  2.08x   — 32.8 GB mmap)
+
+lm2 wall@144 1.16 s vs base 1.90 s. Node cut grows with depth (1.954 ->
+1.980), unlike LM's flat 1.586; at 146 the 2.2 GB pair table is within 5%
+of the 33 GB k8 tier's node count. Sequential and parallel node counts
+identical (216,158,191 @144).
+
+Certification-to-cut calibration point #2: 43.2% -> 1.586x (LM),
+58.2% -> 1.980x (LM2) — the superlinear mapping held.
+
+The cWD-only configuration for deep thresholds is now --parallel --lm2.
+Untried within the family: last-THREE-moves (16 branches, triple tracking,
+x5 state again); joint-form tables; pairwise-(1,1) cWD overlay (stacks with
+LM2's un-refined-axis terms).

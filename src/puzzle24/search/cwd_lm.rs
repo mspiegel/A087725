@@ -210,6 +210,286 @@ pub fn build_cwd_lm(goal_key: u64) -> CwdLm {
     CwdLm { map }
 }
 
+/// Tracked type for the penultimate-move obligation: goal-line 2 (tiles 15 /
+/// 23 — the tiles settled by the move before last in the endgame branches
+/// 14→19→24 and 22→23→24).
+const TB: usize = 2;
+
+/// The last-TWO-moves pair table: `key → D2(key, la, lb)` where `la` is the
+/// tracked type-3 token's line (obligation: cross 3→4 once, end in line 3)
+/// and `lb` the tracked type-2 token's line (cross 2→3 once, end in line 2).
+/// Stored layer is (crossed=false, crossed=false); `0xFF` = no such token
+/// placement in this key. Serves endgame branches A (row pair 20+15) and D
+/// (col pair 24+23); branches B/C reuse the single-tracked [`CwdLm`].
+pub struct CwdLm2 {
+    map: HashMap<u64, [u8; 25]>,
+}
+
+impl CwdLm2 {
+    /// Pair-refined distance from `(key, la, lb)`; `None` if the placement is
+    /// invalid (missing token of either tracked type in its line).
+    #[inline]
+    pub fn get(&self, key: u64, la: usize, lb: usize) -> Option<u8> {
+        let v = self.map.get(&key)?[la * W + lb];
+        (v != 0xFF).then_some(v)
+    }
+
+    /// All 25 `(la, lb)` values for `key` (0xFF = invalid placement), or
+    /// `None` if the key is unknown. One map probe, for the front cache.
+    #[inline]
+    pub fn get_all(&self, key: u64) -> Option<&[u8; 25]> {
+        self.map.get(&key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let mut w = BufWriter::new(std::fs::File::create(path)?);
+        w.write_all(b"CWL2")?;
+        w.write_all(&(self.map.len() as u64).to_le_bytes())?;
+        for (&k, v) in &self.map {
+            w.write_all(&k.to_le_bytes())?;
+            w.write_all(v)?;
+        }
+        Ok(())
+    }
+
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let mut r = BufReader::new(std::fs::File::open(path)?);
+        let mut magic = [0u8; 4];
+        r.read_exact(&mut magic)?;
+        assert_eq!(&magic, b"CWL2", "bad cwd_lm2 magic");
+        let mut n8 = [0u8; 8];
+        r.read_exact(&mut n8)?;
+        let n = u64::from_le_bytes(n8) as usize;
+        let mut map = HashMap::with_capacity(n);
+        let mut buf = [0u8; 33];
+        for _ in 0..n {
+            r.read_exact(&mut buf)?;
+            let k = u64::from_le_bytes(buf[..8].try_into().unwrap());
+            let mut v = [0u8; 25];
+            v.copy_from_slice(&buf[8..33]);
+            map.insert(k, v);
+        }
+        Ok(CwdLm2 { map })
+    }
+}
+
+/// Number of WD-reachable keys (known from the wd24 build).
+const N_WD_KEYS: usize = 65_650_495;
+
+#[inline]
+fn code_of(la: usize, ca: bool, lb: usize, cb: bool) -> usize {
+    (ca as usize) * 50 + (cb as usize) * 25 + la * W + lb
+}
+
+#[inline]
+fn set_pred(
+    dist: &mut [u8],
+    nextbm: &mut [u64],
+    d1: u8,
+    pidx: usize,
+    pcode: usize,
+) {
+    let s = &mut dist[pidx * 100 + pcode];
+    if *s == 0xFF {
+        *s = d1;
+        nextbm[pidx >> 6] |= 1u64 << (pidx & 63);
+    }
+}
+
+/// Build the pair table by BFS from the goal over reversed edges of the
+/// product graph (WD key × A-line × A-crossed × B-line × B-crossed),
+/// ~6.57 B states. Same edge inversion as [`build_cwd_lm`]; the two tracked
+/// tokens have distinct types (3 and 2), so their interpretation cases never
+/// interact on one edge. Frontier is a bitmap over key indices; per active
+/// key the base-edge work (unpack/pack/index probe) is shared across all
+/// 100 tracked codes.
+pub fn build_cwd_lm2(goal_key: u64) -> CwdLm2 {
+    // Base key enumeration: plain BFS over the WD graph (self-inverse moves).
+    let t0 = std::time::Instant::now();
+    let mut keys: Vec<u64> = Vec::with_capacity(N_WD_KEYS);
+    let mut index: HashMap<u64, u32> = HashMap::with_capacity(N_WD_KEYS);
+    keys.push(goal_key);
+    index.insert(goal_key, 0);
+    let mut qi = 0usize;
+    while qi < keys.len() {
+        let key = keys[qi];
+        qi += 1;
+        let (m, blank) = unpack(key);
+        let b = blank as usize;
+        for f in [b.wrapping_sub(1), b + 1] {
+            if f >= W {
+                continue;
+            }
+            for t in 0..W {
+                if m[f][t] == 0 {
+                    continue;
+                }
+                let mut m2 = m;
+                m2[f][t] -= 1;
+                m2[b][t] += 1;
+                let pkey = pack(&m2, f as u8);
+                if let std::collections::hash_map::Entry::Vacant(e) = index.entry(pkey) {
+                    e.insert(keys.len() as u32);
+                    keys.push(pkey);
+                }
+            }
+        }
+    }
+    let n = keys.len();
+    eprintln!("  cwd_lm2: {n} base keys enumerated in {:.0?}", t0.elapsed());
+    assert_eq!(n, N_WD_KEYS, "base WD key count mismatch");
+
+    let mut dist = vec![0xFFu8; n * 100];
+    let words = n.div_ceil(64);
+    let mut cur = vec![0u64; words];
+    let mut next = vec![0u64; words];
+    dist[code_of(TT, true, TB, true)] = 0; // goal is idx 0
+    cur[0] |= 1;
+
+    let mut d: u8 = 0;
+    let mut total_set: u64 = 1;
+    loop {
+        let mut layer: u64 = 0;
+        for w in 0..words {
+            let mut bits = cur[w];
+            while bits != 0 {
+                let idx = (w << 6) + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let base = idx * 100;
+                let mut active = [0u8; 100];
+                let mut na = 0usize;
+                for c in 0..100 {
+                    if dist[base + c] == d {
+                        active[na] = c as u8;
+                        na += 1;
+                    }
+                }
+                if na == 0 {
+                    continue;
+                }
+                let key = keys[idx];
+                let (m, blank) = unpack(key);
+                let b = blank as usize;
+                let d1 = d.checked_add(1).expect("depth overflow");
+                for f in [b.wrapping_sub(1), b + 1] {
+                    if f >= W {
+                        continue;
+                    }
+                    for t in 0..W {
+                        if m[f][t] == 0 {
+                            continue;
+                        }
+                        let mut m2 = m;
+                        m2[f][t] -= 1;
+                        m2[b][t] += 1;
+                        let pkey = pack(&m2, f as u8);
+                        let pidx = index[&pkey] as usize;
+                        // forward move: token t, line b → line f
+                        let crossing_a = t == TT && b == 3 && f == 4;
+                        let crossing_b = t == TB && b == 2 && f == 3;
+                        for &cd in &active[..na] {
+                            let cd = cd as usize;
+                            let (ca, cb) = (cd >= 50, (cd % 50) >= 25);
+                            let (la, lb) = ((cd % 25) / W, cd % W);
+                            // (i) moved token is neither tracked one
+                            let ok_a = if t == TT && la == b {
+                                m2[b][TT] >= 2
+                            } else {
+                                m2[la][TT] >= 1
+                            };
+                            let ok_b = if t == TB && lb == b {
+                                m2[b][TB] >= 2
+                            } else {
+                                m2[lb][TB] >= 1
+                            };
+                            if ok_a && ok_b {
+                                set_pred(&mut dist, &mut next, d1, pidx, code_of(la, ca, lb, cb));
+                            }
+                            // (ii) moved token IS tracked A (type 3)
+                            if t == TT && la == f {
+                                let preds: &[bool] = if crossing_a {
+                                    if ca {
+                                        &[true, false]
+                                    } else {
+                                        &[]
+                                    }
+                                } else {
+                                    &[ca]
+                                };
+                                for &cap in preds {
+                                    set_pred(
+                                        &mut dist,
+                                        &mut next,
+                                        d1,
+                                        pidx,
+                                        code_of(b, cap, lb, cb),
+                                    );
+                                }
+                            }
+                            // (iii) moved token IS tracked B (type 2)
+                            if t == TB && lb == f {
+                                let preds: &[bool] = if crossing_b {
+                                    if cb {
+                                        &[true, false]
+                                    } else {
+                                        &[]
+                                    }
+                                } else {
+                                    &[cb]
+                                };
+                                for &cbp in preds {
+                                    set_pred(
+                                        &mut dist,
+                                        &mut next,
+                                        d1,
+                                        pidx,
+                                        code_of(la, ca, b, cbp),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                layer += na as u64;
+            }
+        }
+        if layer == 0 {
+            break;
+        }
+        total_set += layer;
+        if d % 10 == 0 {
+            eprintln!(
+                "  cwd_lm2 BFS depth {d}: layer {layer}, total {total_set} states, {:.0?}",
+                t0.elapsed()
+            );
+        }
+        cur.copy_from_slice(&next);
+        next.fill(0);
+        d += 1;
+    }
+    eprintln!(
+        "  cwd_lm2 BFS done at depth {d}: {total_set} states in {:.0?}",
+        t0.elapsed()
+    );
+
+    // Extract the (crossed=false, crossed=false) layer: codes 0..25.
+    let mut map = HashMap::with_capacity(n);
+    for (idx, &k) in keys.iter().enumerate() {
+        let mut v = [0u8; 25];
+        v.copy_from_slice(&dist[idx * 100..idx * 100 + 25]);
+        map.insert(k, v);
+    }
+    CwdLm2 { map }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +510,40 @@ mod tests {
         assert_eq!(lm.get(gk, 3), Some(2), "D(goal, line 3) must be 2");
         lm.save(std::path::Path::new("data/cwd_lm.bin")).expect("save");
         eprintln!("saved data/cwd_lm.bin");
+    }
+
+    /// Build the last-two-moves pair table and save it.
+    ///
+    ///   cargo test --release build_cwd_lm2_table -- --ignored --nocapture
+    #[test]
+    #[ignore = "builds the ~6.6B-state pair table (tens of minutes, ~9 GB peak); writes data/cwd_lm2.bin"]
+    fn build_cwd_lm2_table() {
+        let gk = goal_key();
+        let t0 = std::time::Instant::now();
+        let lm2 = build_cwd_lm2(gk);
+        eprintln!("built {} keys in {:.0?}", lm2.len(), t0.elapsed());
+        // Sanity: from the goal, each tracked token must make its excursion
+        // and return — two independent 2-move round trips.
+        assert_eq!(lm2.get(gk, 3, 2), Some(4), "D2(goal, 3, 2) must be 4");
+        // Pair dominates single on every placement where both are defined.
+        if let Ok(lm) = CwdLm::load(std::path::Path::new("data/cwd_lm.bin")) {
+            let mut checked = 0u64;
+            for (&k, v2) in lm2.map.iter().take(200_000) {
+                if let Some(v1) = lm.get_all(k) {
+                    for la in 0..W {
+                        for lb in 0..W {
+                            let (a, b) = (v2[la * W + lb], v1[la]);
+                            if a != 0xFF && b != 0xFF {
+                                assert!(a >= b, "pair < single at key {k:#x} ({la},{lb})");
+                                checked += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            eprintln!("pair>=single dominance checked on {checked} placements");
+        }
+        lm2.save(std::path::Path::new("data/cwd_lm2.bin")).expect("save");
+        eprintln!("saved data/cwd_lm2.bin");
     }
 }

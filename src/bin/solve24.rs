@@ -59,6 +59,9 @@ struct Args {
     /// (`data/pdb24_k8_{a,b,c}.zbin`, ~32.8 GB mmap'd), consulted only at
     /// children cWD fails to prune.
     zpdb8: bool,
+    /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
+    /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
+    lm2: bool,
 }
 
 const USAGE: &str = "\
@@ -77,6 +80,8 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
   --lm                    add the Last-Move tier (cwd-lm): max(cWD, last-move
                           branch min) from data/cwd_lm.bin. Sound; not
                           node-identical to plain cWD (stronger heuristic).
+  --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
+                          endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~32.8 GB mmap'd),
                           consulted only at children cWD fails to prune. Cuts
@@ -95,6 +100,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut parallel = false;
     let mut zpdb8 = false;
     let mut lm = false;
+    let mut lm2 = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -119,6 +125,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--parallel" => parallel = true,
             "--zpdb8" => zpdb8 = true,
             "--lm" => lm = true,
+            "--lm2" => lm2 = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -147,6 +154,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         parallel,
         zpdb8,
         lm,
+        lm2,
     })
 }
 
@@ -314,7 +322,7 @@ fn main() -> ExitCode {
 
     eprintln!("cWD: loading tables…");
     let cwd = Cwd::new().with_neighbor_prune(true);
-    let lmt = if args.lm {
+    let lmt = if args.lm || args.lm2 {
         eprintln!("cwd-lm: loading data/cwd_lm.bin…");
         match puzzle8::puzzle24::search::flat::load_cwd_lm(std::path::Path::new("data/cwd_lm.bin")) {
             Ok(t) => Some(t),
@@ -326,10 +334,24 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if args.lm && args.zpdb8 {
-        eprintln!("error: --lm with --zpdb8 is not wired yet; pick one");
+    if (args.lm || args.lm2) && args.zpdb8 {
+        eprintln!("error: --lm/--lm2 with --zpdb8 is not wired yet; pick one");
         return ExitCode::FAILURE;
     }
+    let lm2t = if args.lm2 {
+        eprintln!("cwd-lm2: loading data/cwd_lm2.bin…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm2(std::path::Path::new(
+            "data/cwd_lm2.bin",
+        )) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("error: --lm2: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     let k8 = if args.zpdb8 {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
         match puzzle8::puzzle24::search::flat::K8Ctx::load_mmap(std::path::Path::new("data")) {
@@ -447,8 +469,21 @@ fn main() -> ExitCode {
                 &dfa,
                 k8.as_ref(),
                 lmt.as_ref(),
+                lm2t.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
+                on_iter,
+            )
+        } else if let Some(t2) = lm2t.as_ref() {
+            puzzle8::puzzle24::search::flat::flat_bounded_lm2_telemetry(
+                &start,
+                &cwd,
+                &dfa,
+                lmt.as_ref().expect("--lm2 loads the single table too"),
+                t2,
+                orbit,
+                args.max_bound.unwrap_or(u8::MAX),
+                args.max_nodes,
                 on_iter,
             )
         } else if let Some(t) = lmt.as_ref() {
@@ -497,6 +532,8 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::k8_struct_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::lm_cache_stats_report();
+    #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.
