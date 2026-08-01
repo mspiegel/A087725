@@ -3866,6 +3866,122 @@ mod tests {
     use super::*;
     use crate::puzzle24::search::move_dfa::MovePruner;
 
+    /// k8 certification on the unconditioned survivor sample: per board,
+    /// production baseline h0p, the LM2 bound (from the mmap artifacts) and
+    /// h_k8 (three zPDBs, both σ-views); reports the union table that pins
+    /// the cascade's node floor. Cross-check: certL must reproduce the
+    /// harness ovlunion figure (336/555).
+    ///
+    ///   cargo test --release k8_certification_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs data/cwd_mm.bin, data/cwd_lm_mm.bin, the three 32.8 GB zPDBs and data/survivors_146.txt"]
+    fn k8_certification_survivor_sample() {
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let mm =
+            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
+
+        let (mut nb, mut ck, mut cl, mut both, mut konly, mut lonly, mut neither) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut adv_hist = [0u64; 9];
+        for line in text.lines().filter(|l| l.contains("board=[")) {
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            nb += 1;
+
+            // production baseline: per-axis wd + single-line-max surcharge
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let (rkey, ckey) = (pack(&mr, br), pack(&mc, bc));
+            let rc = backing.cell(rkey).expect("row reachable");
+            let cc = backing.cell(ckey).expect("col reachable");
+            let rterm = rc.wd + surcharge_from_curves(&rc.curves, &dr);
+            let cterm = cc.wd + surcharge_from_curves(&cc.curves, &dc);
+            let h0p = rterm as u32 + cterm as u32;
+
+            // LM2 bound, exactly the engine's compose
+            let pos = |t: u8| s.0.iter().position(|&x| x == t).unwrap();
+            let lp = [
+                (pos(20) / 5) as u8,
+                (pos(24) % 5) as u8,
+                (pos(15) / 5) as u8,
+                (pos(19) / 5) as u8,
+                (pos(19) % 5) as u8,
+                (pos(23) % 5) as u8,
+            ];
+            let probe = |key: u64| -> ([u8; 4], [u8; 12]) {
+                let (mut s4, mut p12) = ([0xFFu8; 4], [0xFFu8; 12]);
+                if let Some((a, b)) = mm.probe(key) {
+                    s4.copy_from_slice(a);
+                    p12.copy_from_slice(b);
+                }
+                (s4, p12)
+            };
+            let (vr, pr_all) = probe(rkey);
+            let (vc, pc_all) = probe(ckey);
+            let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
+            let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+            let pr = if lp[0] < 4 && lp[2] < 3 {
+                pr_all[(lp[0] * 3 + lp[2]) as usize]
+            } else {
+                0xFF
+            };
+            let pc = if lp[1] < 4 && lp[5] < 3 {
+                pc_all[(lp[1] * 3 + lp[5]) as usize]
+            } else {
+                0xFF
+            };
+            let r20f = or_(sv(&vr, lp[0]), rterm);
+            let c24f = or_(sv(&vc, lp[1]), cterm);
+            let ba = or_(pr, r20f) as u32 + cterm as u32;
+            let bb = r20f as u32 + or_(sv(&vc, lp[4]), cterm) as u32;
+            let bcv = or_(sv(&vr, lp[3]), rterm) as u32 + c24f as u32;
+            let bd = rterm as u32 + or_(pc, c24f) as u32;
+            let lm2 = h0p.max(ba.min(bb).min(bcv).min(bd));
+
+            // h_k8: three additive zPDBs, both σ-views
+            let rs = symmetry::reflect(&s);
+            let (mut s0, mut s1) = (0u32, 0u32);
+            for db in &ctx.dbs {
+                s0 += db.cold_lookup(&s) as u32;
+                s1 += db.cold_lookup(&rs) as u32;
+            }
+            let hk8 = s0.max(s1);
+
+            let k = hk8 >= h0p + 2;
+            let l = lm2 >= h0p + 2;
+            if k {
+                ck += 1;
+                adv_hist[(hk8 - h0p).min(8) as usize] += 1;
+            }
+            if l {
+                cl += 1;
+            }
+            match (k, l) {
+                (true, true) => both += 1,
+                (true, false) => konly += 1,
+                (false, true) => lonly += 1,
+                (false, false) => neither += 1,
+            }
+        }
+        eprintln!(
+            "k8cert: {nb} boards; certK {ck} ({:.1}%), certL {cl} ({:.1}%); both {both}, k8-only {konly} ({:.1}%), lm2-only {lonly}, neither {neither}; k8 advantage hist (>=2) {:?}",
+            100.0 * ck as f64 / nb.max(1) as f64,
+            100.0 * cl as f64 / nb.max(1) as f64,
+            100.0 * konly as f64 / nb.max(1) as f64,
+            &adv_hist[2..]
+        );
+        assert!(nb == 555, "sample size changed");
+    }
+
     // ------------------------- fast, table-free LUT checks ---------------------
 
     /// `CAND` replaces two filters the generic engine applies inline (legality and

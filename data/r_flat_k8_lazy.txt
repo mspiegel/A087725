@@ -1036,3 +1036,24 @@ For scale: cWD-only at 150 projects ~15 T nodes / ~24 h; the k8 2-tier
 projects ~150-190 T at factor ~20-25 -> ~2-3 weeks on this box with LM2
 alone; the k8-on-lm2 cascade decision (crossover estimated at ~152) awaits
 the k8 survivor-sample certification.
+
+k8 certification on the unconditioned survivor sample (flat.rs ignored
+test k8_certification_survivor_sample; certL cross-check = 336/555 exact):
+
+  certK (k8)  353 (63.6%)   k8 advantage: +2 x141, +4 x129, +6 x56, +8+ x27
+  certL (lm2) 336 (60.5%)
+  both 255 | k8-only 98 (17.7%) | lm2-only 81 (14.6%) | neither 121 (21.8%)
+  union prunes 78.2% of the frontier; k8's prunes are DEEP (+4 or more on
+  60% of its events) where lm2's are almost all +2 — the measured mechanism
+  behind k8's faster-declining growth factor.
+
+Cascade estimate refreshed: surviving-frontier share 21.8% vs lm2's 39.5%
+and k8-alone's 36.4% brackets cascade@148 nodes in [116 B, 160 B]
+(k8-relative vs lm2-relative translation disagree because board shares
+ignore subtree nesting). At an assumed ~55-58 Mn/s cascade throughput that
+is wall 2000-2900 s vs lm2's 2084 s — PAR TO 1.4x WORSE at 148, tipping
+toward the cascade at 150+ as k8's deep advantages compound. Decision
+needs two direct measurements, both cheap once the cascade is wired:
+  1. cascade exhaust-146 (minutes): exact union node count;
+  2. budgeted run: true cascade throughput (k8 consult cost at
+     lm2-survivors).
