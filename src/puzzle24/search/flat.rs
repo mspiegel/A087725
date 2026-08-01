@@ -1943,13 +1943,17 @@ struct Lm2Cache {
     shift: u32,
 }
 
-#[repr(align(64))]
+#[repr(align(32))]
 #[derive(Clone, Copy)]
 struct Lm2Slot {
     /// Axis key, or 0 for empty (a real key always has nonzero matrix bits).
     tag: u64,
     single: [u8; 4],
-    pair: [u8; 25],
+    /// Only the queryable pair placements — la ∈ 0..4 × lb ∈ 0..3, packed
+    /// `la*3 + lb` (la = 4 and lb ≥ 3 are degenerate branches the caller
+    /// sentinels before the probe). 24 real bytes → a 32-byte slot, four
+    /// per 128-byte line.
+    pair: [u8; 12],
 }
 
 #[cfg(feature = "probe-cache-stats")]
@@ -2003,20 +2007,20 @@ fn lm2_cache_bits() -> u32 {
         std::env::var("FLAT_LM2_CACHE_BITS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(19)
+            .unwrap_or(21)
     })
 }
 
 impl Lm2Cache {
     fn new() -> Self {
         let bits = lm2_cache_bits();
-        assert!((8..=22).contains(&bits), "implausible LM2 cache size");
+        assert!((8..=24).contains(&bits), "implausible LM2 cache size");
         Lm2Cache {
             slots: vec![
                 Lm2Slot {
                     tag: 0,
                     single: [0xFF; 4],
-                    pair: [0xFF; 25]
+                    pair: [0xFF; 12]
                 };
                 1usize << bits
             ]
@@ -2047,7 +2051,14 @@ impl Lm2Cache {
             if let Some(v) = lm.get_all(key) {
                 single.copy_from_slice(&v[..4]);
             }
-            let pair = *lm2.get_all(key).unwrap_or(&[0xFFu8; 25]);
+            let mut pair = [0xFFu8; 12];
+            if let Some(v) = lm2.get_all(key) {
+                for la in 0..4 {
+                    for lb in 0..3 {
+                        pair[la * 3 + lb] = v[la * W_LM + lb];
+                    }
+                }
+            }
             self.slots[i] = Lm2Slot { tag: key, single, pair };
             #[cfg(feature = "probe-cache-stats")]
             LM2_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2058,7 +2069,7 @@ impl Lm2Cache {
         let sl = &self.slots[i];
         let a = if s1 < 4 { sl.single[s1 as usize] } else { 0xFF };
         let b = if s2 < 4 { sl.single[s2 as usize] } else { 0xFF };
-        let p = if pidx < 25 { sl.pair[pidx as usize] } else { 0xFF };
+        let p = if pidx < 12 { sl.pair[pidx as usize] } else { 0xFF };
         (a, b, p)
     }
 }
@@ -2145,12 +2156,12 @@ fn lm2_child(
         .expect("seed_lm2 allocates the cache")
         .as_mut();
     let pri = if lp[0] < 4 && lp[2] < 3 {
-        lp[0] * W_LM as u8 + lp[2]
+        lp[0] * 3 + lp[2]
     } else {
         0xFF
     };
     let pci = if lp[1] < 4 && lp[5] < 3 {
-        lp[1] * W_LM as u8 + lp[5]
+        lp[1] * 3 + lp[5]
     } else {
         0xFF
     };

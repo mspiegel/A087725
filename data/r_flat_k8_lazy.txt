@@ -867,3 +867,23 @@ Clean results (146 wall, canaries 64.23/64.96/64.59 s):
   FLAT_LM2_CACHE_BITS=20 is a free knob for the 152-scale runs).
 
 Net --lm2 @146: 60.9-61.9 s vs base 91.0 s = 1.47-1.49x wall (was 1.41x).
+
+Probe-value trim + 32-byte slot repack (canary-bracketed, idle box):
+  get3 (3-byte probe return vs 29-byte slot copy): the copy provably
+  survives inlining (2 q-register pairs per probe in the disassembly —
+  owned-tuple return from &mut self cannot alias the slot), but removing it
+  is NEUTRAL (trim 60.86/61.59 vs canaries 61.01/61.68/61.43): predictable
+  L1 stack traffic is free, per the dead-ends law. Kept as substrate.
+  Slot repack 64 B -> 32 B: only 12 of 25 pair placements are queryable
+  (la <= 3, lb <= 2; the rest are caller-sentinelled degeneracies), so
+  tag 8 + single 4 + pair 12 = 24 real bytes, align(32), four slots per
+  128-byte line (hw.cachelinesize = 128 on this box). Node-identical.
+  Curve at 146 (32-byte slots): 19: 60.19 | 20: 60.43 | 21: 59.43/59.53 |
+  22: 59.30; slot64@19 canaries 60.44/61.22/60.48/60.44. Knee at bits 21
+  (64 MiB/worker, 512 MiB at 8 workers); 22 adds 0.2 s = noise.
+  Default set 21; assert ceiling raised to 24 for the deeper-threshold runs.
+
+Optimization pass net: --lm2 @146 64.6 s -> 59.4-59.5 s (-8%);
+vs base 91.0 s = 1.53x wall (was 1.41x at ship). Sequence of levers:
+cache 17->19 (+4-5%), repack-enabled 19->21 at 32 B slots (+1.5-2%),
+early-out and copy-trim neutral, slack gate structurally dead.
