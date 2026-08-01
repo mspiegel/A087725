@@ -921,3 +921,24 @@ Tier-3 setup program complete: --lm2 launch-to-search went 43.8 s at the
 start of the evening to ~1-6 s (pre-touch of 8 GiB of artifacts is the
 whole cost; page-cache warmth decides where in that range). solve24 falls
 back to the HashMap path with a build hint when an artifact is missing.
+
+(1,1)-dominance check (harness dom11; the pre-registered gate for the
+pairwise-(1,1) cWD overlay). On gap axes (joint > single-line-max), does
+max(smax, best line-pair joint at demand (1,1)) recover the full joint?
+Predictions graded: P1 (pure-(1,1) shapes recover by construction) held;
+P2 (workload >= 80%) RIGHT at 93.8%; P3 (random gap-moves 85-90%) RIGHT
+at 88.0%.
+
+  random   n=30000: 2844 gap axes -> FULL 2488 (87.5%), PARTIAL 244,
+           NONE 112; moves 5464/6208 (88.0%); shape 2379 pure-(1,1) / 465
+  workload (507):   32 gap axes -> FULL 30 (93.8%), PARTIAL 0, NONE 2;
+           moves 60/64 (93.8%); shape 28 pure-(1,1) / 4
+
+Verdict: the overlay is build-ready — 10 line-pair (1,1) joint marginals
+per key capture 93.8% of the workload's measured +2 looseness (~5.9% of
+workload boards). Storage: +10 B/key; the cwd_mm cell grows 29 -> 39 B,
+pushing the artifact slot to 64 B (8.6 GiB) — or the pair bytes ship as a
+separate 2^27 x 16 B sidecar (2.1 GiB) probed only on multi-demand axes.
+Engine: surcharge = max(single-line-max, demanded-pair values); also lifts
+the un-refined axis term inside every LM2 branch. Build = ten
+cwd_single-style constrained sweeps.
