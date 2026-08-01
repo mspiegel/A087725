@@ -1929,9 +1929,10 @@ fn lm_child(
 
 // ----------------------- last-two-moves (cwd-lm2) tier ------------------------
 
-/// Load the last-two-moves pair table (`data/cwd_lm2.bin`).
-pub fn load_cwd_lm2(path: &std::path::Path) -> std::io::Result<super::cwd_lm::CwdLm2> {
-    super::cwd_lm::CwdLm2::load(path)
+/// Load the last-two-moves mmap artifact (`data/cwd_lm_mm.bin`) — a
+/// page-table operation, not a parse; pages fault in on demand.
+pub fn load_cwd_lm_mm(path: &std::path::Path) -> std::io::Result<super::cwd_lm::CwdLmMm> {
+    super::cwd_lm::CwdLmMm::load(path)
 }
 
 /// Combined front cache for the LM2 tier: one tag per axis key serving both
@@ -2038,8 +2039,7 @@ impl Lm2Cache {
     #[inline(always)]
     fn get3(
         &mut self,
-        lm: &super::cwd_lm::CwdLm,
-        lm2: &super::cwd_lm::CwdLm2,
+        mm: &super::cwd_lm::CwdLmMm,
         key: u64,
         s1: u8,
         s2: u8,
@@ -2048,16 +2048,10 @@ impl Lm2Cache {
         let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
         if self.slots[i].tag != key {
             let mut single = [0xFFu8; 4];
-            if let Some(v) = lm.get_all(key) {
-                single.copy_from_slice(&v[..4]);
-            }
             let mut pair = [0xFFu8; 12];
-            if let Some(v) = lm2.get_all(key) {
-                for la in 0..4 {
-                    for lb in 0..3 {
-                        pair[la * 3 + lb] = v[la * W_LM + lb];
-                    }
-                }
+            if let Some((s, p)) = mm.probe(key) {
+                single.copy_from_slice(s);
+                pair.copy_from_slice(p);
             }
             self.slots[i] = Lm2Slot { tag: key, single, pair };
             #[cfg(feature = "probe-cache-stats")]
@@ -2105,8 +2099,7 @@ fn seed_lm2(arena: &mut Arena, board: &State) {
 #[inline]
 fn lm2_child(
     arena: &mut Arena,
-    lm: &super::cwd_lm::CwdLm,
-    lm2: &super::cwd_lm::CwdLm2,
+    mm: &super::cwd_lm::CwdLmMm,
     d: usize,
     tile_decoded: usize,
     h_cwd: u8,
@@ -2165,8 +2158,8 @@ fn lm2_child(
     } else {
         0xFF
     };
-    let (r20, r19, pr) = cache.get3(lm, lm2, rkey, lp[0], lp[3], pri);
-    let (c24, c19, pc) = cache.get3(lm, lm2, ckey, lp[1], lp[4], pci);
+    let (r20, r19, pr) = cache.get3(mm, rkey, lp[0], lp[3], pri);
+    let (c24, c19, pc) = cache.get3(mm, ckey, lp[1], lp[4], pci);
     let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
     let r20f = or_(r20, rterm);
     let c24f = or_(c24, cterm);
@@ -2234,8 +2227,7 @@ pub fn flat_bounded_lm2_telemetry<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
-    lm: &super::cwd_lm::CwdLm,
-    lm2: &super::cwd_lm::CwdLm2,
+    lm2: &super::cwd_lm::CwdLmMm,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -2249,7 +2241,7 @@ where
         cwd,
         dfa,
         None,
-        Some(lm),
+        None,
         Some(lm2),
         orbit_split,
         max_bound,
@@ -2328,7 +2320,7 @@ fn flat_bounded_inner_k8<F>(
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLm>,
-    lm2: Option<&super::cwd_lm::CwdLm2>,
+    lm2: Option<&super::cwd_lm::CwdLmMm>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -2594,7 +2586,7 @@ pub fn flat_bounded_parallel<F>(
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLm>,
-    lm2: Option<&super::cwd_lm::CwdLm2>,
+    lm2: Option<&super::cwd_lm::CwdLmMm>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -2721,7 +2713,7 @@ where
                 }
                 if let Some(lm2t) = lm2 {
                     let t = TILE_OF_CODE[tile] as usize;
-                    let heff = lm2_child(&mut split_arena, lm.unwrap(), lm2t, 0, t, h);
+                    let heff = lm2_child(&mut split_arena, lm2t, 0, t, h);
                     if heff > h {
                         let f2 = g_next.saturating_add(heff);
                         if f2 > bound {
@@ -3208,7 +3200,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     dfa: &MoveDfa,
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLm>,
-    lm2ctx: Option<&super::cwd_lm::CwdLm2>,
+    lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -3315,7 +3307,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
             LM2_SLACK_HIST[((bound - g_next - h) as usize).min(15)]
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let t = TILE_OF_CODE[tile] as usize;
-            let heff = lm2_child(arena, lmctx.unwrap(), lm2ctx.unwrap(), d, t, h);
+            let heff = lm2_child(arena, lm2ctx.unwrap(), d, t, h);
             if heff > h {
                 let f2 = g_next.saturating_add(heff);
                 if f2 > bound {

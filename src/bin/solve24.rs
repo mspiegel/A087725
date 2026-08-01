@@ -322,7 +322,7 @@ fn main() -> ExitCode {
 
     eprintln!("cWD: loading tables…");
     let cwd = Cwd::new().with_neighbor_prune(true);
-    let lmt = if args.lm || args.lm2 {
+    let lmt = if args.lm {
         eprintln!("cwd-lm: loading data/cwd_lm.bin…");
         match puzzle8::puzzle24::search::flat::load_cwd_lm(std::path::Path::new("data/cwd_lm.bin")) {
             Ok(t) => Some(t),
@@ -339,13 +339,13 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let lm2t = if args.lm2 {
-        eprintln!("cwd-lm2: loading data/cwd_lm2.bin…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm2(std::path::Path::new(
-            "data/cwd_lm2.bin",
+        eprintln!("cwd-lm2: mmapping data/cwd_lm_mm.bin…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(
+            "data/cwd_lm_mm.bin",
         )) {
             Ok(t) => Some(t),
             Err(e) => {
-                eprintln!("error: --lm2: {e}");
+                eprintln!("error: --lm2 (build data/cwd_lm_mm.bin with the build_cwd_lm_mm_artifact test): {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -481,7 +481,6 @@ fn main() -> ExitCode {
                 &start,
                 &cwd,
                 &dfa,
-                lmt.as_ref().expect("--lm2 loads the single table too"),
                 t2,
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),

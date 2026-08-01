@@ -490,6 +490,113 @@ pub fn build_cwd_lm2(goal_key: u64) -> CwdLm2 {
     CwdLm2 { map }
 }
 
+// ------------------- combined mmap artifact (LM2 tier) -------------------
+
+/// Hash-table geometry of the mmap artifact: 2^27 slots for 65,650,495 keys
+/// (load factor 0.489), 32-byte slots (key 8 + single 4 + pair 12 + pad),
+/// linear probing, key 0 = empty (the zero key decodes to an impossible
+/// token matrix, so no real key collides with the sentinel).
+pub const LMM_BITS: u32 = 27;
+const LMM_SLOTS: usize = 1 << LMM_BITS;
+const LMM_SLOT: usize = 32;
+const LMM_HEADER: usize = 16;
+
+#[inline]
+fn lmm_hash(key: u64) -> usize {
+    ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - LMM_BITS)) as usize
+}
+
+/// The LM2 tier's zero-parse backing store: both tables' queryable values in
+/// one open-addressing file, mmap'd so "loading" is a page-table operation
+/// and a front-cache miss costs one linear-probe scan instead of two
+/// HashMap probes. Slot payload mirrors the engine's Lm2Slot: 4 single-
+/// tracked line values + the 12 queryable pair placements (`la*3 + lb`).
+pub struct CwdLmMm {
+    map: memmap2::Mmap,
+}
+
+impl CwdLmMm {
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let f = std::fs::File::open(path)?;
+        // SAFETY: write-once-then-immutable build artifact.
+        let map = unsafe { memmap2::Mmap::map(&f)? };
+        assert_eq!(
+            map.len(),
+            LMM_HEADER + LMM_SLOTS * LMM_SLOT,
+            "cwd_lm_mm.bin has the wrong size"
+        );
+        assert_eq!(&map[..4], b"CWMM", "bad cwd_lm_mm magic");
+        assert_eq!(
+            u32::from_le_bytes(map[4..8].try_into().unwrap()),
+            LMM_BITS,
+            "cwd_lm_mm bits mismatch"
+        );
+        // Eager pre-touch: one byte per 16 KiB page (Apple Silicon page size),
+        // sequential so readahead batches it. Moves all demand-paging faults
+        // into load time instead of scattering them through the first search
+        // thresholds (measured +1.2 s @144, +1.5 s @146 without this).
+        let mut sum = 0u64;
+        for off in (0..map.len()).step_by(16384) {
+            sum = sum.wrapping_add(map[off] as u64);
+        }
+        std::hint::black_box(sum);
+        Ok(CwdLmMm { map })
+    }
+
+    /// One probe: `(single[0..4], pair[0..12])` for `key`, `None` if unknown.
+    #[inline]
+    pub fn probe(&self, key: u64) -> Option<(&[u8], &[u8])> {
+        let mut i = lmm_hash(key);
+        loop {
+            let off = LMM_HEADER + i * LMM_SLOT;
+            let k = u64::from_le_bytes(self.map[off..off + 8].try_into().unwrap());
+            if k == key {
+                return Some((&self.map[off + 8..off + 12], &self.map[off + 12..off + 24]));
+            }
+            if k == 0 {
+                return None;
+            }
+            i = (i + 1) & (LMM_SLOTS - 1);
+        }
+    }
+}
+
+/// Build the mmap artifact from the two canonical tables.
+pub fn build_cwd_lm_mm(lm: &CwdLm, lm2: &CwdLm2, path: &Path) -> std::io::Result<()> {
+    let mut buf = vec![0u8; LMM_HEADER + LMM_SLOTS * LMM_SLOT];
+    buf[..4].copy_from_slice(b"CWMM");
+    buf[4..8].copy_from_slice(&LMM_BITS.to_le_bytes());
+    buf[8..16].copy_from_slice(&(lm2.map.len() as u64).to_le_bytes());
+    let (mut occupied, mut max_chain) = (0u64, 0u32);
+    for (&k, pv) in &lm2.map {
+        assert_ne!(k, 0, "key 0 is the empty sentinel");
+        let sv = lm.get_all(k).expect("key present in lm2 but not in lm");
+        let mut i = lmm_hash(k);
+        let mut chain = 1u32;
+        loop {
+            let off = LMM_HEADER + i * LMM_SLOT;
+            let cur = u64::from_le_bytes(buf[off..off + 8].try_into().unwrap());
+            if cur == 0 {
+                buf[off..off + 8].copy_from_slice(&k.to_le_bytes());
+                buf[off + 8..off + 12].copy_from_slice(&sv[..4]);
+                for la in 0..4 {
+                    for lb in 0..3 {
+                        buf[off + 12 + la * 3 + lb] = pv[la * W + lb];
+                    }
+                }
+                break;
+            }
+            assert_ne!(cur, k, "duplicate key");
+            i = (i + 1) & (LMM_SLOTS - 1);
+            chain += 1;
+        }
+        occupied += 1;
+        max_chain = max_chain.max(chain);
+    }
+    eprintln!("  cwd_lm_mm: {occupied} keys placed, longest probe chain {max_chain}");
+    std::fs::write(path, &buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,5 +652,34 @@ mod tests {
         }
         lm2.save(std::path::Path::new("data/cwd_lm2.bin")).expect("save");
         eprintln!("saved data/cwd_lm2.bin");
+    }
+
+    /// Build the combined mmap artifact and verify every key round-trips.
+    ///
+    ///   cargo test --release build_cwd_lm_mm_artifact -- --ignored --nocapture
+    #[test]
+    #[ignore = "builds the 4 GiB mmap artifact from cwd_lm.bin + cwd_lm2.bin; writes data/cwd_lm_mm.bin"]
+    fn build_cwd_lm_mm_artifact() {
+        let t0 = std::time::Instant::now();
+        let lm = CwdLm::load(std::path::Path::new("data/cwd_lm.bin")).expect("cwd_lm.bin");
+        let lm2 = CwdLm2::load(std::path::Path::new("data/cwd_lm2.bin")).expect("cwd_lm2.bin");
+        eprintln!("tables loaded in {:.0?}", t0.elapsed());
+        let path = std::path::Path::new("data/cwd_lm_mm.bin");
+        build_cwd_lm_mm(&lm, &lm2, path).expect("build");
+        let mm = CwdLmMm::load(path).expect("load");
+        let mut n = 0u64;
+        for (&k, pv) in &lm2.map {
+            let (s, p) = mm.probe(k).expect("every key must probe");
+            assert_eq!(s, &lm.get_all(k).unwrap()[..4], "single mismatch at {k:#x}");
+            for la in 0..4 {
+                for lb in 0..3 {
+                    assert_eq!(p[la * 3 + lb], pv[la * W + lb], "pair mismatch at {k:#x}");
+                }
+            }
+            n += 1;
+        }
+        assert!(!lm2.map.contains_key(&1));
+        assert!(mm.probe(1).is_none(), "absent key must return None");
+        eprintln!("verified {n} keys round-trip in {:.0?} total", t0.elapsed());
     }
 }

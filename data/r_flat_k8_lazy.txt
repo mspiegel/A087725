@@ -887,3 +887,20 @@ Optimization pass net: --lm2 @146 64.6 s -> 59.4-59.5 s (-8%);
 vs base 91.0 s = 1.53x wall (was 1.41x at ship). Sequence of levers:
 cache 17->19 (+4-5%), repack-enabled 19->21 at 32 B slots (+1.5-2%),
 early-out and copy-trim neutral, slack gate structurally dead.
+
+Setup tier-3: mmap'd open-addressing artifact for the LM2 tier
+(data/cwd_lm_mm.bin, 4 GiB: 2^27 x 32 B slots, key 8 + single 4 + pair 12,
+linear probing at 0.489 load, longest chain 48, key 0 = empty sentinel —
+the zero key decodes to an impossible token matrix). Built from the
+canonical CWLM/CWL2 files with full 65,650,495-key round-trip verification;
+--lm2 now mmaps this and parses nothing. Lazy demand paging initially
+leaked +1.2 s @144 / +1.5 s @146 of faults into the search phase; fixed by
+an eager pre-touch at load (one byte per 16 KiB page, sequential). Final
+canary-bracketed A/B (canaries 59.37/59.70/59.50 @146):
+  setup 43.5 s -> 31.2 s (-12.3 s; remainder is Cwd::new());
+  search @146 58.92/58.88 s — ~0.5 s BETTER than canaries (one flat-file
+  linear probe per front-cache miss vs two HashMap probes).
+Next per user direction: --lm miss-fills from the same artifact (its
+singles are already in the slot); then the same pattern for the cWD merged
+table (CwdCell = 21 B fits the same 32 B slot geometry; hottest path, needs
+a monomorphized backend swap + full bracket).
