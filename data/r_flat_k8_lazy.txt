@@ -991,3 +991,23 @@ measured saturation). Recorded, not built. The sampling hook
 (FLAT_SURVIVOR_DUMP, stats build) is the standing instrument for future
 certification probes — all future probe numbers should use unconditioned
 survivor samples.
+
+================================================================================
+EXHAUST-148 CONFIRMATION (--parallel --lm2, AC power, canaries in-run clean)
+================================================================================
+
+  threshold 144:     216,158,191 nodes    1.15 s   (canary: exact)
+  threshold 146:   8,975,456,521 nodes   57.80 s   (canary: exact, best wall)
+  threshold 148: 288,304,558,446 nodes 2084.48 s  (138.31 Mn/s)
+
+Pre-registered predictions graded: nodes 282-289 B -> 288.3 B RIGHT;
+wall ~2000 s -> 2084 s RIGHT. LM2 cut vs base (577,673,506,215):
+2.004x — the trend 1.954 (@144) -> 1.980 (@146) -> 2.004 (@148) is
+confirmed slowly GROWING with depth. Wall 2084.48 s vs the 148 dead heat
+(cWD-only 3256.50 s / k8 3254.78 s): 1.56x — first configuration to win
+the 148 race. k8 still out-prunes on nodes (193.3 B, 2.99x) but its
+59.4 Mn/s throughput loses the race to LM2's 138.3 Mn/s.
+
+Exhausting 148 proves R >= 150. The R >= 152 run (exhaust-150,
+~35x growth -> ~10 T nodes, ~20 h at this rate) is GO on this
+configuration whenever scheduled.
