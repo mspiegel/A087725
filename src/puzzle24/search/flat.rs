@@ -2025,14 +2025,22 @@ impl Lm2Cache {
         }
     }
 
-    /// Single + pair values for `key`, via the cache.
+    /// The three values a branch compose needs from `key`'s slot: two
+    /// single-tracked lines (`0xFF`-sentinel indices ≥ 4 return `0xFF`) and
+    /// one pair placement (sentinel index ≥ 25). Extracting inside the probe
+    /// keeps the 29-byte slot payload out of the caller's stack — the
+    /// by-value tuple return provably survived inlining (two q-register
+    /// copy pairs per probe in the disassembly).
     #[inline(always)]
-    fn get(
+    fn get3(
         &mut self,
         lm: &super::cwd_lm::CwdLm,
         lm2: &super::cwd_lm::CwdLm2,
         key: u64,
-    ) -> ([u8; 4], [u8; 25]) {
+        s1: u8,
+        s2: u8,
+        pidx: u8,
+    ) -> (u8, u8, u8) {
         let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
         if self.slots[i].tag != key {
             let mut single = [0xFFu8; 4];
@@ -2047,7 +2055,11 @@ impl Lm2Cache {
             #[cfg(feature = "probe-cache-stats")]
             LM2_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        (self.slots[i].single, self.slots[i].pair)
+        let sl = &self.slots[i];
+        let a = if s1 < 4 { sl.single[s1 as usize] } else { 0xFF };
+        let b = if s2 < 4 { sl.single[s2 as usize] } else { 0xFF };
+        let p = if pidx < 25 { sl.pair[pidx as usize] } else { 0xFF };
+        (a, b, p)
     }
 }
 
@@ -2132,24 +2144,18 @@ fn lm2_child(
         .as_mut()
         .expect("seed_lm2 allocates the cache")
         .as_mut();
-    let (vr, pr_all) = cache.get(lm, lm2, rkey);
-    let (vc, pc_all) = cache.get(lm, lm2, ckey);
-
-    let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
-    let r20 = sv(&vr, lp[0]);
-    let c24 = sv(&vc, lp[1]);
-    let r19 = sv(&vr, lp[3]);
-    let c19 = sv(&vc, lp[4]);
-    let pr = if lp[0] < 4 && lp[2] < 3 {
-        pr_all[lp[0] as usize * W_LM + lp[2] as usize]
+    let pri = if lp[0] < 4 && lp[2] < 3 {
+        lp[0] * W_LM as u8 + lp[2]
     } else {
         0xFF
     };
-    let pc = if lp[1] < 4 && lp[5] < 3 {
-        pc_all[lp[1] as usize * W_LM + lp[5] as usize]
+    let pci = if lp[1] < 4 && lp[5] < 3 {
+        lp[1] * W_LM as u8 + lp[5]
     } else {
         0xFF
     };
+    let (r20, r19, pr) = cache.get3(lm, lm2, rkey, lp[0], lp[3], pri);
+    let (c24, c19, pc) = cache.get3(lm, lm2, ckey, lp[1], lp[4], pci);
     let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
     let r20f = or_(r20, rterm);
     let c24f = or_(c24, cterm);
