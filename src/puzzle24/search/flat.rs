@@ -58,7 +58,7 @@
 
 use super::cwd::{
     demand_col_line, demand_row_line, key_bit, pack, project, surcharge_from_curves, Cwd,
-    CwdMerged, DEMAND_LUT_LEN, KEY_BLANK_BIT,
+    MergedBacking, DEMAND_LUT_LEN, KEY_BLANK_BIT,
 };
 use super::idastar::{BoundedOutcome, SearchStats};
 use super::move_dfa::MoveDfa;
@@ -2327,8 +2327,8 @@ where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
     let merged = cwd
-        .merged_table()
-        .expect("flat_bounded needs the merged cWD table (data/cwd_single.bin)");
+        .backing()
+        .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
     debug_assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "root orbit-split is only sound on a σ-fixed board"
@@ -2595,8 +2595,8 @@ where
     use std::collections::VecDeque;
 
     let merged = cwd
-        .merged_table()
-        .expect("flat_bounded needs the merged cWD table (data/cwd_single.bin)");
+        .backing()
+        .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
     let lut = cwd.demand_lut();
     let neighbor_prune = cwd.neighbor_prune_enabled();
     debug_assert!(
@@ -3080,7 +3080,7 @@ fn seed_subtree(
     board: &State,
     dfa_state: u32,
     last: Move,
-    merged: &CwdMerged,
+    merged: MergedBacking,
     dfa: &MoveDfa,
 ) -> u8 {
     seed_axes(arena, board, merged);
@@ -3102,12 +3102,12 @@ fn seed_subtree(
 
 /// Project `board` into both axes and lay the result down at arena depth 0.
 /// Shared by [`seed_root`] and [`seed_subtree`].
-fn seed_axes(arena: &mut Arena, board: &State, merged: &CwdMerged) {
+fn seed_axes(arena: &mut Arena, board: &State, merged: MergedBacking) {
     let (m_row, br, dem_row, m_col, bc, dem_col) = project(board);
     let key_row = pack(&m_row, br);
     let key_col = pack(&m_col, bc);
-    let r = merged.get(&key_row).expect("row state reachable");
-    let c = merged.get(&key_col).expect("col state reachable");
+    let r = merged.cell(key_row).expect("row state reachable");
+    let c = merged.cell(key_col).expect("col state reachable");
     arena.row[0] = AxisSlot {
         key: key_row,
         dem: dem_row,
@@ -3139,7 +3139,7 @@ fn seed_root(
     arena: &mut Arena,
     start: &State,
     cwd: &Cwd,
-    merged: &CwdMerged,
+    merged: MergedBacking,
     dfa: &MoveDfa,
     orbit_split: bool,
 ) -> u8 {
@@ -3193,7 +3193,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
-    merged: &CwdMerged,
+    merged: MergedBacking,
     dfa: &MoveDfa,
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLmMm>,
@@ -3629,11 +3629,11 @@ impl ProbeCache {
 
     /// Memoised probe. Returns exactly what `merged.get(&key)` would.
     #[inline(always)]
-    fn get<'a>(&'a mut self, merged: &'a CwdMerged, key: u64) -> &'a super::cwd::CwdCell {
+    fn get<'a>(&'a mut self, merged: MergedBacking, key: u64) -> &'a super::cwd::CwdCell {
         debug_assert_ne!(key, 0, "key 0 collides with the empty-slot sentinel");
         let i = self.slot_of(key);
         if self.slots[i].tag != key {
-            let cell = *merged.get(&key).expect("state reachable");
+            let cell = merged.cell(key).expect("state reachable");
             self.slots[i] = CacheSlot { tag: key, cell };
             #[cfg(feature = "probe-cache-stats")]
             {
@@ -3647,7 +3647,7 @@ impl ProbeCache {
         }
         debug_assert_eq!(
             self.slots[i].cell.wd,
-            merged.get(&key).expect("state reachable").wd,
+            merged.cell(key).expect("state reachable").wd,
             "probe cache returned a different cell than the table"
         );
         &self.slots[i].cell
@@ -3701,7 +3701,7 @@ fn build_child(
     m: Move,
     geom: Geom,
     tile: usize,
-    merged: &CwdMerged,
+    merged: MergedBacking,
     lut: &[u8; DEMAND_LUT_LEN],
     dfa: &MoveDfa,
 ) {

@@ -54,6 +54,139 @@ pub struct CwdCell {
 /// Merged WD + surcharge table (built once at load; `σ → (WD, curves)`).
 pub type CwdMerged = HashMap<u64, CwdCell, WdBuild>;
 
+// ------------------- mmap'd merged-table artifact -------------------
+
+/// Geometry of `data/cwd_mm.bin`: 2^27 slots x 32 B (key 8 + curves 10 at
+/// offset 8 so the u16s stay aligned + wd 1 + nbr_wd 10 + pad 3), linear
+/// probing at 0.489 load, key 0 = empty (the zero key decodes to an
+/// impossible token matrix). Snapshot of the merged table with `nbr_wd`
+/// FILLED, so loading it replaces both the merge and the neighbour pass.
+pub const CWDM_BITS: u32 = 27;
+const CWDM_SLOTS: usize = 1 << CWDM_BITS;
+const CWDM_SLOT: usize = 32;
+const CWDM_HEADER: usize = 16;
+
+#[inline]
+fn cwdm_hash(key: u64) -> usize {
+    ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - CWDM_BITS)) as usize
+}
+
+/// Zero-parse backing for the merged-table fast path: "loading" is a
+/// page-table operation plus one sequential pre-touch pass.
+pub struct CwdMm {
+    map: memmap2::Mmap,
+}
+
+impl CwdMm {
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let f = std::fs::File::open(path)?;
+        // SAFETY: write-once-then-immutable build artifact.
+        let map = unsafe { memmap2::Mmap::map(&f)? };
+        assert_eq!(
+            map.len(),
+            CWDM_HEADER + CWDM_SLOTS * CWDM_SLOT,
+            "cwd_mm.bin has the wrong size"
+        );
+        assert_eq!(&map[..4], b"CWDM", "bad cwd_mm magic");
+        assert_eq!(
+            u32::from_le_bytes(map[4..8].try_into().unwrap()),
+            CWDM_BITS,
+            "cwd_mm bits mismatch"
+        );
+        // Eager pre-touch (one byte per 16 KiB page, sequential): keeps
+        // demand-paging faults out of the search phase.
+        let mut sum = 0u64;
+        for off in (0..map.len()).step_by(16384) {
+            sum = sum.wrapping_add(map[off] as u64);
+        }
+        std::hint::black_box(sum);
+        Ok(CwdMm { map })
+    }
+
+    /// What `merged.get(&key).copied()` would return.
+    #[inline]
+    pub(crate) fn probe_cell(&self, key: u64) -> Option<CwdCell> {
+        let mut i = cwdm_hash(key);
+        loop {
+            let off = CWDM_HEADER + i * CWDM_SLOT;
+            let k = u64::from_le_bytes(self.map[off..off + 8].try_into().unwrap());
+            if k == key {
+                let mut curves = [0u16; W];
+                for (g, c) in curves.iter_mut().enumerate() {
+                    *c = u16::from_le_bytes(
+                        self.map[off + 8 + 2 * g..off + 10 + 2 * g].try_into().unwrap(),
+                    );
+                }
+                let wd = self.map[off + 18];
+                let mut nbr_wd = [0u8; 2 * W];
+                nbr_wd.copy_from_slice(&self.map[off + 19..off + 29]);
+                return Some(CwdCell { wd, curves, nbr_wd });
+            }
+            if k == 0 {
+                return None;
+            }
+            i = (i + 1) & (CWDM_SLOTS - 1);
+        }
+    }
+}
+
+/// Either backing for the merged-table fast path. `Copy`; the branch is
+/// taken only on front-cache misses, the hit path never sees it.
+#[derive(Clone, Copy)]
+pub(crate) enum MergedBacking<'a> {
+    Map(&'a CwdMerged),
+    Mm(&'a CwdMm),
+}
+
+impl MergedBacking<'_> {
+    #[inline(always)]
+    pub(crate) fn cell(&self, key: u64) -> Option<CwdCell> {
+        match self {
+            MergedBacking::Map(m) => m.get(&key).copied(),
+            MergedBacking::Mm(mm) => mm.probe_cell(key),
+        }
+    }
+}
+
+/// Build the mmap artifact from a fully-prepared [`Cwd`] (merged table
+/// present, `nbr_wd` filled).
+pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
+    let merged = cwd.merged_table().expect("build_cwd_mm needs the merged table");
+    assert!(
+        cwd.neighbor_prune_enabled(),
+        "fill nbr_wd first: Cwd::new().with_neighbor_prune(true)"
+    );
+    let mut buf = vec![0u8; CWDM_HEADER + CWDM_SLOTS * CWDM_SLOT];
+    buf[..4].copy_from_slice(b"CWDM");
+    buf[4..8].copy_from_slice(&CWDM_BITS.to_le_bytes());
+    buf[8..16].copy_from_slice(&(merged.len() as u64).to_le_bytes());
+    let mut max_chain = 0u32;
+    for (&k, cell) in merged {
+        assert_ne!(k, 0, "key 0 is the empty sentinel");
+        let mut i = cwdm_hash(k);
+        let mut chain = 1u32;
+        loop {
+            let off = CWDM_HEADER + i * CWDM_SLOT;
+            let cur = u64::from_le_bytes(buf[off..off + 8].try_into().unwrap());
+            if cur == 0 {
+                buf[off..off + 8].copy_from_slice(&k.to_le_bytes());
+                for (g, c) in cell.curves.iter().enumerate() {
+                    buf[off + 8 + 2 * g..off + 10 + 2 * g].copy_from_slice(&c.to_le_bytes());
+                }
+                buf[off + 18] = cell.wd;
+                buf[off + 19..off + 29].copy_from_slice(&cell.nbr_wd);
+                break;
+            }
+            assert_ne!(cur, k, "duplicate key");
+            i = (i + 1) & (CWDM_SLOTS - 1);
+            chain += 1;
+        }
+        max_chain = max_chain.max(chain);
+    }
+    eprintln!("  cwd_mm: {} keys placed, longest probe chain {max_chain}", merged.len());
+    std::fs::write(path, &buf)
+}
+
 /// Surcharge (in moves) for one axis: single-line-max — the strongest single-line
 /// escape bound over the demanded lines. `Δ = 2 · nibble`.
 #[inline]
@@ -413,6 +546,8 @@ pub struct Cwd {
     /// Precomputed per-line escape-demand table (32 KiB); replaces the per-node
     /// LIS in `make`. See [`build_demand_lut`].
     demand_lut: Box<[u8; DEMAND_LUT_LEN]>,
+    /// mmap'd merged-table artifact; preferred over `merged` when present.
+    mm: Option<CwdMm>,
 }
 
 impl Cwd {
@@ -461,6 +596,7 @@ impl Cwd {
             merged: None,
             neighbor_prune: false,
             demand_lut: build_demand_lut(),
+            mm: None,
         }
     }
 
@@ -472,7 +608,23 @@ impl Cwd {
             merged: None,
             neighbor_prune: false,
             demand_lut: build_demand_lut(),
+            mm: None,
         }
+    }
+
+    /// The zero-parse constructor: mmap `data/cwd_mm.bin` (pre-touched) and
+    /// skip the WD load, the overlay merge and the neighbour pass entirely.
+    /// The artifact snapshots `nbr_wd` filled, so the pre-prune is live.
+    pub fn mm_only(path: &Path) -> std::io::Result<Self> {
+        let mm = CwdMm::load(path)?;
+        Ok(Cwd {
+            table: HashMap::with_capacity_and_hasher(0, WdBuild::default()),
+            goal: goal_key(),
+            merged: None,
+            neighbor_prune: true,
+            demand_lut: build_demand_lut(),
+            mm: Some(mm),
+        })
     }
 
     /// Enable/disable the prune-child-before-probe optimization (needs the merged
@@ -510,7 +662,17 @@ impl Cwd {
 
     /// Whether the fast (merged-table) path is active.
     pub fn has_overlay(&self) -> bool {
-        self.merged.is_some()
+        self.merged.is_some() || self.mm.is_some()
+    }
+
+    /// The fast path's backing store: the mmap artifact when present,
+    /// else the in-memory merged table.
+    #[inline]
+    pub(crate) fn backing(&self) -> Option<MergedBacking<'_>> {
+        if let Some(mm) = &self.mm {
+            return Some(MergedBacking::Mm(mm));
+        }
+        self.merged.as_ref().map(MergedBacking::Map)
     }
 
     /// The merged WD+surcharge table, for engines that drive the fast path
@@ -734,6 +896,33 @@ mod tests {
 
     /// The demand LUT + key-packing must reproduce the LIS reference on every line
     /// of arbitrary boards. Table-free, so it runs fast (no `#[ignore]`).
+    /// Build the merged-table mmap artifact and verify every key round-trips.
+    ///
+    ///   cargo test --release build_cwd_mm_artifact -- --ignored --nocapture
+    #[test]
+    #[ignore = "builds the 4 GiB merged-table artifact from data/cwd_single.bin; writes data/cwd_mm.bin"]
+    fn build_cwd_mm_artifact() {
+        let t0 = std::time::Instant::now();
+        let cwd = Cwd::new().with_neighbor_prune(true);
+        assert!(cwd.has_overlay(), "needs data/cwd_single.bin");
+        eprintln!("merged table ready in {:.0?}", t0.elapsed());
+        let path = Path::new("data/cwd_mm.bin");
+        build_cwd_mm(&cwd, path).expect("build");
+        let mm = CwdMm::load(path).expect("load");
+        let merged = cwd.merged_table().unwrap();
+        let mut n = 0u64;
+        for (&k, cell) in merged {
+            let got = mm.probe_cell(k).expect("every key must probe");
+            assert_eq!(got.wd, cell.wd, "wd mismatch at {k:#x}");
+            assert_eq!(got.curves, cell.curves, "curves mismatch at {k:#x}");
+            assert_eq!(got.nbr_wd, cell.nbr_wd, "nbr mismatch at {k:#x}");
+            n += 1;
+        }
+        assert!(!merged.contains_key(&1));
+        assert!(mm.probe_cell(1).is_none(), "absent key must return None");
+        eprintln!("verified {n} cells round-trip in {:.0?} total", t0.elapsed());
+    }
+
     #[test]
     fn demand_lut_matches_lis_reference() {
         let lut = build_demand_lut();

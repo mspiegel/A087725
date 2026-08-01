@@ -904,3 +904,20 @@ Next per user direction: --lm miss-fills from the same artifact (its
 singles are already in the slot); then the same pattern for the cWD merged
 table (CwdCell = 21 B fits the same 32 B slot geometry; hottest path, needs
 a monomorphized backend swap + full bracket).
+
+cWD merged table on the same artifact pattern (data/cwd_mm.bin, 4 GiB:
+2^27 x 32 B, key 8 + curves 10 aligned at offset 8 + wd 1 + nbr_wd 10;
+snapshots the merged table WITH nbr_wd filled, so mm_only() skips the WD
+load, the overlay merge and the neighbour pass). MergedBacking enum
+(map ref | mm ref) carried where &CwdMerged went — hit path untouched,
+one predictable branch on front-cache misses only. Built + 65,650,495-cell
+round-trip verified in 37 s. Node-identity holds on all three configs
+(base 422,379,806 / lm 267,641,675 / lm2 216,158,191 @144).
+Canary-bracketed A/B (--lm2, 146): search parity (canaries
+63.73/60.25/59.78 vs mm 63.62/58.75 — batch ran warm, pairwise adjacent
+comparison neutral-to-better); setup 27-33 s -> 0.9-5.5 s.
+
+Tier-3 setup program complete: --lm2 launch-to-search went 43.8 s at the
+start of the evening to ~1-6 s (pre-touch of 8 GiB of artifacts is the
+whole cost; page-cache warmth decides where in that range). solve24 falls
+back to the HashMap path with a build hint when an artifact is missing.

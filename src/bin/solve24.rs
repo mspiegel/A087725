@@ -320,8 +320,14 @@ fn main() -> ExitCode {
         eprintln!("root-orbit-split: σ-symmetric board, split disabled by flag");
     }
 
-    eprintln!("cWD: loading tables…");
-    let cwd = Cwd::new().with_neighbor_prune(true);
+    let cwd = if std::path::Path::new("data/cwd_mm.bin").exists() {
+        eprintln!("cWD: mmapping data/cwd_mm.bin…");
+        puzzle8::puzzle24::search::cwd::Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin"))
+            .expect("cwd_mm.bin")
+    } else {
+        eprintln!("cWD: loading tables… (build data/cwd_mm.bin with build_cwd_mm_artifact for fast setup)");
+        Cwd::new().with_neighbor_prune(true)
+    };
     let lmt = if args.lm {
         eprintln!("cwd-lm: mmapping data/cwd_lm_mm.bin…");
         match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(
