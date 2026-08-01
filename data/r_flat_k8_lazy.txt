@@ -1057,3 +1057,20 @@ needs two direct measurements, both cheap once the cascade is wired:
   1. cascade exhaust-146 (minutes): exact union node count;
   2. budgeted run: true cascade throughput (k8 consult cost at
      lm2-survivors).
+
+Pairwise-matching probe (harness pairprobe: Korf-Taylor 2-tile additive
+PDBs, all 276 pairs, 49 ms build; exact max-surplus matching per board;
+555-board unconditioned survivor sample, production baseline):
+  certP 7/555 (1.26%); mean matched surplus 1.6; mean (PM - h0p) -3.0;
+  mean (h0p - ΣMD) = 4.6.
+Predictions graded: certP "≈0" direction right (7 boards); surplus scale
+right; the WD-MD gap prediction (15-30) BADLY WRONG at 4.6 — the finding:
+at the slack-0 frontier, cWD's advantage over Manhattan COLLAPSES (32 at
+the R root -> 4.6 at survivors). Frontier boards are by construction the
+boards every heuristic underestimates; all heuristics compress toward MD
+there, which is why modest joint surpluses (mean 1.6) land within 3 of
+production and occasionally poke above. Verdict: pairwise-matching as a
+max-component prunes ~1.3% of frontier boards — overlay-scale value at
+higher per-node cost (matching); not worth engineering. The k8 cascade
+remains the only joint-2D route with measured frontier reach (17.7%
+k8-only).
