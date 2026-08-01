@@ -1085,3 +1085,22 @@ third-order blank-corridor interference is large at the frontier and
 survives compression. Biggest surprise since the +2 detector. Union with
 LM2 running; 4-tuple derivative (~10,626 tables, ~3-4 GB, ~1-2 h build)
 now genuinely live.
+
+Tripleprobe union: certT 118 (21.26%) vs certL 336 (60.54%); both 93 —
+79% of triple coverage NESTS inside LM2's set (third-order interference
+concentrates near the corner regions LM2 already prunes). Triple-only
+25/555 = 4.50 pts incremental — 5x the demoted overlay, 1/4 of k8-only
+(17.7%). By the calibration slope ~ x1.06-1.08 nodes IF the full exact
+packing were realized per node (engine versions would approximate down).
+Open rung: the 4-tuple derivative (mean surplus grew 1.6 -> 3.3 per rung;
+10,626 tables, ~3-4 GB, ~15 min threaded build) — measures whether the
+ladder's LM2-incremental grows toward k8-only territory or saturates.
+
+Dual lookups: KILLED at the soundness gate. d(dual) != d(s) on 5+/300
+random boards (d(dual) LARGER by 4-12 — inadmissible as a lookup). The
+Zahavi-Felner-Holte duality preconditions (location-based operators) fail
+for blank-relative sliding-tile moves; my recall that the dual-lookups
+paper covered the tile puzzle was wrong. Untried variant: blank-canonical
+duality (blank at goal cell). BPMX shelved with it (no inconsistent
+component). Run terminated before the full 300 count — verdict sealed by
+construction (any overestimate disqualifies).
