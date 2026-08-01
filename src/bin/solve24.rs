@@ -323,8 +323,10 @@ fn main() -> ExitCode {
     eprintln!("cWD: loading tables…");
     let cwd = Cwd::new().with_neighbor_prune(true);
     let lmt = if args.lm {
-        eprintln!("cwd-lm: loading data/cwd_lm.bin…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm(std::path::Path::new("data/cwd_lm.bin")) {
+        eprintln!("cwd-lm: mmapping data/cwd_lm_mm.bin…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(
+            "data/cwd_lm_mm.bin",
+        )) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!("error: --lm: {e}");

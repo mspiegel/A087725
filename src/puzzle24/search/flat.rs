@@ -1762,10 +1762,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
 
 // ------------------------- last-move (cwd-lm) tier ----------------------------
 
-/// Load the Last-Move Escape-Constrained WD table (`data/cwd_lm.bin`).
-pub fn load_cwd_lm(path: &std::path::Path) -> std::io::Result<super::cwd_lm::CwdLm> {
-    super::cwd_lm::CwdLm::load(path)
-}
+
 
 /// Direct-mapped front cache for the LM table: axis key → the four queryable
 /// branch values (lines 0–3; line 4 is the free-ride degeneracy and is never
@@ -1831,12 +1828,12 @@ impl LmCache {
 
     /// The four branch values for `key`, via the cache.
     #[inline(always)]
-    fn get(&mut self, lm: &super::cwd_lm::CwdLm, key: u64) -> [u8; 4] {
+    fn get(&mut self, lm: &super::cwd_lm::CwdLmMm, key: u64) -> [u8; 4] {
         let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
         if self.slots[i].tag != key {
             let mut vals = [0xFFu8; 4];
-            if let Some(v) = lm.get_all(key) {
-                vals.copy_from_slice(&v[..4]);
+            if let Some((s, _)) = lm.probe(key) {
+                vals.copy_from_slice(s);
             }
             self.slots[i] = LmSlot { tag: key, vals };
             #[cfg(feature = "probe-cache-stats")]
@@ -1870,7 +1867,7 @@ const W_LM: usize = 5;
 #[inline]
 fn lm_child(
     arena: &mut Arena,
-    lm: &super::cwd_lm::CwdLm,
+    lm: &super::cwd_lm::CwdLmMm,
     d: usize,
     tile_decoded: usize,
     h_cwd: u8,
@@ -2206,7 +2203,7 @@ pub fn flat_bounded_lm_telemetry<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
-    lm: &super::cwd_lm::CwdLm,
+    lm: &super::cwd_lm::CwdLmMm,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -2319,7 +2316,7 @@ fn flat_bounded_inner_k8<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
-    lm: Option<&super::cwd_lm::CwdLm>,
+    lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
     orbit_split: bool,
     max_bound: u8,
@@ -2585,7 +2582,7 @@ pub fn flat_bounded_parallel<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     k8: Option<&K8Ctx>,
-    lm: Option<&super::cwd_lm::CwdLm>,
+    lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
     orbit_split: bool,
     max_bound: u8,
@@ -3199,7 +3196,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     merged: &CwdMerged,
     dfa: &MoveDfa,
     k8ctx: Option<&K8Ctx>,
-    lmctx: Option<&super::cwd_lm::CwdLm>,
+    lmctx: Option<&super::cwd_lm::CwdLmMm>,
     lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
     bound: u8,
     stats: &mut SearchStats,
