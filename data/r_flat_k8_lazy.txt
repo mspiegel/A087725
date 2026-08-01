@@ -1104,3 +1104,20 @@ paper covered the tile puzzle was wrong. Untried variant: blank-canonical
 duality (blank at goal cell). BPMX shelved with it (no inconsistent
 component). Run terminated before the full 300 count — verdict sealed by
 construction (any overestimate disqualifies).
+
+k8 per-group surplus breakdown re-examined (flat.rs test
+k8_group_breakdown_survivor_sample, unconditioned 555 sample, winning
+sigma-view, surplus = PDB value - group MD). Groups: a = top-left
+[1,2,3,4,6,7,8,9]; b = right column + bottom-right [5,10,14,15,19,20,
+23,24] — LM2's entire cast plus column neighbors; c = mid/bottom-left
+[11,12,13,16,17,18,21,22].
+  all boards:  a 15.3 / b 49.2 / c 35.4  (earlier 52% b-dominance robust)
+  certK:       a 18.2 / b 45.6 / c 36.2
+  k8-only:     a 21.3 / b 41.6 / c 37.1
+Verdict: still true directionally, ERODED relative to LM2 — the residual
+k8-only advantage is more evenly spread (b 42%, c 37%, a 21%). Two
+implications: (1) a single-group "cheap k8" tier (~11 GB, one PDB) would
+carry well under half of the k8-only reach — the cascade needs all three
+groups; (2) consistent with the tuple ladder's 79% LM2-nesting: joint
+content in b's region is largely already priced by LM2; what k8 uniquely
+adds is distributed joint structure, not one region's.

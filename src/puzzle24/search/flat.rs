@@ -3866,6 +3866,135 @@ mod tests {
     use super::*;
     use crate::puzzle24::search::move_dfa::MovePruner;
 
+    /// Per-group k8 surplus breakdown on the unconditioned survivor sample,
+    /// overall and restricted to the k8-only-beyond-LM2 boards. Re-examines
+    /// the earlier "group b carries 52% of surplus" finding (which was
+    /// measured on k8-conditioned prune events against an MD baseline).
+    ///
+    ///   cargo test --release k8_group_breakdown_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the artifacts, the three zPDBs and data/survivors_146.txt"]
+    fn k8_group_breakdown_survivor_sample() {
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let mm =
+            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        for (i, db) in ctx.dbs.iter().enumerate() {
+            let tiles: Vec<u8> = db.pattern().iter().collect();
+            eprintln!("group {}: tiles {:?}", (b'a' + i as u8) as char, tiles);
+        }
+        let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
+        let md = |t: u8, p: usize| -> u32 {
+            let g = (t - 1) as usize;
+            ((g / 5).abs_diff(p / 5) + (g % 5).abs_diff(p % 5)) as u32
+        };
+        // [population][group]: 0 = all, 1 = certK, 2 = k8-only
+        let mut sur = [[0u64; 3]; 3];
+        let mut counts = [0u64; 3];
+        for line in text.lines().filter(|l| l.contains("board=[")) {
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let (rkey, ckey) = (pack(&mr, br), pack(&mc, bc));
+            let rc = backing.cell(rkey).unwrap();
+            let cc = backing.cell(ckey).unwrap();
+            let rterm = rc.wd + surcharge_from_curves(&rc.curves, &dr);
+            let cterm = cc.wd + surcharge_from_curves(&cc.curves, &dc);
+            let h0p = rterm as u32 + cterm as u32;
+            let pos = |t: u8| s.0.iter().position(|&x| x == t).unwrap();
+            let lp = [
+                (pos(20) / 5) as u8,
+                (pos(24) % 5) as u8,
+                (pos(15) / 5) as u8,
+                (pos(19) / 5) as u8,
+                (pos(19) % 5) as u8,
+                (pos(23) % 5) as u8,
+            ];
+            let probe = |key: u64| -> ([u8; 4], [u8; 12]) {
+                let (mut s4, mut p12) = ([0xFFu8; 4], [0xFFu8; 12]);
+                if let Some((a, b)) = mm.probe(key) {
+                    s4.copy_from_slice(a);
+                    p12.copy_from_slice(b);
+                }
+                (s4, p12)
+            };
+            let (vr, pr_all) = probe(rkey);
+            let (vc, pc_all) = probe(ckey);
+            let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
+            let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+            let pr = if lp[0] < 4 && lp[2] < 3 { pr_all[(lp[0] * 3 + lp[2]) as usize] } else { 0xFF };
+            let pc = if lp[1] < 4 && lp[5] < 3 { pc_all[(lp[1] * 3 + lp[5]) as usize] } else { 0xFF };
+            let r20f = or_(sv(&vr, lp[0]), rterm);
+            let c24f = or_(sv(&vc, lp[1]), cterm);
+            let ba = or_(pr, r20f) as u32 + cterm as u32;
+            let bb = r20f as u32 + or_(sv(&vc, lp[4]), cterm) as u32;
+            let bcv = or_(sv(&vr, lp[3]), rterm) as u32 + c24f as u32;
+            let bd = rterm as u32 + or_(pc, c24f) as u32;
+            let lm2 = h0p.max(ba.min(bb).min(bcv).min(bd));
+
+            let rs = symmetry::reflect(&s);
+            let (mut s0, mut s1) = (0u32, 0u32);
+            let mut g0 = [0u32; 3];
+            let mut g1 = [0u32; 3];
+            for (i, db) in ctx.dbs.iter().enumerate() {
+                g0[i] = db.cold_lookup(&s) as u32;
+                g1[i] = db.cold_lookup(&rs) as u32;
+                s0 += g0[i];
+                s1 += g1[i];
+            }
+            let (hk8, gv, view_board) = if s0 >= s1 {
+                (s0, g0, &s)
+            } else {
+                (s1, g1, &rs)
+            };
+            let mut gsur = [0u32; 3];
+            for (i, db) in ctx.dbs.iter().enumerate() {
+                let mut m = 0u32;
+                for t in db.pattern().iter() {
+                    let p = view_board.0.iter().position(|&x| x == t).unwrap();
+                    m += md(t, p);
+                }
+                gsur[i] = gv[i].saturating_sub(m);
+            }
+            let k = hk8 >= h0p + 2;
+            let l = lm2 >= h0p + 2;
+            let mut pops: Vec<usize> = vec![0];
+            if k {
+                pops.push(1);
+            }
+            if k && !l {
+                pops.push(2);
+            }
+            for &p_ in &pops {
+                counts[p_] += 1;
+                for i in 0..3 {
+                    sur[p_][i] += gsur[i] as u64;
+                }
+            }
+        }
+        for (p_, name) in [(0usize, "all"), (1, "certK"), (2, "k8-only")] {
+            let tot: u64 = sur[p_].iter().sum();
+            eprintln!(
+                "{name} ({} boards): group surpluses a {} ({:.1}%), b {} ({:.1}%), c {} ({:.1}%)",
+                counts[p_],
+                sur[p_][0],
+                100.0 * sur[p_][0] as f64 / tot.max(1) as f64,
+                sur[p_][1],
+                100.0 * sur[p_][1] as f64 / tot.max(1) as f64,
+                sur[p_][2],
+                100.0 * sur[p_][2] as f64 / tot.max(1) as f64,
+            );
+        }
+    }
+
     /// k8 certification on the unconditioned survivor sample: per board,
     /// production baseline h0p, the LM2 bound (from the mmap artifacts) and
     /// h_k8 (three zPDBs, both σ-views); reports the union table that pins
