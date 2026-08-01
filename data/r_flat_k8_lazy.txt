@@ -942,3 +942,28 @@ separate 2^27 x 16 B sidecar (2.1 GiB) probed only on multi-demand axes.
 Engine: surcharge = max(single-line-max, demanded-pair values); also lifts
 the un-refined axis term inside every LM2 branch. Build = ten
 cwd_single-style constrained sweeps.
+
+Overlay/LM2 stacking probe (harness ovlunion, 507 workload boards,
+production single-line-max baseline):
+  LM2 alone 307 (60.6%) | overlay alone 30 (5.9%) | combined 325 (64.1%)
+  combination-only boards 18 (+3.6 pts); combined >= +4 on 11 boards.
+The overlay's boards are ANTI-correlated with LM2's certified set (18/30 =
+60% outside vs 39% under independence) — it stacks better than
+independence predicts. By the calibration slope (+15 pts ~ x1.25 nodes),
++3.6 pts ~ x1.05 nodes est. — a few percent of wall.
+
+CAVEAT recorded per methodology review: all certification numbers are
+conditioned on the 507-board sample = k8 PRUNE EVENTS. They measure
+replication of one mechanism's prunes, not total achievable cut; a
+mechanism pruning boards k8 misses is invisible here. The unconditioned
+fix (cheap, if pursued): dump slack-0 cWD-survivor boards from a live run
+(AUTOPSY keyed on survival, not k8-pruning) and re-run the probes.
+
+Joint-form LM pricing: closed by this data — the overlay recovers the
+demand-pricing component (certU 64.1% vs joint-form 74.6% leaves ~10 pts),
+and the residual is the zero-demand refined term x demand interaction,
+whose only table realization is demand-dimensioned LM tables (~x32,
+~70 GB). At the measured saturation (certification points now buy ~1/4 of
+their early node value), that residual projects to low-single-digit
+percent of nodes: not worth the table family. Overlay stays the one
+build-ready node-side upgrade: ~1.05x est., ~a day of build+A/B.
