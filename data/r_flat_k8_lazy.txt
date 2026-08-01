@@ -967,3 +967,27 @@ whose only table realization is demand-dimensioned LM tables (~x32,
 their early node value), that residual projects to low-single-digit
 percent of nodes: not worth the table family. Overlay stays the one
 build-ready node-side upgrade: ~1.05x est., ~a day of build+A/B.
+
+Unconditioned re-sample (engine SURVIVOR dump: every 26M-th cWD-survivor
+of a base sequential exhaust-146, 555 boards — conditioned on nothing but
+survival; k8 never consulted). Probes re-run:
+
+                          k8-conditioned (507)   unconditioned (555)
+  LM2 table cert                58.2%                 58.6%
+  LM2 (prod baseline)           60.6%                 60.5%
+  overlay alone                  5.9%                  2.9%
+  overlay stacking on LM2       +3.6 pts              +0.9 pts (5 boards)
+  >= +4 boards                    11                    22 (all LM2's own)
+
+Predictions graded: "LM2 drops under de-conditioning" WRONG — identical;
+"overlay holds ~6%" WRONG — halved. The k8 sample was unbiased for LM2 but
+inflated the overlay ~2x (k8 prune events over-represent multi-demand
+boards). LM2's unconditioned +4 rate is 4.0% (22/555), double the
+conditioned 2.0%.
+
+VERDICT REVERSED: the pairwise-(1,1) overlay drops from build-ready
+(~1.05x est.) to not-worth-the-day (~1.01-1.02x est. from +0.9 pts at
+measured saturation). Recorded, not built. The sampling hook
+(FLAT_SURVIVOR_DUMP, stats build) is the standing instrument for future
+certification probes — all future probe numbers should use unconditioned
+survivor samples.

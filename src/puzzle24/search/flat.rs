@@ -3299,6 +3299,32 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // recursive convention, so the tree matches §8j's node counts). The
         // child is already counted; a k8 prune folds its full f and moves on.
         // Compiles away entirely when `K8` is false.
+        // Unconditioned survivor sampling (stats build + FLAT_SURVIVOR_DUMP=N):
+        // every Nth child that survives cWD, before any tier consults — the
+        // population all heuristic upgrades compete to prune, free of the
+        // k8-prune-event conditioning of the autopsy sample.
+        #[cfg(feature = "probe-cache-stats")]
+        {
+            static DUMP_EVERY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+            let every = *DUMP_EVERY.get_or_init(|| {
+                std::env::var("FLAT_SURVIVOR_DUMP")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0)
+            });
+            if every > 0 {
+                static TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if t % every == 0 {
+                    let b = arena.board[d + 1].0.decode();
+                    eprintln!(
+                        "SURVIVOR bound={bound} g={g_next} h={h} slack={} board={:?}",
+                        bound - g_next - h,
+                        b.0
+                    );
+                }
+            }
+        }
         if LM2 {
             #[cfg(feature = "probe-cache-stats")]
             LM2_SLACK_HIST[((bound - g_next - h) as usize).min(15)]
