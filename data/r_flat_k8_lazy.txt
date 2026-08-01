@@ -1011,3 +1011,28 @@ the 148 race. k8 still out-prunes on nodes (193.3 B, 2.99x) but its
 Exhausting 148 proves R >= 150. The R >= 152 run (exhaust-150,
 ~35x growth -> ~10 T nodes, ~20 h at this rate) is GO on this
 configuration whenever scheduled.
+
+================================================================================
+R >= 152 PROVED (exhaust-150, --parallel --lm2, 2026-08-01, AC, full log
+data/r_lm2_exhaust150.log)
+================================================================================
+
+  threshold 144:         216,158,191 nodes      1.15 s  (canary exact)
+  threshold 146:       8,975,456,521 nodes     57.66 s  (canary exact)
+  threshold 148:     288,304,558,446 nodes   2099.32 s  (canary exact)
+  threshold 150:   7,408,277,152,495 nodes  59071.36 s  (125.41 Mn/s)
+
+  total 7,705,773,325,653 nodes in 61,229.49 s (17.0 h); setup 904 ms
+  (mmap artifacts). Output: "Lower bound: depth >= 152".
+
+Growth factor 148->150: 25.7x — the declining trend (41.5 -> 32.1 -> 25.7)
+continued; the revised 7-9 T estimate was right, the original 10 T
+conservative. Throughput eased 138 -> 125 Mn/s at depth (front-cache
+working-set growth, as the hit-rate trend predicted).
+
+For scale: cWD-only at 150 projects ~15 T nodes / ~24 h; the k8 2-tier
+~3.6 T / ~17 h (crossover-near-150, as estimated). LM2 got there in
+16.4 h on 2.2 GB of tables. Next threshold (exhaust-152, proves >= 154)
+projects ~150-190 T at factor ~20-25 -> ~2-3 weeks on this box with LM2
+alone; the k8-on-lm2 cascade decision (crossover estimated at ~152) awaits
+the k8 survivor-sample certification.
