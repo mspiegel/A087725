@@ -1121,3 +1121,13 @@ carry well under half of the k8-only reach — the cascade needs all three
 groups; (2) consistent with the tuple ladder's 79% LM2-nesting: joint
 content in b's region is largely already priced by LM2; what k8 uniquely
 adds is distributed joint structure, not one region's.
+
+CORRECTION (user methodology challenge): "no regional concentration" was
+overclaimed from aggregate shares. Proper criticality test (replace each
+group's value with its MD per view, re-max, ask if the +2 survives) on the
+98 k8-only boards: b necessary on 67%, c on 52%, a on 29% — REAL
+concentration in necessity. But 48% of boards need >= 2 groups jointly
+(21% all three), so the no-cheap-partial-k8 verdict stands via JOINTNESS,
+not via even spread. Single-group SUFFICIENCY (b + MD-of-rest >= +2)
+remains unmeasured; the 48% multi-critical floor bounds any single-group
+tier's reach at <= 52% of k8-only regardless.

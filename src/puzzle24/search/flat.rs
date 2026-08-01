@@ -3892,6 +3892,7 @@ mod tests {
         // [population][group]: 0 = all, 1 = certK, 2 = k8-only
         let mut sur = [[0u64; 3]; 3];
         let mut counts = [0u64; 3];
+        let mut crit = [0u64; 8];
         for line in text.lines().filter(|l| l.contains("board=[")) {
             let seg = &line[line.find("board=[").unwrap() + 7..];
             let seg = &seg[..seg.find(']').unwrap()];
@@ -3972,6 +3973,24 @@ mod tests {
             }
             if k && !l {
                 pops.push(2);
+                // criticality: replace group i's value with its MD in BOTH
+                // views, re-max, ask if certification survives
+                let mut crit_mask = 0usize;
+                for i in 0..3 {
+                    let (mut m0, mut m1) = (0u32, 0u32);
+                    for t in ctx.dbs[i].pattern().iter() {
+                        let p0 = s.0.iter().position(|&x| x == t).unwrap();
+                        let p1 = rs.0.iter().position(|&x| x == t).unwrap();
+                        m0 += md(t, p0);
+                        m1 += md(t, p1);
+                    }
+                    let h0v = s0 - g0[i] + m0;
+                    let h1v = s1 - g1[i] + m1;
+                    if h0v.max(h1v) < h0p + 2 {
+                        crit_mask |= 1 << i;
+                    }
+                }
+                crit[crit_mask] += 1;
             }
             for &p_ in &pops {
                 counts[p_] += 1;
@@ -3980,6 +3999,10 @@ mod tests {
                 }
             }
         }
+        eprintln!(
+            "k8-only criticality (mask a|b<<1|c<<2): none {} | a {} | b {} | ab {} | c {} | ac {} | bc {} | abc {}",
+            crit[0], crit[1], crit[2], crit[3], crit[4], crit[5], crit[6], crit[7]
+        );
         for (p_, name) in [(0usize, "all"), (1, "certK"), (2, "k8-only")] {
             let tot: u64 = sur[p_].iter().sum();
             eprintln!(
