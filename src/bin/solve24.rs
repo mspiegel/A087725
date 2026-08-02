@@ -79,6 +79,9 @@ struct Args {
     /// With --k8shared: stop maintaining ProjectedStates and rebuild the
     /// projection on a miss.
     k8stateless: bool,
+    /// Disable the neighbour-WD child pre-prune (profile: 10.2% of runtime
+    /// under the LM2 stack; its value was established before LM2 existed).
+    no_neighbor_prune: bool,
 }
 
 const USAGE: &str = "\
@@ -108,6 +111,7 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~32.8 GB mmap'd),
                           consulted only at children cWD fails to prune. Cuts
                           nodes ~2x at threshold 146, ~3x at 148 (growing).
+  --no-cwd-neighbor-prune disable the neighbour-WD child pre-prune.
   --max-nodes N           stop after N nodes. BENCHMARKING ONLY — the result is
                           not a proof, and is reported as such. Useful because
                           the engine is node-identical across variants, so a
@@ -129,6 +133,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut k6shared = false;
     let mut k8shared = false;
     let mut k8stateless = false;
+    let mut no_neighbor_prune = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -158,6 +163,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--k6pos" => k6pos = true,
             "--k6nomap" => k6nomap = true,
             "--k6shared" => k6shared = true,
+            "--no-cwd-neighbor-prune" => no_neighbor_prune = true,
             "--k8shared" => k8shared = true,
             "--k8stateless" => {
                 k8shared = true;
@@ -198,6 +204,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         k6shared,
         k8shared,
         k8stateless,
+        no_neighbor_prune,
     })
 }
 
@@ -367,9 +374,10 @@ fn main() -> ExitCode {
         eprintln!("cWD: mmapping data/cwd_mm.bin…");
         puzzle8::puzzle24::search::cwd::Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin"))
             .expect("cwd_mm.bin")
+            .with_neighbor_prune(!args.no_neighbor_prune)
     } else {
         eprintln!("cWD: loading tables… (build data/cwd_mm.bin with build_cwd_mm_artifact for fast setup)");
-        Cwd::new().with_neighbor_prune(true)
+        Cwd::new().with_neighbor_prune(!args.no_neighbor_prune)
     };
     let lmt = if args.lm {
         eprintln!("cwd-lm: mmapping data/cwd_lm_mm.bin…");

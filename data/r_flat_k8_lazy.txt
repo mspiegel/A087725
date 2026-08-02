@@ -1366,3 +1366,27 @@ Kept as the non-default --k8stateless arm.
 Standing at 146: cascade cut 1.484x, toll 2.41x, wall 1.63x slower than
 lm2 alone. Both tiers still lose at this depth; the cascade's cut is the
 largest measured and grows fastest with depth, so its crossover is nearest.
+
+Neighbour-WD child pre-prune re-A/B'd under the LM2 stack (its value was
+established when cWD was the whole heuristic; profile share 10.2%). The flag
+did not exist in solve24 any more — re-added as --no-cwd-neighbor-prune,
+honoured on both the mm_only and HashMap cWD paths.
+  @146 with pre-prune   8,975,456,521 nodes  57.7 s  155.4 Mn/s
+  @146 without         13,871,542,854 nodes  67.8 s  204.0 Mn/s
+Without it each node is 31% cheaper but 54.6% more children are built and
+counted; net 15% WORSE wall. KEEP — it still pays under LM2.
+
+k8 shared-cache hit rate finally measured (stats build, cascade @144):
+  2^19 (4 MB)   76.376%   51,983,690 misses
+  2^21 (16 MB)  85.719%   31,425,020 misses   <- default
+  2^23 (64 MB)  91.886%   17,854,907 misses
+  (lm2 cache in the same run: 99.889%)
+So k8 misses ~130x more often than LM2 — but the wall-clock sweep @146 says
+size does not matter: 19: 91.14 | 21: 93.96 / 91.40 | 23: 94.16 | 25: 89.73 s,
+all inside the 2.8% canary spread. Halving the misses changes nothing.
+THIRD independent confirmation of "hit rate != savings" (k8 memo, k6 sweep,
+now k8 shared) — and the first with the hit-rate curve measured alongside,
+so the conclusion is unambiguous: k8's cost is the FIXED per-consult work
+(two atomic probes, two slides, the slot copy, key updates), not the misses.
+Consistent with rebuild-from-key losing 9% despite deleting the copy and
+slides: moving work between fixed and per-miss buckets does not shrink it.
