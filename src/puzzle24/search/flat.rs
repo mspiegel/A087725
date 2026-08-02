@@ -2448,7 +2448,7 @@ impl K6SharedCache {
         } else {
             K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        hit.then(|| (e & 0xFF) as u8)
+        hit.then_some((e & 0xFF) as u8)
     }
 
     #[inline(always)]
