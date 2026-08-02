@@ -3866,6 +3866,140 @@ mod tests {
     use super::*;
     use crate::puzzle24::search::move_dfa::MovePruner;
 
+    /// k6 (pdb24_{a..d}, 6-6-6-6) and k7 (pdb24_k7_{a..d}, 7-7-7-3) zPDB
+    /// families vs the production baseline and LM2 on the unconditioned
+    /// survivor sample: the cheap-tier candidates' frontier reach.
+    ///
+    ///   cargo test --release k6k7_certification_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the artifacts, the k6/k7 zPDBs and data/survivors_146.txt"]
+    fn k6k7_certification_survivor_sample() {
+        use crate::puzzle24::pdb::ZPatternDb;
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let mm =
+            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let load_family = |names: &[&str]| -> Vec<ZPatternDb> {
+            names
+                .iter()
+                .map(|n| {
+                    ZPatternDb::load_mmap(std::path::Path::new(&format!("data/{n}.zbin")))
+                        .unwrap_or_else(|e| panic!("{n}: {e:?}"))
+                })
+                .collect()
+        };
+        let k6 = load_family(&["pdb24_a", "pdb24_b", "pdb24_c", "pdb24_d"]);
+        let k7 = load_family(&["pdb24_k7_a", "pdb24_k7_b", "pdb24_k7_c", "pdb24_k7_d"]);
+        for (name, fam) in [("k6", &k6), ("k7", &k7)] {
+            let mut cover = 0u32;
+            for db in fam.iter() {
+                let tiles: Vec<u8> = db.pattern().iter().collect();
+                eprintln!("{name} pattern: {tiles:?}");
+                assert_eq!(cover & db.pattern().0, 0, "{name} patterns overlap");
+                cover |= db.pattern().0;
+            }
+            assert_eq!(cover, 0x01FF_FFFE, "{name} must cover tiles 1..=24");
+        }
+        let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
+        let (mut nb, mut c6, mut c7, mut cl) = (0u64, 0u64, 0u64, 0u64);
+        let (mut only6, mut only7, mut u7l) = (0u64, 0u64, 0u64);
+        let (mut adv6, mut adv7) = ([0u64; 9], [0u64; 9]);
+        for line in text.lines().filter(|l| l.contains("board=[")) {
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let (rkey, ckey) = (pack(&mr, br), pack(&mc, bc));
+            let rc = backing.cell(rkey).unwrap();
+            let cc = backing.cell(ckey).unwrap();
+            let rterm = rc.wd + surcharge_from_curves(&rc.curves, &dr);
+            let cterm = cc.wd + surcharge_from_curves(&cc.curves, &dc);
+            let h0p = rterm as u32 + cterm as u32;
+            nb += 1;
+            let rs = symmetry::reflect(&s);
+            let hfam = |fam: &[ZPatternDb]| -> u32 {
+                let (mut s0, mut s1) = (0u32, 0u32);
+                for db in fam {
+                    s0 += db.cold_lookup(&s) as u32;
+                    s1 += db.cold_lookup(&rs) as u32;
+                }
+                s0.max(s1)
+            };
+            let (h6, h7) = (hfam(&k6), hfam(&k7));
+            // LM2 compose
+            let pos = |t: u8| s.0.iter().position(|&x| x == t).unwrap();
+            let lp = [
+                (pos(20) / 5) as u8,
+                (pos(24) % 5) as u8,
+                (pos(15) / 5) as u8,
+                (pos(19) / 5) as u8,
+                (pos(19) % 5) as u8,
+                (pos(23) % 5) as u8,
+            ];
+            let probe = |key: u64| -> ([u8; 4], [u8; 12]) {
+                let (mut s4, mut p12) = ([0xFFu8; 4], [0xFFu8; 12]);
+                if let Some((a, b)) = mm.probe(key) {
+                    s4.copy_from_slice(a);
+                    p12.copy_from_slice(b);
+                }
+                (s4, p12)
+            };
+            let (vr, pr_all) = probe(rkey);
+            let (vc, pc_all) = probe(ckey);
+            let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
+            let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+            let pr = if lp[0] < 4 && lp[2] < 3 { pr_all[(lp[0] * 3 + lp[2]) as usize] } else { 0xFF };
+            let pc = if lp[1] < 4 && lp[5] < 3 { pc_all[(lp[1] * 3 + lp[5]) as usize] } else { 0xFF };
+            let r20f = or_(sv(&vr, lp[0]), rterm);
+            let c24f = or_(sv(&vc, lp[1]), cterm);
+            let ba = or_(pr, r20f) as u32 + cterm as u32;
+            let bb = r20f as u32 + or_(sv(&vc, lp[4]), cterm) as u32;
+            let bcv = or_(sv(&vr, lp[3]), rterm) as u32 + c24f as u32;
+            let bd = rterm as u32 + or_(pc, c24f) as u32;
+            let lm2 = h0p.max(ba.min(bb).min(bcv).min(bd));
+            let l = lm2 >= h0p + 2;
+            let k6c = h6 >= h0p + 2;
+            let k7c = h7 >= h0p + 2;
+            if l {
+                cl += 1;
+            }
+            if k6c {
+                c6 += 1;
+                adv6[((h6 - h0p) as usize).min(8)] += 1;
+                if !l {
+                    only6 += 1;
+                }
+            }
+            if k7c {
+                c7 += 1;
+                adv7[((h7 - h0p) as usize).min(8)] += 1;
+                if !l {
+                    only7 += 1;
+                }
+            }
+            if k7c || l {
+                u7l += 1;
+            }
+        }
+        eprintln!(
+            "k6k7: {nb} boards; certL {cl} ({:.1}%); certK6 {c6} ({:.1}%) k6-only {only6} ({:.2}%); certK7 {c7} ({:.1}%) k7-only {only7} ({:.2}%); union(k7,L) {u7l} ({:.1}%); adv6 {:?} adv7 {:?}",
+            100.0 * cl as f64 / nb.max(1) as f64,
+            100.0 * c6 as f64 / nb.max(1) as f64,
+            100.0 * only6 as f64 / nb.max(1) as f64,
+            100.0 * c7 as f64 / nb.max(1) as f64,
+            100.0 * only7 as f64 / nb.max(1) as f64,
+            100.0 * u7l as f64 / nb.max(1) as f64,
+            &adv6[2..],
+            &adv7[2..]
+        );
+    }
+
     /// Per-group k8 surplus breakdown on the unconditioned survivor sample,
     /// overall and restricted to the k8-only-beyond-LM2 boards. Re-examines
     /// the earlier "group b carries 52% of surplus" finding (which was

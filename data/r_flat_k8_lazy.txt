@@ -1131,3 +1131,22 @@ concentration in necessity. But 48% of boards need >= 2 groups jointly
 not via even spread. Single-group SUFFICIENCY (b + MD-of-rest >= +2)
 remains unmeasured; the 48% multi-critical floor bounds any single-group
 tier's reach at <= 52% of k8-only regardless.
+
+k6/k7 zPDB frontier probe (flat.rs test k6k7_certification_survivor_sample;
+the June-built pdb24_{a..d}.zbin 6-6-6-6 at 88 MB total and
+pdb24_k7_{a..d} 7-7-7-3 at 1.5 GB; no build needed — 14 s probe):
+  certL 60.5% | certK6 42.0%, K6-ONLY BEYOND LM2 52/555 = 9.37%,
+  advantages 75x+4? no: adv hist (>=2): [127 +2, 75 +4, 24 +6, 7 +8+]
+  certK7 24.7%, k7-only 3.60% — WORSE than k6: the 3-tile runt group
+  [19,23,24] wastes a quarter of the partition; group-size symmetry beats
+  group size. k8 reference: 63.6% / 17.7%.
+Predictions under-shot again (42 vs 25-40; 9.4 vs 4-9 band top). Decision
+per pre-registration (>=8% at ~free consult cost): k6 is now the LEADING
+cascade-tier candidate — 88 MB fully RAM-resident, consults ~8 cheap
+lookups (or a 4 GiB positional re-layout for shift-only indexing), reach
+9.4% beyond LM2 = calibration-slope est. ~x1.10-1.15 nodes. Next: wire a
+lazy k6 tier on lm2 (mirror of the k8 tier) + the two direct measurements
+(cascade exhaust-146 nodes, budgeted throughput). The k8 cascade
+(17.7% reach at 59 Mn/s economics) is now the fallback, not the default.
+Also banked: threaded harness k6probe mode builds arbitrary blank-free
+partitions in ~25 min — the partition-design probe instrument.
