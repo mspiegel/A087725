@@ -4546,6 +4546,7 @@ mod tests {
         }
         let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
         let (mut nb, mut c6, mut c7, mut cl) = (0u64, 0u64, 0u64, 0u64);
+        let (mut c6single, mut only6single) = (0u64, 0u64);
         let (mut only6, mut only7, mut u7l) = (0u64, 0u64, 0u64);
         let (mut adv6, mut adv7) = ([0u64; 9], [0u64; 9]);
         for line in text.lines().filter(|l| l.contains("board=[")) {
@@ -4567,15 +4568,15 @@ mod tests {
             let h0p = rterm as u32 + cterm as u32;
             nb += 1;
             let rs = symmetry::reflect(&s);
-            let hfam = |fam: &[ZPatternDb]| -> u32 {
+            let hfam = |fam: &[ZPatternDb]| -> (u32, u32) {
                 let (mut s0, mut s1) = (0u32, 0u32);
                 for db in fam {
                     s0 += db.cold_lookup(&s) as u32;
                     s1 += db.cold_lookup(&rs) as u32;
                 }
-                s0.max(s1)
+                (s0.max(s1), s0)
             };
-            let (h6, h7) = (hfam(&k6), hfam(&k7));
+            let ((h6, h6single), (h7, _)) = (hfam(&k6), hfam(&k7));
             // LM2 compose
             let pos = |t: u8| s.0.iter().position(|&x| x == t).unwrap();
             let lp = [
@@ -4628,6 +4629,13 @@ mod tests {
                     only6 += 1;
                 }
             }
+            // single-view variant: halves the tier's probe count
+            if h6single >= h0p + 2 {
+                c6single += 1;
+                if !l {
+                    only6single += 1;
+                }
+            }
             if k7c {
                 c7 += 1;
                 adv7[((h7 - h0p) as usize).min(8)] += 1;
@@ -4639,6 +4647,12 @@ mod tests {
                 u7l += 1;
             }
         }
+        eprintln!(
+            "k6 single-view (normal σ only): certK6 {c6single} ({:.1}%), k6-only-beyond-LM2 {only6single} ({:.2}%) — vs both-views {only6} ({:.2}%)",
+            100.0 * c6single as f64 / nb.max(1) as f64,
+            100.0 * only6single as f64 / nb.max(1) as f64,
+            100.0 * only6 as f64 / nb.max(1) as f64,
+        );
         eprintln!(
             "k6k7: {nb} boards; certL {cl} ({:.1}%); certK6 {c6} ({:.1}%) k6-only {only6} ({:.2}%); certK7 {c7} ({:.1}%) k7-only {only7} ({:.2}%); union(k7,L) {u7l} ({:.1}%); adv6 {:?} adv7 {:?}",
             100.0 * cl as f64 / nb.max(1) as f64,

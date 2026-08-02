@@ -1229,3 +1229,28 @@ fixed cost, benefit growing as hit rates decay — survives only as a 0.17 pp
 reserve, which would have to grow ~10x to matter; if a deep run ever shows
 the LM2 miss rate climbing, FLAT_LM2_CACHE_BITS=21 restores it in one env
 var. Node counts re-verified after the change (216,158,191 / 205,119,447).
+
+Why the k6 tier does not parallelise (user question: cWD/LM2 have BIGGER
+maps and scale fine). It is miss RATE, not map size:
+  tier   map     front-cache hit   probes reaching the map
+  cWD    4.0 GB      99.665%             0.34%
+  LM2    4.0 GB      99.742%             0.26%
+  k6     2.9 GB      89.489%            10.51%
+k6 sends ~35x more traffic to DRAM per probe, and that traffic is what fails
+to scale: sequential toll is only 1.27x (26.31 -> 20.74 Mn/s @144), but 8-way
+scaling falls from LM2's 7.25x to 4.63x, so the parallel toll is 1.50x @146.
+Three mechanisms behind the low reuse: (1) k6 keys are exact cells of six
+named tiles + blank (2.42 G states x 8 streams) vs cWD's per-line token
+counts (65.6 M total); (2) the blank is in the key and moves on EVERY move,
+while a cWD axis key only changes when a move crosses that axis; (3) the key
+is finer than the value's dependency — the zero-aware value varies by blank
+REGION, not blank cell, so one value is cached under ~a dozen keys.
+
+Two cheaper-probe variants measured on the 555-board survivor sample:
+  single σ-view (halves probes):  certK6 31.5%, beyond-LM2 7.03% (vs 9.37%)
+  blank-free (25^6 = 30.5 MB/pattern, 122 MB total, fixes (2) and (3)):
+      certK6 17.1%, BEYOND-LM2 1.98% (vs 9.37%), advantages [66x+2, 23x+4,
+      5x+6, 1x+8]
+Blank-free loses 79% of the tier's unique reach — blank-awareness is where
+k6's value lives, so the cheap-map route is dead as tested. Single-view keeps
+75% of reach for half the traffic and remains the one live cost lever.
