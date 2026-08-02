@@ -1214,3 +1214,18 @@ grows with depth (1.054 -> 1.150) while the toll is fixed, so the measured
 crossover is near threshold 150 and the tier should pay at 152 — the next
 campaign's threshold. Next measurement: exhaust-148 with --lm2 --k6pos vs
 --lm2 alone, which replaces the extrapolated 1.27x cut with a measured one.
+
+LM2 cache size re-decided on hit rates (stats build, 144+146, --lm2 --k6pos;
+timings meaningless under the shared atomics, counts exact):
+  bits 19 (16 MB/worker): 12,040,283,593 hits / 31,097,763 misses = 99.742%
+  bits 21 (64 MB/worker): 12,061,045,888 hits / 10,335,468 misses = 99.914%
+  (k6 cache unchanged either way: 89.489% vs 89.493% — in situ, vs 92.1%
+   simulated at 144 only; the deeper working set costs ~2.6 pp.)
+4x the memory buys 0.17 pp of hit rate: 21 M fewer misses out of 12.07 B
+probes. At the measured wall (19 and 21 tied at 146: 74.74 vs 74.83/75.44 s)
+that is not worth 48 MB/worker = 384 MB. DEFAULT LOWERED 21 -> 19 per user
+preference (smaller wins ties). The depth argument for the larger cache —
+fixed cost, benefit growing as hit rates decay — survives only as a 0.17 pp
+reserve, which would have to grow ~10x to matter; if a deep run ever shows
+the LM2 miss rate climbing, FLAT_LM2_CACHE_BITS=21 restores it in one env
+var. Node counts re-verified after the change (216,158,191 / 205,119,447).
