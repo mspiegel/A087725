@@ -1390,3 +1390,33 @@ so the conclusion is unambiguous: k8's cost is the FIXED per-consult work
 (two atomic probes, two slides, the slot copy, key updates), not the misses.
 Consistent with rebuild-from-key losing 9% despite deleting the copy and
 slides: moving work between fixed and per-miss buckets does not shrink it.
+
+================================================================================
+CASCADE EXHAUST-148 (--lm2 --zpdb8 --k8shared, AC, idle, 2026-08-02)
+================================================================================
+  threshold 146:   6,048,044,884 nodes    92.88 s  (65.1 Mn/s)  [checkpoint, exact]
+  threshold 148: 145,787,907,808 nodes  2603.91 s  (56.0 Mn/s)
+  total 152,014,816,268 nodes
+
+  thr   cascade nodes      x     lm2 nodes          cut    cascade s   lm2 s
+  144     178,863,576      -       216,158,191    1.21x        -          -
+  146   6,048,044,884   33.81    8,975,456,521    1.48x      92.9      57.5
+  148 145,787,907,808   24.10  288,304,558,446    1.98x    2603.9    2084.5
+
+Growth-factor ratio 24.10/33.81 = 0.713, against lm2's 0.774 and 0.800 —
+the cascade's tree grows measurably slower, so the cut compounds
+(1.21 -> 1.48 -> 1.98). Wall is still 1.25x behind at 148 (throughput fell
+65.1 -> 56.0 Mn/s), but the two trend lines cross.
+
+Projection with both curves now measured at three points each (cascade
+factors damped 0.75/0.78/0.80; throughput decay 0.86/step cascade,
+0.89/step lm2):
+  thr   cascade nodes   lm2 nodes    cut     cascade      lm2        ratio
+  150      2.6 T          7.41 T*   2.8x     ~15.2 h     16.4 h*    1.08x
+  152     37   T        148    T    4.0x     ~10.4 d     14.9 d     1.43x
+  154    420   T          2.4 PT    5.7x     ~4.5 mo      8.6 mo    1.91x
+  (* measured)
+CROSSOVER AT 150, widening thereafter. The cascade — not lm2 alone — is the
+configuration for exhaust-152 and beyond, worth ~1.4x at 152 and ~1.9x at
+154. Caveat: this box pages ~5% (38.5 GB mapped, 32 GB RAM); a machine that
+holds the tables resident would do better still.
