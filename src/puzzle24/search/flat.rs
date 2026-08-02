@@ -2448,27 +2448,47 @@ impl K6Cache {
         }
     }
 
+    /// Value for one group/view: cache hit, else a table probe.
+    ///
+    /// Both miss paths reconstruct through `diff_lookup`, which needs the
+    /// parent's **exact** value — it selects between `parent ± 1` using the
+    /// child's stored bit, so a parent that is even 1 low can reconstruct 1
+    /// *high* (true parent 5, true child 4, degraded parent 4 → 5). That is an
+    /// overestimate and inadmissible, which is why the `parent - 1` shortcut
+    /// cannot be used to skip probes: skipping starves the cache of exact
+    /// values, and feeding a degraded value back into the codec breaks the
+    /// bound. Measured directly — the shortcut version pruned 184,461,339
+    /// nodes at exhaust-144 against the correct 205,119,447.
+    ///
+    /// What remains is the useful half: with `--k6nomap` the miss reads the
+    /// **88 MB ranked zPDBs** instead of the 2.9 GB positional maps, a 33x
+    /// smaller working set for the 10.5% of consults that miss.
     #[inline(always)]
-    fn get(
-        &mut self,
-        ctx: &super::k6pos::K6PosCtx,
-        group: usize,
-        tiles_idx: u32,
-        blank: u8,
-        parent_h: u8,
-    ) -> u8 {
-        let key = ((group as u64) << 40) | ((blank as u64) << 32) | tiles_idx as u64;
+    fn key_of(group: usize, tiles_idx: u32, blank: u8) -> u64 {
+        ((group as u64) << 40) | ((blank as u64) << 32) | tiles_idx as u64
+    }
+
+    /// Cached value, or `None` on a miss. Cheap enough to run before deciding
+    /// whether the caller must decode a board for the ranked miss path.
+    #[inline(always)]
+    fn peek(&self, group: usize, tiles_idx: u32, blank: u8) -> Option<u8> {
+        let key = Self::key_of(group, tiles_idx, blank);
         let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        if self.slots[i].tag == key {
-            #[cfg(feature = "probe-cache-stats")]
-            K6_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            return self.slots[i].val;
-        }
-        let v = ctx.probe(group, tiles_idx, blank, parent_h);
-        self.slots[i] = K6CacheSlot { tag: key, val: v };
+        let hit = self.slots[i].tag == key;
         #[cfg(feature = "probe-cache-stats")]
-        K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        v
+        if hit {
+            K6_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        hit.then(|| self.slots[i].val)
+    }
+
+    #[inline(always)]
+    fn store(&mut self, group: usize, tiles_idx: u32, blank: u8, val: u8) {
+        let key = Self::key_of(group, tiles_idx, blank);
+        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
+        self.slots[i] = K6CacheSlot { tag: key, val };
     }
 }
 
@@ -2513,13 +2533,47 @@ fn k6pos_child(
 
     let (i0, i1) = (child.idx[0][gi], child.idx[1][gj]);
     let (p0, p1) = (parent.h[0][gi], parent.h[1][gj]);
-    let cache = arena
-        .k6cache
-        .as_mut()
-        .expect("seed_k6pos allocates the cache")
-        .as_mut();
-    let v0 = cache.get(ctx, gi, i0, n as u8, p0);
-    let v1 = cache.get(ctx, gj, i1, rn as u8, p1);
+    // The ranked miss path needs the child board; decode only when the tier
+    // is map-free (with maps the probe is index-only).
+    // Peek first: the ranked miss path needs a decoded board (and, for the
+    // reflected view, its σ-image), which is ~50 ns we must not pay on the
+    // ~90% of consults that hit.
+    let (c0, c1) = {
+        let cache = arena
+            .k6cache
+            .as_ref()
+            .expect("seed_k6pos allocates the cache");
+        (cache.peek(gi, i0, n as u8), cache.peek(gj, i1, rn as u8))
+    };
+    let (v0, v1) = if let (Some(a), Some(b)) = (c0, c1) {
+        (a, b)
+    } else {
+        let boards = if ctx.has_maps() {
+            None
+        } else {
+            let b = arena.board[d + 1].0.decode();
+            let r = symmetry::reflect(&b);
+            Some((b, r))
+        };
+        let cache = arena
+            .k6cache
+            .as_mut()
+            .expect("seed_k6pos allocates the cache")
+            .as_mut();
+        let fill = |cache: &mut K6Cache, g: usize, idx: u32, bl: u8, ph: u8, bd: Option<&State>| {
+            let v = match bd {
+                None => ctx.probe(g, idx, bl, ph),
+                Some(b) => ctx.probe_ranked(g, b, ph),
+            };
+            cache.store(g, idx, bl, v);
+            v
+        };
+        let a =
+            c0.unwrap_or_else(|| fill(cache, gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0)));
+        let b =
+            c1.unwrap_or_else(|| fill(cache, gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1)));
+        (a, b)
+    };
     let child = &mut arena.k6pos[d + 1];
     child.h[0][gi] = v0;
     child.h[1][gj] = v1;
@@ -2530,7 +2584,7 @@ fn k6pos_child(
     debug_assert_eq!(
         out,
         ctx.cold_h(&arena.board[d + 1].0.decode()),
-        "incremental positional k6 drifted from cold lookups"
+        "incremental k6 drifted from cold lookups"
     );
     out
 }

@@ -303,7 +303,8 @@ pub fn build_from_scratch(pattern: Pattern, threads: usize) -> Vec<u8> {
 /// values, which are rare) plus one mmap'd positional bitmap per pattern.
 pub struct K6PosCtx {
     dbs: [ZPatternDb; 4],
-    maps: [memmap2::Mmap; 4],
+    /// Positional maps; empty when running map-free (ranked miss path only).
+    maps: Vec<memmap2::Mmap>,
     /// `group_of[t]` = which pattern holds tile `t`.
     pub group_of: [u8; N_CELLS],
     /// `coeff[t]` = the tile's radix weight inside its own pattern's index.
@@ -314,6 +315,12 @@ impl K6PosCtx {
     /// Load the four zPDBs from `dir` and their positional maps
     /// (`k6pos_{a..d}.bin`, built by [`build_positional`]).
     pub fn load(dir: &Path) -> Result<Self, String> {
+        Self::load_opt(dir, true)
+    }
+
+    /// `want_maps = false` skips the 2.9 GB positional maps entirely: the tier
+    /// then serves cache misses from the ranked zPDBs.
+    pub fn load_opt(dir: &Path, want_maps: bool) -> Result<Self, String> {
         let mut dbs = Vec::with_capacity(4);
         let mut maps = Vec::with_capacity(4);
         let mut group_of = [0u8; N_CELLS];
@@ -333,16 +340,20 @@ impl K6PosCtx {
             for t in db.pattern().iter() {
                 coeff[t as usize] = c[t as usize];
             }
-            let pos_name = format!("k6pos_{}.bin", (b'a' + i as u8) as char);
-            let f = std::fs::File::open(dir.join(&pos_name))
-                .map_err(|e| format!("{pos_name}: {e} (build it with the k6pos builder test)"))?;
-            // SAFETY: write-once-then-immutable build artifact.
-            let m = unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("{pos_name}: {e}"))?;
-            if m.len() != MAP_BYTES {
-                return Err(format!("{pos_name}: wrong size {}", m.len()));
+            if want_maps {
+                let pos_name = format!("k6pos_{}.bin", (b'a' + i as u8) as char);
+                let f = std::fs::File::open(dir.join(&pos_name)).map_err(|e| {
+                    format!("{pos_name}: {e} (build it with the k6pos builder test)")
+                })?;
+                // SAFETY: write-once-then-immutable build artifact.
+                let m =
+                    unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("{pos_name}: {e}"))?;
+                if m.len() != MAP_BYTES {
+                    return Err(format!("{pos_name}: wrong size {}", m.len()));
+                }
+                maps.push(m);
             }
             dbs.push(db);
-            maps.push(m);
         }
         if cover != 0x01FF_FFFE {
             return Err("k6 patterns must cover tiles 1..=24".into());
@@ -359,9 +370,7 @@ impl K6PosCtx {
             dbs: dbs
                 .try_into()
                 .map_err(|_| "expected four dbs".to_string())?,
-            maps: maps
-                .try_into()
-                .map_err(|_| "expected four maps".to_string())?,
+            maps,
             group_of,
             coeff,
         })
@@ -394,6 +403,24 @@ impl K6PosCtx {
         let entry = (((byte >> (bit & 7)) & 1) << 1) as u32;
         let oh = old_h as u32;
         (oh + 1 - ((entry ^ oh ^ (oh << 1)) & 2)) as u8
+    }
+
+    /// Miss path without the positional map: rebuild the group's projection
+    /// from `board` and read the ranked zPDB (88 MB — a 33x smaller working
+    /// set than the positional maps, which is what k6's miss rate needs).
+    #[inline]
+    pub fn probe_ranked(&self, group: usize, board: &State, old_h: u8) -> u8 {
+        let db = &self.dbs[group];
+        let proj = crate::puzzle24::pdb::ProjectedState::from_state(board, db.pattern());
+        let idx = db.layout().rank(&proj, db.pattern());
+        db.diff_lookup(idx, old_h)
+    }
+
+    /// Whether the positional maps were loaded (optional once the ranked miss
+    /// path exists).
+    #[inline]
+    pub fn has_maps(&self) -> bool {
+        !self.maps.is_empty()
     }
 
     /// Cold σ-max sum, for the drift assert.

@@ -68,6 +68,9 @@ struct Args {
     /// Same tier, positional layout: data/k6pos_{a..d}.bin (2.9 GB) behind a
     /// front cache, indexed by tile positions instead of a rank walk.
     k6pos: bool,
+    /// Same tier, no positional maps: cache + parent-1 first-miss + ranked
+    /// zPDB on repeat misses (88 MB working set).
+    k6nomap: bool,
 }
 
 const USAGE: &str = "\
@@ -112,6 +115,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut lm2 = false;
     let mut k6 = false;
     let mut k6pos = false;
+    let mut k6nomap = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -139,6 +143,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--lm2" => lm2 = true,
             "--k6" => k6 = true,
             "--k6pos" => k6pos = true,
+            "--k6nomap" => k6nomap = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -170,6 +175,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         lm2,
         k6,
         k6pos,
+        k6nomap,
     })
 }
 
@@ -357,7 +363,7 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if (args.k6 || args.k6pos) && !args.lm2 {
+    if (args.k6 || args.k6pos || args.k6nomap) && !args.lm2 {
         eprintln!("error: --k6/--k6pos requires --lm2 (it is the cascade tier above it)");
         return ExitCode::FAILURE;
     }
@@ -374,9 +380,16 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-    } else if args.k6pos {
-        eprintln!("k6: mmapping k6pos_{{a..d}}.bin (2.9 GB, pre-touched)…");
-        match puzzle8::puzzle24::search::k6pos::K6PosCtx::load(std::path::Path::new("data")) {
+    } else if args.k6pos || args.k6nomap {
+        if args.k6nomap {
+            eprintln!("k6: map-free (ranked 88 MB miss path, parent-1 on first miss)…");
+        } else {
+            eprintln!("k6: mmapping k6pos_{{a..d}}.bin (2.9 GB, pre-touched)…");
+        }
+        match puzzle8::puzzle24::search::k6pos::K6PosCtx::load_opt(
+            std::path::Path::new("data"),
+            !args.k6nomap,
+        ) {
             Ok(ctx) => Some(puzzle8::puzzle24::search::flat::K6Tier::Pos(ctx)),
             Err(e) => {
                 eprintln!("error: --k6pos: {e}");

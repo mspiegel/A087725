@@ -1254,3 +1254,28 @@ Two cheaper-probe variants measured on the 555-board survivor sample:
 Blank-free loses 79% of the tier's unique reach — blank-awareness is where
 k6's value lives, so the cheap-map route is dead as tested. Single-view keeps
 75% of reach for half the traffic and remains the one live cost lever.
+
+MAP-FREE k6 (--k6nomap): positional index as the cache key, 88 MB ranked
+zPDBs as the miss path (33x smaller working set than the positional maps).
+Hypothesis: k6's 10.5% miss rate into 2.9 GB is what fails to parallelise.
+REFUTED.
+  seq 144:  lm2 25.67 | k6pos 20.24 | k6nomap 17.21 Mn/s
+  par 146:  lm2 154.43 | k6pos 101.33 | k6nomap 84.86 Mn/s
+Map-free is ~16% slower in BOTH modes and the seq→par ratio is unchanged
+(5.01x vs 4.93x), so the maps' footprint is not the scaling limiter — the
+rank walk simply costs more than a map byte read, as the original profile
+said. --k6pos stays the tier's layout; --k6nomap kept as a measured arm.
+
+Two soundness bugs the node counts caught on the way (both mine):
+1. `parent-1` on a cache miss is NOT usable to skip probes. diff_lookup is
+   an exact reconstruction that selects parent±1 by the child's stored bit;
+   given a parent 1 low it can return 1 HIGH (true parent 5, true child 4,
+   degraded parent 4 -> 5). Measured as over-pruning: 184,461,339 nodes at
+   exhaust-144 against the correct 205,119,447. The parity argument about
+   lost prunes was fine; the flaw was assuming the codec tolerates an
+   inexact base. Skipping probes also starves the cache of exact values.
+2. The ranked miss path ranks a *board*, so the reflected σ-view must rank
+   the REFLECTED board; passing the normal board to both views gave
+   27,258,040 nodes. Fixed; both variants now node-identical at 205,119,447.
+Also fixed: decode+reflect must be lazy (misses only) — doing it on every
+consult cost ~15% before the peek/store split.
