@@ -227,7 +227,7 @@ impl ProjectedState {
     /// (the projected-edge law: a blank-only slide leaves the PDB index and `h`
     /// unchanged) and therefore hold a stale blank: heal it from the board's
     /// true blank immediately before an [`apply_in_place_at`](Self::apply_in_place_at)
-    /// + rank. The pattern-tile entries of `cells`/`pos_of` stay correct without
+    /// and rank. The pattern-tile entries of `cells`/`pos_of` stay correct without
     /// healing, because every move of a pattern tile is cost-1 and is applied;
     /// the stale non-pattern `cells` entries are never read by `rank`.
     #[inline]

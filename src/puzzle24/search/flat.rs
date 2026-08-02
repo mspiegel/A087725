@@ -560,7 +560,9 @@ impl K8Ctx {
             union |= p;
         }
         if union != ((1u32 << 25) - 2) {
-            return Err(format!("k8 patterns do not cover tiles 1..=24 (union {union:#x})"));
+            return Err(format!(
+                "k8 patterns do not cover tiles 1..=24 (union {union:#x})"
+            ));
         }
         let mut group_of = [0u8; N_CELLS];
         #[cfg(feature = "k8-probe-locality")]
@@ -655,7 +657,9 @@ mod k8_locality {
     }
     impl Hll {
         fn new() -> Self {
-            Hll { reg: vec![0; 1 << 14] }
+            Hll {
+                reg: vec![0; 1 << 14],
+            }
         }
         fn add(&mut self, h: u64) {
             let i = (h >> 50) as usize;
@@ -737,7 +741,7 @@ mod k8_locality {
     }
 
     struct Sim {
-        tags: Vec<Vec<u64>>,      // per BITS entry: 1 << bits tag slots, 0 = empty
+        tags: Vec<Vec<u64>>, // per BITS entry: 1 << bits tag slots, 0 = empty
         hits: [u64; BITS.len()],
         assoc: Vec<(u32, Assoc)>, // (total_bits, sim) for 2- and 4-way
         per_table_dm20: [(u64, u64); 3], // (hits, probes) at 20 bits, per table
@@ -1110,7 +1114,10 @@ mod k8_surplus {
             for v in hist[..16].iter() {
                 eprint!(" {:.2}", 100.0 * *v as f64 / n as f64);
             }
-            eprintln!(" {:.2}   (n={n})", 100.0 * hist[16..].iter().sum::<u64>() as f64 / n as f64);
+            eprintln!(
+                " {:.2}   (n={n})",
+                100.0 * hist[16..].iter().sum::<u64>() as f64 / n as f64
+            );
         };
         dump(&sim.adv_prune);
         eprintln!("  advantage at NON-pruning consults [0..15,16+]:");
@@ -1185,7 +1192,9 @@ mod k8_harvest {
     }
     impl Hll {
         fn new() -> Self {
-            Hll { reg: vec![0; 1 << 14] }
+            Hll {
+                reg: vec![0; 1 << 14],
+            }
         }
         fn add(&mut self, h: u64) {
             let i = (h >> 50) as usize;
@@ -1216,7 +1225,9 @@ mod k8_harvest {
     }
     impl Bloom {
         fn new() -> Self {
-            Bloom { bits: vec![0u64; 1 << 26] }
+            Bloom {
+                bits: vec![0u64; 1 << 26],
+            }
         }
         #[inline]
         fn idx(key: u64, i: u64) -> usize {
@@ -1305,7 +1316,13 @@ mod k8_harvest {
         let need16 = need as u16;
         let sum = |v: usize| (0..3).map(|k| h[v][k] as u16).sum::<u16>();
         let (p0, p1) = (sum(0) > need16, sum(1) > need16);
-        sim.view_win[if p0 && p1 { 2 } else if p0 { 0 } else { 1 }] += 1;
+        sim.view_win[if p0 && p1 {
+            2
+        } else if p0 {
+            0
+        } else {
+            1
+        }] += 1;
         sim.depth_hist[((depth / 4) as usize).min(15)] += 1;
 
         let khash = |key: u64| key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
@@ -1480,10 +1497,7 @@ mod k8_struct {
 
     /// Per-config features from the projection: displaced count, per-line
     /// linear-conflict pairs (rows + cols), given the view-correct blank.
-    fn features(
-        proj: &crate::puzzle24::pdb::ProjectedState,
-        tiles: &[u8; 8],
-    ) -> (u32, u32) {
+    fn features(proj: &crate::puzzle24::pdb::ProjectedState, tiles: &[u8; 8]) -> (u32, u32) {
         let mut displaced = 0u32;
         let mut lc = 0u32;
         let pos: Vec<(u8, u8)> = tiles.iter().map(|&t| (proj.pos_of(t), t - 1)).collect();
@@ -1631,7 +1645,9 @@ mod k8_struct {
                 eprintln!();
             }
         }
-        eprintln!("  pruners: surplus x lc-pairs cross-tab (rows: surplus 2/4/6+; cols: lc 0,1,2,3+; %):");
+        eprintln!(
+            "  pruners: surplus x lc-pairs cross-tab (rows: surplus 2/4/6+; cols: lc 0,1,2,3+; %):"
+        );
         let tot: u64 = sim.joint.iter().flatten().sum();
         for row in &sim.joint {
             eprint!("   ");
@@ -1720,8 +1736,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     *child = *parent;
     let b = arena.hot[d].blank as usize; // pre-move blank cell
     let n = geom.from as usize; // the moved tile's cell = blank destination
-    // `tile` arrives goal-coded (the engine's boards are `Coded`); the PDB
-    // machinery talks tile numbers.
+                                // `tile` arrives goal-coded (the engine's boards are `Coded`); the PDB
+                                // machinery talks tile numbers.
     let tile = TILE_OF_CODE[tile] as usize;
 
     // Normal view.
@@ -1761,8 +1777,6 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
 }
 
 // ------------------------- last-move (cwd-lm) tier ----------------------------
-
-
 
 /// Direct-mapped front cache for the LM table: axis key → the four queryable
 /// branch values (lines 0–3; line 4 is the free-ride degeneracy and is never
@@ -1821,7 +1835,14 @@ impl LmCache {
         let bits = lm_cache_bits();
         assert!((8..=24).contains(&bits), "implausible LM cache size");
         LmCache {
-            slots: vec![LmSlot { tag: 0, vals: [0xFF; 4] }; 1usize << bits].into_boxed_slice(),
+            slots: vec![
+                LmSlot {
+                    tag: 0,
+                    vals: [0xFF; 4]
+                };
+                1usize << bits
+            ]
+            .into_boxed_slice(),
             shift: 64 - bits,
         }
     }
@@ -1848,7 +1869,9 @@ impl LmCache {
 
 /// Seed depth-0 last-move positions from the board.
 fn seed_lm(arena: &mut Arena, board: &State) {
-    arena.lmcache.get_or_insert_with(|| Box::new(LmCache::new()));
+    arena
+        .lmcache
+        .get_or_insert_with(|| Box::new(LmCache::new()));
     let p20 = board.0.iter().position(|&t| t == 20).unwrap();
     let p24 = board.0.iter().position(|&t| t == 24).unwrap();
     arena.lmpos[0] = [(p20 / W_LM) as u8, (p24 % W_LM) as u8];
@@ -2050,7 +2073,11 @@ impl Lm2Cache {
                 single.copy_from_slice(s);
                 pair.copy_from_slice(p);
             }
-            self.slots[i] = Lm2Slot { tag: key, single, pair };
+            self.slots[i] = Lm2Slot {
+                tag: key,
+                single,
+                pair,
+            };
             #[cfg(feature = "probe-cache-stats")]
             LM2_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         } else {
@@ -2060,14 +2087,20 @@ impl Lm2Cache {
         let sl = &self.slots[i];
         let a = if s1 < 4 { sl.single[s1 as usize] } else { 0xFF };
         let b = if s2 < 4 { sl.single[s2 as usize] } else { 0xFF };
-        let p = if pidx < 12 { sl.pair[pidx as usize] } else { 0xFF };
+        let p = if pidx < 12 {
+            sl.pair[pidx as usize]
+        } else {
+            0xFF
+        };
         (a, b, p)
     }
 }
 
 /// Seed depth-0 tracked lines for the LM2 tier.
 fn seed_lm2(arena: &mut Arena, board: &State) {
-    arena.lm2cache.get_or_insert_with(|| Box::new(Lm2Cache::new()));
+    arena
+        .lm2cache
+        .get_or_insert_with(|| Box::new(Lm2Cache::new()));
     let pos = |t: u8| board.0.iter().position(|&x| x == t).unwrap();
     let (p20, p24, p15, p19, p23) = (pos(20), pos(24), pos(15), pos(19), pos(23));
     arena.lm2pos[0] = [
@@ -2212,7 +2245,18 @@ pub fn flat_bounded_lm_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, Some(lm), None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        None,
+        Some(lm),
+        None,
+        orbit_split,
+        max_bound,
+        max_nodes,
+        on_iter,
+    )
 }
 
 /// [`flat_bounded_telemetry`] with the last-two-moves tier (`cwd-lm2`):
@@ -2250,6 +2294,7 @@ where
 /// [`flat_bounded_telemetry`] with the lazy k8 tier: `max(cWD, k8)` consulted at
 /// cWD-survivors, node-identical to the recorded 2-tier trees (§8j:
 /// 269,180,930 at exhaust-144; 8,808,311,484 at exhaust-146).
+#[allow(clippy::too_many_arguments)]
 pub fn flat_bounded_k8_telemetry<F>(
     start: &State,
     cwd: &Cwd,
@@ -2263,7 +2308,18 @@ pub fn flat_bounded_k8_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, Some(k8), None, None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        Some(k8),
+        None,
+        None,
+        orbit_split,
+        max_bound,
+        max_nodes,
+        on_iter,
+    )
 }
 
 /// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
@@ -2290,7 +2346,18 @@ pub fn flat_bounded_budgeted<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, None, None, orbit_split, max_bound, max_nodes, on_iter)
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        None,
+        None,
+        None,
+        orbit_split,
+        max_bound,
+        max_nodes,
+        on_iter,
+    )
 }
 
 /// [`flat_bounded`] with a per-iteration callback, mirroring
@@ -2307,7 +2374,18 @@ pub fn flat_bounded_telemetry<F>(
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
-    flat_bounded_inner_k8(start, cwd, dfa, None, None, None, orbit_split, max_bound, u64::MAX, on_iter)
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        None,
+        None,
+        None,
+        orbit_split,
+        max_bound,
+        u64::MAX,
+        on_iter,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2360,7 +2438,12 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        let step = match (budget == u64::MAX, k8.is_some(), lm2.is_some(), lm.is_some()) {
+        let step = match (
+            budget == u64::MAX,
+            k8.is_some(),
+            lm2.is_some(),
+            lm.is_some(),
+        ) {
             (true, false, false, false) => run_iteration::<false, false, false, false>(
                 &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
                 budget,
@@ -2370,28 +2453,22 @@ where
                 budget,
             ),
             (true, true, _, _) => run_iteration::<false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
             ),
             (false, true, _, _) => run_iteration::<true, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
             ),
             (true, false, true, _) => run_iteration::<false, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
             ),
             (false, false, true, _) => run_iteration::<true, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
             ),
             (true, false, false, true) => run_iteration::<false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
             ),
             (false, false, false, true) => run_iteration::<true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
             ),
         };
         match step {
@@ -2812,22 +2889,58 @@ where
                     let reduced = bound - u.g;
                     let step = if k8.is_some() {
                         run_iteration::<false, true, false, false>(
-                            arena, cache, cwd, merged, dfa, k8, None, None, reduced, &mut st,
+                            arena,
+                            cache,
+                            cwd,
+                            merged,
+                            dfa,
+                            k8,
+                            None,
+                            None,
+                            reduced,
+                            &mut st,
                             u64::MAX,
                         )
                     } else if lm2.is_some() {
                         run_iteration::<false, false, false, true>(
-                            arena, cache, cwd, merged, dfa, None, lm, lm2, reduced, &mut st,
+                            arena,
+                            cache,
+                            cwd,
+                            merged,
+                            dfa,
+                            None,
+                            lm,
+                            lm2,
+                            reduced,
+                            &mut st,
                             u64::MAX,
                         )
                     } else if lm.is_some() {
                         run_iteration::<false, false, true, false>(
-                            arena, cache, cwd, merged, dfa, None, lm, None, reduced, &mut st,
+                            arena,
+                            cache,
+                            cwd,
+                            merged,
+                            dfa,
+                            None,
+                            lm,
+                            None,
+                            reduced,
+                            &mut st,
                             u64::MAX,
                         )
                     } else {
                         run_iteration::<false, false, false, false>(
-                            arena, cache, cwd, merged, dfa, None, None, None, reduced, &mut st,
+                            arena,
+                            cache,
+                            cwd,
+                            merged,
+                            dfa,
+                            None,
+                            None,
+                            None,
+                            reduced,
+                            &mut st,
                             u64::MAX,
                         )
                     };
@@ -3393,7 +3506,11 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                     let n = geom.from as usize;
                     let mut keys = [[0u64; 3]; 2];
                     for v in 0..2 {
-                        let blank = if v == 0 { n } else { symmetry::SIGMA[n] as usize };
+                        let blank = if v == 0 {
+                            n
+                        } else {
+                            symmetry::SIGMA[n] as usize
+                        };
                         for k in 0..3 {
                             let mut key = 0u64;
                             for (j, &t) in ctx.tiles[k].iter().enumerate() {
@@ -3877,8 +3994,7 @@ mod tests {
         use crate::puzzle24::pdb::ZPatternDb;
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
-        let mm =
-            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
         let load_family = |names: &[&str]| -> Vec<ZPatternDb> {
             names
                 .iter()
@@ -3954,8 +4070,16 @@ mod tests {
             let (vc, pc_all) = probe(ckey);
             let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
             let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
-            let pr = if lp[0] < 4 && lp[2] < 3 { pr_all[(lp[0] * 3 + lp[2]) as usize] } else { 0xFF };
-            let pc = if lp[1] < 4 && lp[5] < 3 { pc_all[(lp[1] * 3 + lp[5]) as usize] } else { 0xFF };
+            let pr = if lp[0] < 4 && lp[2] < 3 {
+                pr_all[(lp[0] * 3 + lp[2]) as usize]
+            } else {
+                0xFF
+            };
+            let pc = if lp[1] < 4 && lp[5] < 3 {
+                pc_all[(lp[1] * 3 + lp[5]) as usize]
+            } else {
+                0xFF
+            };
             let r20f = or_(sv(&vr, lp[0]), rterm);
             let c24f = or_(sv(&vc, lp[1]), cterm);
             let ba = or_(pr, r20f) as u32 + cterm as u32;
@@ -4011,8 +4135,7 @@ mod tests {
     fn k8_group_breakdown_survivor_sample() {
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
-        let mm =
-            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
         let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
         for (i, db) in ctx.dbs.iter().enumerate() {
             let tiles: Vec<u8> = db.pattern().iter().collect();
@@ -4065,8 +4188,16 @@ mod tests {
             let (vc, pc_all) = probe(ckey);
             let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
             let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
-            let pr = if lp[0] < 4 && lp[2] < 3 { pr_all[(lp[0] * 3 + lp[2]) as usize] } else { 0xFF };
-            let pc = if lp[1] < 4 && lp[5] < 3 { pc_all[(lp[1] * 3 + lp[5]) as usize] } else { 0xFF };
+            let pr = if lp[0] < 4 && lp[2] < 3 {
+                pr_all[(lp[0] * 3 + lp[2]) as usize]
+            } else {
+                0xFF
+            };
+            let pc = if lp[1] < 4 && lp[5] < 3 {
+                pc_all[(lp[1] * 3 + lp[5]) as usize]
+            } else {
+                0xFF
+            };
             let r20f = or_(sv(&vr, lp[0]), rterm);
             let c24f = or_(sv(&vc, lp[1]), cterm);
             let ba = or_(pr, r20f) as u32 + cterm as u32;
@@ -4164,8 +4295,7 @@ mod tests {
     fn k8_certification_survivor_sample() {
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
-        let mm =
-            super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
         let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
         let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
 
@@ -4503,7 +4633,13 @@ mod tests {
         let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("k8 tables");
         let nums = |seg: &str| -> Vec<i64> {
             seg.chars()
-                .map(|c| if c.is_ascii_digit() || c == '-' { c } else { ' ' })
+                .map(|c| {
+                    if c.is_ascii_digit() || c == '-' {
+                        c
+                    } else {
+                        ' '
+                    }
+                })
                 .collect::<String>()
                 .split_whitespace()
                 .map(|w| w.parse().unwrap())
@@ -4517,7 +4653,11 @@ mod tests {
         let mut boards = 0;
         let mut plans = 0;
         let mut aways = 0;
-        for (bi, line) in text.lines().filter(|l| l.starts_with("AUTOPSY")).enumerate() {
+        for (bi, line) in text
+            .lines()
+            .filter(|l| l.starts_with("AUTOPSY"))
+            .enumerate()
+        {
             let hseg = &line[line.find("h=[").unwrap()..line.find(" md=").unwrap()];
             let mseg = &line[line.find("md=[").unwrap()..line.find(" board=").unwrap()];
             let bseg = &line[line.find("board=[").unwrap()..];
@@ -4566,8 +4706,10 @@ mod tests {
                                 let (a, b) = (cur.pos_of(t), ns.pos_of(t));
                                 if a != b {
                                     let (gr, gc) = (((t - 1) / 5) as i32, ((t - 1) % 5) as i32);
-                                    let d_old = ((a / 5) as i32 - gr).abs() + ((a % 5) as i32 - gc).abs();
-                                    let d_new = ((b / 5) as i32 - gr).abs() + ((b % 5) as i32 - gc).abs();
+                                    let d_old =
+                                        ((a / 5) as i32 - gr).abs() + ((a % 5) as i32 - gc).abs();
+                                    let d_new =
+                                        ((b / 5) as i32 - gr).abs() + ((b % 5) as i32 - gc).abs();
                                     if d_new > d_old {
                                         // AWAY move — map to board frame
                                         let (bt, ba, bb) = if v == 0 {
@@ -4616,8 +4758,7 @@ mod tests {
                 let expect = ((h0 - md0) / 2) as u32;
                 assert_eq!(
                     away_this, expect,
-                    "away-count {} != surplus/2 {} (board {bi} grp {k})",
-                    away_this, expect
+                    "away-count {away_this} != surplus/2 {expect} (board {bi} grp {k})",
                 );
             }
         }
@@ -4628,7 +4769,7 @@ mod tests {
                 println!("  tile {t:2}: {}", by_tile[t]);
             }
         }
-        println!("by direction u/d/l/r: {:?}", by_dir);
+        println!("by direction u/d/l/r: {by_dir:?}");
         println!("by from-cell:");
         for c in 0..25 {
             if by_cell_from[c] > 0 {

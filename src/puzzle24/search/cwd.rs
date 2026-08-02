@@ -114,7 +114,9 @@ impl CwdMm {
                 let mut curves = [0u16; W];
                 for (g, c) in curves.iter_mut().enumerate() {
                     *c = u16::from_le_bytes(
-                        self.map[off + 8 + 2 * g..off + 10 + 2 * g].try_into().unwrap(),
+                        self.map[off + 8 + 2 * g..off + 10 + 2 * g]
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 let wd = self.map[off + 18];
@@ -151,7 +153,9 @@ impl MergedBacking<'_> {
 /// Build the mmap artifact from a fully-prepared [`Cwd`] (merged table
 /// present, `nbr_wd` filled).
 pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
-    let merged = cwd.merged_table().expect("build_cwd_mm needs the merged table");
+    let merged = cwd
+        .merged_table()
+        .expect("build_cwd_mm needs the merged table");
     assert!(
         cwd.neighbor_prune_enabled(),
         "fill nbr_wd first: Cwd::new().with_neighbor_prune(true)"
@@ -183,7 +187,10 @@ pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
         }
         max_chain = max_chain.max(chain);
     }
-    eprintln!("  cwd_mm: {} keys placed, longest probe chain {max_chain}", merged.len());
+    eprintln!(
+        "  cwd_mm: {} keys placed, longest probe chain {max_chain}",
+        merged.len()
+    );
     std::fs::write(path, &buf)
 }
 
@@ -920,7 +927,10 @@ mod tests {
         }
         assert!(!merged.contains_key(&1));
         assert!(mm.probe_cell(1).is_none(), "absent key must return None");
-        eprintln!("verified {n} cells round-trip in {:.0?} total", t0.elapsed());
+        eprintln!(
+            "verified {n} cells round-trip in {:.0?} total",
+            t0.elapsed()
+        );
     }
 
     #[test]

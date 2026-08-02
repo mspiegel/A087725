@@ -370,7 +370,10 @@ mod tests {
             ("BAND-C {13..18}", [13, 14, 15, 16, 17, 18]),
             ("BAND-D {19..24}", [19, 20, 21, 22, 23, 24]),
             // distance-ring partition around the blank's corner; total 4.886
-            ("RING-1/CORNER {14,15,19,20,23,24}", [14, 15, 19, 20, 23, 24]),
+            (
+                "RING-1/CORNER {14,15,19,20,23,24}",
+                [14, 15, 19, 20, 23, 24],
+            ),
             ("RING-2 {9,10,13,17,18,22}", [9, 10, 13, 17, 18, 22]),
             ("RING-3 {4,5,8,12,16,21}", [4, 5, 8, 12, 16, 21]),
             ("RING-4 {1,2,3,6,7,11}", [1, 2, 3, 6, 7, 11]),
@@ -422,11 +425,14 @@ mod tests {
                     },
                 );
             let n: u64 = hist.iter().sum();
-            let tail = |s: usize| -> f64 {
-                100.0 * hist[s..].iter().sum::<u64>() as f64 / n as f64
-            };
-            let mean: f64 =
-                hist.iter().enumerate().map(|(s, &c)| s as f64 * c as f64).sum::<f64>() / n as f64;
+            let tail =
+                |s: usize| -> f64 { 100.0 * hist[s..].iter().sum::<u64>() as f64 / n as f64 };
+            let mean: f64 = hist
+                .iter()
+                .enumerate()
+                .map(|(s, &c)| s as f64 * c as f64)
+                .sum::<f64>()
+                / n as f64;
             println!(
                 "{name}: {n} entries (built {:.0?})  surplus>=2: {:6.2}%  >=4: {:5.2}%  >=6: {:5.2}%  >=8: {:5.2}%  mean {:.3}",
                 built,

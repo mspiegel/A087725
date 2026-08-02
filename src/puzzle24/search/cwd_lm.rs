@@ -165,7 +165,7 @@ pub fn build_cwd_lm(goal_key: u64) -> CwdLm {
                             let slot = &mut e[crossed as usize][line_p];
                             if *slot == 0xFF {
                                 *slot = depth;
-                                next.push((pkey, line as u8, crossed));
+                                next.push((pkey, line, crossed));
                             }
                         }
                     }
@@ -290,13 +290,7 @@ fn code_of(la: usize, ca: bool, lb: usize, cb: bool) -> usize {
 }
 
 #[inline]
-fn set_pred(
-    dist: &mut [u8],
-    nextbm: &mut [u64],
-    d1: u8,
-    pidx: usize,
-    pcode: usize,
-) {
+fn set_pred(dist: &mut [u8], nextbm: &mut [u64], d1: u8, pidx: usize, pcode: usize) {
     let s = &mut dist[pidx * 100 + pcode];
     if *s == 0xFF {
         *s = d1;
@@ -344,7 +338,10 @@ pub fn build_cwd_lm2(goal_key: u64) -> CwdLm2 {
         }
     }
     let n = keys.len();
-    eprintln!("  cwd_lm2: {n} base keys enumerated in {:.0?}", t0.elapsed());
+    eprintln!(
+        "  cwd_lm2: {n} base keys enumerated in {:.0?}",
+        t0.elapsed()
+    );
     assert_eq!(n, N_WD_KEYS, "base WD key count mismatch");
 
     let mut dist = vec![0xFFu8; n * 100];
@@ -615,7 +612,8 @@ mod tests {
         // Sanity: from the goal, the tracked tile must leave line 3 and
         // return — exactly 2 abstract moves.
         assert_eq!(lm.get(gk, 3), Some(2), "D(goal, line 3) must be 2");
-        lm.save(std::path::Path::new("data/cwd_lm.bin")).expect("save");
+        lm.save(std::path::Path::new("data/cwd_lm.bin"))
+            .expect("save");
         eprintln!("saved data/cwd_lm.bin");
     }
 
@@ -650,7 +648,8 @@ mod tests {
             }
             eprintln!("pair>=single dominance checked on {checked} placements");
         }
-        lm2.save(std::path::Path::new("data/cwd_lm2.bin")).expect("save");
+        lm2.save(std::path::Path::new("data/cwd_lm2.bin"))
+            .expect("save");
         eprintln!("saved data/cwd_lm2.bin");
     }
 
