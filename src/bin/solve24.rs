@@ -73,6 +73,12 @@ struct Args {
     k6nomap: bool,
     /// One shared lock-free k6 front cache instead of eight private ones.
     k6shared: bool,
+    /// Shared lock-free front cache for the k8 tier, keyed on packed tile
+    /// positions (rank only on a miss).
+    k8shared: bool,
+    /// With --k8shared: stop maintaining ProjectedStates and rebuild the
+    /// projection on a miss.
+    k8stateless: bool,
 }
 
 const USAGE: &str = "\
@@ -93,6 +99,8 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
+  --k8shared              shared packed-position cache for k8 (rank on miss).
+  --k8stateless           --k8shared, rebuilding projections on a miss.
   --k6pos                 the k6 tier in positional layout (data/k6pos_*.bin).
   --k6                    add the k6 cascade tier on --lm2: the 6-6-6-6 zPDB
                           family (pdb24_{a..d}.zbin), cold at LM2-survivors.
@@ -119,6 +127,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut k6pos = false;
     let mut k6nomap = false;
     let mut k6shared = false;
+    let mut k8shared = false;
+    let mut k8stateless = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -148,6 +158,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--k6pos" => k6pos = true,
             "--k6nomap" => k6nomap = true,
             "--k6shared" => k6shared = true,
+            "--k8shared" => k8shared = true,
+            "--k8stateless" => {
+                k8shared = true;
+                k8stateless = true;
+            }
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -181,6 +196,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         k6pos,
         k6nomap,
         k6shared,
+        k8shared,
+        k8stateless,
     })
 }
 
@@ -411,8 +428,8 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if (args.lm || args.lm2) && args.zpdb8 {
-        eprintln!("error: --lm/--lm2 with --zpdb8 is not wired yet; pick one");
+    if args.lm && args.zpdb8 {
+        eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 --zpdb8");
         return ExitCode::FAILURE;
     }
     let lm2t = if args.lm2 {
@@ -433,7 +450,20 @@ fn main() -> ExitCode {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
         match puzzle8::puzzle24::search::flat::K8Ctx::load_mmap(std::path::Path::new("data")) {
             Ok(ctx) => {
-                eprintln!("k8 ready: lazy max(cWD, k8), consulted at cWD-survivors, both σ-views");
+                let ctx = if args.k8shared {
+                    eprintln!(
+                        "k8: shared packed-position cache{}",
+                        if args.k8stateless {
+                            " (stateless: rebuild projections on miss)"
+                        } else {
+                            ""
+                        }
+                    );
+                    ctx.with_shared_cache(args.k8stateless)
+                } else {
+                    ctx
+                };
+                eprintln!("k8 ready: lazy max(cWD, k8), consulted at survivors, both σ-views");
                 Some(ctx)
             }
             Err(e) => {
@@ -618,6 +648,8 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::k6_locality::report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k6_cache_stats_report();
+    #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::k8_cache_stats_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

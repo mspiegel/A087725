@@ -1294,3 +1294,36 @@ Real but small: +5.3% throughput for half the memory, so it ships. It does
 NOT close the gap — the tier is still 1.27x slower than lm2 alone at 146
 (72.6 vs 57.1 s) against a 1.150x cut. Consistent with the map-free result:
 misses are one contributor to k6's cost, not the dominant one.
+
+================================================================================
+k8 PACKED-POSITION SHARED CACHE + THE CASCADE (2026-08-02)
+================================================================================
+
+User's insight: a cache KEY need not be a compact array index, only unique and
+cheap. k8 can have no positional map (25^9 = 480 GB) but CAN have a
+packed-position key: eight tile cells at 5 bits (40) + blank (5) + group (2)
+= 47 bits, key and value in one u64, maintained by ONE XOR per moved tile
+(`key ^= (src ^ dst) << 5·slot`). The 8-tile rank walk and the 32.8 GB mmap
+then run only on a miss.
+
+Correctness gate — all k8 variants node-identical at 144 (269,180,917):
+  --zpdb8 (as it was)      13.32 s   20.2 Mn/s
+  --zpdb8 --k8shared        4.00 s   67.3 Mn/s   <- 3.3x THROUGHPUT
+  --zpdb8 --k8stateless     4.33 s   62.1 Mn/s   (rebuild-on-miss loses)
+Maintaining ProjectedStates beats rebuilding them, so the tier keeps them.
+
+Cascade (--lm2 --zpdb8 --k8shared): LM2 first, k8 only at LM2-survivors.
+Canary-bracketed A/B @146 (canaries 57.60 / 57.59 s — clean):
+  config                       nodes            wall     Mn/s
+  lm2 alone                8,975,456,521      57.60 s   155.8
+  lm2 + k6pos + shared     7,802,326,121      72.75 s   107.3
+  k8 + shared (no lm2)     8,539,130,554     134.53 s    63.5
+  CASCADE lm2+k8+shared    6,048,044,884      92.1 s     65.7
+Cascade cut vs lm2: 1.484x — far beyond k6's 1.150x, and the deepest tree
+reduction any configuration has produced. Wall still 1.60x slower than lm2
+alone (92.1 vs 57.6 s) because the toll is 2.37x.
+
+Where this leaves the tiers at 146: cut 1.484x (cascade) vs 1.150x (k6);
+toll 2.37x vs 1.45x. Both lose at 146; the cascade's cut is growing much
+faster with depth (k8's growth factor 22.6 at 148 vs base 32.5), so its
+crossover is nearer than k6's. Untested and now cheap: the cascade at 148.
