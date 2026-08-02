@@ -62,6 +62,9 @@ struct Args {
     /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
     /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
     lm2: bool,
+    /// Add the k6 cascade tier on top of --lm2: the 6-6-6-6 zPDB family
+    /// (pdb24_{a..d}.zbin, 88 MB), consulted cold at LM2-survivors.
+    k6: bool,
 }
 
 const USAGE: &str = "\
@@ -82,6 +85,8 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
+  --k6                    add the k6 cascade tier on --lm2: the 6-6-6-6 zPDB
+                          family (pdb24_{a..d}.zbin), cold at LM2-survivors.
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~32.8 GB mmap'd),
                           consulted only at children cWD fails to prune. Cuts
@@ -101,6 +106,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut zpdb8 = false;
     let mut lm = false;
     let mut lm2 = false;
+    let mut k6 = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -126,6 +132,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--zpdb8" => zpdb8 = true,
             "--lm" => lm = true,
             "--lm2" => lm2 = true,
+            "--k6" => k6 = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -155,6 +162,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         zpdb8,
         lm,
         lm2,
+        k6,
     })
 }
 
@@ -342,6 +350,22 @@ fn main() -> ExitCode {
     } else {
         None
     };
+    if args.k6 && !args.lm2 {
+        eprintln!("error: --k6 requires --lm2 (it is the cascade tier above it)");
+        return ExitCode::FAILURE;
+    }
+    let k6t = if args.k6 {
+        eprintln!("k6: mmapping pdb24_{{a..d}}.zbin (88 MB)…");
+        match puzzle8::puzzle24::search::flat::K6Ctx::load_mmap(std::path::Path::new("data")) {
+            Ok(ctx) => Some(ctx),
+            Err(e) => {
+                eprintln!("error: --k6: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     if (args.lm || args.lm2) && args.zpdb8 {
         eprintln!("error: --lm/--lm2 with --zpdb8 is not wired yet; pick one");
         return ExitCode::FAILURE;
@@ -480,6 +504,7 @@ fn main() -> ExitCode {
                 k8.as_ref(),
                 lmt.as_ref(),
                 lm2t.as_ref(),
+                k6t.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 on_iter,
@@ -490,6 +515,7 @@ fn main() -> ExitCode {
                 &cwd,
                 &dfa,
                 t2,
+                k6t.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 args.max_nodes,
@@ -543,6 +569,8 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
+    #[cfg(feature = "k6-locality")]
+    puzzle8::puzzle24::search::flat::k6_locality::report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

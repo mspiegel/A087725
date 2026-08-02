@@ -467,6 +467,8 @@ struct Arena {
     /// LM2 tier: per-depth tracked lines
     /// [row20, col24, row15, row19, col19, col23], written at the consult.
     lm2pos: Box<[[u8; 6]]>,
+    /// k6 tier state, written only on consults; untouched when the tier is off.
+    k6slots: Box<[K6Slot]>,
     /// LM2 combined front cache (single + pair values under one tag),
     /// allocated on first [`seed_lm2`].
     lm2cache: Option<Box<Lm2Cache>>,
@@ -510,6 +512,17 @@ impl Arena {
             lmpos: vec![[0u8; 2]; MAX_DEPTH].into_boxed_slice(),
             lmcache: None,
             lm2pos: vec![[0u8; 6]; MAX_DEPTH].into_boxed_slice(),
+            k6slots: vec![
+                K6Slot {
+                    views: [[crate::puzzle24::pdb::ProjectedState::from_state(
+                        &GOAL,
+                        crate::puzzle24::pdb::Pattern(0),
+                    ); 4]; 2],
+                    h: [[0; 4]; 2],
+                };
+                MAX_DEPTH
+            ]
+            .into_boxed_slice(),
             lm2cache: None,
         }
     }
@@ -2200,6 +2213,253 @@ fn lm2_child(
     h_cwd.max(ba.min(bb).min(bc).min(bd))
 }
 
+/// k6 consult-stream locality (feature `k6-locality`, instrumented runs only).
+///
+/// Answers two questions from one budgeted run, before any positional map is
+/// built: (1) does a value-memo cache in front of the tier pay — the k8 memo
+/// lost at every size with an 89% hit rate, but k6's per-group abstraction is
+/// far coarser, so its reuse may be in a different regime; (2) what footprint
+/// would the positional layout's address stream actually touch (distinct
+/// 128-byte lines and 16 KiB pages), which is the TLB/page risk of trading the
+/// 88 MB ranked family for a 3.05 GB map.
+#[cfg(feature = "k6-locality")]
+pub mod k6_locality {
+    use std::sync::Mutex;
+
+    const SIZES: [u32; 5] = [14, 16, 18, 20, 22];
+    const PAGES_PER_MAP: usize = 46_592; // 763 MB / 16 KiB
+    const LINES_PER_MAP: usize = 5_963_000; // 763 MB / 128 B
+
+    struct Sim {
+        tags: Vec<Vec<u64>>,
+        hits: [u64; SIZES.len()],
+        probes: u64,
+        same_line_as_prev: u64,
+        prev_line: u64,
+        pages: Vec<u64>,
+        lines: Vec<u64>,
+    }
+
+    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
+
+    /// Record one probe: `group`, the view's blank cell, and the six-tile
+    /// positional index the positional layout would address.
+    pub fn record(group: usize, blank: u8, tiles_idx: u32) {
+        let mut g = SIM.lock().unwrap();
+        let s = g.get_or_insert_with(|| Sim {
+            tags: SIZES.iter().map(|b| vec![u64::MAX; 1usize << b]).collect(),
+            hits: [0; SIZES.len()],
+            probes: 0,
+            same_line_as_prev: 0,
+            prev_line: u64::MAX,
+            pages: vec![0u64; (4 * PAGES_PER_MAP).div_ceil(64)],
+            lines: vec![0u64; (4 * LINES_PER_MAP).div_ceil(64)],
+        });
+        let key = ((group as u64) << 40) | ((blank as u64) << 32) | tiles_idx as u64;
+        for (i, &bits) in SIZES.iter().enumerate() {
+            let slot = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - bits)) as usize;
+            if s.tags[i][slot] == key {
+                s.hits[i] += 1;
+            } else {
+                s.tags[i][slot] = key;
+            }
+        }
+        // hypothetical positional address
+        let bit = blank as u64 * super::super::k6pos::STRIDE_BITS + tiles_idx as u64;
+        let byte = bit >> 3;
+        let line = group as u64 * LINES_PER_MAP as u64 + byte / 128;
+        let page = group as u64 * PAGES_PER_MAP as u64 + byte / 16384;
+        if line == s.prev_line {
+            s.same_line_as_prev += 1;
+        }
+        s.prev_line = line;
+        s.lines[(line / 64) as usize] |= 1 << (line % 64);
+        s.pages[(page / 64) as usize] |= 1 << (page % 64);
+        s.probes += 1;
+    }
+
+    pub fn report() {
+        let g = SIM.lock().unwrap();
+        let Some(s) = g.as_ref() else { return };
+        eprintln!("=== k6 consult-stream locality ({} probes) ===", s.probes);
+        for (i, &bits) in SIZES.iter().enumerate() {
+            eprintln!(
+                "    memo cache 2^{bits:<2} ({:>5} MB): {:.3}% hit",
+                (1usize << bits) * 16 / 1_048_576,
+                100.0 * s.hits[i] as f64 / s.probes.max(1) as f64
+            );
+        }
+        let lines: u64 = s.lines.iter().map(|w| w.count_ones() as u64).sum();
+        let pages: u64 = s.pages.iter().map(|w| w.count_ones() as u64).sum();
+        eprintln!(
+            "    positional footprint: {lines} distinct 128 B lines ({:.1} MB), {pages} distinct 16 KiB pages ({:.1} MB); consecutive-probe same-line {:.2}%",
+            lines as f64 * 128.0 / 1e6,
+            pages as f64 * 16384.0 / 1e6,
+            100.0 * s.same_line_as_prev as f64 / s.probes.max(1) as f64
+        );
+    }
+}
+
+// ------------------------------ lazy k6 tier ----------------------------------
+
+/// The 6-6-6-6 zPDB family (`pdb24_{a..d}.zbin`, 88 MB total, RAM-resident):
+/// the cheap cascade tier. Consulted cold at LM2-survivors — decode the child
+/// board, 4 additive lookups per σ-view, max of the two views. Measured on the
+/// unconditioned survivor sample: 42.0% standalone frontier bind, 9.37%
+/// beyond LM2 (advantages up to +8).
+pub struct K6Ctx {
+    dbs: [crate::puzzle24::pdb::ZPatternDb; 4],
+    /// `group_of[t]` = which of the four patterns holds tile `t` (1..=24).
+    group_of: [u8; N_CELLS],
+}
+
+impl K6Ctx {
+    /// Load `pdb24_{a,b,c,d}.zbin` from `dir`; verify the patterns are
+    /// pairwise disjoint and cover tiles 1..=24.
+    pub fn load_mmap(dir: &std::path::Path) -> Result<Self, String> {
+        let names = [
+            "pdb24_a.zbin",
+            "pdb24_b.zbin",
+            "pdb24_c.zbin",
+            "pdb24_d.zbin",
+        ];
+        let mut dbs = Vec::with_capacity(4);
+        for n in names {
+            dbs.push(
+                crate::puzzle24::pdb::ZPatternDb::load_mmap(&dir.join(n))
+                    .map_err(|e| format!("{n}: {e:?}"))?,
+            );
+        }
+        let mut cover = 0u32;
+        for db in &dbs {
+            if cover & db.pattern().0 != 0 {
+                return Err("k6 patterns overlap".into());
+            }
+            cover |= db.pattern().0;
+        }
+        if cover != 0x01FF_FFFE {
+            return Err("k6 patterns must cover tiles 1..=24".into());
+        }
+        let dbs: [crate::puzzle24::pdb::ZPatternDb; 4] = dbs
+            .try_into()
+            .map_err(|_| "expected four dbs".to_string())?;
+        let mut group_of = [0u8; N_CELLS];
+        for (i, db) in dbs.iter().enumerate() {
+            for tile in db.pattern().iter() {
+                group_of[tile as usize] = i as u8;
+            }
+        }
+        Ok(K6Ctx { dbs, group_of })
+    }
+
+    /// `max` over σ-views of the four-group additive sum, cold lookups.
+    /// Seed-time only ([`seed_k6v`] uses per-group lookups directly); kept
+    /// for tests and any future cold-path caller.
+    #[allow(dead_code)]
+    #[inline]
+    fn h(&self, board: &State) -> u8 {
+        let rs = symmetry::reflect(board);
+        let (mut s0, mut s1) = (0u16, 0u16);
+        for db in &self.dbs {
+            s0 += db.cold_lookup(board) as u16;
+            s1 += db.cold_lookup(&rs) as u16;
+        }
+        s0.max(s1).min(255) as u8
+    }
+}
+
+/// k6 tier per-depth state: the four pattern projections in both σ-views and
+/// their table values. Written only on consults, same discipline as [`K8Slot`].
+#[derive(Clone, Copy)]
+struct K6Slot {
+    views: [[crate::puzzle24::pdb::ProjectedState; 4]; 2],
+    h: [[u8; 4]; 2],
+}
+
+/// Seed depth-0 k6 state from the board (cold lookups — seeds are rare).
+fn seed_k6v(arena: &mut Arena, board: &State, ctx: &K6Ctx) -> u8 {
+    let rs = symmetry::reflect(board);
+    let slot = &mut arena.k6slots[0];
+    let (mut s0, mut s1) = (0u16, 0u16);
+    for i in 0..4 {
+        let db = &ctx.dbs[i];
+        slot.views[0][i] = crate::puzzle24::pdb::ProjectedState::from_state(board, db.pattern());
+        slot.views[1][i] = crate::puzzle24::pdb::ProjectedState::from_state(&rs, db.pattern());
+        slot.h[0][i] = db.cold_lookup(board);
+        slot.h[1][i] = db.cold_lookup(&rs);
+        s0 += slot.h[0][i] as u16;
+        s1 += slot.h[1][i] as u16;
+    }
+    s0.max(s1).min(255) as u8
+}
+
+/// The positional layout's six-tile index for a projected view (instrument
+/// only: the ranked path never needs it).
+#[cfg(feature = "k6-locality")]
+fn k6_tiles_index(
+    v: &crate::puzzle24::pdb::ProjectedState,
+    pattern: crate::puzzle24::pdb::Pattern,
+) -> u32 {
+    let mut idx = 0u64;
+    for (j, t) in pattern.iter().enumerate() {
+        idx += v.pos_of(t) as u64 * [9_765_625u64, 390_625, 15_625, 625, 25, 1][j];
+    }
+    idx as u32
+}
+
+/// Advance the k6 state across move `m` from depth `d` to `d+1` and return the
+/// child's `h_k6 = max(Σ normal, Σ reflected)`. Exact mirror of [`k8_child`]:
+/// one group is cost-1 per view, the other three are untouched.
+#[inline]
+fn k6_child(arena: &mut Arena, ctx: &K6Ctx, d: usize, geom: Geom, tile: usize) -> u8 {
+    let (lo, hi) = arena.k6slots.split_at_mut(d + 1);
+    let parent = &lo[d];
+    let child = &mut hi[0];
+    *child = *parent;
+    let b = arena.hot[d].blank as usize;
+    let n = geom.from as usize;
+    let tile = TILE_OF_CODE[tile] as usize;
+
+    let gi = ctx.group_of[tile] as usize;
+    {
+        let db = &ctx.dbs[gi];
+        let v = &mut child.views[0][gi];
+        v.set_blank_pos(b as u8);
+        let cost = v.apply_in_place_at(b, n);
+        debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
+        let idx = db.layout().rank(v, db.pattern());
+        #[cfg(feature = "k6-locality")]
+        k6_locality::record(gi, v.blank_pos(), k6_tiles_index(v, db.pattern()));
+        child.h[0][gi] = db.diff_lookup(idx, parent.h[0][gi]);
+    }
+
+    let rt = symmetry::TAU[tile] as usize;
+    let gj = ctx.group_of[rt] as usize;
+    {
+        let db = &ctx.dbs[gj];
+        let rb = symmetry::SIGMA[b] as usize;
+        let rn = symmetry::SIGMA[n] as usize;
+        let v = &mut child.views[1][gj];
+        v.set_blank_pos(rb as u8);
+        let cost = v.apply_in_place_at(rb, rn);
+        debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
+        let idx = db.layout().rank(v, db.pattern());
+        #[cfg(feature = "k6-locality")]
+        k6_locality::record(gj, v.blank_pos(), k6_tiles_index(v, db.pattern()));
+        child.h[1][gj] = db.diff_lookup(idx, parent.h[1][gj]);
+    }
+
+    let s0 = child.h[0].iter().map(|&x| x as u16).sum::<u16>();
+    let s1 = child.h[1].iter().map(|&x| x as u16).sum::<u16>();
+    let out = s0.max(s1).min(255) as u8;
+    debug_assert_eq!(
+        out,
+        ctx.h(&arena.board[d + 1].0.decode()),
+        "incremental k6 drifted from cold lookups"
+    );
+    out
+}
+
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -2252,6 +2512,7 @@ where
         None,
         Some(lm),
         None,
+        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -2269,6 +2530,7 @@ pub fn flat_bounded_lm2_telemetry<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     lm2: &super::cwd_lm::CwdLmMm,
+    k6: Option<&K6Ctx>,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -2284,6 +2546,7 @@ where
         None,
         None,
         Some(lm2),
+        k6,
         orbit_split,
         max_bound,
         max_nodes,
@@ -2313,6 +2576,7 @@ where
         cwd,
         dfa,
         Some(k8),
+        None,
         None,
         None,
         orbit_split,
@@ -2353,6 +2617,7 @@ where
         None,
         None,
         None,
+        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -2381,6 +2646,7 @@ where
         None,
         None,
         None,
+        None,
         orbit_split,
         max_bound,
         u64::MAX,
@@ -2396,6 +2662,7 @@ fn flat_bounded_inner_k8<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
+    k6t: Option<&K6Ctx>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -2428,6 +2695,9 @@ where
     } else if lm.is_some() {
         seed_lm(&mut arena, start);
     }
+    if let Some(c) = k6t {
+        h0 = h0.max(seed_k6v(&mut arena, start, c));
+    }
     let mut bound = h0;
 
     loop {
@@ -2443,32 +2713,47 @@ where
             k8.is_some(),
             lm2.is_some(),
             lm.is_some(),
+            k6t.is_some(),
         ) {
-            (true, false, false, false) => run_iteration::<false, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+            (true, false, false, false, _) => run_iteration::<false, false, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
+                &mut stats, budget,
+            ),
+            (false, false, false, false, _) => run_iteration::<true, false, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
+                &mut stats, budget,
+            ),
+            (true, true, _, _, _) => run_iteration::<false, true, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
                 budget,
             ),
-            (false, false, false, false) => run_iteration::<true, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+            (false, true, _, _, _) => run_iteration::<true, true, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
                 budget,
             ),
-            (true, true, _, _) => run_iteration::<false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
+            (true, false, true, _, false) => run_iteration::<false, false, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, None, bound, &mut stats,
+                budget,
             ),
-            (false, true, _, _) => run_iteration::<true, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
+            (false, false, true, _, false) => run_iteration::<true, false, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, None, bound, &mut stats,
+                budget,
             ),
-            (true, false, true, _) => run_iteration::<false, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
+            (true, false, true, _, true) => run_iteration::<false, false, false, true, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, k6t, bound, &mut stats,
+                budget,
             ),
-            (false, false, true, _) => run_iteration::<true, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
+            (false, false, true, _, true) => run_iteration::<true, false, false, true, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, k6t, bound, &mut stats,
+                budget,
             ),
-            (true, false, false, true) => run_iteration::<false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
+            (true, false, false, true, _) => run_iteration::<false, false, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
+                budget,
             ),
-            (false, false, false, true) => run_iteration::<true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
+            (false, false, false, true, _) => run_iteration::<true, false, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
+                budget,
             ),
         };
         match step {
@@ -2661,6 +2946,7 @@ pub fn flat_bounded_parallel<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
+    k6t: Option<&K6Ctx>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -2748,6 +3034,9 @@ where
             } else if lm.is_some() {
                 seed_lm(&mut split_arena, &u.board);
             }
+            if let Some(c) = k6t {
+                seed_k6v(&mut split_arena, &u.board, c);
+            }
             let mut cand = split_arena.hot[0].cand;
             let g_next = u.g + 1;
             while !cand.is_empty() {
@@ -2790,6 +3079,19 @@ where
                     let heff = lm2_child(&mut split_arena, lm2t, 0, t, h);
                     if heff > h {
                         let f2 = g_next.saturating_add(heff);
+                        if f2 > bound {
+                            stats.nodes += 1; // counted, same as the cWD over-bound arm
+                            if f2 < min_f {
+                                min_f = f2;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if let Some(k6c) = k6t {
+                    let hk6 = k6_child(&mut split_arena, k6c, 0, geom, tile);
+                    if hk6 > h {
+                        let f2 = g_next.saturating_add(hk6);
                         if f2 > bound {
                             stats.nodes += 1; // counted, same as the cWD over-bound arm
                             if f2 < min_f {
@@ -2882,13 +3184,16 @@ where
                     } else if lm.is_some() {
                         seed_lm(arena, &u.board);
                     }
+                    if let Some(c) = k6t {
+                        seed_k6v(arena, &u.board, c);
+                    }
                     let _setup_ns = unit_start.elapsed().as_nanos() as u64;
                     // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
                     let step = if k8.is_some() {
-                        run_iteration::<false, true, false, false>(
+                        run_iteration::<false, true, false, false, false>(
                             arena,
                             cache,
                             cwd,
@@ -2897,12 +3202,13 @@ where
                             k8,
                             None,
                             None,
+                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
-                    } else if lm2.is_some() {
-                        run_iteration::<false, false, false, true>(
+                    } else if lm2.is_some() && k6t.is_some() {
+                        run_iteration::<false, false, false, true, true>(
                             arena,
                             cache,
                             cwd,
@@ -2911,12 +3217,28 @@ where
                             None,
                             lm,
                             lm2,
+                            k6t,
+                            reduced,
+                            &mut st,
+                            u64::MAX,
+                        )
+                    } else if lm2.is_some() {
+                        run_iteration::<false, false, false, true, false>(
+                            arena,
+                            cache,
+                            cwd,
+                            merged,
+                            dfa,
+                            None,
+                            lm,
+                            lm2,
+                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else if lm.is_some() {
-                        run_iteration::<false, false, true, false>(
+                        run_iteration::<false, false, true, false, false>(
                             arena,
                             cache,
                             cwd,
@@ -2925,17 +3247,19 @@ where
                             None,
                             lm,
                             None,
+                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else {
-                        run_iteration::<false, false, false, false>(
+                        run_iteration::<false, false, false, false, false>(
                             arena,
                             cache,
                             cwd,
                             merged,
                             dfa,
+                            None,
                             None,
                             None,
                             None,
@@ -3302,7 +3626,13 @@ fn seed_root(
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
+fn run_iteration<
+    const BUDGETED: bool,
+    const K8: bool,
+    const LM: bool,
+    const LM2: bool,
+    const K6: bool,
+>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
@@ -3311,6 +3641,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLmMm>,
     lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
+    k6ctx: Option<&K6Ctx>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -3458,6 +3789,21 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
             let heff = lm_child(arena, lmctx.unwrap(), d, t, h);
             if heff > h {
                 let f2 = g_next.saturating_add(heff);
+                if f2 > bound {
+                    if f2 < minf {
+                        minf = f2;
+                    }
+                    continue;
+                }
+            }
+        }
+        // The k6 tier: incremental consult at LM2-survivors (reached only
+        // when neither cWD nor LM2 pruned the child). Slot copy + 2 slides +
+        // 2 ranks + 2 diff lookups into the RAM-resident 88 MB family.
+        if K6 {
+            let hk6 = k6_child(arena, k6ctx.unwrap(), d, geom, tile);
+            if hk6 > h {
+                let f2 = g_next.saturating_add(hk6);
                 if f2 > bound {
                     if f2 < minf {
                         minf = f2;
