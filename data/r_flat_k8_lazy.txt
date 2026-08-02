@@ -1279,3 +1279,18 @@ Two soundness bugs the node counts caught on the way (both mine):
    27,258,040 nodes. Fixed; both variants now node-identical at 205,119,447.
 Also fixed: decode+reflect must be lazy (misses only) — doing it on every
 consult cost ~15% before the peek/store split.
+
+SHARED lock-free k6 front cache (--k6shared): one 16 MB table (2^21 u64
+entries: 39-bit key + 8-bit value, relaxed atomic load/store — cannot tear,
+tag compare rejects foreign entries) replacing the eight private 4 MB
+caches. HALF the total footprint. Rationale: the workers search different
+subtrees of the same tree, so their probe streams overlap and eight private
+caches discard that overlap eight times over.
+Canary-bracketed A/B @146 (node-identical everywhere, 7,802,326,121):
+  private  77.06 / 76.04 s   101.3 / 102.6 Mn/s
+  shared   72.49 / 72.80 s   107.6 / 107.2 Mn/s   (+5.3%)
+  lm2 ref  57.09 s           157.2 Mn/s
+Real but small: +5.3% throughput for half the memory, so it ships. It does
+NOT close the gap — the tier is still 1.27x slower than lm2 alone at 146
+(72.6 vs 57.1 s) against a 1.150x cut. Consistent with the map-free result:
+misses are one contributor to k6's cost, not the dominant one.

@@ -71,6 +71,8 @@ struct Args {
     /// Same tier, no positional maps: cache + parent-1 first-miss + ranked
     /// zPDB on repeat misses (88 MB working set).
     k6nomap: bool,
+    /// One shared lock-free k6 front cache instead of eight private ones.
+    k6shared: bool,
 }
 
 const USAGE: &str = "\
@@ -116,6 +118,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut k6 = false;
     let mut k6pos = false;
     let mut k6nomap = false;
+    let mut k6shared = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -144,6 +147,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--k6" => k6 = true,
             "--k6pos" => k6pos = true,
             "--k6nomap" => k6nomap = true,
+            "--k6shared" => k6shared = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -176,6 +180,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         k6,
         k6pos,
         k6nomap,
+        k6shared,
     })
 }
 
@@ -390,7 +395,14 @@ fn main() -> ExitCode {
             std::path::Path::new("data"),
             !args.k6nomap,
         ) {
-            Ok(ctx) => Some(puzzle8::puzzle24::search::flat::K6Tier::Pos(ctx)),
+            Ok(ctx) => {
+                let ctx = if args.k6shared {
+                    ctx.with_shared_cache()
+                } else {
+                    ctx
+                };
+                Some(puzzle8::puzzle24::search::flat::K6Tier::Pos(ctx))
+            }
             Err(e) => {
                 eprintln!("error: --k6pos: {e}");
                 return ExitCode::FAILURE;

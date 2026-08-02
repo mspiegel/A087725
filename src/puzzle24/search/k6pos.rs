@@ -309,6 +309,8 @@ pub struct K6PosCtx {
     pub group_of: [u8; N_CELLS],
     /// `coeff[t]` = the tile's radix weight inside its own pattern's index.
     pub coeff: [u32; N_CELLS],
+    /// Shared front cache; when present the per-worker caches go unused.
+    shared: Option<crate::puzzle24::search::flat::K6SharedCache>,
 }
 
 impl K6PosCtx {
@@ -373,6 +375,7 @@ impl K6PosCtx {
             maps,
             group_of,
             coeff,
+            shared: None,
         })
     }
 
@@ -421,6 +424,18 @@ impl K6PosCtx {
     #[inline]
     pub fn has_maps(&self) -> bool {
         !self.maps.is_empty()
+    }
+
+    /// The shared front cache, when the tier was built with one.
+    #[inline]
+    pub fn shared_cache(&self) -> Option<&crate::puzzle24::search::flat::K6SharedCache> {
+        self.shared.as_ref()
+    }
+
+    /// Attach a shared lock-free cache in place of the per-worker caches.
+    pub fn with_shared_cache(mut self) -> Self {
+        self.shared = Some(crate::puzzle24::search::flat::K6SharedCache::new());
+        self
     }
 
     /// Cold σ-max sum, for the drift assert.

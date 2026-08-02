@@ -2394,6 +2394,80 @@ struct K6PosSlot {
     h: [[u8; 4]; 2],
 }
 
+/// Shared, lock-free front cache for the k6 tier.
+///
+/// The eight workers search different subtrees of the *same* tree, so their
+/// probe streams overlap heavily — and eight private caches throw that overlap
+/// away eight times over. One shared table of half the total footprint carries
+/// a better hit rate (private 8 x 4 MB: 89.5% in situ; shared 16 MB: ~95.5% by
+/// the size simulation), which matters because k6's misses are what fail to
+/// parallelise: cWD and LM2 miss 0.3% of the time, k6 10.5%.
+///
+/// Entries are a single `u64` — 39 bits of key (2 group, 5 blank, 32 index)
+/// and 8 bits of value — so a relaxed atomic load/store per probe cannot tear.
+/// A racing writer can only replace one entry with another *valid* entry, and
+/// the tag compare rejects anything that is not the key asked for, so values
+/// stay exact and node counts are unchanged.
+pub struct K6SharedCache {
+    slots: Box<[std::sync::atomic::AtomicU64]>,
+    shift: u32,
+}
+
+impl K6SharedCache {
+    /// `FLAT_K6_SHARED_BITS` entries (default 2^21 = 16 MB total, against the
+    /// private layout's 8 x 4 MB = 32 MB).
+    pub fn new() -> Self {
+        let bits: u32 = std::env::var("FLAT_K6_SHARED_BITS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(21);
+        assert!((8..=26).contains(&bits), "implausible shared k6 cache size");
+        K6SharedCache {
+            slots: (0..1usize << bits)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            shift: 64 - bits,
+        }
+    }
+
+    #[inline(always)]
+    fn pack(group: usize, tiles_idx: u32, blank: u8) -> u64 {
+        ((group as u64) << 37) | ((blank as u64) << 32) | tiles_idx as u64
+    }
+
+    #[inline(always)]
+    fn peek(&self, group: usize, tiles_idx: u32, blank: u8) -> Option<u8> {
+        let key = Self::pack(group, tiles_idx, blank);
+        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
+        let e = self.slots[i].load(std::sync::atomic::Ordering::Relaxed);
+        let hit = (e >> 8) == key;
+        #[cfg(feature = "probe-cache-stats")]
+        if hit {
+            K6_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        hit.then(|| (e & 0xFF) as u8)
+    }
+
+    #[inline(always)]
+    fn store(&self, group: usize, tiles_idx: u32, blank: u8, val: u8) {
+        let key = Self::pack(group, tiles_idx, blank);
+        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
+        self.slots[i].store(
+            (key << 8) | val as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+impl Default for K6SharedCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Direct-mapped front cache for the positional maps, keyed on the exact
 /// abstract state `(group, blank, six-tile index)` — which determines the
 /// value, so a hit is exact and skips the map entirely.
@@ -2538,12 +2612,16 @@ fn k6pos_child(
     // Peek first: the ranked miss path needs a decoded board (and, for the
     // reflected view, its σ-image), which is ~50 ns we must not pay on the
     // ~90% of consults that hit.
-    let (c0, c1) = {
-        let cache = arena
-            .k6cache
-            .as_ref()
-            .expect("seed_k6pos allocates the cache");
-        (cache.peek(gi, i0, n as u8), cache.peek(gj, i1, rn as u8))
+    let shared = ctx.shared_cache();
+    let (c0, c1) = match shared {
+        Some(sc) => (sc.peek(gi, i0, n as u8), sc.peek(gj, i1, rn as u8)),
+        None => {
+            let cache = arena
+                .k6cache
+                .as_ref()
+                .expect("seed_k6pos allocates the cache");
+            (cache.peek(gi, i0, n as u8), cache.peek(gj, i1, rn as u8))
+        }
     };
     let (v0, v1) = if let (Some(a), Some(b)) = (c0, c1) {
         (a, b)
@@ -2555,24 +2633,45 @@ fn k6pos_child(
             let r = symmetry::reflect(&b);
             Some((b, r))
         };
-        let cache = arena
-            .k6cache
-            .as_mut()
-            .expect("seed_k6pos allocates the cache")
-            .as_mut();
-        let fill = |cache: &mut K6Cache, g: usize, idx: u32, bl: u8, ph: u8, bd: Option<&State>| {
-            let v = match bd {
+        let probe = |g: usize, idx: u32, bl: u8, ph: u8, bd: Option<&State>| -> u8 {
+            match bd {
                 None => ctx.probe(g, idx, bl, ph),
                 Some(b) => ctx.probe_ranked(g, b, ph),
-            };
-            cache.store(g, idx, bl, v);
-            v
+            }
         };
-        let a =
-            c0.unwrap_or_else(|| fill(cache, gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0)));
-        let b =
-            c1.unwrap_or_else(|| fill(cache, gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1)));
-        (a, b)
+        match shared {
+            Some(sc) => {
+                let a = c0.unwrap_or_else(|| {
+                    let v = probe(gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0));
+                    sc.store(gi, i0, n as u8, v);
+                    v
+                });
+                let b = c1.unwrap_or_else(|| {
+                    let v = probe(gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1));
+                    sc.store(gj, i1, rn as u8, v);
+                    v
+                });
+                (a, b)
+            }
+            None => {
+                let cache = arena
+                    .k6cache
+                    .as_mut()
+                    .expect("seed_k6pos allocates the cache")
+                    .as_mut();
+                let a = c0.unwrap_or_else(|| {
+                    let v = probe(gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0));
+                    cache.store(gi, i0, n as u8, v);
+                    v
+                });
+                let b = c1.unwrap_or_else(|| {
+                    let v = probe(gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1));
+                    cache.store(gj, i1, rn as u8, v);
+                    v
+                });
+                (a, b)
+            }
+        }
     };
     let child = &mut arena.k6pos[d + 1];
     child.h[0][gi] = v0;
