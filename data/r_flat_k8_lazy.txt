@@ -1150,3 +1150,67 @@ lazy k6 tier on lm2 (mirror of the k8 tier) + the two direct measurements
 (17.7% reach at 59 Mn/s economics) is now the fallback, not the default.
 Also banked: threaded harness k6probe mode builds arbitrary blank-free
 partitions in ~25 min — the partition-design probe instrument.
+
+================================================================================
+k6 CASCADE TIER: ranked vs positional layout (2026-08-02)
+================================================================================
+
+Tier wired above LM2 (consulted only at LM2-survivors). Node counts are
+layout-independent and identical across every arm:
+  exhaust-144  205,119,447  (lm2 alone 216,158,191 → cut 1.054x)
+  exhaust-146  7,802,326,121 (lm2 alone 8,975,456,521 → cut 1.150x)
+
+Profile of the ranked tier (sample, sequential exhaust-146): the tier is
+36.1% of runtime — ZpdbLayout::rank 23.6% (65% OF THE TIER), k6_child body
+6.4%, memmove of the 8-ProjectedState slot 5.9%.
+
+Consult-stream locality (feature k6-locality, 49.7 M probes): a front cache
+keyed on the exact abstract state hits 77.9% @2^14, 86.3% @2^16, 92.1%
+@2^18, 95.5% @2^20, 96.9% @2^22. Positional address stream touches only
+362 K distinct 128 B lines (46 MB) over 43.5 K pages; consecutive-probe
+same-line 0.12% (no spatial locality — probes alternate group and σ-view).
+
+POSITIONAL LAYOUT (src/puzzle24/search/k6pos.rs): index = blank·25^6 +
+Σ p_j·25^(5-j) over the six pattern cells; stores the SAME 1-bit
+differential codec, so 763 MB/pattern (2.9 GB total) instead of 24.4 GB for
+u8 values. Maps built FROM SCRATCH by their own zero-aware BFS (cost-1
+pattern-tile moves, cost-0 blank walks, layer closed under cost-0 before
+cost-1 expansion), 43 s each, depth 35. Cross-check vs the ranked zPDBs:
+10,151 cost-1 probes match exactly.
+  BUILD BUG WORTH REMEMBERING: seeding the blank at every free cell (rather
+  than only its goal cell 24) collapses the blank-REGION distinction the
+  zero-aware abstraction rests on. Pattern d's goal walls cell 24 in between
+  tiles 20 and 24, so its region is isolated; the cross-check caught it
+  (probe 4 vs cold 6) and zbuild::build_zpdb already carried a comment
+  warning of exactly this.
+Runtime: 40-byte arena slot (8 u32 indices + 8 u8 values) replaces eight
+ProjectedStates; one multiply-add per σ-view updates the moved tile's group
+index; the blank digit is applied inside the probe. rank and memmove gone.
+
+Canary-bracketed A/B @146 (canaries lm2 57.60 / 58.62 s):
+  lm2 alone            57.60 s   155.8 Mn/s      —
+  + k6 ranked          90.46 s    86.3 Mn/s   1.57x slower than lm2
+  + k6 positional      75.31 s   103.6 Mn/s   1.31x slower than lm2
+Positional buys 1.20x throughput over ranked; the tier's toll falls
+1.76x -> 1.50x.
+
+Joint cache sweep @146 (idle box, (21,18) repeated as its own canary:
+75.44 / 74.83 s):
+  lm2=21 k6=18  75.44 / 74.83 s   <- best
+  lm2=19 k6=18  74.74 s           <- tied within noise (frees 384 MB)
+  lm2=19 k6=20  79.10 s
+  lm2=21 k6=20  79.27 s
+  lm2=21 k6=22  80.03 s
+Finding: ENLARGING the k6 cache HURTS (2^18 -> 2^20 costs 5-6%) even though
+its hit rate rises 92.1% -> 95.5% — the k8 memo lesson again, now with a
+mechanism: at 2^18 (4 MB/worker) the cache is small enough to stay
+effective, and past that the extra capacity costs more in footprint than
+the 3.4 pp of avoided map probes returns. LM2 19 vs 21 is a wash with k6
+active (was 1.5% apart alone), so the 64->16 MB/worker reduction is free if
+the memory is wanted elsewhere. Defaults unchanged (lm2=21, k6=18).
+
+Standing: the tier still LOSES at 146 (cut 1.150x vs toll 1.50x). The cut
+grows with depth (1.054 -> 1.150) while the toll is fixed, so the measured
+crossover is near threshold 150 and the tier should pay at 152 — the next
+campaign's threshold. Next measurement: exhaust-148 with --lm2 --k6pos vs
+--lm2 alone, which replaces the extrapolated 1.27x cut with a measured one.

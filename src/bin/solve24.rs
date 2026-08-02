@@ -65,6 +65,9 @@ struct Args {
     /// Add the k6 cascade tier on top of --lm2: the 6-6-6-6 zPDB family
     /// (pdb24_{a..d}.zbin, 88 MB), consulted cold at LM2-survivors.
     k6: bool,
+    /// Same tier, positional layout: data/k6pos_{a..d}.bin (2.9 GB) behind a
+    /// front cache, indexed by tile positions instead of a rank walk.
+    k6pos: bool,
 }
 
 const USAGE: &str = "\
@@ -85,6 +88,7 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
+  --k6pos                 the k6 tier in positional layout (data/k6pos_*.bin).
   --k6                    add the k6 cascade tier on --lm2: the 6-6-6-6 zPDB
                           family (pdb24_{a..d}.zbin), cold at LM2-survivors.
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
@@ -107,6 +111,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut lm = false;
     let mut lm2 = false;
     let mut k6 = false;
+    let mut k6pos = false;
 
     let mut i = 0;
     while i < argv.len() {
@@ -133,6 +138,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--lm" => lm = true,
             "--lm2" => lm2 = true,
             "--k6" => k6 = true,
+            "--k6pos" => k6pos = true,
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -163,6 +169,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         lm,
         lm2,
         k6,
+        k6pos,
     })
 }
 
@@ -350,16 +357,29 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if args.k6 && !args.lm2 {
-        eprintln!("error: --k6 requires --lm2 (it is the cascade tier above it)");
+    if (args.k6 || args.k6pos) && !args.lm2 {
+        eprintln!("error: --k6/--k6pos requires --lm2 (it is the cascade tier above it)");
+        return ExitCode::FAILURE;
+    }
+    if args.k6 && args.k6pos {
+        eprintln!("error: --k6 and --k6pos are two layouts of one tier; pick one");
         return ExitCode::FAILURE;
     }
     let k6t = if args.k6 {
         eprintln!("k6: mmapping pdb24_{{a..d}}.zbin (88 MB)…");
         match puzzle8::puzzle24::search::flat::K6Ctx::load_mmap(std::path::Path::new("data")) {
-            Ok(ctx) => Some(ctx),
+            Ok(ctx) => Some(puzzle8::puzzle24::search::flat::K6Tier::Ranked(ctx)),
             Err(e) => {
                 eprintln!("error: --k6: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else if args.k6pos {
+        eprintln!("k6: mmapping k6pos_{{a..d}}.bin (2.9 GB, pre-touched)…");
+        match puzzle8::puzzle24::search::k6pos::K6PosCtx::load(std::path::Path::new("data")) {
+            Ok(ctx) => Some(puzzle8::puzzle24::search::flat::K6Tier::Pos(ctx)),
+            Err(e) => {
+                eprintln!("error: --k6pos: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -571,6 +591,8 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
     #[cfg(feature = "k6-locality")]
     puzzle8::puzzle24::search::flat::k6_locality::report();
+    #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::k6_cache_stats_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

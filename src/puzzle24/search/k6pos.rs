@@ -397,7 +397,6 @@ impl K6PosCtx {
     }
 
     /// Cold σ-max sum, for the drift assert.
-    #[cfg(debug_assertions)]
     pub fn cold_h(&self, board: &State) -> u8 {
         let rs = crate::puzzle24::symmetry::reflect(board);
         let (mut s0, mut s1) = (0u16, 0u16);
