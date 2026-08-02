@@ -584,6 +584,18 @@ fn main() -> ExitCode {
                 args.max_bound.unwrap_or(u8::MAX),
                 on_iter,
             )
+        } else if let (Some(t2), Some(ctx)) = (lm2t.as_ref(), k8.as_ref()) {
+            puzzle8::puzzle24::search::flat::flat_bounded_cascade_telemetry(
+                &start,
+                &cwd,
+                &dfa,
+                ctx,
+                t2,
+                orbit,
+                args.max_bound.unwrap_or(u8::MAX),
+                args.max_nodes,
+                on_iter,
+            )
         } else if let Some(t2) = lm2t.as_ref() {
             puzzle8::puzzle24::search::flat::flat_bounded_lm2_telemetry(
                 &start,

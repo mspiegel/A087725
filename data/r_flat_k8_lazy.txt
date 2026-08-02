@@ -1327,3 +1327,42 @@ Where this leaves the tiers at 146: cut 1.484x (cascade) vs 1.150x (k6);
 toll 2.37x vs 1.45x. Both lose at 146; the cascade's cut is growing much
 faster with depth (k8's growth factor 22.6 at 148 vs base 32.5), so its
 crossover is nearer than k6's. Untested and now cheap: the cascade at 148.
+
+Cascade cost diagnosis (2026-08-02).
+Is the k8 cascade throttled by memory? Measured cpu-vs-wall and page-ins
+(8 workers; a CPU-bound run gives cpu/wall ~ 8):
+  lm2 alone   146 = 57.43 s   cpu/wall 7.86   pageins   1,085
+  cascade     146 = 96.57 s   cpu/wall 7.44   pageins 203,634
+The artifacts DO exceed RAM (38.5 GB mapped, 32 GB installed, 65 MB free)
+and 3.3 GB is read from disk during the run — but at 32 MB/s the SSD
+absorbs it and the other threads cover the stalls: only ~5% of thread time
+is blocked. Removing all I/O would take the cascade 96.6 -> ~91 s, nowhere
+near 57.4. HYPOTHESIS REFUTED: the tier is CPU-bound in k8_child, not
+thrashing.
+
+Sequential profile (warm tables, cascade at 146) — note the sequential
+cascade was mis-wired until now (solve24 took the lm2-only branch with
+k8 = None; the profile showing NO k8_child is what exposed it; parallel was
+always correct, so all A/B numbers stand):
+  k8_child 43.2% | run_iteration 22.0% | build_child 13.4% |
+  lm2_child 10.1% | child_lb 6.5% | ZpdbLayout::rank 2.5% | memmove 2.0%
+Rank has collapsed from dominant to 2.5% — the packed-position cache did
+what it was built to do. What remains in k8_child is work done on EVERY
+consult to keep the miss path viable: the 306 B slot copy of six
+ProjectedStates and two set_blank_pos+apply_in_place_at slides.
+
+Attempt: drop the projections entirely and rebuild from the packed key on a
+miss (the key already carries all eight tile cells), shrinking the carried
+slot 306 B -> 54 B. Node-identical (269,180,917 / 178,863,576).
+A/B @146 (canaries 57.40 / 58.02 s):
+  cascade, maintained projections   93.30 s   64.8 Mn/s   <- keeps
+  cascade, rebuild-from-key        101.7 s    59.5 Mn/s   9% WORSE
+Why it lost: `proj_from_key` is not "eight shifts" — `from_projection`
+rescans all 25 cells to rebuild `pos_of`, ~50 ns per miss, which at k8's
+miss rate exceeds the ~25 ns/consult saved. Same shape of error as the
+map-free k6 variant: a cheaper-looking path with a hidden 25-cell scan.
+Kept as the non-default --k8stateless arm.
+
+Standing at 146: cascade cut 1.484x, toll 2.41x, wall 1.63x slower than
+lm2 alone. Both tiers still lose at this depth; the cascade's cut is the
+largest measured and grows fastest with depth, so its crossover is nearest.

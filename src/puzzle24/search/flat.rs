@@ -1793,15 +1793,17 @@ fn seed_k8(arena: &mut Arena, board: &State, ctx: &K8Ctx) -> u8 {
 fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -> u8 {
     // Needed only by the stateless miss path, which rebuilds projections
     // instead of maintaining them.
-    let arena_board_decoded = if ctx.stateless {
-        arena.board[d + 1].0.decode()
-    } else {
-        GOAL
-    };
     let (lo, hi) = arena.k8.split_at_mut(d + 1);
     let parent = &lo[d];
     let child = &mut hi[0];
-    *child = *parent;
+    if ctx.stateless {
+        // The projections are never maintained in this mode, so only the
+        // packed keys and values need to descend: 54 bytes, not 306.
+        child.keys = parent.keys;
+        child.h = parent.h;
+    } else {
+        *child = *parent;
+    }
     let b = arena.hot[d].blank as usize; // pre-move blank cell
     let n = geom.from as usize; // the moved tile's cell = blank destination
                                 // `tile` arrives goal-coded (the engine's boards are `Coded`); the PDB
@@ -1836,8 +1838,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gi];
         let idx = if ctx.stateless {
-            let bd = arena_board_decoded;
-            let proj = crate::puzzle24::pdb::ProjectedState::from_state(&bd, db.pattern());
+            let proj = proj_from_key(k0, n as u8, db.pattern());
             db.layout().rank(&proj, db.pattern())
         } else {
             let vw = &mut child.views[0][gi];
@@ -1867,8 +1868,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gj];
         let idx = if ctx.stateless {
-            let rbd = symmetry::reflect(&arena_board_decoded);
-            let proj = crate::puzzle24::pdb::ProjectedState::from_state(&rbd, db.pattern());
+            let proj = proj_from_key(k1, rn as u8, db.pattern());
             db.layout().rank(&proj, db.pattern())
         } else {
             let vw = &mut child.views[1][gj];
@@ -2491,6 +2491,29 @@ struct K6PosSlot {
     h: [[u8; 4]; 2],
 }
 
+/// Rebuild a group's [`ProjectedState`] from its packed key and blank cell.
+///
+/// The key already carries all eight tile cells as 5-bit fields, so a miss
+/// costs eight shifts and eight writes — against maintaining the projection
+/// incrementally on *every* consult (a 306-byte slot copy plus two slides),
+/// which the front cache made unnecessary ~90% of the time. Strictly cheaper
+/// than rebuilding from the board, which needs a 25-cell scan and, for the
+/// reflected view, a reflection first.
+#[inline]
+fn proj_from_key(
+    tiles_key: u64,
+    blank: u8,
+    pattern: crate::puzzle24::pdb::Pattern,
+) -> crate::puzzle24::pdb::ProjectedState {
+    let mut cells = [crate::puzzle24::pdb::ANON; N_CELLS];
+    cells[blank as usize] = 0;
+    for (slot, tile) in pattern.iter().enumerate() {
+        let c = ((tiles_key >> (5 * slot)) & 31) as usize;
+        cells[c] = tile;
+    }
+    crate::puzzle24::pdb::ProjectedState::from_projection(cells)
+}
+
 /// Shared, lock-free front cache for the **k8** tier, keyed on *packed tile
 /// positions* rather than the zPDB rank.
 ///
@@ -3050,6 +3073,37 @@ where
         None,
         Some(lm2),
         k6,
+        orbit_split,
+        max_bound,
+        max_nodes,
+        on_iter,
+    )
+}
+
+/// The cascade: LM2 first, k8 consulted only at LM2-survivors.
+#[allow(clippy::too_many_arguments)]
+pub fn flat_bounded_cascade_telemetry<F>(
+    start: &State,
+    cwd: &Cwd,
+    dfa: &MoveDfa,
+    k8: &K8Ctx,
+    lm2: &super::cwd_lm::CwdLmMm,
+    orbit_split: bool,
+    max_bound: u8,
+    max_nodes: u64,
+    on_iter: F,
+) -> (BoundedOutcome, SearchStats)
+where
+    F: FnMut(u8, &SearchStats, std::time::Duration),
+{
+    flat_bounded_inner_k8(
+        start,
+        cwd,
+        dfa,
+        Some(k8),
+        None,
+        Some(lm2),
+        None,
         orbit_split,
         max_bound,
         max_nodes,
