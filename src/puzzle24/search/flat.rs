@@ -4456,6 +4456,112 @@ mod tests {
     /// families vs the production baseline and LM2 on the unconditioned
     /// survivor sample: the cheap-tier candidates' frontier reach.
     ///
+    /// Does k6 prune anything k8 does not?
+    ///
+    /// The k6 tier died because its 1-bit differential encoding forced
+    /// unconditional chain maintenance on every node (1.31x slower for a 1.15x
+    /// cut). An ABSOLUTE encoding removes that — k6 is only 181M entries per
+    /// PDB, so one byte each is 724 MB, RAM-resident, exact, and independently
+    /// consultable. Inserting it BEFORE k8 is sound: k8's chain forbids
+    /// skipping a consult and then descending, but a tier that *prunes* never
+    /// descends.
+    ///
+    /// That leaves one economic question, which this measures. k6's 9.37%
+    /// beyond LM2 was taken without k8 present. If k6's prunes are a subset of
+    /// k8's, the tier only buys cheaper prunes of nodes k8 already catches, and
+    /// k8 prunes just 6.6% of its consults — too little to pay for consulting
+    /// k6 at every survivor. Independent prunes would cut nodes outright.
+    ///
+    ///   cargo test --release k6_beyond_k8_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the artifacts, the k6+k8 zPDBs and data/survivors_148.txt"]
+    fn k6_beyond_k8_survivor_sample() {
+        use crate::puzzle24::pdb::ZPatternDb;
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let load = |names: &[&str]| -> Vec<ZPatternDb> {
+            names
+                .iter()
+                .map(|n| {
+                    ZPatternDb::load_mmap(std::path::Path::new(&format!("data/{n}.zbin")))
+                        .unwrap_or_else(|e| panic!("{n}: {e:?}"))
+                })
+                .collect()
+        };
+        let k6 = load(&["pdb24_a", "pdb24_b", "pdb24_c", "pdb24_d"]);
+        let k8 = load(&["pdb24_k8_a", "pdb24_k8_b", "pdb24_k8_c"]);
+        let text = std::fs::read_to_string("data/survivors_148.txt").expect("survivor sample");
+        let every: usize = std::env::var("EVERY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6);
+        let (mut nb, mut c6, mut c8, mut only6, mut only8, mut both, mut neither) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut adv6_when_only = [0u64; 12];
+        for (li, line) in text
+            .lines()
+            .filter(|l| l.contains("board=["))
+            .enumerate()
+            .filter(|(i, _)| i % every == 0)
+        {
+            let _ = li;
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let (rkey, ckey) = (pack(&mr, br), pack(&mc, bc));
+            let rc = backing.cell(rkey).unwrap();
+            let cc = backing.cell(ckey).unwrap();
+            let h0p = (rc.wd + surcharge_from_curves(&rc.curves, &dr)) as u32
+                + (cc.wd + surcharge_from_curves(&cc.curves, &dc)) as u32;
+            let rs = symmetry::reflect(&s);
+            let hfam = |fam: &[ZPatternDb]| -> u32 {
+                let (mut a, mut b) = (0u32, 0u32);
+                for db in fam {
+                    a += db.cold_lookup(&s) as u32;
+                    b += db.cold_lookup(&rs) as u32;
+                }
+                a.max(b)
+            };
+            let (h6, h8) = (hfam(&k6), hfam(&k8));
+            nb += 1;
+            // Advantage >= 2 is what prunes at slack 0 (the bulk of the tree).
+            let (p6, p8) = (h6 >= h0p + 2, h8 >= h0p + 2);
+            c6 += p6 as u64;
+            c8 += p8 as u64;
+            match (p6, p8) {
+                (true, true) => both += 1,
+                (true, false) => {
+                    only6 += 1;
+                    adv6_when_only[((h6 - h0p) as usize).min(11)] += 1;
+                }
+                (false, true) => only8 += 1,
+                (false, false) => neither += 1,
+            }
+        }
+        eprintln!("boards={nb} (every {every}th of survivors_148)");
+        let pc = |x: u64| 100.0 * x as f64 / nb.max(1) as f64;
+        eprintln!(
+            "  k6 certifies {c6} ({:.1}%)   k8 certifies {c8} ({:.1}%)",
+            pc(c6),
+            pc(c8)
+        );
+        eprintln!(
+            "  both {both} ({:.1}%) | k8-only {only8} ({:.1}%) | K6-ONLY {only6} ({:.1}%) | neither {neither} ({:.1}%)",
+            pc(both),
+            pc(only8),
+            pc(only6),
+            pc(neither)
+        );
+        eprintln!("  k6-only advantage histogram (index = h6 - h0p): {adv6_when_only:?}");
+    }
+
     ///   cargo test --release k6k7_certification_survivor_sample -- --ignored --nocapture
     #[test]
     #[ignore = "needs the artifacts, the k6/k7 zPDBs and data/survivors_146.txt"]

@@ -1611,3 +1611,38 @@ surplus-coded tables means either a fresh BFS or a reconstruction sweep over
 ~74 G states per group (222 G total) using the existing 1-bit tables to supply
 each step's +/-1 — an external-memory traversal, since no frontier of that size
 is RAM-resident. That is the cost to weigh against the payoff.
+
+k6 AS A TIER IN FRONT OF k8 — closed on REDUNDANCY, not cost.
+Proposal: give k6 an absolute (surplus) encoding so its lookups become
+independent, and insert it between LM2 and k8. Sound in principle — k8's chain
+forbids skipping a consult and then DESCENDING, but a tier that prunes never
+descends, so skipping k8 under a k6 prune is safe (same contiguous-subtree
+argument as the depth gate).
+Sizing, from the k6pos entry above (which notes u8 values would be 24.4 GB):
+  ranked   1-bit diff (today)      86 MiB   rank yes  chain yes
+  positional 1-bit diff (measured) 2.9 GB   rank NO   chain yes
+  ranked   2-bit surplus          ~181 MB   rank yes  chain NO
+  positional 2-bit surplus         6.1 GB   rank NO   chain NO   <- the target
+  positional u8 absolute          24.4 GB   rank NO   chain NO
+NOTE the k6pos measurement (positional, +20%, toll 1.76x -> 1.50x) kept the
+1-bit differential codec, so it removed the RANK but never the CHAIN. The
+absolute-encoding question really was open for k6.
+It closes anyway. k6_beyond_k8_survivor_sample, 576 boards (every 6th of
+survivors_148), certification = advantage >= 2 (what prunes at slack 0):
+  k6 certifies    24 ( 4.2%)
+  k8 certifies   103 (17.9%)
+  both            22 ( 3.8%)
+  k8-only         81 (14.1%)
+  K6-ONLY          2 ( 0.3%)  <- both at advantage exactly +2
+  neither        471 (81.8%)
+k6 is 92% CONTAINED in k8 (22 of 24). Independent contribution is 0.3% at the
+weakest useful advantage. So the tier can only re-prune what k8 already
+catches: it pre-empts 3.8% of survivors, hence must cost under 3.8% of k8's
+~118 ns consult (~4.5 ns) to break even — less than one memory probe. No
+encoding, layout, or gating changes that.
+The earlier k6 verdict was COST (1.31x slower for a 1.15x cut), which absolute
+encoding would genuinely have fixed. The binding reason is redundancy with k8,
+and it had never been measured until now.
+INCIDENTAL: puzzle24::pdb::zbuild already has a 2-bit packed path (test
+zpdb_2bit_packed_matches_parallel_k6) — worth checking whether it is a storage
+format or only a build transient, should the k8 surplus re-encoding be pursued.
