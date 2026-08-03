@@ -1680,3 +1680,34 @@ evict/re-read cycles), which is a different and smaller benefit.
 This also deepens the earlier "cache size irrelevant" finding: that was
 measured at 146, where the working set fits RAM and the only thing cache size
 could buy was CPU work — which the unconditional chain maintenance dominates.
+
+COST-PARTITIONED cWD (+) k8 — the tractable formulations collapse to max.
+PhO (post-hoc optimization) assigns one weight per abstraction:
+  maximise x*R + y*C + sum_g z_g*V_g   s.t. every operator's weights sum <= 1.
+Operator supports: WD_row charges ALL vertical moves, WD_col ALL horizontal,
+k8 group g charges moves of ITS tiles in BOTH directions. So each group faces
+x + z_g <= 1 and y + z_g <= 1, hence z_g <= 1 - max(x,y), and with S = sum V_g
+the objective reduces to x*(R+C) + (1-x)*S — linear in x, optimal at an
+endpoint: max(cWD, k8), which the cascade already computes. Saturated cost
+partitioning collapses the same way in EITHER order, because k8's three groups
+cover all 24 tiles and leave zero residual for whatever saturates second.
+Structural reason: cost partitioning pays when abstractions charge DIFFERENT
+operators. Here cWD charges every operator (split by direction) and k8 charges
+every operator (split by tile) — complete overlap, nothing to redistribute.
+Measured (cost_partition_headroom, 576 boards, every 6th of survivors_148):
+  mean cWD 111.4 (row 55.3 + col 56.1) | mean k8 110.4 | mean max 111.9
+  k8 > cWD on 103 boards (17.9%)
+  PhO/SCP LP BEATS max on 0 boards        <- collapse confirmed empirically
+  k8's single largest group carries 37.6% of its value
+  histogram (k8 - cWD): -8:1 -6:16 -4:111 -2:169 0:176 +2:75 +4:21 +6:5 +8:2
+HEADROOM IS THIN: the two heuristics sit within ~1 unit on average and 91% of
+boards fall in [-4,+2]. They measure nearly the same work by different routes.
+NOT ruled out: per-OPERATOR cost partitioning, which needs a WD variant where
+one group's tiles move free. The bar is computable from the above — giving
+group g full cost yields V_g + cWD_-g, and with V_g ~ 41.5 (37.6% of 110.4),
+beating 111.9 needs cWD_-g > 70.4, i.e. cWD must RETAIN 63% OF ITS VALUE WITH
+8 OF 24 TILES MOVING FREE. Expect that to fail: WD charges for the blank
+displacing tiles across line boundaries, and 8 cost-free tiles scattered over
+the board hand the blank uncharged routes through those same boundaries.
+Testing it needs a modified WD build (build_wd24 with a zero-cost tile set) —
+small work, the WD abstraction is tiny — not a PDB rebuild.

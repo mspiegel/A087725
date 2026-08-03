@@ -4523,6 +4523,123 @@ mod tests {
     /// families vs the production baseline and LM2 on the unconditioned
     /// survivor sample: the cheap-tier candidates' frontier reach.
     ///
+    /// Headroom for a cost-partitioned cWD (+) k8, on the 148 survivors.
+    ///
+    /// The tractable cost-partitioning formulations collapse here. Post-hoc
+    /// optimization maximises `x*R + y*C + sum z_g*V_g` subject to every
+    /// operator's total weight <= 1. WD_row charges all VERTICAL moves,
+    /// WD_col all HORIZONTAL, and k8 group g charges moves of ITS tiles in
+    /// both directions — so each group gets `x + z_g <= 1` and `y + z_g <= 1`,
+    /// i.e. `z_g <= 1 - max(x,y)`. The objective reduces to
+    /// `x*(R+C) + (1-x)*S`, linear in x, optimal at an endpoint: max(cWD, k8),
+    /// which is what the cascade already computes. Saturated cost partitioning
+    /// collapses identically in either order, since k8's groups cover all 24
+    /// tiles and leave zero residual.
+    ///
+    /// What is NOT ruled out is per-OPERATOR cost partitioning, which needs a
+    /// WD variant where one group's tiles move free. This reports the headroom
+    /// such a scheme would compete for: how far apart R+C and S actually sit,
+    /// and how much any single group carries.
+    ///
+    ///   cargo test --release cost_partition_headroom -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the artifacts, the k8 zPDBs and data/survivors_148.txt"]
+    fn cost_partition_headroom() {
+        use crate::puzzle24::pdb::ZPatternDb;
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let k8: Vec<ZPatternDb> = ["pdb24_k8_a", "pdb24_k8_b", "pdb24_k8_c"]
+            .iter()
+            .map(|n| {
+                ZPatternDb::load_mmap(std::path::Path::new(&format!("data/{n}.zbin"))).unwrap()
+            })
+            .collect();
+        let text = std::fs::read_to_string("data/survivors_148.txt").expect("sample");
+        let every: usize = std::env::var("EVERY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6);
+        let (mut n, mut k8_wins, mut lp_beats_max) = (0u64, 0u64, 0u64);
+        let mut gap_hist = std::collections::BTreeMap::<i32, u64>::new();
+        let (mut sum_r, mut sum_c, mut sum_s, mut sum_max) = (0f64, 0f64, 0f64, 0f64);
+        let mut best_group_share = 0f64;
+        for (_, line) in text
+            .lines()
+            .filter(|l| l.contains("board=["))
+            .enumerate()
+            .filter(|(i, _)| i % every == 0)
+        {
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let rc = backing.cell(pack(&mr, br)).unwrap();
+            let cc = backing.cell(pack(&mc, bc)).unwrap();
+            let r = (rc.wd + surcharge_from_curves(&rc.curves, &dr)) as f64;
+            let c = (cc.wd + surcharge_from_curves(&cc.curves, &dc)) as f64;
+            let rs = symmetry::reflect(&s);
+            // Per-group values, taking the better sigma-view as the engine does.
+            let (mut v0, mut v1) = ([0f64; 3], [0f64; 3]);
+            for (i, db) in k8.iter().enumerate() {
+                v0[i] = db.cold_lookup(&s) as f64;
+                v1[i] = db.cold_lookup(&rs) as f64;
+            }
+            let (s0, s1) = (v0.iter().sum::<f64>(), v1.iter().sum::<f64>());
+            let v = if s0 >= s1 { v0 } else { v1 };
+            let sk8 = s0.max(s1);
+            let cwdv = r + c;
+            let mx = cwdv.max(sk8);
+            // PhO/SCP optimum, evaluated rather than assumed.
+            let lp = {
+                let mut best: f64 = 0.0;
+                for step in 0..=20 {
+                    let x = step as f64 / 20.0;
+                    best = best.max(x * cwdv + (1.0 - x) * sk8);
+                }
+                best
+            };
+            if lp > mx + 1e-9 {
+                lp_beats_max += 1;
+            }
+            n += 1;
+            k8_wins += (sk8 > cwdv) as u64;
+            *gap_hist.entry((sk8 - cwdv) as i32).or_insert(0) += 1;
+            sum_r += r;
+            sum_c += c;
+            sum_s += sk8;
+            sum_max += mx;
+            best_group_share += v.iter().cloned().fold(0.0, f64::max) / sk8.max(1.0);
+        }
+        let f = n as f64;
+        eprintln!("boards={n} (every {every}th of survivors_148)");
+        eprintln!(
+            "  mean cWD {:.1} (row {:.1} + col {:.1}) | mean k8 {:.1} | mean max {:.1}",
+            (sum_r + sum_c) / f,
+            sum_r / f,
+            sum_c / f,
+            sum_s / f,
+            sum_max / f
+        );
+        eprintln!(
+            "  k8 > cWD on {k8_wins} boards ({:.1}%) | PhO/SCP LP beats max on {lp_beats_max}",
+            100.0 * k8_wins as f64 / f
+        );
+        eprintln!(
+            "  mean share of k8 carried by its single largest group: {:.1}%",
+            100.0 * best_group_share / f
+        );
+        eprintln!("  histogram of (k8 - cWD):");
+        for (g, c) in gap_hist {
+            eprintln!("    {g:>4}: {c}");
+        }
+    }
+
     /// Does k6 prune anything k8 does not?
     ///
     /// The k6 tier died because its 1-bit differential encoding forced
