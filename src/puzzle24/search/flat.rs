@@ -609,6 +609,13 @@ static K8_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(feature = "probe-cache-stats")]
+thread_local! {
+    /// Per-thread (consults, prunes) so a worker can attribute a *unit's*
+    /// counts: the shared atomics below are global and would mix threads.
+    static K8_TL: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(feature = "probe-cache-stats")]
 static K8_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "probe-cache-stats")]
 static K8_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -3012,7 +3019,7 @@ where
                 }
                 // Lazy k8 consult at cWD-survivors — must mirror run_iteration
                 // exactly or the split's tree diverges from the sequential one.
-                if let Some(ctx) = k8 {
+                if let Some(ctx) = k8.filter(|_| (bound - g_next) >= k8_min_need()) {
                     let hk8 = k8_child(&mut split_arena, ctx, 0, geom, tile);
                     if hk8 > h {
                         let f2 = g_next.saturating_add(hk8);
@@ -3072,8 +3079,17 @@ where
                     let c0 = cache.stats();
                     let mut st = SearchStats::default();
                     seed_subtree(arena, &u.board, u.dfa, u.last, merged, dfa);
+                    #[cfg(feature = "probe-cache-stats")]
+                    let k8_before = K8_TL.with(|c| c.get());
+                    #[cfg(feature = "probe-cache-stats")]
+                    let mut root_adv: i32 = -1;
                     if let Some(ctx) = k8 {
-                        seed_k8(arena, &u.board, ctx);
+                        #[cfg_attr(not(feature = "probe-cache-stats"), allow(unused))]
+                        let hk8 = seed_k8(arena, &u.board, ctx);
+                        #[cfg(feature = "probe-cache-stats")]
+                        {
+                            root_adv = hk8 as i32 - u.h as i32;
+                        }
                     }
                     if lm2.is_some() {
                         seed_lm2(arena, &u.board);
@@ -3156,6 +3172,22 @@ where
                             u64::MAX,
                         )
                     };
+                    // Per-unit k8 census: does the advantage at a subtree ROOT
+                    // predict how densely k8 prunes inside it? Subtree-scoped
+                    // gating is the only sound form (the differential chain
+                    // only needs the parent, so a contiguous skip from a node
+                    // downward never reads a value it did not compute), so this
+                    // is the measurement that decides whether such a gate can
+                    // pay.
+                    #[cfg(feature = "probe-cache-stats")]
+                    if k8.is_some() {
+                        let (ca, pa) = K8_TL.with(|c| c.get());
+                        let (dc, dp) = (ca - k8_before.0, pa - k8_before.1);
+                        eprintln!(
+                            "UNIT root_adv={root_adv} g={} nodes={} consults={dc} prunes={dp}",
+                            u.g, st.nodes
+                        );
+                    }
                     let wr = match step {
                         Step::Found(mut path) => {
                             let mut full = u.prefix.clone();
@@ -3514,6 +3546,18 @@ fn seed_root(
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
+/// Minimum remaining budget at which the k8 tier is consulted
+/// (`FLAT_K8_MIN_NEED`, default 0 = always consult). Read once.
+fn k8_min_need() -> u8 {
+    static V: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("FLAT_K8_MIN_NEED")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
 fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
@@ -3699,17 +3743,33 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // the 1-bit encoding that makes 30.5 GB affordable is exactly what
         // forbids skipping. (LM2 is unaffected — its tables store absolute
         // values, so its consults are independent.)
-        if K8 {
+        // Depth gate. `need = bound - g` is the remaining budget and decreases
+        // monotonically with depth, so "skip when need < N" is closed under
+        // descent: a skipped node's whole subtree is skipped, and the
+        // differential chain is never asked for a value we did not compute.
+        // (Contrast the slack gate, which was unsound precisely because slack
+        // is not monotone.) The motivation: a node's subtree can only run as
+        // deep as its budget allows, so a prune near the frontier saves almost
+        // nothing while costing a full consult — and most nodes are near the
+        // frontier. `need` is measured from the *reduced* bound in workers, so
+        // it means the same thing sequentially and in parallel.
+        if K8 && (bound - g_next) >= k8_min_need() {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
             #[cfg(feature = "probe-cache-stats")]
             {
                 K8_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut pruned = false;
                 if hk8 > h {
                     K8_RAISED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if g_next.saturating_add(hk8) > bound {
                         K8_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        pruned = true;
                     }
                 }
+                K8_TL.with(|c| {
+                    let (a, b) = c.get();
+                    c.set((a + 1, b + pruned as u64));
+                });
             }
             #[cfg(feature = "k8-probe-locality")]
             {

@@ -1518,3 +1518,38 @@ search, whose tree still contains all the subtrees k8 would have cut, so k8
 binds on many of them; the 11.5% is from a k8-ENABLED search where those are
 already gone. A tier's measured prune rate depends on whether the tier was
 running when the population was sampled.
+
+DEPTH GATE for k8 (FLAT_K8_MIN_NEED): sound where the slack gate was not.
+`need = bound - g` decreases monotonically, so "skip when need < N" is closed
+under descent — a skipped node's whole subtree is skipped and the
+differential chain is never asked for a value it did not compute.
+Sweep @146 (cascade, plain build, warm; canary pair 90.94 / 93.18 s):
+  gate      skips below   nodes            delta      Mn/s    wall
+  off       -             6,048,044,884    -          66.5    90.9 s
+  need>=30  depth > 116   6,048,044,884    0          66.4    91.0 s
+  need>=60  depth > 86    6,048,044,884    0          65.7    92.1 s
+  need>=90  depth > 56    6,048,129,867    +0.0014%   66.0    91.6 s
+  need>=110 depth > 36    7,868,202,638    +30%       86.5    91.0 s
+Two findings:
+(1) TREE SHAPE. Nothing below depth ~86 (of a possible 146) — the gate is
+    provably inert there. Useful content is far higher: skipping every
+    consult below depth 56 costs 0.0014% more nodes; below depth 36 costs
+    30%. So k8's prunes live in depths 36-56, independently reproducing the
+    original autopsy's "plies 32-44".
+(2) THE GATE IS A WASH. need>=110 skips most consults for +31% throughput
+    and pays +30% nodes; the two cancel to within a second. k8's consults
+    are worth, on average, exactly what they cost — which is why no gating
+    variant can help, and matches the per-unit census showing prunes spread
+    in proportion to work rather than concentrated (top decile of units:
+    50.7% of prunes but 36.5% of nodes, a density ratio of only 1.4).
+Kept as FLAT_K8_MIN_NEED (default 0 = off) since it is sound and free.
+
+METHOD NOTE (second occurrence): `cargo build --release --features X`
+overwrites the SAME target/release/solve24 as a plain release build, so a
+feature build silently replaces the binary a later timed run will use. First
+occurrence cost a batch to the probe-cache-stats atomics; this one cost a
+sweep. Guard: check for a feature-only string in the binary before trusting
+a timing. Also: killing `solve24` does NOT stop a sweep — the shell loop
+survives and launches the next arm, so two sweeps can run concurrently and
+corrupt each other. Use TaskStop on the task, and prefer a single `for` loop
+over separate invocations so there is one process tree to stop.
