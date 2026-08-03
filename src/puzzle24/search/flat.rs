@@ -3558,6 +3558,7 @@ fn k8_min_need() -> u8 {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
