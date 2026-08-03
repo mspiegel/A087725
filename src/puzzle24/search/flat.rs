@@ -635,6 +635,69 @@ static SURPLUS_LOST: [std::sync::atomic::AtomicU64; 3] =
 static SURPLUS_LOWER: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 
+// ---- working-set estimate for a wider k8 encoding ----------------------
+// A 2-bit (surplus) re-encoding doubles the table to ~65.6 GB against 32 GB of
+// RAM. What that costs depends NOT on table size but on how many distinct
+// pages the search actually touches: if probes are scattered (one entry per
+// page) the page count is unchanged and so is the pressure; if they are dense,
+// it doubles. Replay one access trace under both layouts and count.
+// 16 KiB pages (Apple Silicon). 1 bit/entry -> idx/131072; 2 bits -> idx/65536.
+#[cfg(feature = "probe-cache-stats")]
+const PAGE_WORDS: usize = 1 << 16; // 4.19M pages = 64 GB of coverage per map
+
+#[cfg(feature = "probe-cache-stats")]
+fn page_maps() -> &'static [Vec<std::sync::atomic::AtomicU64>; 2] {
+    static M: std::sync::OnceLock<[Vec<std::sync::atomic::AtomicU64>; 2]> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| {
+        [
+            (0..PAGE_WORDS)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect(),
+            (0..PAGE_WORDS)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect(),
+        ]
+    })
+}
+
+/// Record one table read at entry index `idx` of group `g`.
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn record_page(g: usize, idx: u64) {
+    // Groups are laid out end to end for accounting; each is ~87.4G entries.
+    let base = g as u64 * 87_400_000_000;
+    let maps = page_maps();
+    for (layout, div) in [(0usize, 131_072u64), (1usize, 65_536u64)] {
+        let pg = ((base + idx) / div) as usize;
+        let (w, b) = (pg / 64, pg % 64);
+        if w < PAGE_WORDS {
+            maps[layout][w].fetch_or(1u64 << b, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_working_set_report() {
+    let maps = page_maps();
+    let count = |m: &Vec<std::sync::atomic::AtomicU64>| -> u64 {
+        m.iter()
+            .map(|w| w.load(std::sync::atomic::Ordering::Relaxed).count_ones() as u64)
+            .sum()
+    };
+    let (p1, p2) = (count(&maps[0]), count(&maps[1]));
+    if p1 == 0 {
+        return;
+    }
+    let gb = |p: u64| p as f64 * 16384.0 / 1e9;
+    eprintln!(
+        "    k8 working set: 1-bit layout {p1} pages ({:.2} GB of 32.8) | 2-bit layout {p2} pages ({:.2} GB of 65.6) | growth {:.2}x",
+        gb(p1),
+        gb(p2),
+        p2 as f64 / p1 as f64
+    );
+}
+
 /// Manhattan sum over a projection's OWN pattern tiles (blank and ANON skipped).
 #[cfg(feature = "probe-cache-stats")]
 fn md_sum(ps: &crate::puzzle24::pdb::pattern::ProjectedState) -> u16 {
@@ -2054,6 +2117,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         let idx = db.layout().rank(&child.views[0][gi], db.pattern());
         #[cfg(feature = "k8-probe-locality")]
         k8_locality::record(gi, idx);
+        #[cfg(feature = "probe-cache-stats")]
+        record_page(gi, idx);
         let v = db.diff_lookup(idx, parent.h[0][gi]);
         child.h[0][gi] = v;
         ctx.shared.store(k0, n as u8, gi, v);
@@ -2073,6 +2138,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         let idx = db.layout().rank(&child.views[1][gj], db.pattern());
         #[cfg(feature = "k8-probe-locality")]
         k8_locality::record(gj, idx);
+        #[cfg(feature = "probe-cache-stats")]
+        record_page(gj, idx);
         let v = db.diff_lookup(idx, parent.h[1][gj]);
         child.h[1][gj] = v;
         ctx.shared.store(k1, rn as u8, gj, v);

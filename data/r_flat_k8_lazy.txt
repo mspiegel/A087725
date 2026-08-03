@@ -1646,3 +1646,37 @@ and it had never been measured until now.
 INCIDENTAL: puzzle24::pdb::zbuild already has a 2-bit packed path (test
 zpdb_2bit_packed_matches_parallel_k6) — worth checking whether it is a storage
 format or only a build transient, should the k8 surplus re-encoding be pursued.
+
+k8 WORKING SET, and what a 2-bit re-encoding would cost in RAM.
+Instrumented at the MISS path only (post-front-cache), replaying one access
+trace under both page layouts: 16 KiB pages, 1 bit/entry -> idx/131072,
+2 bits -> idx/65536. Counts DISTINCT pages touched.
+  threshold   1-bit layout        2-bit layout        growth
+  144         234,703 pg  3.85 GB  332,719 pg  5.45 GB  1.42x
+  146         636,475 pg 10.43 GB 1,004,986 pg 16.47 GB  1.58x
+Nodes rose 34x from 144 to 146; the working set rose only 2.7x — strongly
+sublinear, but not flat, and the LAYOUT growth factor is itself drifting up
+(1.42 -> 1.58), so the 2-bit line is steeper than the 1-bit one, not parallel.
+Extrapolating one step to 148 (~24x more nodes) puts 1-bit near 25-28 GB and
+2-BIT NEAR 40-45 GB AGAINST 32 GB OF RAM. Both saturate by 152.
+So the 2-bit surplus encoding stays resident exactly where it is not needed
+(144, 146) and goes over RAM at 148, where the cascade's advantage begins to
+matter. Two-point extrapolation — a 148 point would settle it (~9 h in this
+instrumented build, or ~20 min sampled under --max-nodes).
+This also explains the 3.85 GB / 32.8 GB ratio at 144: the search touches
+~12% of the table, which is why a table 1.02x the size of RAM cost only ~5%
+in blocked time.
+
+CACHE SIZE CANNOT SHRINK THE WORKING SET (measured @144):
+  bits=19  75.916% hit  52,995,328 misses  234,703 pages
+  bits=21  85.451% hit  32,012,959 misses  234,703 pages
+  bits=25  94.581% hit  11,924,245 misses  234,703 pages
+Identical to the digit across a 4.4x range in table reads. The cache removes
+REPEAT reads of a state; it never changes WHICH states are consulted, and
+distinct states determine distinct pages. Corollary: a bigger cache cannot
+postpone the 148 paging cliff — the footprint is search-determined. It can
+only reduce re-faults once the footprint exceeds RAM (fewer touches -> fewer
+evict/re-read cycles), which is a different and smaller benefit.
+This also deepens the earlier "cache size irrelevant" finding: that was
+measured at 146, where the working set fits RAM and the only thing cache size
+could buy was CPU work — which the unconditional chain maintenance dominates.
