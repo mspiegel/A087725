@@ -1437,3 +1437,38 @@ Verified after removal — node counts unchanged on every configuration:
   --zpdb8 269,180,917 | --lm2 --zpdb8 178,863,576 (all @144)
 and --zpdb8 alone runs at 68.6 Mn/s warm, i.e. the cache is on by default.
 Green gate: fmt, clippy (all targets), zero-warning build, 423 tests.
+
+Deeper survivor sample for the LM3 question (2026-08-02).
+The parity argument (user): slack = bound - f takes only even values and its
+MAXIMUM grows with the threshold — 146 admits slack 0/2, 148 admits 4, 150
+admits 6. A tier prunes a slack-s node iff its advantage exceeds s. LM2's
+advantages are almost all +2 (measured 285x+2, 10x+4 on the workload), so it
+cannot reach slack-2 boards except through that thin +4 tail, and cannot
+reach slack-4 boards at all. LM3, adding a third obligation, would reach +6.
+So LM3's marginal value should be judged on DEPTH of advantage, not breadth
+of coverage — and depth is what compounds with threshold.
+Empirical support already on file: k8 is the tier with deep advantages
+(+2 x141, +4 x129, +6 x56, +8 x27 — 30% at +6 or better) and it is also the
+tier whose cut grows fastest (growth-factor ratio 0.713 vs lm2's 0.774/0.800;
+cascade cut 1.21 -> 1.48 -> 1.98 across 144/146/148).
+
+This also invalidated the earlier probe plan: data/survivors_146.txt is drawn
+from exhaust-146, where slack is only ever 0 or 2, so it structurally cannot
+exhibit the boards LM3 would uniquely prune.
+Collected data/survivors_148.txt — 3,452 cWD-survivors sampled from a --lm2
+exhaust-148 run (288,304,558,446 nodes, 2118 s, 136.1 Mn/s; the dump cost
+nothing measurable). Sampling is now hash-based on the child's two axis keys
+rather than a shared counter — an atomic per survivor would have serialised
+eight workers across ~250 B survivors — under its own `survivor-dump`
+feature so collection no longer drags in the probe-cache-stats atomics
+(which made the stats build 11x slower).
+  slack   count   share      (146 for comparison)
+    0     2,995   86.8%       95.4%
+    2       425   12.3%        4.6%
+    4        32    0.93%       impossible
+Boards needing better than +2 went 4.6% -> 13.2% in one threshold, and the
+slack-4 stratum appears. Counts understate the value: a slack-4 node has four
+plies of headroom, so it roots a much larger subtree than a slack-0 node.
+Next step for LM3 (unchanged in shape, corrected in sample): a refined_axis3
+certification probe on THIS sample, stratified by slack, reporting the
+advantage distribution rather than a single certification rate.

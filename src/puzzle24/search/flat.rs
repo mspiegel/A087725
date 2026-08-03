@@ -3604,7 +3604,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // every Nth child that survives cWD, before any tier consults — the
         // population all heuristic upgrades compete to prune, free of the
         // k8-prune-event conditioning of the autopsy sample.
-        #[cfg(feature = "probe-cache-stats")]
+        #[cfg(feature = "survivor-dump")]
         {
             static DUMP_EVERY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
             let every = *DUMP_EVERY.get_or_init(|| {
@@ -3614,9 +3614,18 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                     .unwrap_or(0)
             });
             if every > 0 {
-                static TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if t % every == 0 {
+                // Sample by hashing the child's axis keys rather than by a
+                // shared counter: an atomic per survivor would serialise the
+                // workers at deep thresholds, where this hook is needed most.
+                // Deterministic, thread-local, and unbiased with respect to
+                // slack, which is the stratum being sampled.
+                let hk = arena.row[arena.hot[d + 1].row_at as usize]
+                    .key
+                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                    ^ arena.col[arena.hot[d + 1].col_at as usize]
+                        .key
+                        .wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+                if hk % every == 0 {
                     let b = arena.board[d + 1].0.decode();
                     eprintln!(
                         "SURVIVOR bound={bound} g={g_next} h={h} slack={} board={:?}",

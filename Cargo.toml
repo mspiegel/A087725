@@ -27,6 +27,7 @@ needless_range_loop = "allow"
 default = ["parallel", "mmap"]
 parallel = ["dep:rayon"]
 mmap = ["dep:memmap2"]
+survivor-dump = []
 sha = ["dep:sha2"]
 # Umbrella enabling the full 15-puzzle CLI surface.
 puzzle15 = ["parallel", "mmap"]
