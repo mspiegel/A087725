@@ -1420,3 +1420,20 @@ CROSSOVER AT 150, widening thereafter. The cascade — not lm2 alone — is the
 configuration for exhaust-152 and beyond, worth ~1.4x at 152 and ~1.9x at
 154. Caveat: this box pages ~5% (38.5 GB mapped, 32 GB RAM); a machine that
 holds the tables resident would do better still.
+
+Cleanup (2026-08-02): the k6 tier and the k8 variants are gone.
+REMOVED: --k6, --k6pos, --k6nomap, --k6shared, --k8shared, --k8stateless;
+K6Ctx, K6PosCtx, K6Tier, K6Slot, K6PosSlot, K6Cache, K6SharedCache,
+k6_child, k6pos_child, seed_k6v, seed_k6pos, the k6_locality instrument, the
+k6-locality feature, src/puzzle24/search/k6pos.rs (509 lines), the K6 const
+generic and its arena state (k6slots/k6pos/k6cache), and the rebuild-from-key
+path (proj_from_key). --zpdb8 now ALWAYS uses the shared packed-position
+cache; K8Ctx.shared is non-optional.
+Kept: the k6k7 survivor-certification test (a research instrument reading the
+zPDBs directly, no engine dependency) and the measurement record above.
+data/k6pos_{a..d}.bin (2.9 GB) are now unused and can be deleted.
+Verified after removal — node counts unchanged on every configuration:
+  base 422,379,806 | --lm 267,641,675 | --lm2 216,158,191 |
+  --zpdb8 269,180,917 | --lm2 --zpdb8 178,863,576 (all @144)
+and --zpdb8 alone runs at 68.6 Mn/s warm, i.e. the cache is on by default.
+Green gate: fmt, clippy (all targets), zero-warning build, 423 tests.

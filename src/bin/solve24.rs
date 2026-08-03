@@ -62,23 +62,6 @@ struct Args {
     /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
     /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
     lm2: bool,
-    /// Add the k6 cascade tier on top of --lm2: the 6-6-6-6 zPDB family
-    /// (pdb24_{a..d}.zbin, 88 MB), consulted cold at LM2-survivors.
-    k6: bool,
-    /// Same tier, positional layout: data/k6pos_{a..d}.bin (2.9 GB) behind a
-    /// front cache, indexed by tile positions instead of a rank walk.
-    k6pos: bool,
-    /// Same tier, no positional maps: cache + parent-1 first-miss + ranked
-    /// zPDB on repeat misses (88 MB working set).
-    k6nomap: bool,
-    /// One shared lock-free k6 front cache instead of eight private ones.
-    k6shared: bool,
-    /// Shared lock-free front cache for the k8 tier, keyed on packed tile
-    /// positions (rank only on a miss).
-    k8shared: bool,
-    /// With --k8shared: stop maintaining ProjectedStates and rebuild the
-    /// projection on a miss.
-    k8stateless: bool,
     /// Disable the neighbour-WD child pre-prune (profile: 10.2% of runtime
     /// under the LM2 stack; its value was established before LM2 existed).
     no_neighbor_prune: bool,
@@ -102,15 +85,13 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
-  --k8shared              shared packed-position cache for k8 (rank on miss).
-  --k8stateless           --k8shared, rebuilding projections on a miss.
-  --k6pos                 the k6 tier in positional layout (data/k6pos_*.bin).
-  --k6                    add the k6 cascade tier on --lm2: the 6-6-6-6 zPDB
-                          family (pdb24_{a..d}.zbin), cold at LM2-survivors.
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
-                          8-tile ZPDBs (data/pdb24_k8_*.zbin, ~32.8 GB mmap'd),
-                          consulted only at children cWD fails to prune. Cuts
-                          nodes ~2x at threshold 146, ~3x at 148 (growing).
+                          8-tile ZPDBs (data/pdb24_k8_*.zbin, ~30.5 GB mmap'd),
+                          consulted only at children the tiers above fail to
+                          prune, through a shared packed-position cache.
+                          With --lm2 this is the cascade: 1.98x fewer nodes
+                          than --lm2 alone at threshold 148, and the cut grows
+                          with depth (1.21x @144, 1.48x @146).
   --no-cwd-neighbor-prune disable the neighbour-WD child pre-prune.
   --max-nodes N           stop after N nodes. BENCHMARKING ONLY — the result is
                           not a proof, and is reported as such. Useful because
@@ -127,12 +108,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut zpdb8 = false;
     let mut lm = false;
     let mut lm2 = false;
-    let mut k6 = false;
-    let mut k6pos = false;
-    let mut k6nomap = false;
-    let mut k6shared = false;
-    let mut k8shared = false;
-    let mut k8stateless = false;
     let mut no_neighbor_prune = false;
 
     let mut i = 0;
@@ -159,16 +134,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--zpdb8" => zpdb8 = true,
             "--lm" => lm = true,
             "--lm2" => lm2 = true,
-            "--k6" => k6 = true,
-            "--k6pos" => k6pos = true,
-            "--k6nomap" => k6nomap = true,
-            "--k6shared" => k6shared = true,
             "--no-cwd-neighbor-prune" => no_neighbor_prune = true,
-            "--k8shared" => k8shared = true,
-            "--k8stateless" => {
-                k8shared = true;
-                k8stateless = true;
-            }
             "--max-nodes" => {
                 i += 1;
                 max_nodes = argv
@@ -198,12 +164,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         zpdb8,
         lm,
         lm2,
-        k6,
-        k6pos,
-        k6nomap,
-        k6shared,
-        k8shared,
-        k8stateless,
         no_neighbor_prune,
     })
 }
@@ -393,49 +353,6 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if (args.k6 || args.k6pos || args.k6nomap) && !args.lm2 {
-        eprintln!("error: --k6/--k6pos requires --lm2 (it is the cascade tier above it)");
-        return ExitCode::FAILURE;
-    }
-    if args.k6 && args.k6pos {
-        eprintln!("error: --k6 and --k6pos are two layouts of one tier; pick one");
-        return ExitCode::FAILURE;
-    }
-    let k6t = if args.k6 {
-        eprintln!("k6: mmapping pdb24_{{a..d}}.zbin (88 MB)…");
-        match puzzle8::puzzle24::search::flat::K6Ctx::load_mmap(std::path::Path::new("data")) {
-            Ok(ctx) => Some(puzzle8::puzzle24::search::flat::K6Tier::Ranked(ctx)),
-            Err(e) => {
-                eprintln!("error: --k6: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else if args.k6pos || args.k6nomap {
-        if args.k6nomap {
-            eprintln!("k6: map-free (ranked 88 MB miss path, parent-1 on first miss)…");
-        } else {
-            eprintln!("k6: mmapping k6pos_{{a..d}}.bin (2.9 GB, pre-touched)…");
-        }
-        match puzzle8::puzzle24::search::k6pos::K6PosCtx::load_opt(
-            std::path::Path::new("data"),
-            !args.k6nomap,
-        ) {
-            Ok(ctx) => {
-                let ctx = if args.k6shared {
-                    ctx.with_shared_cache()
-                } else {
-                    ctx
-                };
-                Some(puzzle8::puzzle24::search::flat::K6Tier::Pos(ctx))
-            }
-            Err(e) => {
-                eprintln!("error: --k6pos: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else {
-        None
-    };
     if args.lm && args.zpdb8 {
         eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 --zpdb8");
         return ExitCode::FAILURE;
@@ -458,20 +375,10 @@ fn main() -> ExitCode {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
         match puzzle8::puzzle24::search::flat::K8Ctx::load_mmap(std::path::Path::new("data")) {
             Ok(ctx) => {
-                let ctx = if args.k8shared {
-                    eprintln!(
-                        "k8: shared packed-position cache{}",
-                        if args.k8stateless {
-                            " (stateless: rebuild projections on miss)"
-                        } else {
-                            ""
-                        }
-                    );
-                    ctx.with_shared_cache(args.k8stateless)
-                } else {
-                    ctx
-                };
-                eprintln!("k8 ready: lazy max(cWD, k8), consulted at survivors, both σ-views");
+                eprintln!(
+                    "k8 ready: lazy max(cWD, k8) at survivors, both σ-views, \
+                     shared packed-position cache"
+                );
                 Some(ctx)
             }
             Err(e) => {
@@ -587,7 +494,6 @@ fn main() -> ExitCode {
                 k8.as_ref(),
                 lmt.as_ref(),
                 lm2t.as_ref(),
-                k6t.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 on_iter,
@@ -610,7 +516,6 @@ fn main() -> ExitCode {
                 &cwd,
                 &dfa,
                 t2,
-                k6t.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 args.max_nodes,
@@ -664,10 +569,6 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
-    #[cfg(feature = "k6-locality")]
-    puzzle8::puzzle24::search::flat::k6_locality::report();
-    #[cfg(feature = "probe-cache-stats")]
-    puzzle8::puzzle24::search::flat::k6_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_cache_stats_report();
 

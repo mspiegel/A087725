@@ -467,11 +467,6 @@ struct Arena {
     /// LM2 tier: per-depth tracked lines
     /// [row20, col24, row15, row19, col19, col23], written at the consult.
     lm2pos: Box<[[u8; 6]]>,
-    /// k6 tier state, written only on consults; untouched when the tier is off.
-    k6slots: Box<[K6Slot]>,
-    /// Positional k6 tier state and its front cache.
-    k6pos: Box<[K6PosSlot]>,
-    k6cache: Option<Box<K6Cache>>,
     /// LM2 combined front cache (single + pair values under one tag),
     /// allocated on first [`seed_lm2`].
     lm2cache: Option<Box<Lm2Cache>>,
@@ -516,19 +511,6 @@ impl Arena {
             lmpos: vec![[0u8; 2]; MAX_DEPTH].into_boxed_slice(),
             lmcache: None,
             lm2pos: vec![[0u8; 6]; MAX_DEPTH].into_boxed_slice(),
-            k6pos: vec![K6PosSlot::default(); MAX_DEPTH].into_boxed_slice(),
-            k6cache: None,
-            k6slots: vec![
-                K6Slot {
-                    views: [[crate::puzzle24::pdb::ProjectedState::from_state(
-                        &GOAL,
-                        crate::puzzle24::pdb::Pattern(0),
-                    ); 4]; 2],
-                    h: [[0; 4]; 2],
-                };
-                MAX_DEPTH
-            ]
-            .into_boxed_slice(),
             lm2cache: None,
         }
     }
@@ -546,31 +528,114 @@ impl Arena {
 
 /// The three disjoint 8-tile zero-aware PDBs, mmap'd. Loaded only when the
 /// `--zpdb8` flag asks for the 2-tier `max(cWD, k8)` stack.
+/// Shared, lock-free front cache for the k8 tier, keyed on *packed tile
+/// positions* rather than the zPDB rank.
+///
+/// k8 cannot have a positional map — 25^9 slots is 480 GB — but a cache key
+/// needs only to be unique and cheap, not a compact array index. Eight tile
+/// cells at 5 bits (40) plus the blank (5) plus the group (2) is 47 bits, so
+/// key and value share one `u64`. Maintenance is a single XOR per moved tile
+/// (`key ^= (src ^ dst) << 5·slot`), which takes the 8-tile rank walk and the
+/// 30.5 GB mmap off the hot path: both run only on a miss. Measured 3.3x
+/// throughput (20.2 -> 67.3 Mn/s at exhaust-144).
+///
+/// Entries are a single `u64`, so a relaxed atomic load/store cannot tear; a
+/// racing writer can only replace one valid entry with another, and the tag
+/// compare rejects anything that is not the key asked for.
+pub struct K8SharedCache {
+    slots: Box<[std::sync::atomic::AtomicU64]>,
+    shift: u32,
+}
+
+impl K8SharedCache {
+    /// `FLAT_K8_SHARED_BITS` entries (default 2^21 = 16 MB). Size is not
+    /// performance-critical: a sweep over 2^19..2^25 moved wall clock less
+    /// than the canary spread despite hit rates ranging 76% to 92%.
+    pub fn new() -> Self {
+        let bits: u32 = std::env::var("FLAT_K8_SHARED_BITS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(21);
+        assert!((8..=26).contains(&bits), "implausible shared k8 cache size");
+        K8SharedCache {
+            slots: (0..1usize << bits)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            shift: 64 - bits,
+        }
+    }
+
+    #[inline(always)]
+    fn full_key(tiles_key: u64, blank: u8, group: usize) -> u64 {
+        tiles_key | ((blank as u64) << 40) | ((group as u64) << 45)
+    }
+
+    #[inline(always)]
+    fn peek(&self, tiles_key: u64, blank: u8, group: usize) -> Option<u8> {
+        let key = Self::full_key(tiles_key, blank, group);
+        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
+        let e = self.slots[i].load(std::sync::atomic::Ordering::Relaxed);
+        let hit = (e >> 8) == key;
+        #[cfg(feature = "probe-cache-stats")]
+        if hit {
+            K8_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            K8_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        hit.then_some((e & 0xFF) as u8)
+    }
+
+    #[inline(always)]
+    fn store(&self, tiles_key: u64, blank: u8, group: usize, val: u8) {
+        let key = Self::full_key(tiles_key, blank, group);
+        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
+        self.slots[i].store(
+            (key << 8) | val as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+impl Default for K8SharedCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "probe-cache-stats")]
+static K8_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Print the k8 front cache's aggregate hit/miss counters.
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_cache_stats_report() {
+    let h = K8_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed);
+    let m = K8_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed);
+    if h + m > 0 {
+        eprintln!(
+            "    k8 cache: {h} hits / {m} misses = {:.3}% hit",
+            100.0 * h as f64 / (h + m) as f64
+        );
+    }
+}
+
 pub struct K8Ctx {
     dbs: [crate::puzzle24::pdb::ZPatternDb; 3],
     /// `group_of[t]` = which of the three patterns holds tile `t` (1..=24).
     group_of: [u8; N_CELLS],
     /// `slot_of[t]` = the tile's 5-bit field index inside its pattern's key.
     slot_of: [u8; N_CELLS],
-    /// Optional shared front cache keyed on packed tile positions.
-    shared: Option<K8SharedCache>,
-    /// When true the tier stops maintaining `ProjectedState`s and rebuilds
-    /// the projection from the board on a miss.
-    stateless: bool,
+    /// Shared front cache keyed on packed tile positions: the tier's only
+    /// consult path (rank and the 30.5 GB mmap run on a miss).
+    shared: K8SharedCache,
     /// The 8 tiles of each pattern, ascending (instrumentation: per-group MD).
     #[cfg(feature = "k8-probe-locality")]
     tiles: [[u8; 8]; 3],
 }
 
 impl K8Ctx {
-    /// Attach the shared front cache: consults then key on packed tile
-    /// positions and only compute a rank on a miss.
-    pub fn with_shared_cache(mut self, stateless: bool) -> Self {
-        self.shared = Some(K8SharedCache::new());
-        self.stateless = stateless;
-        self
-    }
-
     /// Packed key for one group/view: eight 5-bit tile cells.
     #[inline]
     fn pack_group(&self, board: &State, group: usize) -> u64 {
@@ -636,8 +701,7 @@ impl K8Ctx {
             dbs,
             group_of,
             slot_of,
-            shared: None,
-            stateless: false,
+            shared: K8SharedCache::new(),
             #[cfg(feature = "k8-probe-locality")]
             tiles,
         })
@@ -1796,14 +1860,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     let (lo, hi) = arena.k8.split_at_mut(d + 1);
     let parent = &lo[d];
     let child = &mut hi[0];
-    if ctx.stateless {
-        // The projections are never maintained in this mode, so only the
-        // packed keys and values need to descend: 54 bytes, not 306.
-        child.keys = parent.keys;
-        child.h = parent.h;
-    } else {
-        *child = *parent;
-    }
+    *child = *parent;
     let b = arena.hot[d].blank as usize; // pre-move blank cell
     let n = geom.from as usize; // the moved tile's cell = blank destination
                                 // `tile` arrives goal-coded (the engine's boards are `Coded`); the PDB
@@ -1821,69 +1878,47 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     child.keys[1][gj] ^= ((rn ^ rb) as u64) << (5 * ctx.slot_of[rt]);
     let (k0, k1) = (child.keys[0][gi], child.keys[1][gj]);
 
-    let (c0, c1) = match &ctx.shared {
-        Some(sc) => (sc.peek(k0, n as u8, gi), sc.peek(k1, rn as u8, gj)),
-        None => (None, None),
-    };
+    let (c0, c1) = (
+        ctx.shared.peek(k0, n as u8, gi),
+        ctx.shared.peek(k1, rn as u8, gj),
+    );
 
     // Normal view.
+    {
+        let vw = &mut child.views[0][gi];
+        vw.set_blank_pos(b as u8);
+        let cost = vw.apply_in_place_at(b, n);
+        debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
+    }
     if let Some(v) = c0 {
         child.h[0][gi] = v;
-        if !ctx.stateless {
-            let vw = &mut child.views[0][gi];
-            vw.set_blank_pos(b as u8);
-            let cost = vw.apply_in_place_at(b, n);
-            debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
-        }
     } else {
         let db = &ctx.dbs[gi];
-        let idx = if ctx.stateless {
-            let proj = proj_from_key(k0, n as u8, db.pattern());
-            db.layout().rank(&proj, db.pattern())
-        } else {
-            let vw = &mut child.views[0][gi];
-            vw.set_blank_pos(b as u8);
-            let cost = vw.apply_in_place_at(b, n);
-            debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
-            db.layout().rank(vw, db.pattern())
-        };
+        let idx = db.layout().rank(&child.views[0][gi], db.pattern());
         #[cfg(feature = "k8-probe-locality")]
         k8_locality::record(gi, idx);
         let v = db.diff_lookup(idx, parent.h[0][gi]);
         child.h[0][gi] = v;
-        if let Some(sc) = &ctx.shared {
-            sc.store(k0, n as u8, gi, v);
-        }
+        ctx.shared.store(k0, n as u8, gi, v);
     }
 
     // Reflected view: σ-image cells, σ-relabelled tile.
+    {
+        let vw = &mut child.views[1][gj];
+        vw.set_blank_pos(rb as u8);
+        let cost = vw.apply_in_place_at(rb, rn);
+        debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
+    }
     if let Some(v) = c1 {
         child.h[1][gj] = v;
-        if !ctx.stateless {
-            let vw = &mut child.views[1][gj];
-            vw.set_blank_pos(rb as u8);
-            let cost = vw.apply_in_place_at(rb, rn);
-            debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
-        }
     } else {
         let db = &ctx.dbs[gj];
-        let idx = if ctx.stateless {
-            let proj = proj_from_key(k1, rn as u8, db.pattern());
-            db.layout().rank(&proj, db.pattern())
-        } else {
-            let vw = &mut child.views[1][gj];
-            vw.set_blank_pos(rb as u8);
-            let cost = vw.apply_in_place_at(rb, rn);
-            debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
-            db.layout().rank(vw, db.pattern())
-        };
+        let idx = db.layout().rank(&child.views[1][gj], db.pattern());
         #[cfg(feature = "k8-probe-locality")]
         k8_locality::record(gj, idx);
         let v = db.diff_lookup(idx, parent.h[1][gj]);
         child.h[1][gj] = v;
-        if let Some(sc) = &ctx.shared {
-            sc.store(k1, rn as u8, gj, v);
-        }
+        ctx.shared.store(k1, rn as u8, gj, v);
     }
 
     let s0 = child.h[0][0] as u16 + child.h[0][1] as u16 + child.h[0][2] as u16;
@@ -2315,677 +2350,6 @@ fn lm2_child(
     h_cwd.max(ba.min(bb).min(bc).min(bd))
 }
 
-/// k6 consult-stream locality (feature `k6-locality`, instrumented runs only).
-///
-/// Answers two questions from one budgeted run, before any positional map is
-/// built: (1) does a value-memo cache in front of the tier pay — the k8 memo
-/// lost at every size with an 89% hit rate, but k6's per-group abstraction is
-/// far coarser, so its reuse may be in a different regime; (2) what footprint
-/// would the positional layout's address stream actually touch (distinct
-/// 128-byte lines and 16 KiB pages), which is the TLB/page risk of trading the
-/// 88 MB ranked family for a 3.05 GB map.
-#[cfg(feature = "k6-locality")]
-pub mod k6_locality {
-    use std::sync::Mutex;
-
-    const SIZES: [u32; 5] = [14, 16, 18, 20, 22];
-    const PAGES_PER_MAP: usize = 46_592; // 763 MB / 16 KiB
-    const LINES_PER_MAP: usize = 5_963_000; // 763 MB / 128 B
-
-    struct Sim {
-        tags: Vec<Vec<u64>>,
-        hits: [u64; SIZES.len()],
-        probes: u64,
-        same_line_as_prev: u64,
-        prev_line: u64,
-        pages: Vec<u64>,
-        lines: Vec<u64>,
-    }
-
-    static SIM: Mutex<Option<Sim>> = Mutex::new(None);
-
-    /// Record one probe: `group`, the view's blank cell, and the six-tile
-    /// positional index the positional layout would address.
-    pub fn record(group: usize, blank: u8, tiles_idx: u32) {
-        let mut g = SIM.lock().unwrap();
-        let s = g.get_or_insert_with(|| Sim {
-            tags: SIZES.iter().map(|b| vec![u64::MAX; 1usize << b]).collect(),
-            hits: [0; SIZES.len()],
-            probes: 0,
-            same_line_as_prev: 0,
-            prev_line: u64::MAX,
-            pages: vec![0u64; (4 * PAGES_PER_MAP).div_ceil(64)],
-            lines: vec![0u64; (4 * LINES_PER_MAP).div_ceil(64)],
-        });
-        let key = ((group as u64) << 40) | ((blank as u64) << 32) | tiles_idx as u64;
-        for (i, &bits) in SIZES.iter().enumerate() {
-            let slot = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - bits)) as usize;
-            if s.tags[i][slot] == key {
-                s.hits[i] += 1;
-            } else {
-                s.tags[i][slot] = key;
-            }
-        }
-        // hypothetical positional address
-        let bit = blank as u64 * super::super::k6pos::STRIDE_BITS + tiles_idx as u64;
-        let byte = bit >> 3;
-        let line = group as u64 * LINES_PER_MAP as u64 + byte / 128;
-        let page = group as u64 * PAGES_PER_MAP as u64 + byte / 16384;
-        if line == s.prev_line {
-            s.same_line_as_prev += 1;
-        }
-        s.prev_line = line;
-        s.lines[(line / 64) as usize] |= 1 << (line % 64);
-        s.pages[(page / 64) as usize] |= 1 << (page % 64);
-        s.probes += 1;
-    }
-
-    pub fn report() {
-        let g = SIM.lock().unwrap();
-        let Some(s) = g.as_ref() else { return };
-        eprintln!("=== k6 consult-stream locality ({} probes) ===", s.probes);
-        for (i, &bits) in SIZES.iter().enumerate() {
-            eprintln!(
-                "    memo cache 2^{bits:<2} ({:>5} MB): {:.3}% hit",
-                (1usize << bits) * 16 / 1_048_576,
-                100.0 * s.hits[i] as f64 / s.probes.max(1) as f64
-            );
-        }
-        let lines: u64 = s.lines.iter().map(|w| w.count_ones() as u64).sum();
-        let pages: u64 = s.pages.iter().map(|w| w.count_ones() as u64).sum();
-        eprintln!(
-            "    positional footprint: {lines} distinct 128 B lines ({:.1} MB), {pages} distinct 16 KiB pages ({:.1} MB); consecutive-probe same-line {:.2}%",
-            lines as f64 * 128.0 / 1e6,
-            pages as f64 * 16384.0 / 1e6,
-            100.0 * s.same_line_as_prev as f64 / s.probes.max(1) as f64
-        );
-    }
-}
-
-// ------------------------------ lazy k6 tier ----------------------------------
-
-/// The 6-6-6-6 zPDB family (`pdb24_{a..d}.zbin`, 88 MB total, RAM-resident):
-/// the cheap cascade tier. Consulted cold at LM2-survivors — decode the child
-/// board, 4 additive lookups per σ-view, max of the two views. Measured on the
-/// unconditioned survivor sample: 42.0% standalone frontier bind, 9.37%
-/// beyond LM2 (advantages up to +8).
-pub struct K6Ctx {
-    dbs: [crate::puzzle24::pdb::ZPatternDb; 4],
-    /// `group_of[t]` = which of the four patterns holds tile `t` (1..=24).
-    group_of: [u8; N_CELLS],
-}
-
-impl K6Ctx {
-    /// Load `pdb24_{a,b,c,d}.zbin` from `dir`; verify the patterns are
-    /// pairwise disjoint and cover tiles 1..=24.
-    pub fn load_mmap(dir: &std::path::Path) -> Result<Self, String> {
-        let names = [
-            "pdb24_a.zbin",
-            "pdb24_b.zbin",
-            "pdb24_c.zbin",
-            "pdb24_d.zbin",
-        ];
-        let mut dbs = Vec::with_capacity(4);
-        for n in names {
-            dbs.push(
-                crate::puzzle24::pdb::ZPatternDb::load_mmap(&dir.join(n))
-                    .map_err(|e| format!("{n}: {e:?}"))?,
-            );
-        }
-        let mut cover = 0u32;
-        for db in &dbs {
-            if cover & db.pattern().0 != 0 {
-                return Err("k6 patterns overlap".into());
-            }
-            cover |= db.pattern().0;
-        }
-        if cover != 0x01FF_FFFE {
-            return Err("k6 patterns must cover tiles 1..=24".into());
-        }
-        let dbs: [crate::puzzle24::pdb::ZPatternDb; 4] = dbs
-            .try_into()
-            .map_err(|_| "expected four dbs".to_string())?;
-        let mut group_of = [0u8; N_CELLS];
-        for (i, db) in dbs.iter().enumerate() {
-            for tile in db.pattern().iter() {
-                group_of[tile as usize] = i as u8;
-            }
-        }
-        Ok(K6Ctx { dbs, group_of })
-    }
-
-    /// `max` over σ-views of the four-group additive sum, cold lookups.
-    /// Seed-time only ([`seed_k6v`] uses per-group lookups directly); kept
-    /// for tests and any future cold-path caller.
-    #[allow(dead_code)]
-    #[inline]
-    fn h(&self, board: &State) -> u8 {
-        let rs = symmetry::reflect(board);
-        let (mut s0, mut s1) = (0u16, 0u16);
-        for db in &self.dbs {
-            s0 += db.cold_lookup(board) as u16;
-            s1 += db.cold_lookup(&rs) as u16;
-        }
-        s0.max(s1).min(255) as u8
-    }
-}
-
-/// Which k6 backing the tier consults. The discriminant is constant for a
-/// run, so the match below is perfectly predicted; keeping both lets the
-/// ranked and positional paths be A/B'd against each other node-identically.
-pub enum K6Tier {
-    /// `pdb24_{a..d}.zbin` addressed by `ZpdbLayout::rank` (88 MB).
-    Ranked(K6Ctx),
-    /// `k6pos_{a..d}.bin` addressed by tile positions (2.9 GB), behind a
-    /// front cache.
-    Pos(super::k6pos::K6PosCtx),
-}
-
-/// Positional k6 state: the six-tile index per group per σ-view, plus the
-/// carried absolute values. 40 bytes against the ranked slot's eight
-/// `ProjectedState`s — the 16% of tier cost the profile attributed to
-/// `memmove`.
-#[derive(Clone, Copy, Default)]
-struct K6PosSlot {
-    idx: [[u32; 4]; 2],
-    h: [[u8; 4]; 2],
-}
-
-/// Rebuild a group's [`ProjectedState`] from its packed key and blank cell.
-///
-/// The key already carries all eight tile cells as 5-bit fields, so a miss
-/// costs eight shifts and eight writes — against maintaining the projection
-/// incrementally on *every* consult (a 306-byte slot copy plus two slides),
-/// which the front cache made unnecessary ~90% of the time. Strictly cheaper
-/// than rebuilding from the board, which needs a 25-cell scan and, for the
-/// reflected view, a reflection first.
-#[inline]
-fn proj_from_key(
-    tiles_key: u64,
-    blank: u8,
-    pattern: crate::puzzle24::pdb::Pattern,
-) -> crate::puzzle24::pdb::ProjectedState {
-    let mut cells = [crate::puzzle24::pdb::ANON; N_CELLS];
-    cells[blank as usize] = 0;
-    for (slot, tile) in pattern.iter().enumerate() {
-        let c = ((tiles_key >> (5 * slot)) & 31) as usize;
-        cells[c] = tile;
-    }
-    crate::puzzle24::pdb::ProjectedState::from_projection(cells)
-}
-
-/// Shared, lock-free front cache for the **k8** tier, keyed on *packed tile
-/// positions* rather than the zPDB rank.
-///
-/// k8 cannot have a positional map — 25^9 slots is 480 GB — but a cache key
-/// needs only to be unique and cheap, not a compact array index. Eight tile
-/// cells at 5 bits (40) plus the blank (5) plus the group (2) is 47 bits, so
-/// key and value share one `u64`. Maintenance is a single XOR per moved tile
-/// (`key ^= (src ^ dst) << 5·slot`), which takes the 8-tile rank walk and the
-/// 32.8 GB mmap **off the hot path entirely** — both run only on a miss.
-pub struct K8SharedCache {
-    slots: Box<[std::sync::atomic::AtomicU64]>,
-    shift: u32,
-}
-
-impl K8SharedCache {
-    /// `FLAT_K8_SHARED_BITS` entries (default 2^21 = 16 MB).
-    pub fn new() -> Self {
-        let bits: u32 = std::env::var("FLAT_K8_SHARED_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(21);
-        assert!((8..=26).contains(&bits), "implausible shared k8 cache size");
-        K8SharedCache {
-            slots: (0..1usize << bits)
-                .map(|_| std::sync::atomic::AtomicU64::new(0))
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-            shift: 64 - bits,
-        }
-    }
-
-    #[inline(always)]
-    fn full_key(tiles_key: u64, blank: u8, group: usize) -> u64 {
-        tiles_key | ((blank as u64) << 40) | ((group as u64) << 45)
-    }
-
-    #[inline(always)]
-    fn peek(&self, tiles_key: u64, blank: u8, group: usize) -> Option<u8> {
-        let key = Self::full_key(tiles_key, blank, group);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        let e = self.slots[i].load(std::sync::atomic::Ordering::Relaxed);
-        let hit = (e >> 8) == key;
-        #[cfg(feature = "probe-cache-stats")]
-        if hit {
-            K8_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        } else {
-            K8_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        hit.then_some((e & 0xFF) as u8)
-    }
-
-    #[inline(always)]
-    fn store(&self, tiles_key: u64, blank: u8, group: usize, val: u8) {
-        let key = Self::full_key(tiles_key, blank, group);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        self.slots[i].store(
-            (key << 8) | val as u64,
-            std::sync::atomic::Ordering::Relaxed,
-        );
-    }
-}
-
-impl Default for K8SharedCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(feature = "probe-cache-stats")]
-static K8_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
-static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Print the k8 front cache's aggregate hit/miss counters.
-#[cfg(feature = "probe-cache-stats")]
-pub fn k8_cache_stats_report() {
-    let h = K8_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed);
-    let m = K8_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed);
-    if h + m > 0 {
-        eprintln!(
-            "    k8 cache: {h} hits / {m} misses = {:.3}% hit",
-            100.0 * h as f64 / (h + m) as f64
-        );
-    }
-}
-
-/// Shared, lock-free front cache for the k6 tier.
-///
-/// The eight workers search different subtrees of the *same* tree, so their
-/// probe streams overlap heavily — and eight private caches throw that overlap
-/// away eight times over. One shared table of half the total footprint carries
-/// a better hit rate (private 8 x 4 MB: 89.5% in situ; shared 16 MB: ~95.5% by
-/// the size simulation), which matters because k6's misses are what fail to
-/// parallelise: cWD and LM2 miss 0.3% of the time, k6 10.5%.
-///
-/// Entries are a single `u64` — 39 bits of key (2 group, 5 blank, 32 index)
-/// and 8 bits of value — so a relaxed atomic load/store per probe cannot tear.
-/// A racing writer can only replace one entry with another *valid* entry, and
-/// the tag compare rejects anything that is not the key asked for, so values
-/// stay exact and node counts are unchanged.
-pub struct K6SharedCache {
-    slots: Box<[std::sync::atomic::AtomicU64]>,
-    shift: u32,
-}
-
-impl K6SharedCache {
-    /// `FLAT_K6_SHARED_BITS` entries (default 2^21 = 16 MB total, against the
-    /// private layout's 8 x 4 MB = 32 MB).
-    pub fn new() -> Self {
-        let bits: u32 = std::env::var("FLAT_K6_SHARED_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(21);
-        assert!((8..=26).contains(&bits), "implausible shared k6 cache size");
-        K6SharedCache {
-            slots: (0..1usize << bits)
-                .map(|_| std::sync::atomic::AtomicU64::new(0))
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-            shift: 64 - bits,
-        }
-    }
-
-    #[inline(always)]
-    fn pack(group: usize, tiles_idx: u32, blank: u8) -> u64 {
-        ((group as u64) << 37) | ((blank as u64) << 32) | tiles_idx as u64
-    }
-
-    #[inline(always)]
-    fn peek(&self, group: usize, tiles_idx: u32, blank: u8) -> Option<u8> {
-        let key = Self::pack(group, tiles_idx, blank);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        let e = self.slots[i].load(std::sync::atomic::Ordering::Relaxed);
-        let hit = (e >> 8) == key;
-        #[cfg(feature = "probe-cache-stats")]
-        if hit {
-            K6_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        } else {
-            K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        hit.then_some((e & 0xFF) as u8)
-    }
-
-    #[inline(always)]
-    fn store(&self, group: usize, tiles_idx: u32, blank: u8, val: u8) {
-        let key = Self::pack(group, tiles_idx, blank);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        self.slots[i].store(
-            (key << 8) | val as u64,
-            std::sync::atomic::Ordering::Relaxed,
-        );
-    }
-}
-
-impl Default for K6SharedCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Direct-mapped front cache for the positional maps, keyed on the exact
-/// abstract state `(group, blank, six-tile index)` — which determines the
-/// value, so a hit is exact and skips the map entirely.
-///
-/// Sized from the measured consult stream (feature `k6-locality`, 49.7 M
-/// probes): 92.1% hit at 2^18 entries (4 MB), 95.5% at 2^20, 96.9% at 2^22.
-/// Default 18 bits keeps the cache L2-resident, which is the difference from
-/// the k8 value-memo that lost at every size despite an 89% hit rate.
-/// `FLAT_K6_CACHE_BITS` overrides.
-struct K6Cache {
-    slots: Box<[K6CacheSlot]>,
-    shift: u32,
-}
-
-#[repr(align(16))]
-#[derive(Clone, Copy)]
-struct K6CacheSlot {
-    /// `group << 40 | blank << 32 | tiles_idx`; 0 = empty (a real key has a
-    /// nonzero tiles index, since the six cells are distinct).
-    tag: u64,
-    val: u8,
-}
-
-#[cfg(feature = "probe-cache-stats")]
-static K6_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
-static K6_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Print the k6 front cache's aggregate hit/miss counters (all workers).
-#[cfg(feature = "probe-cache-stats")]
-pub fn k6_cache_stats_report() {
-    let h = K6_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed);
-    let m = K6_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed);
-    if h + m > 0 {
-        eprintln!(
-            "    k6 cache: {h} hits / {m} misses = {:.3}% hit",
-            100.0 * h as f64 / (h + m) as f64
-        );
-    }
-}
-
-impl K6Cache {
-    fn new() -> Self {
-        let bits: u32 = std::env::var("FLAT_K6_CACHE_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(18);
-        assert!((8..=24).contains(&bits), "implausible k6 cache size");
-        K6Cache {
-            slots: vec![K6CacheSlot { tag: 0, val: 0 }; 1usize << bits].into_boxed_slice(),
-            shift: 64 - bits,
-        }
-    }
-
-    /// Value for one group/view: cache hit, else a table probe.
-    ///
-    /// Both miss paths reconstruct through `diff_lookup`, which needs the
-    /// parent's **exact** value — it selects between `parent ± 1` using the
-    /// child's stored bit, so a parent that is even 1 low can reconstruct 1
-    /// *high* (true parent 5, true child 4, degraded parent 4 → 5). That is an
-    /// overestimate and inadmissible, which is why the `parent - 1` shortcut
-    /// cannot be used to skip probes: skipping starves the cache of exact
-    /// values, and feeding a degraded value back into the codec breaks the
-    /// bound. Measured directly — the shortcut version pruned 184,461,339
-    /// nodes at exhaust-144 against the correct 205,119,447.
-    ///
-    /// What remains is the useful half: with `--k6nomap` the miss reads the
-    /// **88 MB ranked zPDBs** instead of the 2.9 GB positional maps, a 33x
-    /// smaller working set for the 10.5% of consults that miss.
-    #[inline(always)]
-    fn key_of(group: usize, tiles_idx: u32, blank: u8) -> u64 {
-        ((group as u64) << 40) | ((blank as u64) << 32) | tiles_idx as u64
-    }
-
-    /// Cached value, or `None` on a miss. Cheap enough to run before deciding
-    /// whether the caller must decode a board for the ranked miss path.
-    #[inline(always)]
-    fn peek(&self, group: usize, tiles_idx: u32, blank: u8) -> Option<u8> {
-        let key = Self::key_of(group, tiles_idx, blank);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        let hit = self.slots[i].tag == key;
-        #[cfg(feature = "probe-cache-stats")]
-        if hit {
-            K6_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        } else {
-            K6_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        hit.then(|| self.slots[i].val)
-    }
-
-    #[inline(always)]
-    fn store(&mut self, group: usize, tiles_idx: u32, blank: u8, val: u8) {
-        let key = Self::key_of(group, tiles_idx, blank);
-        let i = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize;
-        self.slots[i] = K6CacheSlot { tag: key, val };
-    }
-}
-
-/// Seed depth-0 positional k6 state (cold — once per subtree).
-fn seed_k6pos(arena: &mut Arena, board: &State, ctx: &super::k6pos::K6PosCtx) -> u8 {
-    arena
-        .k6cache
-        .get_or_insert_with(|| Box::new(K6Cache::new()));
-    let (idx, h, h0) = ctx.seed(board);
-    arena.k6pos[0] = K6PosSlot { idx, h };
-    h0
-}
-
-/// Advance the positional k6 state across the move and return `h_k6`.
-/// One multiply-add per σ-view updates the moved tile's group index; the
-/// blank digit is applied inside the probe.
-#[inline]
-fn k6pos_child(
-    arena: &mut Arena,
-    ctx: &super::k6pos::K6PosCtx,
-    d: usize,
-    geom: Geom,
-    tile: usize,
-) -> u8 {
-    let b = arena.hot[d].blank as i64; // pre-move blank = the tile's destination
-    let n = geom.from as i64; // the tile's cell = the new blank
-    let tile = TILE_OF_CODE[tile] as usize;
-    let (lo, hi) = arena.k6pos.split_at_mut(d + 1);
-    let parent = &lo[d];
-    let child = &mut hi[0];
-    *child = *parent;
-
-    let gi = ctx.group_of[tile] as usize;
-    child.idx[0][gi] = (child.idx[0][gi] as i64 + (b - n) * ctx.coeff[tile] as i64) as u32;
-    let rt = symmetry::TAU[tile] as usize;
-    let gj = ctx.group_of[rt] as usize;
-    let (rb, rn) = (
-        symmetry::SIGMA[b as usize] as i64,
-        symmetry::SIGMA[n as usize] as i64,
-    );
-    child.idx[1][gj] = (child.idx[1][gj] as i64 + (rb - rn) * ctx.coeff[rt] as i64) as u32;
-
-    let (i0, i1) = (child.idx[0][gi], child.idx[1][gj]);
-    let (p0, p1) = (parent.h[0][gi], parent.h[1][gj]);
-    // The ranked miss path needs the child board; decode only when the tier
-    // is map-free (with maps the probe is index-only).
-    // Peek first: the ranked miss path needs a decoded board (and, for the
-    // reflected view, its σ-image), which is ~50 ns we must not pay on the
-    // ~90% of consults that hit.
-    let shared = ctx.shared_cache();
-    let (c0, c1) = match shared {
-        Some(sc) => (sc.peek(gi, i0, n as u8), sc.peek(gj, i1, rn as u8)),
-        None => {
-            let cache = arena
-                .k6cache
-                .as_ref()
-                .expect("seed_k6pos allocates the cache");
-            (cache.peek(gi, i0, n as u8), cache.peek(gj, i1, rn as u8))
-        }
-    };
-    let (v0, v1) = if let (Some(a), Some(b)) = (c0, c1) {
-        (a, b)
-    } else {
-        let boards = if ctx.has_maps() {
-            None
-        } else {
-            let b = arena.board[d + 1].0.decode();
-            let r = symmetry::reflect(&b);
-            Some((b, r))
-        };
-        let probe = |g: usize, idx: u32, bl: u8, ph: u8, bd: Option<&State>| -> u8 {
-            match bd {
-                None => ctx.probe(g, idx, bl, ph),
-                Some(b) => ctx.probe_ranked(g, b, ph),
-            }
-        };
-        match shared {
-            Some(sc) => {
-                let a = c0.unwrap_or_else(|| {
-                    let v = probe(gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0));
-                    sc.store(gi, i0, n as u8, v);
-                    v
-                });
-                let b = c1.unwrap_or_else(|| {
-                    let v = probe(gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1));
-                    sc.store(gj, i1, rn as u8, v);
-                    v
-                });
-                (a, b)
-            }
-            None => {
-                let cache = arena
-                    .k6cache
-                    .as_mut()
-                    .expect("seed_k6pos allocates the cache")
-                    .as_mut();
-                let a = c0.unwrap_or_else(|| {
-                    let v = probe(gi, i0, n as u8, p0, boards.as_ref().map(|x| &x.0));
-                    cache.store(gi, i0, n as u8, v);
-                    v
-                });
-                let b = c1.unwrap_or_else(|| {
-                    let v = probe(gj, i1, rn as u8, p1, boards.as_ref().map(|x| &x.1));
-                    cache.store(gj, i1, rn as u8, v);
-                    v
-                });
-                (a, b)
-            }
-        }
-    };
-    let child = &mut arena.k6pos[d + 1];
-    child.h[0][gi] = v0;
-    child.h[1][gj] = v1;
-
-    let s0 = child.h[0].iter().map(|&x| x as u16).sum::<u16>();
-    let s1 = child.h[1].iter().map(|&x| x as u16).sum::<u16>();
-    let out = s0.max(s1).min(255) as u8;
-    debug_assert_eq!(
-        out,
-        ctx.cold_h(&arena.board[d + 1].0.decode()),
-        "incremental k6 drifted from cold lookups"
-    );
-    out
-}
-
-/// k6 tier per-depth state: the four pattern projections in both σ-views and
-/// their table values. Written only on consults, same discipline as [`K8Slot`].
-#[derive(Clone, Copy)]
-struct K6Slot {
-    views: [[crate::puzzle24::pdb::ProjectedState; 4]; 2],
-    h: [[u8; 4]; 2],
-}
-
-/// Seed depth-0 k6 state from the board (cold lookups — seeds are rare).
-fn seed_k6v(arena: &mut Arena, board: &State, ctx: &K6Ctx) -> u8 {
-    let rs = symmetry::reflect(board);
-    let slot = &mut arena.k6slots[0];
-    let (mut s0, mut s1) = (0u16, 0u16);
-    for i in 0..4 {
-        let db = &ctx.dbs[i];
-        slot.views[0][i] = crate::puzzle24::pdb::ProjectedState::from_state(board, db.pattern());
-        slot.views[1][i] = crate::puzzle24::pdb::ProjectedState::from_state(&rs, db.pattern());
-        slot.h[0][i] = db.cold_lookup(board);
-        slot.h[1][i] = db.cold_lookup(&rs);
-        s0 += slot.h[0][i] as u16;
-        s1 += slot.h[1][i] as u16;
-    }
-    s0.max(s1).min(255) as u8
-}
-
-/// The positional layout's six-tile index for a projected view (instrument
-/// only: the ranked path never needs it).
-#[cfg(feature = "k6-locality")]
-fn k6_tiles_index(
-    v: &crate::puzzle24::pdb::ProjectedState,
-    pattern: crate::puzzle24::pdb::Pattern,
-) -> u32 {
-    let mut idx = 0u64;
-    for (j, t) in pattern.iter().enumerate() {
-        idx += v.pos_of(t) as u64 * [9_765_625u64, 390_625, 15_625, 625, 25, 1][j];
-    }
-    idx as u32
-}
-
-/// Advance the k6 state across move `m` from depth `d` to `d+1` and return the
-/// child's `h_k6 = max(Σ normal, Σ reflected)`. Exact mirror of [`k8_child`]:
-/// one group is cost-1 per view, the other three are untouched.
-#[inline]
-fn k6_child(arena: &mut Arena, ctx: &K6Ctx, d: usize, geom: Geom, tile: usize) -> u8 {
-    let (lo, hi) = arena.k6slots.split_at_mut(d + 1);
-    let parent = &lo[d];
-    let child = &mut hi[0];
-    *child = *parent;
-    let b = arena.hot[d].blank as usize;
-    let n = geom.from as usize;
-    let tile = TILE_OF_CODE[tile] as usize;
-
-    let gi = ctx.group_of[tile] as usize;
-    {
-        let db = &ctx.dbs[gi];
-        let v = &mut child.views[0][gi];
-        v.set_blank_pos(b as u8);
-        let cost = v.apply_in_place_at(b, n);
-        debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
-        let idx = db.layout().rank(v, db.pattern());
-        #[cfg(feature = "k6-locality")]
-        k6_locality::record(gi, v.blank_pos(), k6_tiles_index(v, db.pattern()));
-        child.h[0][gi] = db.diff_lookup(idx, parent.h[0][gi]);
-    }
-
-    let rt = symmetry::TAU[tile] as usize;
-    let gj = ctx.group_of[rt] as usize;
-    {
-        let db = &ctx.dbs[gj];
-        let rb = symmetry::SIGMA[b] as usize;
-        let rn = symmetry::SIGMA[n] as usize;
-        let v = &mut child.views[1][gj];
-        v.set_blank_pos(rb as u8);
-        let cost = v.apply_in_place_at(rb, rn);
-        debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
-        let idx = db.layout().rank(v, db.pattern());
-        #[cfg(feature = "k6-locality")]
-        k6_locality::record(gj, v.blank_pos(), k6_tiles_index(v, db.pattern()));
-        child.h[1][gj] = db.diff_lookup(idx, parent.h[1][gj]);
-    }
-
-    let s0 = child.h[0].iter().map(|&x| x as u16).sum::<u16>();
-    let s1 = child.h[1].iter().map(|&x| x as u16).sum::<u16>();
-    let out = s0.max(s1).min(255) as u8;
-    debug_assert_eq!(
-        out,
-        ctx.h(&arena.board[d + 1].0.decode()),
-        "incremental k6 drifted from cold lookups"
-    );
-    out
-}
-
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -3038,7 +2402,6 @@ where
         None,
         Some(lm),
         None,
-        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -3056,7 +2419,6 @@ pub fn flat_bounded_lm2_telemetry<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     lm2: &super::cwd_lm::CwdLmMm,
-    k6: Option<&K6Tier>,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -3072,7 +2434,6 @@ where
         None,
         None,
         Some(lm2),
-        k6,
         orbit_split,
         max_bound,
         max_nodes,
@@ -3103,7 +2464,6 @@ where
         Some(k8),
         None,
         Some(lm2),
-        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -3133,7 +2493,6 @@ where
         cwd,
         dfa,
         Some(k8),
-        None,
         None,
         None,
         orbit_split,
@@ -3174,7 +2533,6 @@ where
         None,
         None,
         None,
-        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -3203,7 +2561,6 @@ where
         None,
         None,
         None,
-        None,
         orbit_split,
         max_bound,
         u64::MAX,
@@ -3219,7 +2576,6 @@ fn flat_bounded_inner_k8<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
-    k6t: Option<&K6Tier>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -3252,12 +2608,6 @@ where
     } else if lm.is_some() {
         seed_lm(&mut arena, start);
     }
-    if let Some(c) = k6t {
-        h0 = h0.max(match c {
-            K6Tier::Ranked(c) => seed_k6v(&mut arena, start, c),
-            K6Tier::Pos(c) => seed_k6pos(&mut arena, start, c),
-        });
-    }
     let mut bound = h0;
 
     loop {
@@ -3273,56 +2623,39 @@ where
             k8.is_some(),
             lm2.is_some(),
             lm.is_some(),
-            k6t.is_some(),
         ) {
-            (true, false, false, false, _) => run_iteration::<false, false, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
-                &mut stats, budget,
+            (true, false, false, false) => run_iteration::<false, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+                budget,
             ),
-            (false, false, false, false, _) => run_iteration::<true, false, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
-                &mut stats, budget,
+            (false, false, false, false) => run_iteration::<true, false, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
+                budget,
             ),
             // cascade: LM2 first, k8 only at LM2-survivors
-            (true, true, true, _, _) => run_iteration::<false, true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, None, bound, &mut stats,
-                budget,
+            (true, true, true, _) => run_iteration::<false, true, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, bound, &mut stats, budget,
             ),
-            (false, true, true, _, _) => run_iteration::<true, true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, None, bound, &mut stats,
-                budget,
+            (false, true, true, _) => run_iteration::<true, true, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, bound, &mut stats, budget,
             ),
-            (true, true, false, _, _) => run_iteration::<false, true, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
-                budget,
+            (true, true, false, _) => run_iteration::<false, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
             ),
-            (false, true, false, _, _) => run_iteration::<true, true, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
-                budget,
+            (false, true, false, _) => run_iteration::<true, true, false, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
             ),
-            (true, false, true, _, false) => run_iteration::<false, false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, None, bound, &mut stats,
-                budget,
+            (true, false, true, _) => run_iteration::<false, false, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
             ),
-            (false, false, true, _, false) => run_iteration::<true, false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, None, bound, &mut stats,
-                budget,
+            (false, false, true, _) => run_iteration::<true, false, false, true>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
             ),
-            (true, false, true, _, true) => run_iteration::<false, false, false, true, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, k6t, bound, &mut stats,
-                budget,
+            (true, false, false, true) => run_iteration::<false, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
             ),
-            (false, false, true, _, true) => run_iteration::<true, false, false, true, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, k6t, bound, &mut stats,
-                budget,
-            ),
-            (true, false, false, true, _) => run_iteration::<false, false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
-                budget,
-            ),
-            (false, false, false, true, _) => run_iteration::<true, false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
-                budget,
+            (false, false, false, true) => run_iteration::<true, false, true, false>(
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
             ),
         };
         match step {
@@ -3515,7 +2848,6 @@ pub fn flat_bounded_parallel<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
-    k6t: Option<&K6Tier>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -3603,12 +2935,6 @@ where
             } else if lm.is_some() {
                 seed_lm(&mut split_arena, &u.board);
             }
-            if let Some(c) = k6t {
-                match c {
-                    K6Tier::Ranked(c) => seed_k6v(&mut split_arena, &u.board, c),
-                    K6Tier::Pos(c) => seed_k6pos(&mut split_arena, &u.board, c),
-                };
-            }
             let mut cand = split_arena.hot[0].cand;
             let g_next = u.g + 1;
             while !cand.is_empty() {
@@ -3649,35 +2975,6 @@ where
                 if let Some(lm2t) = lm2 {
                     let t = TILE_OF_CODE[tile] as usize;
                     let heff = lm2_child(&mut split_arena, lm2t, 0, t, h);
-                    if heff > h {
-                        let f2 = g_next.saturating_add(heff);
-                        if f2 > bound {
-                            stats.nodes += 1; // counted, same as the cWD over-bound arm
-                            if f2 < min_f {
-                                min_f = f2;
-                            }
-                            continue;
-                        }
-                    }
-                }
-                if let Some(k6c) = k6t {
-                    let hk6 = match k6c {
-                        K6Tier::Ranked(c) => k6_child(&mut split_arena, c, 0, geom, tile),
-                        K6Tier::Pos(c) => k6pos_child(&mut split_arena, c, 0, geom, tile),
-                    };
-                    if hk6 > h {
-                        let f2 = g_next.saturating_add(hk6);
-                        if f2 > bound {
-                            stats.nodes += 1; // counted, same as the cWD over-bound arm
-                            if f2 < min_f {
-                                min_f = f2;
-                            }
-                            continue;
-                        }
-                    }
-                } else if let Some(lmt) = lm {
-                    let t = TILE_OF_CODE[tile] as usize;
-                    let heff = lm_child(&mut split_arena, lmt, 0, t, h);
                     if heff > h {
                         let f2 = g_next.saturating_add(heff);
                         if f2 > bound {
@@ -3759,19 +3056,13 @@ where
                     } else if lm.is_some() {
                         seed_lm(arena, &u.board);
                     }
-                    if let Some(c) = k6t {
-                        match c {
-                            K6Tier::Ranked(c) => seed_k6v(arena, &u.board, c),
-                            K6Tier::Pos(c) => seed_k6pos(arena, &u.board, c),
-                        };
-                    }
                     let _setup_ns = unit_start.elapsed().as_nanos() as u64;
                     // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
                     let step = if k8.is_some() && lm2.is_some() {
-                        run_iteration::<false, true, false, true, false>(
+                        run_iteration::<false, true, false, true>(
                             arena,
                             cache,
                             cwd,
@@ -3780,13 +3071,12 @@ where
                             k8,
                             lm,
                             lm2,
-                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else if k8.is_some() {
-                        run_iteration::<false, true, false, false, false>(
+                        run_iteration::<false, true, false, false>(
                             arena,
                             cache,
                             cwd,
@@ -3795,28 +3085,12 @@ where
                             k8,
                             None,
                             None,
-                            None,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
-                    } else if lm2.is_some() && k6t.is_some() {
-                        run_iteration::<false, false, false, true, true>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            None,
-                            lm,
-                            lm2,
-                            k6t,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else if lm2.is_some() {
-                        run_iteration::<false, false, false, true, false>(
+                        run_iteration::<false, false, false, true>(
                             arena,
                             cache,
                             cwd,
@@ -3825,13 +3099,12 @@ where
                             None,
                             lm,
                             lm2,
-                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else if lm.is_some() {
-                        run_iteration::<false, false, true, false, false>(
+                        run_iteration::<false, false, true, false>(
                             arena,
                             cache,
                             cwd,
@@ -3839,20 +3112,18 @@ where
                             dfa,
                             None,
                             lm,
-                            None,
                             None,
                             reduced,
                             &mut st,
                             u64::MAX,
                         )
                     } else {
-                        run_iteration::<false, false, false, false, false>(
+                        run_iteration::<false, false, false, false>(
                             arena,
                             cache,
                             cwd,
                             merged,
                             dfa,
-                            None,
                             None,
                             None,
                             None,
@@ -4219,13 +3490,7 @@ fn seed_root(
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-fn run_iteration<
-    const BUDGETED: bool,
-    const K8: bool,
-    const LM: bool,
-    const LM2: bool,
-    const K6: bool,
->(
+fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
     cwd: &Cwd,
@@ -4234,7 +3499,6 @@ fn run_iteration<
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLmMm>,
     lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
-    k6ctx: Option<&K6Tier>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -4382,24 +3646,6 @@ fn run_iteration<
             let heff = lm_child(arena, lmctx.unwrap(), d, t, h);
             if heff > h {
                 let f2 = g_next.saturating_add(heff);
-                if f2 > bound {
-                    if f2 < minf {
-                        minf = f2;
-                    }
-                    continue;
-                }
-            }
-        }
-        // The k6 tier: incremental consult at LM2-survivors (reached only
-        // when neither cWD nor LM2 pruned the child). Slot copy + 2 slides +
-        // 2 ranks + 2 diff lookups into the RAM-resident 88 MB family.
-        if K6 {
-            let hk6 = match k6ctx.unwrap() {
-                K6Tier::Ranked(c) => k6_child(arena, c, d, geom, tile),
-                K6Tier::Pos(c) => k6pos_child(arena, c, d, geom, tile),
-            };
-            if hk6 > h {
-                let f2 = g_next.saturating_add(hk6);
                 if f2 > bound {
                     if f2 < minf {
                         minf = f2;
