@@ -1553,3 +1553,25 @@ a timing. Also: killing `solve24` does NOT stop a sweep — the shell loop
 survives and launches the next arm, so two sweeps can run concurrently and
 corrupt each other. Use TaskStop on the task, and prefer a single `for` loop
 over separate invocations so there is one process tree to stop.
+
+LOCALITY-PRESERVING RANK: closed by the move-frequency measurement.
+Both the ranked layout (last factorial digit) and a positional one (lowest
+digit) give near-neighbour addressing to exactly ONE tile per pattern; the
+other seven move high-order digits and land far away — which is why the
+measured consecutive-probe same-line rate was 0.12%. Density and locality
+are in tension: dense indexing must be combinatorial (scatters neighbours),
+local indexing must be positional (25^9 = 480 GB for k8, impossible). The
+only free lever was choosing WHICH tile gets the fast digit, by move
+frequency.
+Measured @144 (110,013,419 consults):
+  group a (40.2% of moves): 14.7 14.3 14.1 12.8 12.1 11.8 10.2 10.0 %
+  group b (24.7%):          16.5 15.3 14.7 13.9 13.9 13.5  8.7  3.6 %
+  group c (35.2%):          16.5 15.2 15.1 13.3 11.9 11.6  9.7  6.6 %
+Uniform is 12.5%; the busiest tile carries 16.5%, i.e. 1.3x uniform. Digit
+reordering would lift locality coverage from 12.5% to 16.5% of a group's
+consults — 4 points — against a miss path that is only ~17% of the tier's
+cost. Below noise. Structural reason: the search moves whatever neighbours
+the blank, and the blank roams, so no tile in an 8-tile pattern can dominate.
+Incidental: tile 20 takes just 3.6% of group b's moves, the lowest of any
+tile — independent corroboration that the endgame cast (LM2's tracked tiles)
+stays quiet until the very end.

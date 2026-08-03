@@ -615,6 +615,49 @@ thread_local! {
     static K8_TL: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
 }
 
+/// Which tile moved at each k8 consult, per (group, slot). A rank's last
+/// factorial digit — and a positional index's lowest digit — varies fastest,
+/// so exactly ONE tile per pattern enjoys near-neighbour addressing. If the
+/// move distribution is skewed, ordering the digits by frequency converts a
+/// large share of consults into local accesses at build time, for free; if it
+/// is uniform, no digit order can beat 1/8 coverage and the idea closes.
+#[cfg(feature = "probe-cache-stats")]
+static K8_MOVED_TILE: [std::sync::atomic::AtomicU64; 25] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 25];
+
+/// Per-pattern move frequency, printed as the share carried by each of a
+/// group's eight tiles (descending).
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_move_freq_report(ctx: &K8Ctx) {
+    let counts: Vec<u64> = K8_MOVED_TILE
+        .iter()
+        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+        .collect();
+    let total: u64 = counts.iter().sum();
+    if total == 0 {
+        return;
+    }
+    for (gi, db) in ctx.dbs.iter().enumerate() {
+        let mut v: Vec<(u8, u64)> = db
+            .pattern()
+            .iter()
+            .map(|t| (t, counts[t as usize]))
+            .collect();
+        let gt: u64 = v.iter().map(|x| x.1).sum();
+        v.sort_by_key(|x| std::cmp::Reverse(x.1));
+        let shares: Vec<String> = v
+            .iter()
+            .map(|(t, c)| format!("t{t}:{:.1}%", 100.0 * *c as f64 / gt.max(1) as f64))
+            .collect();
+        eprintln!(
+            "    k8 group {} ({:.1}% of moves): {}",
+            (b'a' + gi as u8) as char,
+            100.0 * gt as f64 / total as f64,
+            shares.join(" ")
+        );
+    }
+}
+
 #[cfg(feature = "probe-cache-stats")]
 static K8_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "probe-cache-stats")]
@@ -3771,6 +3814,8 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                     let (a, b) = c.get();
                     c.set((a + 1, b + pruned as u64));
                 });
+                K8_MOVED_TILE[TILE_OF_CODE[tile] as usize]
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             #[cfg(feature = "k8-probe-locality")]
             {
