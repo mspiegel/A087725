@@ -608,6 +608,89 @@ static K8_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 #[cfg(feature = "probe-cache-stats")]
 static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+// ---- surplus-coding gate (idea 1) -------------------------------------
+// Would an ABSOLUTE encoding fit in the current footprint? Store each entry
+// as surplus over the pattern's Manhattan sum: surplus = h - MD_sum. Both
+// terms move by +/-1 on a cost-1 move, so surplus is EVEN and 0 at goal, and
+// b bits hold surplus/2 up to 2^b - 1. Clamping DOWN stays admissible. The
+// question is only what the clamp costs in prunes.
+//   cap 6 -> 2 bits (~33 GB, today's footprint) | 14 -> 3 bits | 30 -> 4 bits
+#[cfg(feature = "probe-cache-stats")]
+pub(crate) const SURPLUS_CAPS: [u16; 3] = [4, 6, 14];
+
+#[cfg(feature = "probe-cache-stats")]
+static SURPLUS_HIST: [std::sync::atomic::AtomicU64; 16] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 16];
+/// Must stay 0: h < MD_sum would mean the projection or the σ-relabelling is
+/// wrong, since MD over a pattern's own tiles is a lower bound on its ZPDB
+/// value. Doubles as a correctness check on the reflected view.
+#[cfg(feature = "probe-cache-stats")]
+static SURPLUS_NEG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Prunes the true encoding makes that each clamped cap would LOSE.
+#[cfg(feature = "probe-cache-stats")]
+static SURPLUS_LOST: [std::sync::atomic::AtomicU64; 3] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+/// Consults where the clamped tier value is strictly below the true one.
+#[cfg(feature = "probe-cache-stats")]
+static SURPLUS_LOWER: [std::sync::atomic::AtomicU64; 3] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+
+/// Manhattan sum over a projection's OWN pattern tiles (blank and ANON skipped).
+#[cfg(feature = "probe-cache-stats")]
+fn md_sum(ps: &crate::puzzle24::pdb::pattern::ProjectedState) -> u16 {
+    let mut s = 0u16;
+    for (i, &v) in ps.cells.iter().enumerate() {
+        if v != 0 && v != crate::puzzle24::pdb::pattern::ANON {
+            let g = (v - 1) as usize;
+            s += (i / W).abs_diff(g / W) as u16 + (i % W).abs_diff(g % W) as u16;
+        }
+    }
+    s
+}
+
+#[cfg(feature = "probe-cache-stats")]
+thread_local! {
+    /// Clamped tier value per cap for the consult just performed.
+    static K8_CLAMPED: std::cell::Cell<[u8; 3]> = const { std::cell::Cell::new([0; 3]) };
+}
+
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_surplus_report() {
+    let neg = SURPLUS_NEG.load(std::sync::atomic::Ordering::Relaxed);
+    let hist: Vec<u64> = SURPLUS_HIST
+        .iter()
+        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+        .collect();
+    let tot: u64 = hist.iter().sum();
+    if tot == 0 {
+        return;
+    }
+    eprintln!("    k8 surplus: {tot} group-values, {neg} negative (must be 0)");
+    let mut cum = 0u64;
+    for (b, &c) in hist.iter().enumerate() {
+        if c > 0 {
+            cum += c;
+            eprintln!(
+                "      surplus {:>2}: {:>12} ({:>5.2}%)  cum {:>6.2}%",
+                b * 2,
+                c,
+                100.0 * c as f64 / tot as f64,
+                100.0 * cum as f64 / tot as f64
+            );
+        }
+    }
+    let prunes = K8_PRUNES.load(std::sync::atomic::Ordering::Relaxed);
+    for (i, cap) in SURPLUS_CAPS.iter().enumerate() {
+        let lost = SURPLUS_LOST[i].load(std::sync::atomic::Ordering::Relaxed);
+        let lower = SURPLUS_LOWER[i].load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!(
+            "    cap {cap:>2} ({} bits): tier lowered on {lower}; prunes LOST {lost} of {prunes} ({:.3}%)",
+            (*cap as f64 / 2.0 + 1.0).log2().ceil() as u32,
+            100.0 * lost as f64 / prunes.max(1) as f64
+        );
+    }
+}
+
 #[cfg(feature = "probe-cache-stats")]
 thread_local! {
     /// Per-thread (consults, prunes) so a worker can attribute a *unit's*
@@ -1997,6 +2080,35 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
 
     let s0 = child.h[0][0] as u16 + child.h[0][1] as u16 + child.h[0][2] as u16;
     let s1 = child.h[1][0] as u16 + child.h[1][1] as u16 + child.h[1][2] as u16;
+
+    #[cfg(feature = "probe-cache-stats")]
+    {
+        let mut acc = [[0u16; 2]; 3];
+        for v in 0..2 {
+            for g in 0..3 {
+                let md = md_sum(&child.views[v][g]);
+                let h = child.h[v][g] as u16;
+                if h < md {
+                    SURPLUS_NEG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                let sur = h.saturating_sub(md);
+                SURPLUS_HIST[((sur / 2) as usize).min(15)]
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                for (i, cap) in SURPLUS_CAPS.iter().enumerate() {
+                    acc[i][v] += md + sur.min(*cap);
+                }
+            }
+        }
+        let mut out = [0u8; 3];
+        for i in 0..3 {
+            out[i] = acc[i][0].max(acc[i][1]).min(255) as u8;
+            if (out[i] as u16) < s0.max(s1) {
+                SURPLUS_LOWER[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        K8_CLAMPED.with(|c| c.set(out));
+    }
+
     s0.max(s1).min(255) as u8
 }
 
@@ -3816,6 +3928,14 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                 });
                 K8_MOVED_TILE[TILE_OF_CODE[tile] as usize]
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if pruned {
+                    let cl = K8_CLAMPED.with(|c| c.get());
+                    for i in 0..SURPLUS_CAPS.len() {
+                        if g_next.saturating_add(cl[i]) <= bound {
+                            SURPLUS_LOST[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
             }
             #[cfg(feature = "k8-probe-locality")]
             {

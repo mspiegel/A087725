@@ -577,6 +577,8 @@ fn main() -> ExitCode {
     if let Some(ctx) = k8.as_ref() {
         puzzle8::puzzle24::search::flat::k8_move_freq_report(ctx);
     }
+    #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::k8_surplus_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

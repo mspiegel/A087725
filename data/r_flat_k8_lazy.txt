@@ -1575,3 +1575,39 @@ the blank, and the blank roams, so no tile in an 8-tile pattern can dominate.
 Incidental: tile 20 takes just 3.6% of group b's moves, the lowest of any
 tile — independent corroboration that the endgame cast (LM2's tracked tiles)
 stays quiet until the very end.
+
+SURPLUS-CODING GATE (absolute-value re-encoding of k8) — PASSES on quality.
+Idea: store surplus = h - MD_sum(pattern's own tiles) instead of a 1-bit
+differential. Both terms move by +/-1 on a cost-1 move, so surplus is EVEN and
+0 at goal; b bits hold surplus/2. Clamping DOWN stays admissible. If it fits,
+lookups become INDEPENDENT — which revives every idea the differential chain
+killed (consult gating, depth gating that keeps its prunes, batch/epoch
+evaluation, sorted sequential table access).
+Measured @144, 660,126,138 group-values (110,013,419 consults x 6):
+  surplus  0  254,995,221  38.63%   cum  38.63%
+  surplus  2  241,759,190  36.62%   cum  75.25%
+  surplus  4  153,727,347  23.29%   cum  98.54%
+  surplus  6    9,384,073   1.42%   cum  99.96%
+  surplus  8      260,170   0.04%   cum 100.00%
+  surplus 10          137   ~0%     max observed
+  NEGATIVE SURPLUS: 0 — doubles as a correctness check that the sigma-
+  relabelled view is projected correctly (MD over a pattern's own tiles is a
+  lower bound on its ZPDB value, so h < MD would prove a projection bug).
+Prune loss by clamp (of 7,219,794 true prunes):
+  cap  2  1 bit   32.8 GB (today's)   86.832%  <- absolute at today's size is dead
+  cap  4  base-3  ~52.5 GB            16.617%
+  cap  6  2 bits  65.6 GB              0.860%  <- the knee
+  cap 14  3 bits  98.4 GB              0%      (exact; does not fit 80.5 GB free)
+Entropy of the distribution is 1.64 bits, so 2-bit fixed-width is near-optimal
+for random access. The cap4 -> cap6 cliff is 20x for ONE extra representable
+value: prunes live entirely in the high-surplus tail (0.04% of entries clamp
+at cap 6 but 0.86% of prunes are lost), the same selection effect seen in the
+per-unit and depth analyses.
+VERDICT: 2 bits / cap 6 / 65.6 GB / 0.86% prune loss. Disk is 80.5 GB free and
+existing zbins are 37.6 GB, so groups must be rebuilt one at a time.
+THE BLOCKER IS THE BUILD, NOT THE ENCODING. This repo has no 24-puzzle ZPDB
+builder (only build_zpdb15); the k8 tables came from outside. Producing
+surplus-coded tables means either a fresh BFS or a reconstruction sweep over
+~74 G states per group (222 G total) using the existing 1-bit tables to supply
+each step's +/-1 — an external-memory traversal, since no frontier of that size
+is RAM-resident. That is the cost to weigh against the payoff.
