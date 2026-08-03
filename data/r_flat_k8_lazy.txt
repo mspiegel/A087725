@@ -1472,3 +1472,29 @@ plies of headroom, so it roots a much larger subtree than a slack-0 node.
 Next step for LM3 (unchanged in shape, corrected in sample): a refined_axis3
 certification probe on THIS sample, stratified by slack, reporting the
 advantage distribution rather than a single certification rate.
+
+CONSULTING LESS OFTEN IS NOT AVAILABLE TO k8 (user caught this, 2026-08-02).
+The k8 consult fires on 87% of counted nodes (6,779,472,719 consults against
+7,802,326,121 nodes @146) and ~83% of its per-consult cost is paid whether or
+not the cache hits, so gating looked like the one lever with real leverage —
+and skipping a consult is admissible in the usual sense (it forgoes a prune,
+never invents one).
+It is NOT admissible here, because the zPDB is differentially encoded: one bit
+per state (bit 1 of the distance), reconstructed as
+`diff_lookup(child_index, h(parent))`. The value exists only relative to the
+parent's, so k8_child maintains a CHAIN. Skipping a consult leaves that
+depth's arena slot holding a previously-traversed sibling's data, and the next
+reconstruction from it can read HIGHER than the truth — over-pruning, which
+would silently invalidate a proof. A slack gate was implemented and reverted
+before any number was taken from it.
+The trade is structural: the 1-bit encoding that makes 30.5 GB affordable is
+exactly what forbids skipping consults. Absolute-valued tables would allow
+gating but cost 8x the space (k8 at u8 is ~80 GB per pattern — out of the
+question); the LM family is unaffected, since its tables store absolute values
+and its consults are independent.
+Corollary: of the four gating ideas (slack, depth band, single σ-view,
+blank-position), only SINGLE σ-VIEW survives — it drops one of the two chains
+entirely rather than interrupting either, so it stays sound. Measured for k6
+it kept 75% of the tier's unique reach for half the probes; for k8 the
+σ-asymmetric partition makes the second view worth more, so the loss would be
+larger. Unmeasured.

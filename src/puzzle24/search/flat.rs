@@ -3663,6 +3663,18 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                 }
             }
         }
+        // The k8 tier CANNOT be gated. Its values are stored as one bit per
+        // state (bit 1 of the distance) and reconstructed as
+        // `diff_lookup(child_index, h(parent))` — the value exists only
+        // relative to the parent's, so `k8_child` maintains a chain rather
+        // than performing independent lookups. Skipping a consult leaves the
+        // depth's slot holding a previously-traversed sibling's data, and the
+        // next reconstruction from it can read HIGHER than the truth, which
+        // over-prunes and would silently invalidate a proof. Consulting less
+        // often is therefore not available to a differentially-encoded table:
+        // the 1-bit encoding that makes 30.5 GB affordable is exactly what
+        // forbids skipping. (LM2 is unaffected — its tables store absolute
+        // values, so its consults are independent.)
         if K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
             #[cfg(feature = "k8-probe-locality")]
