@@ -571,6 +571,8 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_cache_stats_report();
+    #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::k8_prune_stats_report(st.nodes);
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

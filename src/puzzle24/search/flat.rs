@@ -608,6 +608,30 @@ static K8_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 #[cfg(feature = "probe-cache-stats")]
 static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[cfg(feature = "probe-cache-stats")]
+static K8_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static K8_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static K8_RAISED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How often the tier is consulted, raises `h`, and actually prunes.
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_prune_stats_report(nodes: u64) {
+    let c = K8_CONSULTS.load(std::sync::atomic::Ordering::Relaxed);
+    let r = K8_RAISED.load(std::sync::atomic::Ordering::Relaxed);
+    let p = K8_PRUNES.load(std::sync::atomic::Ordering::Relaxed);
+    if c > 0 {
+        eprintln!(
+            "    k8: {c} consults ({:.1}% of {nodes} nodes); raised h on {r} ({:.1}% of consults); PRUNED {p} ({:.2}% of consults, {:.2}% of nodes)",
+            100.0 * c as f64 / nodes.max(1) as f64,
+            100.0 * r as f64 / c as f64,
+            100.0 * p as f64 / c as f64,
+            100.0 * p as f64 / nodes.max(1) as f64,
+        );
+    }
+}
+
 /// Print the k8 front cache's aggregate hit/miss counters.
 #[cfg(feature = "probe-cache-stats")]
 pub fn k8_cache_stats_report() {
@@ -3677,6 +3701,16 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // values, so its consults are independent.)
         if K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
+            #[cfg(feature = "probe-cache-stats")]
+            {
+                K8_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if hk8 > h {
+                    K8_RAISED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if g_next.saturating_add(hk8) > bound {
+                        K8_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
             #[cfg(feature = "k8-probe-locality")]
             {
                 let ctx = k8ctx.unwrap();

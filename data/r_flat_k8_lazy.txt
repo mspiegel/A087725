@@ -1498,3 +1498,23 @@ entirely rather than interrupting either, so it stays sound. Measured for k6
 it kept 75% of the tier's unique reach for half the probes; for k8 the
 σ-asymmetric partition makes the second view worth more, so the loss would be
 larger. Unmeasured.
+
+k8 consult/prune rates measured directly (counters under probe-cache-stats,
+exhaust-144 parallel):
+  k8 alone   195,479,387 consults (72.6% of 269,180,917 nodes);
+             raised h 22,446,836 (11.5% of consults); PRUNED the same
+             (11.48% of consults, 8.34% of nodes)
+  cascade    110,013,419 consults (61.5% of 178,863,576 nodes);
+             raised/PRUNED 7,219,794 (6.56% of consults, 4.04% of nodes)
+Raises == prunes exactly because every surviving node at threshold 144 sits
+at slack 0 (need == h), so any increase crosses the bound; the two columns
+would separate at 148+, where slack 2 and 4 exist.
+The cascade halves k8's prune rate (11.5% -> 6.6% of consults): LM2 has
+already taken most of what k8 would have caught, which is the same 60%
+overlap the survivor certification measured.
+Resolves an earlier apparent contradiction: certK8 = 63.6% on the 555-board
+sample vs 11.5% here. Different trees — the sample was drawn from a cWD-ONLY
+search, whose tree still contains all the subtrees k8 would have cut, so k8
+binds on many of them; the 11.5% is from a k8-ENABLED search where those are
+already gone. A tier's measured prune rate depends on whether the tier was
+running when the population was sampled.
