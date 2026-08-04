@@ -1969,3 +1969,44 @@ coincidence that fit a plausible story. Reading a bug as a validation is worse
 than missing it. Fixed by resetting depth 0 at loop entry; the 4-bucket is now
 correctly EMPTY (nothing below a unit root escapes the inverse-move rule) and
 the distribution is unchanged to two decimals, as its 0.004% share implied.
+
+RHO-PAIRED vs COMPACT 6-6-6-6 (2026-08-04) — rotation-pairing loses.
+HYPOTHESIS (user's): R is the 180-degree rotation of the goal, so the tile at
+cell p must reach cell 24-p. The shipped partition uses compact blocks, which
+puts a tile and its counter-traveller in DIFFERENT groups — their head-on
+conflict, the dominant interaction on R, is invisible to both tables. Pairing
+{p, 24-p} into the same group should price it.
+CONSTRUCTION: orbits of <sigma, rho> on the 5x5 grid are four of size 4, four
+of size 2, and the fixed centre. Since 4+2=6 the partition is forced:
+  A cells 1,4,5,19,20,23   tiles 2,5,6,20,21,24
+  B cells 2,6,10,14,18,22  tiles 3,7,11,15,19,23
+  C cells 3,8,9,15,16,21   tiles 4,9,10,16,17,22
+  D cells 0,7,11,12,13,17  tiles 1,8,12,13,14,18
+      D A B C A
+      A B D C C
+      B D D D B
+      C C D B A
+      A C B A .
+All four sigma-invariant; A/B/C exactly rho-closed, D closed but for the blank.
+Start-cell/goal-cell overlap on R: 6/6, 6/6, 6/6, 5/6 — against the shipped
+partition's 0/8, 0/8, 1/8.
+MEASURED (rho_vs_compact_k6_survivor_sample, 576 boards of survivors_148):
+                    mean h   1-view   certifies (adv>=2)
+  compact           108.21   107.79   24 (4.2%)
+  rho-paired        107.33   107.33   10 (1.7%)
+  both 4 (0.7%) | compact-only 20 (3.5%) | RHO-only 6 (1.0%)
+  adv histogram compact [552,0,20,0,3,0,1,...]  reaches +6
+  adv histogram rho     [566,0, 8,0,2,0,0,...]  never +6
+COMPACT CERTIFIES 2.4x MORE. The sigma prediction held exactly — rho's two-view
+max equals its single-view value to the decimal (107.33 = 107.33), so rho would
+run at half the probes; it simply does not produce enough to be worth it.
+Compact gains +0.42 from its sigma-max.
+NOT dominated, though: 6 of rho's 10 certifications are unique, so the union
+reaches 5.2% vs compact's 4.2% — partly complementary, like k8-only vs LM2.
+LIKELY MECHANISM: a group permuting within its own six cells has DENSE
+conflicts but SHORT displacement, so its abstract distances stay small.
+Compact-but-distant groups have the opposite profile and it wins. Visible in
+the tails: compact reaches +4 on 3 boards and +6 on 1; rho +4 on 2, +6 never.
+Tables kept at data/rho/pdb24_rho_{a..d}.zbin (21.6 MiB each). The k6 proxy
+cost ~10 minutes; the 8-tile version of this question would have needed the
+222 G-state external-memory build.

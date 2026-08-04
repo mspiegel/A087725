@@ -3390,6 +3390,128 @@ mod tests {
     /// families vs the production baseline and LM2 on the unconditioned
     /// survivor sample: the cheap-tier candidates' frontier reach.
     ///
+    /// rho-paired vs compact 6-6-6-6 on the 148 survivors.
+    ///
+    /// R is the 180-degree rotation of the goal: the tile at cell p must reach
+    /// cell 24-p. The shipped partition uses compact blocks, so a tile and its
+    /// counter-traveller land in DIFFERENT groups and their head-on conflict is
+    /// invisible to both tables. The rho-paired partition puts every {p, 24-p}
+    /// pair in the SAME group, so each group's tiles start and finish within
+    /// their own cells (6/6 overlap vs 0/8) and the PDB prices that conflict.
+    /// Built from orbits of <sigma, rho>: each group is one 4-orbit plus one
+    /// 2-orbit, which also makes every group sigma-invariant (second view
+    /// provably redundant — one view, half the probes).
+    ///
+    ///   cargo test --release rho_vs_compact_k6_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs the artifacts, both k6 families and data/survivors_148.txt"]
+    fn rho_vs_compact_k6_survivor_sample() {
+        use crate::puzzle24::pdb::ZPatternDb;
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let load = |paths: &[&str]| -> Vec<ZPatternDb> {
+            paths
+                .iter()
+                .map(|n| {
+                    ZPatternDb::load_mmap(std::path::Path::new(n))
+                        .unwrap_or_else(|e| panic!("{n}: {e:?}"))
+                })
+                .collect()
+        };
+        let compact = load(&[
+            "data/pdb24_a.zbin",
+            "data/pdb24_b.zbin",
+            "data/pdb24_c.zbin",
+            "data/pdb24_d.zbin",
+        ]);
+        let rho = load(&[
+            "data/rho/pdb24_rho_a.zbin",
+            "data/rho/pdb24_rho_b.zbin",
+            "data/rho/pdb24_rho_c.zbin",
+            "data/rho/pdb24_rho_d.zbin",
+        ]);
+        let text = std::fs::read_to_string("data/survivors_148.txt").expect("sample");
+        let every: usize = std::env::var("EVERY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6);
+        let (mut n, mut cc, mut rc, mut both, mut ronly, mut conly) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let (mut sum_c, mut sum_r, mut sum_c1, mut sum_r1) = (0f64, 0f64, 0f64, 0f64);
+        let mut adv = ([0u64; 10], [0u64; 10]);
+        for (_, line) in text
+            .lines()
+            .filter(|l| l.contains("board=["))
+            .enumerate()
+            .filter(|(i, _)| i % every == 0)
+        {
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let rc_ = backing.cell(pack(&mr, br)).unwrap();
+            let cc_ = backing.cell(pack(&mc, bc)).unwrap();
+            let h0 = (rc_.wd + surcharge_from_curves(&rc_.curves, &dr)) as u32
+                + (cc_.wd + surcharge_from_curves(&cc_.curves, &dc)) as u32;
+            let rs = symmetry::reflect(&s);
+            // (two-view max, single-view) for a family
+            let hfam = |fam: &[ZPatternDb]| -> (u32, u32) {
+                let (mut a, mut b) = (0u32, 0u32);
+                for db in fam {
+                    a += db.cold_lookup(&s) as u32;
+                    b += db.cold_lookup(&rs) as u32;
+                }
+                (a.max(b), a)
+            };
+            let ((hc, hc1), (hr, hr1)) = (hfam(&compact), hfam(&rho));
+            n += 1;
+            sum_c += hc as f64;
+            sum_r += hr as f64;
+            sum_c1 += hc1 as f64;
+            sum_r1 += hr1 as f64;
+            adv.0[((hc.saturating_sub(h0)) as usize).min(9)] += 1;
+            adv.1[((hr.saturating_sub(h0)) as usize).min(9)] += 1;
+            let (pc, pr) = (hc >= h0 + 2, hr >= h0 + 2);
+            cc += pc as u64;
+            rc += pr as u64;
+            match (pc, pr) {
+                (true, true) => both += 1,
+                (false, true) => ronly += 1,
+                (true, false) => conly += 1,
+                _ => {}
+            }
+        }
+        let f = n as f64;
+        eprintln!("boards={n} (every {every}th of survivors_148)");
+        eprintln!(
+            "  mean h: compact {:.2} (1-view {:.2}) | RHO {:.2} (1-view {:.2})",
+            sum_c / f,
+            sum_c1 / f,
+            sum_r / f,
+            sum_r1 / f
+        );
+        let pc = |x: u64| 100.0 * x as f64 / f;
+        eprintln!(
+            "  certifies (adv>=2): compact {cc} ({:.1}%) | RHO {rc} ({:.1}%)",
+            pc(cc),
+            pc(rc)
+        );
+        eprintln!(
+            "  both {both} ({:.1}%) | compact-only {conly} ({:.1}%) | RHO-only {ronly} ({:.1}%)",
+            pc(both),
+            pc(conly),
+            pc(ronly)
+        );
+        eprintln!("  advantage histogram compact: {:?}", adv.0);
+        eprintln!("  advantage histogram RHO    : {:?}", adv.1);
+    }
+
     /// Headroom for a cost-partitioned cWD (+) k8, on the 148 survivors.
     ///
     /// The tractable cost-partitioning formulations collapse here. Post-hoc
