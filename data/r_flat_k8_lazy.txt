@@ -1711,3 +1711,33 @@ displacing tiles across line boundaries, and 8 cost-free tiles scattered over
 the board hand the blank uncharged routes through those same boundaries.
 Testing it needs a modified WD build (build_wd24 with a zero-cost tile set) —
 small work, the WD abstraction is tiny — not a PDB rebuild.
+
+DFA / INVERSE-MOVE RESTRICTIONS AS A HEURISTIC PENALTY — closed by parity.
+The move restrictions change the search graph, so the quantity to bound is the
+RESTRICTED distance d_q(s) >= d(s); bounding it is admissible because the DFA
+preserves an optimal root solution. The canonical exploit is one-step
+lookahead:  h'(s,q) = max( h(s), 1 + min over DFA-legal children c of h(c) ),
+which exceeds h(s) exactly when the restriction removed the child the
+heuristic was counting on.
+Measured @144 (counter over expanded nodes; pre-pruned children need no h,
+since the parent survived => h_p <= bound-d, and the pre-prune fired because
+lb > bound-d-1, hence lb >= h_p and they cannot lower the min):
+  cWD-only  90,479,322 of 318,974,854 expanded (28.366%) fire
+            gain +2 on 31,379,182; all-children-pre-pruned on 59,100,140
+  cascade   19,355,708 of 102,793,625 expanded (18.830%) fire
+            gain +2 on 12,073,542; all-children-pre-pruned on 7,282,166
+THE GAIN IS ALWAYS EXACTLY +2, never more — forced by parity. h flips parity
+every move, so a child is h_p +/- 1; "every child >= h_p" therefore means every
+child is exactly h_p + 1, giving h' = h_p + 2. Buckets >= 4 are empty, as
+predicted.
+And +2 is precisely what IDA* already extracts. At 144 every node is slack 0,
+so h_p = need; children with h_c >= h_p give f_c >= bound+1 and the ordinary
+f-test prunes all of them. The lookahead would raise h(s) only AFTER computing
+the children whose own f-test already did the work.
+To add anything the lookahead needs gain > slack, so a slack-2 node needs +4,
+which one step provably cannot produce. Two-step lookahead could reach +4 but
+requires expanding grandchildren — which IDA* again does implicitly one level
+deeper. The whole family reduces to what the min_next fold already collects.
+Note the contrast with LM/LM2, which ARE this idea applied to the FINAL move
+(the blank must enter cell 24 last) and pay 1.5x: the endgame is where the
+move-ordering facts are unconditional and not already priced by the f-test.

@@ -754,6 +754,96 @@ pub fn k8_surplus_report() {
     }
 }
 
+// ---- DFA-lookahead headroom -------------------------------------------
+// The inverse-move rule and the move DFA restrict which children exist, so the
+// quantity the search must bound is the RESTRICTED distance d_q(s) >= d(s).
+// One-step lookahead is the canonical exploit and is admissible for that graph:
+//   h'(s,q) = max( h(s), 1 + min over DFA-legal children c of h(c) )
+// It exceeds h(s) exactly when the restriction removed the child the heuristic
+// was counting on. IDA* already collects most of this implicitly via the
+// min_next fold, so what matters is how OFTEN the condition fires. This counts
+// it. Children killed by the pre-prune need no h: the parent survived, so
+// h_p <= bound - d, and the pre-prune fired because lb > bound - d - 1, hence
+// lb >= h_p — they can never lower the min below h_p.
+#[cfg(feature = "probe-cache-stats")]
+thread_local! {
+    /// Per-depth min over computed children's h, and the depth's own h.
+    static LOOKAHEAD: std::cell::RefCell<Vec<(u8, u8)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+#[cfg(feature = "probe-cache-stats")]
+static LA_EXPANDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LA_BINDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LA_GAIN: [std::sync::atomic::AtomicU64; 8] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 8];
+
+#[cfg(feature = "probe-cache-stats")]
+pub fn k8_lookahead_report() {
+    let e = LA_EXPANDED.load(std::sync::atomic::Ordering::Relaxed);
+    let b = LA_BINDS.load(std::sync::atomic::Ordering::Relaxed);
+    if e == 0 {
+        return;
+    }
+    eprintln!(
+        "    DFA lookahead: {b} of {e} expanded nodes ({:.3}%) would gain — every legal child has h >= h(parent)",
+        100.0 * b as f64 / e as f64
+    );
+    let g: Vec<u64> = LA_GAIN
+        .iter()
+        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+        .collect();
+    eprintln!("      gain histogram (1 + min_child_h - h_parent): {g:?}");
+}
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn la_note_child(d: usize, h: u8) {
+    LOOKAHEAD.with(|v| {
+        let mut v = v.borrow_mut();
+        if d < v.len() && h < v[d].0 {
+            v[d].0 = h;
+        }
+    });
+}
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn la_begin(d: usize, h_parent: u8) {
+    LOOKAHEAD.with(|v| {
+        let mut v = v.borrow_mut();
+        if v.len() <= d {
+            v.resize(d + 1, (u8::MAX, 0));
+        }
+        v[d] = (u8::MAX, h_parent);
+    });
+}
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn la_finish(d: usize) {
+    LOOKAHEAD.with(|v| {
+        let v = v.borrow();
+        if d >= v.len() {
+            return;
+        }
+        let (min_child, h_parent) = v[d];
+        LA_EXPANDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // No computed child, or every computed child at least as far: the
+        // lookahead bound 1 + min_child exceeds h_parent.
+        if min_child == u8::MAX || min_child >= h_parent {
+            LA_BINDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let gain = if min_child == u8::MAX {
+                1
+            } else {
+                (1 + min_child).saturating_sub(h_parent)
+            };
+            LA_GAIN[(gain as usize).min(7)].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    });
+}
+
 #[cfg(feature = "probe-cache-stats")]
 thread_local! {
     /// Per-thread (consults, prunes) so a worker can attribute a *unit's*
@@ -3824,6 +3914,8 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
             if d == 0 {
                 return Step::Exhausted(minf);
             }
+            #[cfg(feature = "probe-cache-stats")]
+            la_finish(d);
             let sub = minf;
             d -= 1;
             cand = arena.hot[d].cand;
@@ -3866,6 +3958,8 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         }
 
         let h = arena.hot[d + 1].h;
+        #[cfg(feature = "probe-cache-stats")]
+        la_note_child(d, h);
         let f = g_next.saturating_add(h);
         if f > bound {
             if f < minf {
@@ -4081,6 +4175,8 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // child.
         cand = MoveSet(CAND[child_blank][m as usize].0 & !dfa.prune_mask(child_dfa));
         d += 1;
+        #[cfg(feature = "probe-cache-stats")]
+        la_begin(d, arena.hot[d].h);
         debug_assert!(d < MAX_DEPTH, "depth exceeded the threshold ceiling");
     }
 }
