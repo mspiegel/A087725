@@ -158,6 +158,7 @@ pub fn process_layer(
 
 /// Distinct neighbor ranks of every board in `frontier` that are not already in
 /// `store`.
+#[cfg(feature = "parallel")]
 fn fresh_neighbors(store: &Store, frontier: &[u64]) -> Vec<u64> {
     let mut set: HashSet<u64> = HashSet::new();
     let mut nb = Vec::with_capacity(4);

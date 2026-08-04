@@ -1813,3 +1813,30 @@ nothing in data/ touched) and corroborated by the cascade re-running
 node-identical afterwards. Lesson: check for a write path BEFORE invoking an
 unfamiliar builder to "see if it starts" — cwd_single.bin is 1.18 GB and ~7
 minutes to rebuild.
+
+15-PUZZLE EXAMPLE CLEANUP (2026-08-04): 13 files, 1,777 lines.
+The residue program is COMPLETE per RESIDUE.md's own table (depth 76 closed
+2026-06-29; 77/78/79/80 all complete). Removed, none referenced by any .md,
+any data/ log, any other example or source file, or any commit subject:
+  antipode/residue  residue_analysis 289, antipode_search15 231,
+                    antipode_anchor15 185
+  studies           m3_pdb15_study 241, dup_probe 178, pdb_shell_analysis 148
+  utilities         cache_diff 148, show_ranks 84, zpdb_profile15 71,
+                    verify_ranks 59, list_high_h 57, show_depth_layer 51,
+                    list_at_depth 35
+KEPT the d77/d78 hunt (883 lines, 6 files) at the user's direction, plus the
+10 cited 15-puzzle examples and all 7 R-board ones. examples/: 42 -> 29.
+
+METHOD CORRECTION worth remembering. The first pass called 25 files "uncited"
+on a test that only grepped 7 specific .md files. Widening it to all .md +
+data/ + cross-references between examples + commit subjects RESCUED SIX
+(c7_kolmogorov had 2 data/ hits; corridor15 was in an .md outside the seven;
+d78_clusters, residue_pocket, reverse_neighborhood, zpdb_bench15 were
+cross-referenced). Real figure: 19 files, 2,903 lines — I had over-claimed by
+a third. The 24-puzzle cleanup earlier used a weaker test still (docs + data/,
+no cross-ref or commit check); nothing deleted there had references, so the
+outcome stands, but the standard was inconsistent between the two passes.
+ALSO: I reported the lean build as "0 warnings" after gating the frontier.rs
+imports; it was actually 1 warning (`fresh_neighbors` dead without `parallel`)
+and I misread a 2-line grep count as clean. Now genuinely 0 in both the
+default and --no-default-features configurations.
