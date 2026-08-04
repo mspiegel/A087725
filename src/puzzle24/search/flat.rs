@@ -1260,6 +1260,62 @@ pub fn lm2_cache_stats_report() {
 /// capped at +6 by the excursion-splice bound), so this measures what a
 /// slack gate could skip.
 #[cfg(feature = "probe-cache-stats")]
+// LM2 consult census, mirroring the k8 counters so the two tiers can be
+// compared apples-to-apples. The 2-D histogram is the one that matters for a
+// slack gate: a tier prunes only when advantage > slack, so ADV_BY_SLACK says
+// directly how much a "skip when slack >= S" gate would forfeit. Indexed
+// [min(slack/2, 3)][min(advantage/2, 7)] — both are even, hence the halving.
+#[cfg(feature = "probe-cache-stats")]
+static LM2_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LM2_RAISED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LM2_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "probe-cache-stats")]
+static LM2_ADV_BY_SLACK: [[std::sync::atomic::AtomicU64; 8]; 4] =
+    [const { [const { std::sync::atomic::AtomicU64::new(0) }; 8] }; 4];
+
+/// How often LM2 is consulted, raises `h`, and prunes — plus the advantage
+/// distribution broken out by slack.
+#[cfg(feature = "probe-cache-stats")]
+pub fn lm2_prune_stats_report(nodes: u64) {
+    let c = LM2_CONSULTS.load(std::sync::atomic::Ordering::Relaxed);
+    let r = LM2_RAISED.load(std::sync::atomic::Ordering::Relaxed);
+    let p = LM2_PRUNES.load(std::sync::atomic::Ordering::Relaxed);
+    if c == 0 {
+        return;
+    }
+    eprintln!(
+        "    lm2: {c} consults ({:.1}% of {nodes} nodes); raised h on {r} ({:.2}% of consults); PRUNED {p} ({:.2}% of consults, {:.2}% of nodes)",
+        100.0 * c as f64 / nodes.max(1) as f64,
+        100.0 * r as f64 / c as f64,
+        100.0 * p as f64 / c as f64,
+        100.0 * p as f64 / nodes.max(1) as f64,
+    );
+    eprintln!("      advantage by slack (rows = slack 0/2/4/6+, cols = adv 0,2,4,..,14):");
+    for (si, row) in LM2_ADV_BY_SLACK.iter().enumerate() {
+        let v: Vec<u64> = row
+            .iter()
+            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+            .collect();
+        let tot: u64 = v.iter().sum();
+        if tot == 0 {
+            continue;
+        }
+        // A tier prunes only when advantage > slack, i.e. adv index > slack index.
+        let useful: u64 = v.iter().skip(si + 1).sum();
+        eprintln!(
+            "        slack {:>2}: {:?}  ({} consults, {} could prune = {:.2}%)",
+            si * 2,
+            v,
+            tot,
+            useful,
+            100.0 * useful as f64 / tot as f64
+        );
+    }
+}
+
+#[cfg(feature = "probe-cache-stats")]
 static LM2_SLACK_HIST: [std::sync::atomic::AtomicU64; 16] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 16];
 
@@ -2765,6 +2821,20 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let t = TILE_OF_CODE[tile] as usize;
             let heff = lm2_child(arena, lm2ctx.unwrap(), d, t, h);
+            #[cfg(feature = "probe-cache-stats")]
+            {
+                LM2_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let slack = (bound - g_next - h) as usize;
+                let adv = heff.saturating_sub(h) as usize;
+                LM2_ADV_BY_SLACK[(slack / 2).min(3)][(adv / 2).min(7)]
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if heff > h {
+                    LM2_RAISED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if g_next.saturating_add(heff) > bound {
+                        LM2_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
             if heff > h {
                 let f2 = g_next.saturating_add(heff);
                 if f2 > bound {

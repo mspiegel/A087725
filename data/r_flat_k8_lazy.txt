@@ -1855,3 +1855,35 @@ rests on that pipeline having run, and TRAINING.md leans on the 15-puzzle's
 exact ground truth for the ML work. Deleting them would leave a documented
 pipeline describing code that no longer exists.
 examples/: 29 -> 27.
+
+LM2 CONSULT CENSUS + ADVANTAGE-BY-SLACK (counters mirroring k8's).
+@144 (every node slack 0):
+  151,484,422 consults (70.1% of 216,158,191 nodes)
+  raised h / PRUNED 20,334,272 (13.42% of consults, 9.41% of nodes)
+  slack 0: [131150150, 20334272, 0, 0, ...]   adv +4 and beyond: ZERO
+@146:
+  6,930,949,814 consults (75.4% of nodes); raised 1,205,595,931 (17.39%);
+  PRUNED 1,028,097,767 (14.83% of consults, 11.19% of nodes)
+  slack 0: [5593976544, 1025540492,     101, 0, ...]  6.62B, 15.49% could prune
+  slack 2: [ 131377339,  177498164, 2557174, 0, ...]  311M,   0.82% could prune
+CORRECTION: LM2's advantage is NOT capped at +2. The 144 run showed zero
+observations of +4 and I concluded "never, not rarely" — on data structurally
+incapable of holding a counterexample, since every node at 144 is slack 0. At
+146, +4 appears 101 times at slack 0 and 2,557,174 times AT SLACK 2, which is
+precisely where +4 prunes and +2 does not. Deep advantages concentrate where
+slack is high — the risk flagged one paragraph earlier and then asserted away.
+So a slack->=2 gate on LM2 is NOT node-identical. Real trade @146: skip
+311,432,677 consults (4.5% of all LM2 consults) to forfeit 2,557,174 prunes
+(0.25%). Still favourable — 99.18% of slack-2 consults are provably waste —
+but it needs a node-count A/B, not a guaranteed-identical check.
+Comparison at slack 0, both tiers standalone @144: LM2 prunes 13.42% of its
+consults, k8 11.5% — LM2 is both stronger per consult AND far cheaper
+(99.889% cache hit vs ~118 ns). k8 earns its place not by pruning more often
+but by producing the deep advantages (+4/+6/+8) LM2 mostly cannot, and those
+are what kill slack->=2 nodes as the threshold rises. LM2's own per-consult
+prune rate also improves with depth: 13.42% @144 -> 14.83% @146.
+METHOD NOTE (third occurrence tonight): threshold 144 is DEGENERATE for
+anything slack-related — all nodes are slack 0, so no slack-conditioned claim
+can be tested there. Same failure shape as the k6 "9.37% beyond LM2" figure
+(measured without k8 in the cascade) and the working set that looked flat at
+144. Any claim of the form "X never happens" needs a threshold where X could.

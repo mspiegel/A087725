@@ -561,6 +561,8 @@ fn main() -> ExitCode {
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_prune_stats_report(st.nodes);
     #[cfg(feature = "probe-cache-stats")]
+    puzzle8::puzzle24::search::flat::lm2_prune_stats_report(st.nodes);
+    #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_surplus_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_working_set_report();
