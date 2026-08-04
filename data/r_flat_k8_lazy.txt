@@ -1940,3 +1940,32 @@ Node-identical in every build. The census's 4.0x is probably the RefCell in the
 surviving-children counter — three borrows per node; parking the count in
 FrameHot beside cand/minf (~10 lines) should bring it near 1.5x if 148 is ever
 wanted. Also dropped K8_TL, dead since the per-unit census was removed.
+
+BRANCHING DISTRIBUTION AT TWO THRESHOLDS (surviving children per expanded
+node, after pre-prune + cWD f-test + LM2 + k8):
+  children      @144 (102,797,721)      @146 (3,573,186,851)     shift
+     0        30,047,753  29.23%     1,096,189,447  30.68%      +1.45
+     1        45,872,536  44.62%     1,535,927,712  42.98%      -1.64
+     2        23,707,856  23.06%       785,951,191  22.00%      -1.07
+     3         3,165,493   3.08%       155,114,406   4.34%      +1.26
+THE DISTRIBUTION BARELY MOVES — every shift under 1.7 points across a
+threshold step that multiplies the tree 34.8x (102.8M -> 3.57B expanded).
+Branching is essentially fixed by board geometry and the DFA, not by the
+threshold. It also moved OPPOSITE to prediction: I expected slack to let more
+children survive (mass 0/1 -> 2/3); instead it POLARISED, both tails growing
+(+1.45 at zero, +1.26 at three) while the middle thinned.
+CONSEQUENCE: the ~43x-per-+2 growth comes from trees getting DEEPER, not
+bushier. With a near-constant branching profile the node count is governed by
+how many plies survive, consistent with the tree bottoming at ~86 plies of a
+possible 146. This is the first structural support for the exhaust-154
+projection, which until now rested on node-count points and an assumed ratio.
+INSTRUMENTATION BUG, found and fixed: `surv_begin` was called only after
+`d += 1`, so depth 0 was never reset and the thread-local vector persisted
+ACROSS work units — a worker's second and later units inherited the previous
+root's tally and saturated the cap. That produced a spurious "4 children"
+bucket of 4,083 @144 / 4,095 @146. I then read those numbers as confirming the
+split phase produces ~4,096 units, since only a root can have 4 children — a
+coincidence that fit a plausible story. Reading a bug as a validation is worse
+than missing it. Fixed by resetting depth 0 at loop entry; the 4-bucket is now
+correctly EMPTY (nothing below a unit root escapes the inverse-move rule) and
+the distribution is unchanged to two decimals, as its 0.004% share implied.

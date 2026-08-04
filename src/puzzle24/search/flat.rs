@@ -2776,6 +2776,11 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     // on descend and ascend. Every other field (`blank`, `dfa`, `row_at`,
     // `col_at`) is read-only at this depth, so `child_lb` and `build_child` keep
     // reading the arena and see the same values.
+    // Reset depth 0 too: the thread-local survivor vector persists across work
+    // units, so without this a worker's second and later units inherit the
+    // previous unit's root tally and saturate the histogram's cap.
+    #[cfg(feature = "search-census")]
+    surv_begin(0);
     let mut cand = arena.hot[0].cand;
     let mut minf = arena.hot[0].minf;
     loop {
