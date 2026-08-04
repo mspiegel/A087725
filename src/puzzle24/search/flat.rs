@@ -754,6 +754,84 @@ pub fn k8_surplus_report() {
     }
 }
 
+// ---- surviving-children distribution ----------------------------------
+// How many children does an expanded node actually descend into, AFTER the
+// whole cascade (neighbour pre-prune, cWD f-test, LM2, k8)? Geometry allows
+// 2/3/4 by corner/edge/interior, minus the inverse move, so 1..3 below the
+// root — but pruning can take it to 0, which is a dead end the search still
+// paid to expand. This is what the ~43x-per-+2 growth ratio is made of.
+#[cfg(feature = "probe-cache-stats")]
+thread_local! {
+    /// Per-depth count of children descended into.
+    static SURV: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+#[cfg(feature = "probe-cache-stats")]
+static SURV_HIST: [std::sync::atomic::AtomicU64; 5] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 5];
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn surv_begin(d: usize) {
+    SURV.with(|v| {
+        let mut v = v.borrow_mut();
+        if v.len() <= d {
+            v.resize(d + 1, 0);
+        }
+        v[d] = 0;
+    });
+}
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn surv_inc(d: usize) {
+    SURV.with(|v| {
+        let mut v = v.borrow_mut();
+        if d < v.len() {
+            v[d] += 1;
+        }
+    });
+}
+
+#[cfg(feature = "probe-cache-stats")]
+#[inline]
+fn surv_finish(d: usize) {
+    SURV.with(|v| {
+        let v = v.borrow();
+        let n = if d < v.len() { v[d] as usize } else { 0 };
+        SURV_HIST[n.min(4)].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+}
+
+/// Distribution of surviving children per expanded node.
+#[cfg(feature = "probe-cache-stats")]
+pub fn surviving_children_report() {
+    let h: Vec<u64> = SURV_HIST
+        .iter()
+        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+        .collect();
+    let tot: u64 = h.iter().sum();
+    if tot == 0 {
+        return;
+    }
+    let mean: f64 = h
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| i as f64 * c as f64)
+        .sum::<f64>()
+        / tot as f64;
+    eprintln!("    surviving children per expanded node ({tot} nodes, mean {mean:.3}):");
+    for (i, &c) in h.iter().enumerate() {
+        if c > 0 {
+            eprintln!(
+                "      {i} {}: {:>14} ({:>6.2}%)",
+                if i == 1 { "child " } else { "children" },
+                c,
+                100.0 * c as f64 / tot as f64
+            );
+        }
+    }
+}
+
 #[cfg(feature = "probe-cache-stats")]
 thread_local! {
     /// Per-thread (consults, prunes) so a worker can attribute a *unit's*
@@ -2709,6 +2787,8 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     let mut minf = arena.hot[0].minf;
     loop {
         if cand.is_empty() {
+            #[cfg(feature = "probe-cache-stats")]
+            surv_finish(d);
             // Children exhausted: fold this subtree's minimum into the parent.
             if d == 0 {
                 return Step::Exhausted(minf);
@@ -2926,8 +3006,12 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // rule come from CAND, redundancy from the DFA's own 4-bit mask (which
         // numbers moves identically to MoveSet). Once per node, not once per
         // child.
+        #[cfg(feature = "probe-cache-stats")]
+        surv_inc(d);
         cand = MoveSet(CAND[child_blank][m as usize].0 & !dfa.prune_mask(child_dfa));
         d += 1;
+        #[cfg(feature = "probe-cache-stats")]
+        surv_begin(d);
         debug_assert!(d < MAX_DEPTH, "depth exceeded the threshold ceiling");
     }
 }

@@ -1887,3 +1887,33 @@ anything slack-related — all nodes are slack 0, so no slack-conditioned claim
 can be tested there. Same failure shape as the k6 "9.37% beyond LM2" figure
 (measured without k8 in the cascade) and the working set that looked flat at
 144. Any claim of the form "X never happens" needs a threshold where X could.
+
+SURVIVING-CHILDREN DISTRIBUTION @144 (children actually descended into, after
+the neighbour pre-prune, cWD's f-test, LM2 and k8):
+  children   cascade (102,797,721 expanded)   cWD only (318,978,950 expanded)
+     0        30,047,753  29.23%               90,479,322  28.37%
+     1        45,872,536  44.62%              145,940,937  45.75%
+     2        23,707,856  23.06%               74,638,803  23.40%
+     3         3,165,493   3.08%                7,915,805   2.48%
+     4             4,083   0.00%                    4,083   0.00%
+THE CASCADE BARELY CHANGES THE SHAPE. It shrinks the tree 2.36x (422.4M ->
+178.9M nodes) while leaving the branching distribution nearly identical — the
+tiers prune uniformly across branching structure rather than preferentially
+killing high-branching nodes. Same "no concentration" result as the per-unit
+census (prune density ratio 1.4) and the depth sweep.
+73.9% of expanded nodes have 0 or 1 surviving child: the tree is dominated by
+dead ends and forced corridors, not by branching. Compare §8j's 36%
+single-survivor figure, which was after the cWD PRE-PRUNE only; after the full
+cascade it is 44.62%.
+Mean is exactly 1.000 — a consistency check, not a finding: in any tree,
+edges = nodes - 1. The histogram sums to the expanded-node count exactly
+(0*30.05M + 1*45.87M + 2*23.71M + 3*3.17M + 4*4083 = 102.79M).
+The 4,083 four-child nodes are the parallel work-unit roots (~4,096 units);
+only a root escapes the inverse-move restriction.
+Counted nodes (178,863,576) minus expanded (102,797,721) = 76,065,855 children
+that were built and counted, then pruned before expansion — 42.5% of the tree.
+NOTE the measurement build is now expensive: probe-cache-stats carries the
+surplus histogram (six 25-cell scans per consult), page tracing, the LM2
+advantage histogram and these RefCell counters — 36.2s vs 2.9s plain for the
+cascade @144, 15.5s vs 2.0s for cWD-only. 146 would be ~20 min, 148 hours. A
+separate lightweight feature would be needed to take this distribution deeper.
