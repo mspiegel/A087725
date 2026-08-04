@@ -1765,3 +1765,24 @@ the 156-move solution, cited across 8 files), rceiling24, frame24 (§7
 reproducibility), cwd_gap (the cWD−WD gap the shipped surcharge rests on),
 cwd_curve_floor, c7_kolmogorov, bellman_closure.
 examples/: 57 -> 44 files.
+
+MOVED the two cWD artifact builders examples/ -> src/bin/ (2026-08-04).
+build_cwd_table (305 lines) is the ONLY build path for data/cwd_single.bin
+(1.18 GB), which is in turn the input to cwd_mm.bin (4.29 GB) that every
+solve24 run mmaps; build_cwd_single (313) is the single-line validator it was
+checked against. Every other artifact builder already lived in src/bin/
+(build_wd24, build_pdb24, build_zpdb15, build_adj8, build_feat8, build_pol8,
+build_table), so these two were both misplaced and — being undeclared
+examples — carried no required-features. Both now declared
+`required-features = ["mmap"]`, matching the convention.
+Verified post-move by running build_cwd_single: loads wd24.bin (65,650,495
+entries), builds the line g=2 product BFS, passes invariant 1
+(D(σ,0) == WD(σ) over all contingencies). Killed after that — a full rebuild
+is ~83 s per line and the artifact already exists.
+INCIDENTAL, pre-existing, NOT fixed: `cargo build --no-default-features --lib`
+fails with 6 errors (cwd.rs:77/84 and cwd_lm.rs:519 use memmap2 unguarded),
+identically at HEAD before the move. Cargo.toml's "--no-default-features for a
+lean build" comment is therefore stale for the 24-puzzle code, and every
+required-features declaration on a puzzle24 target is cosmetic until the lib's
+mmap paths are guarded. Separate design call, left alone.
+examples/: 44 -> 42. src/bin/: 31 -> 33.

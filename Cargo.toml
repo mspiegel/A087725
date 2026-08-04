@@ -123,6 +123,19 @@ required-features = ["parallel", "mmap", "sha"]
 name = "build_wd24"
 required-features = ["sha"]
 
+# The only build path for `data/cwd_single.bin` (1.18 GB), which is in turn the
+# input to `cwd_mm.bin` (4.29 GB) that every solve24 run mmaps. Lived in
+# examples/ until 2026-08-04; moved here so every artifact builder is in one
+# place and the reproduction path is where one would look for it.
+[[bin]]
+name = "build_cwd_table"
+required-features = ["mmap"]
+
+# Single-line validator the five-line `build_cwd_table` was checked against.
+[[bin]]
+name = "build_cwd_single"
+required-features = ["mmap"]
+
 [[bin]]
 name = "solve24"
 required-features = ["mmap", "parallel"]
