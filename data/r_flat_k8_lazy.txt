@@ -1840,3 +1840,18 @@ ALSO: I reported the lean build as "0 warnings" after gating the frontier.rs
 imports; it was actually 1 warning (`fresh_neighbors` dead without `parallel`)
 and I misread a 2-line grep count as clean. Now genuinely 0 in both the
 default and --no-default-features configurations.
+
+CACHE TOOLING: only 2 of 4 removed (dump_grids 38, cache_depth_hist 28).
+Both were name-dropped in RESIDUE.md lists only (:370, :280) and undeclared.
+KEPT verify_depths (160) and cache_insert (253) — they are STEPS IN RESIDUE.md's
+DOCUMENTED PIPELINE at :270,
+    score -> verify_depths (IDA*) -> cache_insert --from-pairs (mirrors + ...)
+which is the workflow that closed depth 76; :281 documents cache_insert's
+`--from-pairs` interface, and verify_depths.rs / residue_pocket.rs /
+d75d76_hunt.rs all reference them. Unlike everything else deleted tonight —
+analysis that produced a written conclusion — these two produce GROUND TRUTH
+that other conclusions cite: RESIDUE.md's "depth 76 complete, 272,198 boards"
+rests on that pipeline having run, and TRAINING.md leans on the 15-puzzle's
+exact ground truth for the ML work. Deleting them would leave a documented
+pipeline describing code that no longer exists.
+examples/: 29 -> 27.
