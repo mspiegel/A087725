@@ -1741,3 +1741,27 @@ deeper. The whole family reduces to what the min_next fold already collects.
 Note the contrast with LM/LM2, which ARE this idea applied to the FINAL move
 (the blank must enter cell 24 last) and pay 1.5x: the endgame is where the
 move-ordering facts are unconditional and not already priced by the f-test.
+
+EXAMPLE CLEANUP: 13 harnesses for closed lines removed (3,325 lines).
+Uncited anywhere (nothing in src/, tests/, or any findings doc referenced them):
+  bandwd24 581   coupled band WD — the §8o axis-coupling family, vacuous
+  cwd24    384   cWD probe — superseded, cWD ships inside the engine
+  bpmx_gap 284   cWD inconsistency for BPMX — cWD is consistent, so BPMX has
+                 no gap to exploit
+  c3_pdb   231   "Direction #3" PDB+IDA* — superseded by the k8 tier
+  forced_displacement_8 (+_path) 259   8-puzzle study, off the R line
+  dual_gap 158   dual heuristic lookups — killed at the soundness gate
+  dupprobe24 145 move-pruning FSM Phase 0 — the DFA shipped (§8w)
+  r_dedup  112   duplicate ratio — §8w, the DFA leaves only ~7%
+  probe_oracle_difficulty 83
+Cited once each, as the reproduction path for three recorded negatives:
+  axis_lp_ceiling  432  §8n multi-commodity cut LP = Manhattan
+  mincut_ceiling   387  §8m min-cut / cut-packing = Manhattan
+  coupled_wd_root  269  §8o axis-coupled "blank-ferry" WD is vacuous
+The §8m/8n/8o RESULTS remain in FINDINGS_R and in the mincut-manhattan-cap
+memory; only the executable harnesses are gone, recoverable from git at
+b1e4556. Kept: candidates24 + catalog24 (the upper-bound flywheel that found
+the 156-move solution, cited across 8 files), rceiling24, frame24 (§7
+reproducibility), cwd_gap (the cWD−WD gap the shipped surcharge rests on),
+cwd_curve_floor, c7_kolmogorov, bellman_closure.
+examples/: 57 -> 44 files.
