@@ -53,6 +53,17 @@ cwd-table-tests = []
 # fully associative and therefore blind to the CONFLICT misses a direct-mapped
 # cache suffers — it under-predicted the 64K->256K win by ~14x.
 probe-cache-stats = []
+# Structural census of the search itself: per-tier consult/raise/prune counts,
+# the advantage-by-slack histogram (a tier prunes only when advantage > slack,
+# so this says directly what a slack gate would forfeit), and the distribution
+# of surviving children per expanded node. A few relaxed atomics per consult —
+# cheap enough to run at 146/148, unlike `k8-surplus-gate`.
+search-census = []
+# Tooling for the 2-bit absolute (surplus) re-encoding investigation: the
+# surplus histogram with clamp-loss per cap, and the distinct-page working set
+# replayed under both the 1-bit and 2-bit layouts. EXPENSIVE — six 25-cell
+# scans per consult, ~12x wall time. Use at 144 only.
+k8-surplus-gate = ["search-census"]
 # Page-locality of the merged-table probe: records the 16 KiB page of every
 # probed cell and runs it through fixed-size LRUs to produce a TLB hit-rate vs
 # reach curve. Off by default (an LRU probe per node). No root needed.

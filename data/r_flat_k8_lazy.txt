@@ -1917,3 +1917,26 @@ surplus histogram (six 25-cell scans per consult), page tracing, the LM2
 advantage histogram and these RefCell counters — 36.2s vs 2.9s plain for the
 cascade @144, 15.5s vs 2.0s for cWD-only. 146 would be ~20 min, 148 hours. A
 separate lightweight feature would be needed to take this distribution deeper.
+
+FEATURE SPLIT: probe-cache-stats -> three features (2026-08-04).
+Its original charter (commit 0486876, 29 Jul) was narrow: count the REAL
+direct-mapped hit/miss rate of the cWD probe cache, because probe-locality's
+fully-associative LRU model is blind to conflict misses and had under-predicted
+the 64K->256K win by ~14x. Two counters. It had since accumulated nine report
+functions, five of which measure nothing about caches, because the flag and its
+plumbing were already there — which is how it became a 12.6x tax.
+  probe-cache-stats  cache hit/miss counters only (lm, lm2, k8, LM2_SLACK_HIST)
+  search-census      per-tier consult/raise/prune counts, advantage-by-slack,
+                     surviving-children distribution. Cheap enough for depth.
+  k8-surplus-gate    surplus histogram + clamp loss, and the distinct-page
+                     working set under both layouts. Depends on search-census
+                     (its report reads K8_PRUNES). EXPENSIVE: six 25-cell scans
+                     per consult.
+Canary-bracketed cost @144 cascade (plain 2.94 / 2.90 s):
+  plain              2.92 s     —
+  search-census     11.69 s   4.0x   (was 12.6x combined; 146 now ~6 min)
+  k8-surplus-gate   33.63 s  11.5x
+Node-identical in every build. The census's 4.0x is probably the RefCell in the
+surviving-children counter — three borrows per node; parking the count in
+FrameHot beside cand/minf (~10 lines) should bring it near 1.5x if 148 is ever
+wanted. Also dropped K8_TL, dead since the per-unit census was removed.

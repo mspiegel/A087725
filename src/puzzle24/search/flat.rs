@@ -615,23 +615,23 @@ static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 // b bits hold surplus/2 up to 2^b - 1. Clamping DOWN stays admissible. The
 // question is only what the clamp costs in prunes.
 //   cap 6 -> 2 bits (~33 GB, today's footprint) | 14 -> 3 bits | 30 -> 4 bits
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 pub(crate) const SURPLUS_CAPS: [u16; 3] = [4, 6, 14];
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 static SURPLUS_HIST: [std::sync::atomic::AtomicU64; 16] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 16];
 /// Must stay 0: h < MD_sum would mean the projection or the σ-relabelling is
 /// wrong, since MD over a pattern's own tiles is a lower bound on its ZPDB
 /// value. Doubles as a correctness check on the reflected view.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 static SURPLUS_NEG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// Prunes the true encoding makes that each clamped cap would LOSE.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 static SURPLUS_LOST: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 /// Consults where the clamped tier value is strictly below the true one.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 static SURPLUS_LOWER: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 
@@ -642,10 +642,10 @@ static SURPLUS_LOWER: [std::sync::atomic::AtomicU64; 3] =
 // page) the page count is unchanged and so is the pressure; if they are dense,
 // it doubles. Replay one access trace under both layouts and count.
 // 16 KiB pages (Apple Silicon). 1 bit/entry -> idx/131072; 2 bits -> idx/65536.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 const PAGE_WORDS: usize = 1 << 16; // 4.19M pages = 64 GB of coverage per map
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 fn page_maps() -> &'static [Vec<std::sync::atomic::AtomicU64>; 2] {
     static M: std::sync::OnceLock<[Vec<std::sync::atomic::AtomicU64>; 2]> =
         std::sync::OnceLock::new();
@@ -662,7 +662,7 @@ fn page_maps() -> &'static [Vec<std::sync::atomic::AtomicU64>; 2] {
 }
 
 /// Record one table read at entry index `idx` of group `g`.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 #[inline]
 fn record_page(g: usize, idx: u64) {
     // Groups are laid out end to end for accounting; each is ~87.4G entries.
@@ -677,7 +677,7 @@ fn record_page(g: usize, idx: u64) {
     }
 }
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 pub fn k8_working_set_report() {
     let maps = page_maps();
     let count = |m: &Vec<std::sync::atomic::AtomicU64>| -> u64 {
@@ -699,7 +699,7 @@ pub fn k8_working_set_report() {
 }
 
 /// Manhattan sum over a projection's OWN pattern tiles (blank and ANON skipped).
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 fn md_sum(ps: &crate::puzzle24::pdb::pattern::ProjectedState) -> u16 {
     let mut s = 0u16;
     for (i, &v) in ps.cells.iter().enumerate() {
@@ -711,13 +711,13 @@ fn md_sum(ps: &crate::puzzle24::pdb::pattern::ProjectedState) -> u16 {
     s
 }
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 thread_local! {
     /// Clamped tier value per cap for the consult just performed.
     static K8_CLAMPED: std::cell::Cell<[u8; 3]> = const { std::cell::Cell::new([0; 3]) };
 }
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "k8-surplus-gate")]
 pub fn k8_surplus_report() {
     let neg = SURPLUS_NEG.load(std::sync::atomic::Ordering::Relaxed);
     let hist: Vec<u64> = SURPLUS_HIST
@@ -760,16 +760,16 @@ pub fn k8_surplus_report() {
 // 2/3/4 by corner/edge/interior, minus the inverse move, so 1..3 below the
 // root — but pruning can take it to 0, which is a dead end the search still
 // paid to expand. This is what the ~43x-per-+2 growth ratio is made of.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 thread_local! {
     /// Per-depth count of children descended into.
     static SURV: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
 }
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static SURV_HIST: [std::sync::atomic::AtomicU64; 5] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 5];
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 #[inline]
 fn surv_begin(d: usize) {
     SURV.with(|v| {
@@ -781,7 +781,7 @@ fn surv_begin(d: usize) {
     });
 }
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 #[inline]
 fn surv_inc(d: usize) {
     SURV.with(|v| {
@@ -792,7 +792,7 @@ fn surv_inc(d: usize) {
     });
 }
 
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 #[inline]
 fn surv_finish(d: usize) {
     SURV.with(|v| {
@@ -803,7 +803,7 @@ fn surv_finish(d: usize) {
 }
 
 /// Distribution of surviving children per expanded node.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 pub fn surviving_children_report() {
     let h: Vec<u64> = SURV_HIST
         .iter()
@@ -832,28 +832,21 @@ pub fn surviving_children_report() {
     }
 }
 
-#[cfg(feature = "probe-cache-stats")]
-thread_local! {
-    /// Per-thread (consults, prunes) so a worker can attribute a *unit's*
-    /// counts: the shared atomics below are global and would mix threads.
-    static K8_TL: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
-}
-
 /// Which tile moved at each k8 consult, per (group, slot). A rank's last
 /// factorial digit — and a positional index's lowest digit — varies fastest,
 /// so exactly ONE tile per pattern enjoys near-neighbour addressing. If the
 /// move distribution is skewed, ordering the digits by frequency converts a
 /// large share of consults into local accesses at build time, for free; if it
 /// is uniform, no digit order can beat 1/8 coverage and the idea closes.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static K8_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static K8_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static K8_RAISED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How often the tier is consulted, raises `h`, and actually prunes.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 pub fn k8_prune_stats_report(nodes: u64) {
     let c = K8_CONSULTS.load(std::sync::atomic::Ordering::Relaxed);
     let r = K8_RAISED.load(std::sync::atomic::Ordering::Relaxed);
@@ -1054,7 +1047,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gi];
         let idx = db.layout().rank(&child.views[0][gi], db.pattern());
-        #[cfg(feature = "probe-cache-stats")]
+        #[cfg(feature = "k8-surplus-gate")]
         record_page(gi, idx);
         let v = db.diff_lookup(idx, parent.h[0][gi]);
         child.h[0][gi] = v;
@@ -1073,7 +1066,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gj];
         let idx = db.layout().rank(&child.views[1][gj], db.pattern());
-        #[cfg(feature = "probe-cache-stats")]
+        #[cfg(feature = "k8-surplus-gate")]
         record_page(gj, idx);
         let v = db.diff_lookup(idx, parent.h[1][gj]);
         child.h[1][gj] = v;
@@ -1083,7 +1076,7 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     let s0 = child.h[0][0] as u16 + child.h[0][1] as u16 + child.h[0][2] as u16;
     let s1 = child.h[1][0] as u16 + child.h[1][1] as u16 + child.h[1][2] as u16;
 
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "k8-surplus-gate")]
     {
         let mut acc = [[0u16; 2]; 3];
         for v in 0..2 {
@@ -1337,25 +1330,25 @@ pub fn lm2_cache_stats_report() {
 /// 15. Slack ≥ 7 consults are provably unable to prune (branch gain is
 /// capped at +6 by the excursion-splice bound), so this measures what a
 /// slack gate could skip.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 // LM2 consult census, mirroring the k8 counters so the two tiers can be
 // compared apples-to-apples. The 2-D histogram is the one that matters for a
 // slack gate: a tier prunes only when advantage > slack, so ADV_BY_SLACK says
 // directly how much a "skip when slack >= S" gate would forfeit. Indexed
 // [min(slack/2, 3)][min(advantage/2, 7)] — both are even, hence the halving.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static LM2_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static LM2_RAISED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static LM2_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 static LM2_ADV_BY_SLACK: [[std::sync::atomic::AtomicU64; 8]; 4] =
     [const { [const { std::sync::atomic::AtomicU64::new(0) }; 8] }; 4];
 
 /// How often LM2 is consulted, raises `h`, and prunes — plus the advantage
 /// distribution broken out by slack.
-#[cfg(feature = "probe-cache-stats")]
+#[cfg(feature = "search-census")]
 pub fn lm2_prune_stats_report(nodes: u64) {
     let c = LM2_CONSULTS.load(std::sync::atomic::Ordering::Relaxed);
     let r = LM2_RAISED.load(std::sync::atomic::Ordering::Relaxed);
@@ -2787,7 +2780,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     let mut minf = arena.hot[0].minf;
     loop {
         if cand.is_empty() {
-            #[cfg(feature = "probe-cache-stats")]
+            #[cfg(feature = "search-census")]
             surv_finish(d);
             // Children exhausted: fold this subtree's minimum into the parent.
             if d == 0 {
@@ -2901,7 +2894,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let t = TILE_OF_CODE[tile] as usize;
             let heff = lm2_child(arena, lm2ctx.unwrap(), d, t, h);
-            #[cfg(feature = "probe-cache-stats")]
+            #[cfg(feature = "search-census")]
             {
                 LM2_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let slack = (bound - g_next - h) as usize;
@@ -2961,27 +2954,24 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // it means the same thing sequentially and in parallel.
         if K8 && (bound - g_next) >= k8_min_need() {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
-            #[cfg(feature = "probe-cache-stats")]
+            // Census: cheap counters, safe to run at depth.
+            #[cfg(feature = "search-census")]
             {
                 K8_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let mut pruned = false;
                 if hk8 > h {
                     K8_RAISED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if g_next.saturating_add(hk8) > bound {
                         K8_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        pruned = true;
                     }
                 }
-                K8_TL.with(|c| {
-                    let (a, b) = c.get();
-                    c.set((a + 1, b + pruned as u64));
-                });
-                if pruned {
-                    let cl = K8_CLAMPED.with(|c| c.get());
-                    for i in 0..SURPLUS_CAPS.len() {
-                        if g_next.saturating_add(cl[i]) <= bound {
-                            SURPLUS_LOST[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
+            }
+            // Surplus gate: what a clamped encoding would have lost here.
+            #[cfg(feature = "k8-surplus-gate")]
+            if hk8 > h && g_next.saturating_add(hk8) > bound {
+                let cl = K8_CLAMPED.with(|c| c.get());
+                for i in 0..SURPLUS_CAPS.len() {
+                    if g_next.saturating_add(cl[i]) <= bound {
+                        SURPLUS_LOST[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
             }
@@ -3006,11 +2996,11 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // rule come from CAND, redundancy from the DFA's own 4-bit mask (which
         // numbers moves identically to MoveSet). Once per node, not once per
         // child.
-        #[cfg(feature = "probe-cache-stats")]
+        #[cfg(feature = "search-census")]
         surv_inc(d);
         cand = MoveSet(CAND[child_blank][m as usize].0 & !dfa.prune_mask(child_dfa));
         d += 1;
-        #[cfg(feature = "probe-cache-stats")]
+        #[cfg(feature = "search-census")]
         surv_begin(d);
         debug_assert!(d < MAX_DEPTH, "depth exceeded the threshold ceiling");
     }

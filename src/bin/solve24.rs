@@ -558,15 +558,15 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_cache_stats_report();
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "search-census")]
     puzzle8::puzzle24::search::flat::k8_prune_stats_report(st.nodes);
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "search-census")]
     puzzle8::puzzle24::search::flat::lm2_prune_stats_report(st.nodes);
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "search-census")]
     puzzle8::puzzle24::search::flat::surviving_children_report();
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "k8-surplus-gate")]
     puzzle8::puzzle24::search::flat::k8_surplus_report();
-    #[cfg(feature = "probe-cache-stats")]
+    #[cfg(feature = "k8-surplus-gate")]
     puzzle8::puzzle24::search::flat::k8_working_set_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
