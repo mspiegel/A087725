@@ -18,41 +18,6 @@ use crate::puzzle24::search::{Heuristic, IncHeuristic, SearchStats};
 use crate::puzzle24::state::{Move, State};
 use crate::puzzle24::symmetry::{reflect, transpose_move};
 
-/// Global counters for the [`ZpdbInc`] `make()` hot path, behind the
-/// `zpdb-locality` feature. `makes` = catch-up/probe calls into `make`;
-/// `probes` = actual table byte-reads (`diff_lookup`, one per cost-≠0 view).
-/// `probes / makes` ≤ 2N is the per-node fan-out; combined with the distinct
-/// pages touched (from `/usr/bin/time -l` deltas) it yields the probe→page
-/// reuse ratio. Relaxed atomics: correct totals, no ordering cost.
-#[cfg(feature = "zpdb-locality")]
-pub mod locality {
-    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-
-    pub static MAKES: AtomicU64 = AtomicU64::new(0);
-    pub static PROBES: AtomicU64 = AtomicU64::new(0);
-
-    #[inline(always)]
-    pub fn note_make() {
-        MAKES.fetch_add(1, Relaxed);
-    }
-    #[inline(always)]
-    pub fn note_probes(n: u64) {
-        PROBES.fetch_add(n, Relaxed);
-    }
-
-    /// One-line report of the accumulated counters (called by solve24 at exit).
-    pub fn report() -> String {
-        let makes = MAKES.load(Relaxed);
-        let probes = PROBES.load(Relaxed);
-        let per = if makes == 0 {
-            0.0
-        } else {
-            probes as f64 / makes as f64
-        };
-        format!("zpdb-locality: k8 makes={makes} probes={probes} probes/make={per:.3}")
-    }
-}
-
 /// Single-PDB heuristic.
 pub struct PdbHeuristic<'a> {
     db: &'a PatternDb,

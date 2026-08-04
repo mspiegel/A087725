@@ -238,11 +238,6 @@ fn print_stats(st: &SearchStats, search: std::time::Duration) {
             st.nodes as f64 / secs / 1e6
         );
     }
-    #[cfg(feature = "demand-histogram")]
-    println!(
-        "{}",
-        puzzle8::puzzle24::search::flat::demand_histogram::report()
-    );
 }
 
 fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
@@ -557,14 +552,6 @@ fn main() -> ExitCode {
     });
     let elapsed = t0.elapsed();
 
-    #[cfg(feature = "k8-probe-locality")]
-    puzzle8::puzzle24::search::flat::k8_locality_report();
-    #[cfg(feature = "k8-probe-locality")]
-    puzzle8::puzzle24::search::flat::k8_surplus_report();
-    #[cfg(feature = "k8-probe-locality")]
-    puzzle8::puzzle24::search::flat::k8_harvest_report();
-    #[cfg(feature = "k8-probe-locality")]
-    puzzle8::puzzle24::search::flat::k8_struct_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::lm_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
@@ -574,15 +561,9 @@ fn main() -> ExitCode {
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_prune_stats_report(st.nodes);
     #[cfg(feature = "probe-cache-stats")]
-    if let Some(ctx) = k8.as_ref() {
-        puzzle8::puzzle24::search::flat::k8_move_freq_report(ctx);
-    }
-    #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_surplus_report();
     #[cfg(feature = "probe-cache-stats")]
     puzzle8::puzzle24::search::flat::k8_working_set_report();
-    #[cfg(feature = "probe-cache-stats")]
-    puzzle8::puzzle24::search::flat::k8_lookahead_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.
