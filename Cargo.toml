@@ -22,7 +22,8 @@ needless_range_loop = "allow"
 [features]
 # `parallel` and `mmap` are on by default: every driver and almost every example
 # needs them, so a bare `cargo test` / `cargo clippy` builds the whole workspace.
-# Use `--no-default-features` for a lean build; the examples that require them
+# `--no-default-features` gives a lean 15-puzzle build: the 24-puzzle module is
+# gated on `mmap` and omitted. Targets that require these features
 # declare `required-features` and are skipped rather than failing to compile.
 default = ["parallel", "mmap"]
 parallel = ["dep:rayon"]
@@ -121,7 +122,7 @@ required-features = ["parallel", "mmap", "sha"]
 
 [[bin]]
 name = "build_wd24"
-required-features = ["sha"]
+required-features = ["sha", "mmap"]
 
 # The only build path for `data/cwd_single.bin` (1.18 GB), which is in turn the
 # input to `cwd_mm.bin` (4.29 GB) that every solve24 run mmaps. Lived in
@@ -158,35 +159,35 @@ required-features = ["ml"]
 
 [[bin]]
 name = "train_ml24"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "eval_ml24"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "wdsearch_probe"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "solve_r"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "corridor_r"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "pair_probe"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "train_pairnet"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "solve_ff"
-required-features = ["ml"]
+required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "gen_corridors"
@@ -222,10 +223,12 @@ required-features = ["mmap"]
 
 [[example]]
 name = "candidates24"
+required-features = ["mmap"]
 test = true
 
 [[example]]
 name = "catalog24"
+required-features = ["mmap"]
 test = true
 
 [[example]]

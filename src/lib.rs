@@ -13,5 +13,11 @@
 //!   tightening the open `[152, 205]` STM diameter bounds.
 
 pub mod puzzle15;
+// The 24-puzzle is mmap-only by design: its tables (cwd_mm.bin 4.29 GB,
+// cwd_lm_mm.bin 4.29 GB, three 10.92 GB zPDBs) are mapped, never read into
+// owned memory, so there is no non-mmap code path to maintain. Building
+// without `mmap` therefore omits the module rather than failing to compile;
+// every puzzle24 target declares `required-features = ["mmap"]`.
+#[cfg(feature = "mmap")]
 pub mod puzzle24;
 pub mod puzzle8;

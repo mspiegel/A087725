@@ -1786,3 +1786,30 @@ lean build" comment is therefore stale for the 24-puzzle code, and every
 required-features declaration on a puzzle24 target is cosmetic until the lib's
 mmap paths are guarded. Separate design call, left alone.
 examples/: 44 -> 42. src/bin/: 31 -> 33.
+
+THE 24-PUZZLE IS NOW MMAP-ONLY BY CONSTRUCTION (2026-08-04, user decision).
+`pub mod puzzle24` is gated on `#[cfg(feature = "mmap")]`. Its tables are
+mapped, never read into owned memory (cwd_mm.bin 4.29 GB, cwd_lm_mm.bin
+4.29 GB, three 10.92 GB zPDBs), so there was never a non-mmap code path to
+maintain — only six confusing `memmap2` resolution errors from cwd.rs:77/84
+and cwd_lm.rs:519 for anyone who tried.
+  cargo build --no-default-features --lib:  6 errors -> 0 diagnostics
+  default build / all targets:              0 -> 0 (unchanged)
+`--no-default-features` now does what Cargo.toml always claimed: a lean
+15-puzzle build, with the 24-puzzle module simply absent. puzzle15 referenced
+puzzle24 only in doc comments, so the gate is clean.
+Added `"mmap"` to the 11 puzzle24 targets that lacked it (build_wd24, the 9
+ml-gated bins, candidates24, catalog24) so they are SKIPPED rather than
+failing under the lean build. Also gated two parallel-only imports in
+puzzle15/enumerate/frontier.rs — pre-existing, invisible while the lean build
+died at puzzle24 first.
+Node-identical: base 422,379,806 / lm2 216,158,191 / cascade 178,863,576.
+
+NOTE on the accidental build_cwd_single run: it OVERWROTE NOTHING. The binary
+has no write path at all — its only file reference is a READ of data/wd24.bin
+via load_dist_table; build_cwd_table is the one that serializes. Confirmed by
+mtimes (cwd_single.bin Jul 9, wd24.bin Jul 1, cwd_mm.bin/cwd_lm_mm.bin Jul 31,
+nothing in data/ touched) and corroborated by the cascade re-running
+node-identical afterwards. Lesson: check for a write path BEFORE invoking an
+unfamiliar builder to "see if it starts" — cwd_single.bin is 1.18 GB and ~7
+minutes to rebuild.

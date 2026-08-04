@@ -6,8 +6,10 @@ use std::path::Path;
 
 use crate::puzzle15::rank::{rank, unrank};
 use crate::puzzle15::state::State;
+#[cfg(feature = "parallel")]
 use crate::puzzle15::symmetry::reflect;
 
+#[cfg(feature = "parallel")]
 use super::cache::{self, Cache};
 use super::histogram::Histogram;
 use super::store::Store;
