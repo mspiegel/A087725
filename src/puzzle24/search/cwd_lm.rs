@@ -489,18 +489,20 @@ pub fn build_cwd_lm2(goal_key: u64) -> CwdLm2 {
 
 // ------------------- combined mmap artifact (LM2 tier) -------------------
 
-/// Hash-table geometry of the mmap artifact: 2^27 slots for 65,650,495 keys
-/// (load factor 0.489), 32-byte slots (key 8 + single 4 + pair 12 + pad),
-/// linear probing, key 0 = empty (the zero key decodes to an impossible
-/// token matrix, so no real key collides with the sentinel).
-pub const LMM_BITS: u32 = 27;
-const LMM_SLOTS: usize = 1 << LMM_BITS;
+/// Hash-table geometry of the mmap artifact (`magic "CWMN"`): 32-byte slots
+/// (key 8 + single 4 + pair 12 + pad), linear probing at 0.70 load (slot
+/// count in header field \[4..8\]), key 0 = empty (the zero key decodes to
+/// an impossible token matrix, so no real key collides with the sentinel).
+/// Mirrors `cwd.rs`'s CWDN geometry; probes are always for reachable axis
+/// keys, so only the successful-search chain length (~2.1 slots) matters.
 const LMM_SLOT: usize = 32;
 const LMM_HEADER: usize = 16;
 
+/// Fastrange home slot over the Fibonacci-mixed key (see `cwd::cwdm_home`).
 #[inline]
-fn lmm_hash(key: u64) -> usize {
-    ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - LMM_BITS)) as usize
+fn lmm_home(key: u64, slots: usize) -> usize {
+    let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    (((h as u128) * (slots as u128)) >> 64) as usize
 }
 
 /// The LM2 tier's zero-parse backing store: both tables' queryable values in
@@ -510,6 +512,8 @@ fn lmm_hash(key: u64) -> usize {
 /// tracked line values + the 12 queryable pair placements (`la*3 + lb`).
 pub struct CwdLmMm {
     map: memmap2::Mmap,
+    /// Slot count of this artifact's geometry (header field \[4..8\]).
+    slots: usize,
 }
 
 impl CwdLmMm {
@@ -518,15 +522,16 @@ impl CwdLmMm {
         // SAFETY: write-once-then-immutable build artifact.
         let map = unsafe { memmap2::Mmap::map(&f)? };
         assert_eq!(
-            map.len(),
-            LMM_HEADER + LMM_SLOTS * LMM_SLOT,
-            "cwd_lm_mm.bin has the wrong size"
+            &map[..4],
+            b"CWMN",
+            "bad cwd_lm_mm magic (legacy CWMM artifacts are no longer supported; \
+             rebuild with build_cwd_lm_mm_artifact)"
         );
-        assert_eq!(&map[..4], b"CWMM", "bad cwd_lm_mm magic");
+        let slots = u32::from_le_bytes(map[4..8].try_into().unwrap()) as usize;
         assert_eq!(
-            u32::from_le_bytes(map[4..8].try_into().unwrap()),
-            LMM_BITS,
-            "cwd_lm_mm bits mismatch"
+            map.len(),
+            LMM_HEADER + slots * LMM_SLOT,
+            "cwd_lm_mm artifact has the wrong size for its header geometry"
         );
         // Eager pre-touch: one byte per 16 KiB page (Apple Silicon page size),
         // sequential so readahead batches it. Moves all demand-paging faults
@@ -537,13 +542,13 @@ impl CwdLmMm {
             sum = sum.wrapping_add(map[off] as u64);
         }
         std::hint::black_box(sum);
-        Ok(CwdLmMm { map })
+        Ok(CwdLmMm { map, slots })
     }
 
     /// One probe: `(single[0..4], pair[0..12])` for `key`, `None` if unknown.
     #[inline]
     pub fn probe(&self, key: u64) -> Option<(&[u8], &[u8])> {
-        let mut i = lmm_hash(key);
+        let mut i = lmm_home(key, self.slots);
         loop {
             let off = LMM_HEADER + i * LMM_SLOT;
             let k = u64::from_le_bytes(self.map[off..off + 8].try_into().unwrap());
@@ -553,22 +558,32 @@ impl CwdLmMm {
             if k == 0 {
                 return None;
             }
-            i = (i + 1) & (LMM_SLOTS - 1);
+            i += 1;
+            if i == self.slots {
+                i = 0;
+            }
         }
     }
 }
 
-/// Build the mmap artifact from the two canonical tables.
+/// Build the mmap artifact from the two canonical tables. Writes the dense
+/// geometry (`magic "CWMN"`, 0.70 load) directly — building and compaction
+/// are one step.
 pub fn build_cwd_lm_mm(lm: &CwdLm, lm2: &CwdLm2, path: &Path) -> std::io::Result<()> {
-    let mut buf = vec![0u8; LMM_HEADER + LMM_SLOTS * LMM_SLOT];
-    buf[..4].copy_from_slice(b"CWMM");
-    buf[4..8].copy_from_slice(&LMM_BITS.to_le_bytes());
+    let slots = super::cwd::dense_slots(lm2.map.len());
+    let mut buf = vec![0u8; LMM_HEADER + slots * LMM_SLOT];
+    buf[..4].copy_from_slice(b"CWMN");
+    buf[4..8].copy_from_slice(
+        &u32::try_from(slots)
+            .expect("slot count fits u32")
+            .to_le_bytes(),
+    );
     buf[8..16].copy_from_slice(&(lm2.map.len() as u64).to_le_bytes());
     let (mut occupied, mut max_chain) = (0u64, 0u32);
     for (&k, pv) in &lm2.map {
         assert_ne!(k, 0, "key 0 is the empty sentinel");
         let sv = lm.get_all(k).expect("key present in lm2 but not in lm");
-        let mut i = lmm_hash(k);
+        let mut i = lmm_home(k, slots);
         let mut chain = 1u32;
         loop {
             let off = LMM_HEADER + i * LMM_SLOT;
@@ -584,7 +599,10 @@ pub fn build_cwd_lm_mm(lm: &CwdLm, lm2: &CwdLm2, path: &Path) -> std::io::Result
                 break;
             }
             assert_ne!(cur, k, "duplicate key");
-            i = (i + 1) & (LMM_SLOTS - 1);
+            i += 1;
+            if i == slots {
+                i = 0;
+            }
             chain += 1;
         }
         occupied += 1;

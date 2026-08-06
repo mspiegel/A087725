@@ -56,25 +56,33 @@ pub type CwdMerged = HashMap<u64, CwdCell, WdBuild>;
 
 // ------------------- mmap'd merged-table artifact -------------------
 
-/// Geometry of `data/cwd_mm.bin`: 2^27 slots x 32 B (key 8 + curves 10 at
-/// offset 8 so the u16s stay aligned + wd 1 + nbr_wd 10 + pad 3), linear
-/// probing at 0.489 load, key 0 = empty (the zero key decodes to an
-/// impossible token matrix). Snapshot of the merged table with `nbr_wd`
-/// FILLED, so loading it replaces both the merge and the neighbour pass.
-pub const CWDM_BITS: u32 = 27;
-const CWDM_SLOTS: usize = 1 << CWDM_BITS;
+/// Geometry of `data/cwd_mm.bin` (`magic "CWDN"`): 32 B slots (key 8 +
+/// curves 10 at offset 8 so the u16s stay aligned + wd 1 + nbr_wd 10 +
+/// pad 3), linear probing at 0.70 load (slot count in header field \[4..8\]),
+/// key 0 = empty (the zero key decodes to an impossible token matrix).
+/// Snapshot of the merged table with `nbr_wd` FILLED, so loading it replaces
+/// both the merge and the neighbour pass. Probes are essentially always
+/// successful (only reachable contingency keys are queried), so the relevant
+/// chain cost is the successful-search one — mean ~2.1 slots at 0.70 load,
+/// within a cache line or two of the home slot.
 const CWDM_SLOT: usize = 32;
 const CWDM_HEADER: usize = 16;
 
+/// Home slot by fastrange over the Fibonacci-mixed key: the top 64 bits of
+/// `hash × slots`. One multiply mixes the packed key's structured low bits
+/// upward, exactly where fastrange reads.
 #[inline]
-fn cwdm_hash(key: u64) -> usize {
-    ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> (64 - CWDM_BITS)) as usize
+fn cwdm_home(key: u64, slots: usize) -> usize {
+    let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    (((h as u128) * (slots as u128)) >> 64) as usize
 }
 
 /// Zero-parse backing for the merged-table fast path: "loading" is a
 /// page-table operation plus one sequential pre-touch pass.
 pub struct CwdMm {
     map: memmap2::Mmap,
+    /// Slot count of this artifact's geometry (header field \[4..8\]).
+    slots: usize,
 }
 
 impl CwdMm {
@@ -83,15 +91,16 @@ impl CwdMm {
         // SAFETY: write-once-then-immutable build artifact.
         let map = unsafe { memmap2::Mmap::map(&f)? };
         assert_eq!(
-            map.len(),
-            CWDM_HEADER + CWDM_SLOTS * CWDM_SLOT,
-            "cwd_mm.bin has the wrong size"
+            &map[..4],
+            b"CWDN",
+            "bad cwd_mm magic (legacy CWDM artifacts are no longer supported; \
+             rebuild with build_cwd_mm_artifact)"
         );
-        assert_eq!(&map[..4], b"CWDM", "bad cwd_mm magic");
+        let slots = u32::from_le_bytes(map[4..8].try_into().unwrap()) as usize;
         assert_eq!(
-            u32::from_le_bytes(map[4..8].try_into().unwrap()),
-            CWDM_BITS,
-            "cwd_mm bits mismatch"
+            map.len(),
+            CWDM_HEADER + slots * CWDM_SLOT,
+            "cwd_mm artifact has the wrong size for its header geometry"
         );
         // Eager pre-touch (one byte per 16 KiB page, sequential): keeps
         // demand-paging faults out of the search phase.
@@ -100,13 +109,13 @@ impl CwdMm {
             sum = sum.wrapping_add(map[off] as u64);
         }
         std::hint::black_box(sum);
-        Ok(CwdMm { map })
+        Ok(CwdMm { map, slots })
     }
 
     /// What `merged.get(&key).copied()` would return.
     #[inline]
     pub(crate) fn probe_cell(&self, key: u64) -> Option<CwdCell> {
-        let mut i = cwdm_hash(key);
+        let mut i = cwdm_home(key, self.slots);
         loop {
             let off = CWDM_HEADER + i * CWDM_SLOT;
             let k = u64::from_le_bytes(self.map[off..off + 8].try_into().unwrap());
@@ -127,7 +136,10 @@ impl CwdMm {
             if k == 0 {
                 return None;
             }
-            i = (i + 1) & (CWDM_SLOTS - 1);
+            i += 1;
+            if i == self.slots {
+                i = 0;
+            }
         }
     }
 }
@@ -150,8 +162,18 @@ impl MergedBacking<'_> {
     }
 }
 
+/// Slot count for a freshly built dense artifact: 0.70 load. Measured on R
+/// (exhaust-146 A/B, 2026-08-05): search time within noise of the 0.489
+/// legacy geometry (mean chain 2.07 vs 1.5), resident footprint −30%.
+/// 0.875 saved another 1.2 GB but cost a repeatable ~2% in search.
+#[inline]
+pub(crate) fn dense_slots(count: usize) -> usize {
+    count * 10 / 7
+}
+
 /// Build the mmap artifact from a fully-prepared [`Cwd`] (merged table
-/// present, `nbr_wd` filled).
+/// present, `nbr_wd` filled). Writes the dense geometry (`magic "CWDN"`,
+/// 0.70 load) directly — building and compaction are one step.
 pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
     let merged = cwd
         .merged_table()
@@ -160,14 +182,19 @@ pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
         cwd.neighbor_prune_enabled(),
         "fill nbr_wd first: Cwd::new().with_neighbor_prune(true)"
     );
-    let mut buf = vec![0u8; CWDM_HEADER + CWDM_SLOTS * CWDM_SLOT];
-    buf[..4].copy_from_slice(b"CWDM");
-    buf[4..8].copy_from_slice(&CWDM_BITS.to_le_bytes());
+    let slots = dense_slots(merged.len());
+    let mut buf = vec![0u8; CWDM_HEADER + slots * CWDM_SLOT];
+    buf[..4].copy_from_slice(b"CWDN");
+    buf[4..8].copy_from_slice(
+        &u32::try_from(slots)
+            .expect("slot count fits u32")
+            .to_le_bytes(),
+    );
     buf[8..16].copy_from_slice(&(merged.len() as u64).to_le_bytes());
-    let mut max_chain = 0u32;
+    let (mut total_chain, mut max_chain) = (0u64, 0u32);
     for (&k, cell) in merged {
         assert_ne!(k, 0, "key 0 is the empty sentinel");
-        let mut i = cwdm_hash(k);
+        let mut i = cwdm_home(k, slots);
         let mut chain = 1u32;
         loop {
             let off = CWDM_HEADER + i * CWDM_SLOT;
@@ -182,14 +209,20 @@ pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
                 break;
             }
             assert_ne!(cur, k, "duplicate key");
-            i = (i + 1) & (CWDM_SLOTS - 1);
+            i += 1;
+            if i == slots {
+                i = 0;
+            }
             chain += 1;
         }
+        total_chain += chain as u64;
         max_chain = max_chain.max(chain);
     }
     eprintln!(
-        "  cwd_mm: {} keys placed, longest probe chain {max_chain}",
-        merged.len()
+        "  cwd_mm: {} keys into {slots} slots (load {:.3}), mean chain {:.2}, longest {max_chain}",
+        merged.len(),
+        merged.len() as f64 / slots as f64,
+        total_chain as f64 / merged.len() as f64
     );
     std::fs::write(path, &buf)
 }

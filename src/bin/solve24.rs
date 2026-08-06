@@ -325,20 +325,25 @@ fn main() -> ExitCode {
         eprintln!("root-orbit-split: σ-symmetric board, split disabled by flag");
     }
 
-    let cwd = if std::path::Path::new("data/cwd_mm.bin").exists() {
-        eprintln!("cWD: mmapping data/cwd_mm.bin…");
-        puzzle8::puzzle24::search::cwd::Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin"))
-            .expect("cwd_mm.bin")
+    // SOLVE24_CWD_MM overrides the merged-table artifact path (e.g. the dense
+    // repack data/cwd_mm_dense.bin) for footprint/throughput A/Bs.
+    let mm_path = std::env::var("SOLVE24_CWD_MM").unwrap_or_else(|_| "data/cwd_mm.bin".to_string());
+    let cwd = if std::path::Path::new(&mm_path).exists() {
+        eprintln!("cWD: mmapping {mm_path}…");
+        puzzle8::puzzle24::search::cwd::Cwd::mm_only(std::path::Path::new(&mm_path))
+            .expect("cwd_mm artifact")
             .with_neighbor_prune(!args.no_neighbor_prune)
     } else {
         eprintln!("cWD: loading tables… (build data/cwd_mm.bin with build_cwd_mm_artifact for fast setup)");
         Cwd::new().with_neighbor_prune(!args.no_neighbor_prune)
     };
+    // SOLVE24_CWD_LM_MM overrides the LM/LM2 artifact path (e.g. the dense
+    // repack data/cwd_lm_mm_dense.bin) for footprint/throughput A/Bs.
+    let lm_mm_path =
+        std::env::var("SOLVE24_CWD_LM_MM").unwrap_or_else(|_| "data/cwd_lm_mm.bin".to_string());
     let lmt = if args.lm {
-        eprintln!("cwd-lm: mmapping data/cwd_lm_mm.bin…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(
-            "data/cwd_lm_mm.bin",
-        )) {
+        eprintln!("cwd-lm: mmapping {lm_mm_path}…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!("error: --lm: {e}");
@@ -353,10 +358,8 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let lm2t = if args.lm2 {
-        eprintln!("cwd-lm2: mmapping data/cwd_lm_mm.bin…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(
-            "data/cwd_lm_mm.bin",
-        )) {
+        eprintln!("cwd-lm2: mmapping {lm_mm_path}…");
+        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!("error: --lm2 (build data/cwd_lm_mm.bin with the build_cwd_lm_mm_artifact test): {e}");

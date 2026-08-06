@@ -2074,3 +2074,43 @@ a 10-branch tier. Untried, not killed: joint-form LM tables (dead as a dense
 table by counter-state arithmetic; the lazily-memoized route from the
 pair-coupling census — 18,155 distinct (key, demand) pairs, 99.98% memo hit —
 remains open), and corner-tile analogues at the other corners.
+
+================================================================================
+MERGED-TABLE DENSIFICATION: 0.70 LOAD, ONE-STEP DENSE BUILDERS (2026-08-05)
+================================================================================
+
+Motivation: cwd_mm.bin and cwd_lm_mm.bin each held 65,650,495 keys in 2^27
+slots — 0.489 load, half the 4.30 GB allocation empty, all resident (eager
+pre-touch). The ProbeCache screens 98.9-99.7% of probes, so the throughput
+case for density was weak a priori; the MEMORY case is the point on this
+32 GB box. Probes are essentially always successful (only reachable axis
+keys are queried), so only the successful-search chain matters.
+
+Fastrange home slots ((fib_hash * slots) >> 64 — bit-identical to the legacy
+shift at 2^27) allow arbitrary slot counts. Load-factor curve, R exhaust-146
+--parallel --lm2, canary-interleaved 3 reps/arm, node counts IDENTICAL
+across all runs (216,158,191 @144 / 8,975,456,521 @146):
+
+  load    search @146 (reps)         vs legacy   pair RSS   mean chain
+  0.489   58.30 / 58.43 / 58.51 s        —        8.84 GB      ~1.5
+  0.700   58.48 / 58.58 / 58.94 s     +0.4%~noise 6.25 GB      2.07
+  0.875   59.50 / 59.67 / 60.37 s     +2.1%       5.05 GB      4.12
+
+At 0.70 the warm reps sit INSIDE the legacy spread; setup also drops ~1.1 s
+(half the pre-touch bytes). 0.875's extra 1.2 GB costs a repeatable ~2%.
+
+DECISION (user): 0.70 only, as a SINGLE workflow — build_cwd_mm and
+build_cwd_lm_mm now write the dense geometry directly (magic CWDN/CWMN,
+slot count = keys*10/7 in header [4..8]); the separate densify step, the
+legacy power-of-two format, dual-magic loaders and the BITS constants are
+all REMOVED. SOLVE24_CWD_MM / SOLVE24_CWD_LM_MM env overrides remain for
+A/Bs. Artifacts regenerated through the new builders (mean chain 2.07,
+longest 146/154), round-trip verified against the freshly built in-memory
+tables (65,650,495/65,650,495 both), solve24 default-path smoke reproduces
+216,158,191 @144. Table footprint for --parallel --lm2: 8.59 -> 6.00 GB.
+
+METHOD NOTE: Microsoft Defender (wdavdaemon) burns ~1+ core scanning fresh
+multi-GB artifacts on first open — asymmetrically against the arm whose
+files are new. One contaminated batch was discarded; sequentially pre-read
+new artifacts (cat > /dev/null) before any timed run, or exclude data/ from
+real-time protection if MDM allows.
