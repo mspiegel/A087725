@@ -2010,3 +2010,67 @@ the tails: compact reaches +4 on 3 boards and +6 on 1; rho +4 on 2, +6 never.
 Tables kept at data/rho/pdb24_rho_{a..d}.zbin (21.6 MiB each). The k6 proxy
 cost ~10 minutes; the 8-tile version of this question would have needed the
 222 G-state external-memory build.
+
+================================================================================
+LM3 (refined_axis3) PROBE ON survivors_148: DEPTH THESIS DEAD (2026-08-05)
+================================================================================
+
+Executes the "Next step for LM3" recorded 2026-08-02: a refined_axis3
+certification probe on data/survivors_148.txt (3,452 cWD-survivors from the
+--lm2 exhaust-148 run), stratified by slack, reporting the advantage
+distribution. The parity argument said LM3 should be judged on DEPTH — a
+third obligation reaching +4/+6, pruning the slack-2/4 strata LM2's +2
+cannot touch.
+
+Harness (worktree branch blank-aware-demand, examples/slack_anatomy.rs):
+refined_axis_n generalises refined_axis2 to up to THREE tracked tokens with
+the crossing parameterised (gl -> vl), which prices all 10 non-backtracking
+3-move blank suffixes exactly — including the two suffixes needing a
+goal-line-4 token crossing 4->3 (branches via 23>18>19>24 / 19>18>23>24).
+An inherited WIP guard bug was fixed before running: a track is sound only
+when the tile sits on the goal-line side of its demanded crossing (upward
+vl=gl+1 needs cur <= gl, mirroring lm2_eval's tl() caps; downward 4->3
+needs cur == 4); tracking a wrong-side tile demands a spurious excursion —
+an overestimate. Protocol: table form (zero-demand refined calls), production
+single-line-max baselines, engine branch composition, min over 10 branches,
+max(h_cwd, .) — LM2 computed identically from its 4 branches for the
+marginal. Cross-checks: refined_axis_n == refined_axis2 identities; h0p ==
+the dump's h on all 3,452 (0 mismatches); LM2 random-board bind rate 10.80%
+reproduces the historical 10.50% table form.
+
+  stratum    n     LM2 adv 0/+2/+4   LM3 adv 0/+2/+4   lm3>lm2   prunes 2/3
+  slack 0  2,995    2863/132/0        2846/149/0          17      132/149
+  slack 2    425      79/346/0          79/346/0           0        0/0
+  slack 4     32       0/ 32/0           0/ 32/0           0        0/0
+
+LM3's advantage NEVER exceeds +2 on a single workload board. Zero reach into
+slack-2/4 — the entire motivating stratum. The whole yield is breadth at
+slack 0: prune rate 132 -> 149 of 2,995 consults (+0.57 pp, 1.13x), ~1.01x
+nodes by the certification-to-cut calibration.
+
+FLOORED-COMPOSITION RERUN (bias challenge, user): the raw composition lets a
+child branch swap a +2-surcharged axis baseline for a weaker zero-demand
+refined value (5 boards clamped below LM2 — the same artifact the engine's
+max(h_cwd, min(branches)) absorbs). Flooring every refined term at its
+baseline — strictly favorable to LM3 — moves slack-0 to 136/155 (marginal 19)
+and leaves slack-2/4 BIT-IDENTICAL: zero gain, clamps vanish. Verdict
+survives its strongest objection.
+
+Soundness: 0/2,000 unsound (random len-55, exact solves, lm3test), zero
+budget fallbacks. On randoms LM3 binds 14.10% vs LM2's 10.80% — breadth
+there too, with a thin +4 tail (~11/2,000) that is EXACTLY EMPTY on the deep
+workload.
+
+MECHANISM (visible in per-branch dumps): individual deep branches DO price
+at +4 (column-pair suffixes 19+18 / 24+23 hit h0p+4), but the bound is a min
+over all ten exhaustive suffixes and at least one endgame path is always
+cheap on real boards. Certifying +4 needs EVERY suffix expensive; each
+added move multiplies the suffix count — LM4 fares worse, not better. This
+retro-explains LM2's own "almost all +2".
+
+Verdict: table-form LM3 is measured-dead on the depth thesis for R's
+workload — breadth-only, ~1.01x nodes, against a ~x10-state table build and
+a 10-branch tier. Untried, not killed: joint-form LM tables (dead as a dense
+table by counter-state arithmetic; the lazily-memoized route from the
+pair-coupling census — 18,155 distinct (key, demand) pairs, 99.98% memo hit —
+remains open), and corner-tile analogues at the other corners.
