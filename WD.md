@@ -1,8 +1,10 @@
 # Walking Distance, explained
 
 An intuition-level account of the Walking Distance heuristic (Ken'ichiro
-Takahashi) for the 24-puzzle, using Greek and Latin letters instead of tile
-numbers. Implementation lives in `src/puzzle24/search/walking_distance.rs`.
+Takahashi) for the 24-puzzle — and of **cWD**, this project's escape-constrained
+sharpening of it — using Greek and Latin letters instead of tile numbers.
+Implementations live in `src/puzzle24/search/walking_distance.rs` and
+`src/puzzle24/search/cwd.rs`.
 
 ## Two alphabets
 
@@ -192,11 +194,11 @@ boards score `WD = MD` exactly.
 
 WD's leverage is largest on **structured** boards: near-solved ones like example
 1, and the deep/adversarial region this project targets, where rows and columns
-are coherent but interlocked. That gap between "cheap on random boards, valuable
-on structured ones" is much of why the surcharge machinery in
-`src/puzzle24/search/cwd.rs` exists.
+are coherent but interlocked. But there is structure the bags *cannot* see, and
+that blind spot is where the rest of this document goes: cWD charges the bag
+puzzle for it.
 
-## Where to look in the code
+## Where to look in the code (WD)
 
 | What | Where |
 |---|---|
@@ -206,3 +208,165 @@ on structured ones" is much of why the surcharge machinery in
 | Shared row/col table by transposition symmetry | `walking_distance.rs:6` |
 | `h = h_row + h_col` | `walking_distance.rs:678` |
 | Table build / persist tool | `src/bin/build_wd24.rs` |
+
+## What the bags forget
+
+Turning each row into a bag is what made the Greek puzzle small — and it is
+also its blind spot. Take a board that is solved except the top row holds
+`2 3 1` (a 3-cycle: an even permutation with the blank home, so reachable):
+
+```
+ 2  3  1  4  5        α α α α α        B C A D E
+ 6  7  8  9 10        β β β β β        A B C D E
+11 12 13 14 15   →    γ γ γ γ γ  and   A B C D E
+16 17 18 19 20        δ δ δ δ δ        A B C D E
+21 22 23 24  _        ε ε ε ε _        A B C D _
+```
+
+Every tile is in its home row, so every Greek bag is clean and the Greek
+distance is **0**. The scramble is purely horizontal and horizontal moves are
+free — case closed, says the bag.
+
+But the row as a *sequence*, which the bag threw away, is scrambled. In a
+sliding puzzle two tiles in the same row cannot pass each other while both stay
+in the row: one of them must step out, let the other by, and re-enter. Those
+forced exits are **vertical** moves — exactly the kind the Greek puzzle is
+supposed to bill — and the bag charges nothing for them, because a bag has no
+notion of "pass each other."
+
+## The escape demand
+
+cWD recovers that lost fact as one number per goal line. For a line `g`, look
+at its **residents** — tiles that belong to line `g` and currently sit in line
+`g` — and read off their goal positions in physical order. Residents that never
+leave the line can never reorder among themselves, so the set that stays put
+must already read in increasing goal order. The most that can stay is the
+longest increasing subsequence; everyone else must leave at least once:
+
+```
+x_g  =  residents of g  −  LIS(their goal-cross order)
+```
+
+For the row above: the residents' goal columns read `1 2 0 3 4`, the LIS is
+`1 2 3 4` (length 4), so `x_α = 5 − 4 = 1` — **at least one α must escape
+row 0** in any real solution. (This bound is machine-checked in Lean 4:
+`proofs/puzzle15-wd`.)
+
+## Escapes constrain the bag puzzle — they don't add
+
+Classic linear conflict would stop here and *add* 2 per escape on top of
+Manhattan. cWD does something sharper. An escape is visible in the bag puzzle —
+it is a paid move in which a type-`g` letter leaves bag `g` — so the demand can
+be handed to the bag puzzle as a side condition on its own moves:
+
+> What is the cheapest bag-puzzle solution that **also** makes at least `x_g`
+> escapes of every line `g`?
+
+This is still a relaxation of the real puzzle: any real solution projects to a
+bag solution, and the projection performs the real solution's escapes. So the
+answer never overestimates. And because the escapes constrain WD's own move
+budget instead of being added on top, nothing is double-billed: if the
+WD-optimal plan happened to make the required escapes anyway, the surcharge is
+zero. `cWD ≥ WD` always, and the row and column halves still sum for the same
+reason as before — they bill disjoint move classes.
+
+## Worked example 3 — paying for a forced escape
+
+Back to the 3-cycle board. The Greek bags are clean, but the constraint demands
+one α escape from bag 0. In the bag puzzle, the only move that takes an α out
+of bag 0 is the blank stepping *into* bag 0 (the α drops into the bag the blank
+just left). So the blank must visit bag 0, and it starts and must end in bag 4:
+
+> bag 4 → bag 0 → bag 4 = **at least 8 moves**
+
+And 8 is achievable, by the same dance as example 1: walk the blank up dragging
+a δ, a γ, a β down behind it; the last step up kicks the α out into bag 1; the
+first step down hands it straight back; the rest of the return trip re-homes
+the dragged letters. **Constrained Greek distance = 8**, where WD said 0.
+
+The columns make no demands (each column's residents already read in
+increasing order), so the Latin half is untouched — and the Latin bags see this
+horizontal scramble directly, pricing it at 10. Scores:
+
+```
+Manhattan 4      Manhattan + linear conflict 6      WD = 0 + 10 = 10
+cWD = 8 + 10 = 18
+```
+
+## Worked example 4 — two scrambled rows, one blank tour
+
+Now scramble row 2 the same way (`12 13 11`, another 3-cycle). The Greek bags
+are still all clean, and there are two demands: `x_α = 1` and `x_γ = 1`.
+
+Here is the question the constraint machinery must get right. Two plans
+satisfy both demands:
+
+- **one tour**: bag 4 → bag 0 → bag 4, doing row 2's escape *in passing* —
+  8 moves;
+- **two round trips**: bag 4 → bag 0 → bag 4, then bag 4 → bag 2 → bag 4 —
+  12 moves.
+
+Nothing hand-schedules the itinerary. The constrained optimum is a shortest
+path in a slightly bigger puzzle: a state is the bags **plus a scoreboard** of
+escapes made so far per demanded line; every move updates the bags and, if it
+is an escape, ticks the scoreboard; the goal is clean bags *and* a full
+scoreboard. Both plans above are paths in that puzzle, and the shortest path
+is the 8: on the way up, the step from bag 3 into bag 2 kicks a γ out (γ ✓)
+and the step from bag 1 into bag 0 kicks the α out (α ✓); the way down hands
+both back while re-homing the dragged letters. The lower bound is unchanged —
+the blank must still reach bag 0 and return — and bag 2 lies on that walk.
+
+```
+Manhattan 8      WD = 0 + 14 = 14      cWD = 8 + 14 = 22
+```
+
+The surcharge is the **same 8** as example 3. That is not a missed charge, it
+is admissibility at work: the real blank fixes row 2 on its way to row 0, and
+a heuristic that billed 8 + 4 would be charging for a detour no optimal
+solution makes.
+
+## Looking it up instead of searching
+
+Running that constrained shortest-path search at every node of a real search
+is far too slow, so the production form precomputes the answer. For each of
+the 65,650,495 bag states, each line `g`, and each demand `d = 1..4` (five
+residents and LIS ≥ 1, so a demand never exceeds 4), a table stores the
+**surcharge** `Δ(σ, g, d)` = constrained cost − WD, with one line constrained
+at a time. At a node: look up the state's WD and its surcharge curves, compute
+the demands, and take the **largest single-line surcharge** among the demanded
+lines.
+
+Largest — not sum. Summing would be the 8 + 4 overcharge from example 4 all
+over again. Each single-line `Δ` is a true lower bound on its own, so the
+strongest one is a safe charge.
+
+The price of "one line at a time" is that when demands genuinely cannot share
+the blank's walk, the jointly-constrained cost exceeds every single-line bound
+and the lookup undercharges. (The measured case: the blank's own home row
+demanding an escape — the kicked-out letter must also be walked back, which
+one sweep cannot absorb.) Measured on R's search tree, the single-line max
+retains **98%** of the node-weighted joint gain, and wiring in the pairwise
+joint value bought only ~2.6% fewer nodes in an exhaustive A/B — the compact
+table is the right trade. See `FINDINGS_R.md` §8 for those measurements.
+
+## How much cWD actually buys
+
+On the 180°-rotated board R — this project's target — WD says 140 and cWD says
+**144**, and the +4 holds tree-wide (node-weighted mean surcharge ≈ 4.26 over
+R's search tree). That translated into 20.7× fewer nodes exhausting threshold
+144 and 11.7× at 146, re-proving the R ≥ 148 record in 11 minutes instead of
+2 hours. On random boards the gain is small, as with WD itself: example 2's
+scrambled board picks up +2 (cWD 78 vs WD 76). The leverage lives where the
+bags are clean but the lines are internally interlocked — precisely the
+structured region WD alone under-charges.
+
+## Where to look in the code (cWD)
+
+| What | Where |
+|---|---|
+| Projection + per-line escape demands `x_g` | `cwd.rs:370` |
+| Constrained shortest-path search (bags × scoreboard) | `cwd.rs:438` |
+| Surcharge curves, largest-single-line lookup | `cwd.rs:200` |
+| Surcharge table builder | `src/bin/build_cwd_single.rs` |
+| Escape-bound soundness proof (Lean 4) | `proofs/puzzle15-wd` |
+| Joint vs single-line-max gap measurements | `FINDINGS_R.md` §8 |
