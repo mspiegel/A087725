@@ -257,18 +257,21 @@ row 0** in any real solution. (This bound is machine-checked in Lean 4:
 Classic linear conflict would stop here and *add* 2 per escape on top of
 Manhattan. cWD does something sharper. An escape is visible in the bag puzzle —
 it is a paid move in which a type-`g` letter leaves bag `g` — so the demand can
-be handed to the bag puzzle as a side condition on its own moves:
+be handed to the bag puzzle as a side condition on its own moves. For each
+demanded line `g`, ask:
 
 > What is the cheapest bag-puzzle solution that **also** makes at least `x_g`
-> escapes of every line `g`?
+> escapes of line `g`?
 
-This is still a relaxation of the real puzzle: any real solution projects to a
-bag solution, and the projection performs the real solution's escapes. So the
-answer never overestimates. And because the escapes constrain WD's own move
-budget instead of being added on top, nothing is double-billed: if the
-WD-optimal plan happened to make the required escapes anyway, the surcharge is
-zero. `cWD ≥ WD` always, and the row and column halves still sum for the same
-reason as before — they bill disjoint move classes.
+Each answer is still a relaxation of the real puzzle: any real solution
+projects to a bag solution, and the projection performs the real solution's
+escapes — in particular at least `x_g` of line `g`. So no single-line answer
+ever overestimates, and the solver charges the **strongest one**. And because
+the escapes constrain WD's own move budget instead of being added on top,
+nothing is double-billed: if the WD-optimal plan happened to make the required
+escapes anyway, the surcharge is zero. `cWD ≥ WD` always, and the row and
+column halves still sum for the same reason as before — they bill disjoint
+move classes.
 
 ## Worked example 3 — paying for a forced escape
 
@@ -293,61 +296,108 @@ Manhattan 4      Manhattan + linear conflict 6      WD = 0 + 10 = 10
 cWD = 8 + 10 = 18
 ```
 
+## The escape counter, state by state
+
+How does a shortest-path search even express "make at least one α escape"?
+Not as a statement about which state to reach — the start and goal bags are
+both clean — but as a statement about what must happen *along the way*, and
+shortest-path algorithms cannot see path history. So the history is made part
+of the state: the constrained search runs over pairs `(σ, c)`, where `σ` is
+the bag state and `c` counts the escapes of the constrained line made so far,
+saturating at the demand. Every move updates `σ` as usual; a move in which an
+α leaves bag 0 also ticks `c`. The start is `(σ₀, c=0)` and the goal is
+`(σ₀, c=1)` — **the same bags, different counter**. That one bit is the entire
+difference: the start is no longer the goal, so the search must actually move.
+
+Example 3's optimal path through this product graph:
+
+| # | blank move | letter kicked | bags after | `c` |
+|---|-----------|---------------|-----------|---|
+| 1 | bag 4 → 3 | a δ drops into bag 4 | bag 3 = 4δ, bag 4 = 4ε+δ | 0 |
+| 2 | bag 3 → 2 | a γ drops into bag 3 | bag 2 = 4γ, bag 3 = 4δ+γ | 0 |
+| 3 | bag 2 → 1 | a β drops into bag 2 | bag 1 = 4β, bag 2 = 4γ+β | 0 |
+| 4 | bag 1 → 0 | **an α drops into bag 1** | bag 0 = 4α, bag 1 = 4β+α | **1** ✓ |
+| 5 | bag 0 → 1 | the α drops back into bag 0 | bag 0 clean | 1 |
+| 6 | bag 1 → 2 | the β back into bag 1 | bag 1 clean | 1 |
+| 7 | bag 2 → 3 | the γ back into bag 2 | bag 2 clean | 1 |
+| 8 | bag 3 → 4 | the δ back into bag 3 | all clean | 1 |
+
+After move 8 the state is `(σ₀, c=1)`: clean bags *and* a satisfied counter,
+at cost 8 — the `Δ(σ₀, g=0, d=1) = 8` that the surcharge table stores.
+
+The walk makes three things visible:
+
+- **The counter never remembers *which* α left or where it sat.** At move 4
+  the state does not record that tile 1 escaped from column 2 — just "bags as
+  shown, one escape banked." All the order reasoning already happened in the
+  LIS on the concrete board; the counter enforces its conclusion, nothing more.
+- **Saturation.** Had the path kicked a second α out, `c` would stay pinned at
+  the demand (`c ← min(c + 1, d)`): extra escapes buy nothing, so the product
+  space is only `(d+1)×` the bag space — and `d ≤ 4`, so the counter fits in
+  3 bits.
+- **Constraint, not addend.** Move 4 costs 1 like every other bag move — no
+  per-escape "+2" is ever added on. The +8 emerges entirely from the counter
+  making the start and goal distinct, which is why a pre-billed excursion
+  returns marginal 0 and double-billing is impossible by construction.
+
 ## Worked example 4 — two scrambled rows, one blank tour
 
 Now scramble row 2 the same way (`12 13 11`, another 3-cycle). The Greek bags
 are still all clean, and there are two demands: `x_α = 1` and `x_γ = 1`.
 
-Here is the question the constraint machinery must get right. Two plans
-satisfy both demands:
+The solver prices each demand **separately**, one line constrained at a time:
 
-- **one tour**: bag 4 → bag 0 → bag 4, doing row 2's escape *in passing* —
-  8 moves;
-- **two round trips**: bag 4 → bag 0 → bag 4, then bag 4 → bag 2 → bag 4 —
-  12 moves.
+- **α alone**: cheapest bag solution with ≥ 1 α escape — the blank must tour
+  bag 4 → bag 0 → bag 4, as in example 3: surcharge **8**;
+- **γ alone**: cheapest bag solution with ≥ 1 γ escape — a shorter tour,
+  bag 4 → bag 2 → bag 4, kicking a γ out on the way in and handing it back on
+  the way out: surcharge **4**.
 
-Nothing hand-schedules the itinerary. The constrained optimum is a shortest
-path in a slightly bigger puzzle: a state is the bags **plus a scoreboard** of
-escapes made so far per demanded line; every move updates the bags and, if it
-is an escape, ticks the scoreboard; the goal is clean bags *and* a full
-scoreboard. Both plans above are paths in that puzzle, and the shortest path
-is the 8: on the way up, the step from bag 3 into bag 2 kicks a γ out (γ ✓)
-and the step from bag 1 into bag 0 kicks the α out (α ✓); the way down hands
-both back while re-homing the dragged letters. The lower bound is unchanged —
-the blank must still reach bag 0 and return — and bag 2 lies on that walk.
+Each single-line answer is a true lower bound on its own — any real solution
+performs *all* the demanded escapes, so in particular it satisfies each
+constraint alone. The charge is the **strongest one**: max(8, 4) = 8. Not the
+sum: a single 8-move tour to bag 0 does row 2's escape *in passing* (the step
+from bag 3 into bag 2 kicks a γ out, the step from bag 1 into bag 0 kicks the
+α out, and the way down hands both back), so 8 + 4 = 12 would be charging for
+a detour no optimal solution makes.
 
 ```
 Manhattan 8      WD = 0 + 14 = 14      cWD = 8 + 14 = 22
 ```
 
-The surcharge is the **same 8** as example 3. That is not a missed charge, it
-is admissibility at work: the real blank fixes row 2 on its way to row 0, and
-a heuristic that billed 8 + 4 would be charging for a detour no optimal
-solution makes.
+The surcharge is the **same 8** as example 3 — and here the strongest
+single-line bound is also the exact jointly-constrained cost, because bag 2
+lies on the blank's walk to bag 0. When demands genuinely cannot share the
+walk, the max undercharges the joint truth; that gap is measured below.
 
 ## Looking it up instead of searching
 
-Running that constrained shortest-path search at every node of a real search
-is far too slow, so the production form precomputes the answer. For each of
-the 65,650,495 bag states, each line `g`, and each demand `d = 1..4` (five
-residents and LIS ≥ 1, so a demand never exceeds 4), a table stores the
-**surcharge** `Δ(σ, g, d)` = constrained cost − WD, with one line constrained
-at a time. At a node: look up the state's WD and its surcharge curves, compute
-the demands, and take the **largest single-line surcharge** among the demanded
-lines.
+Running the bags-×-counter search at every node of a real search is far too
+slow, so cWD precomputes the answer. For each of the 65,650,495 bag states,
+each line `g`, and each demand `d = 1..4` (five residents and LIS ≥ 1, so a
+demand never exceeds 4), a table stores the **surcharge** `Δ(σ, g, d)` =
+constrained cost − WD, one line constrained at a time. At a node: look up the state's WD and its
+surcharge curves, compute the demands, and take the **largest single-line
+surcharge** among the demanded lines — exactly the max(8, 4) of example 4.
 
-Largest — not sum. Summing would be the 8 + 4 overcharge from example 4 all
-over again. Each single-line `Δ` is a true lower bound on its own, so the
-strongest one is a safe charge.
+Largest — not sum, as example 4 showed. Each single-line `Δ` is a true lower
+bound on its own, so the strongest one is a safe charge; the sum is not.
 
 The price of "one line at a time" is that when demands genuinely cannot share
 the blank's walk, the jointly-constrained cost exceeds every single-line bound
 and the lookup undercharges. (The measured case: the blank's own home row
 demanding an escape — the kicked-out letter must also be walked back, which
-one sweep cannot absorb.) Measured on R's search tree, the single-line max
-retains **98%** of the node-weighted joint gain, and wiring in the pairwise
-joint value bought only ~2.6% fewer nodes in an exhaustive A/B — the compact
-table is the right trade. See `FINDINGS_R.md` §8 for those measurements.
+one sweep cannot absorb.) The tighter score is recoverable: run the
+constrained A\* with **all** of an axis's demands at once — still admissible,
+by the same projection argument. But that is a search per node instead of an
+O(1) lookup, and a table of joint values would be indexed by whole demand
+vectors — memory-infeasible. Measured on R, the tightness it would buy is
+marginal anyway: the gap is zero at the root, the single-line max retains
+**98%** of the node-weighted joint gain tree-wide, and wiring in the pairwise
+joint value (memoized, essentially free per node) still bought only ~2.6%
+fewer nodes in an exhaustive A/B — the extra tightness barely prunes. The
+compact table is the right trade. See `FINDINGS_R.md` §8 for those
+measurements.
 
 ## How much cWD actually buys
 
@@ -365,7 +415,6 @@ structured region WD alone under-charges.
 | What | Where |
 |---|---|
 | Projection + per-line escape demands `x_g` | `cwd.rs:370` |
-| Constrained shortest-path search (bags × scoreboard) | `cwd.rs:438` |
 | Surcharge curves, largest-single-line lookup | `cwd.rs:200` |
 | Surcharge table builder | `src/bin/build_cwd_single.rs` |
 | Escape-bound soundness proof (Lean 4) | `proofs/puzzle15-wd` |
