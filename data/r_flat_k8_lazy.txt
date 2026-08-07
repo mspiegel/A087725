@@ -2114,3 +2114,62 @@ multi-GB artifacts on first open — asymmetrically against the arm whose
 files are new. One contaminated batch was discarded; sequentially pre-read
 new artifacts (cat > /dev/null) before any timed run, or exclude data/ from
 real-time protection if MDM allows.
+
+================================================================================
+JOINT-FORM LM2 → THE cwd_lm1l TABLE: 1.60x OVER --lm2 AT WALL PARITY (2026-08-06/07)
+================================================================================
+
+Arc (one day, all measured): the joint lever — escape demands priced WITH the
+last-two-moves obligations in one constrained relaxation — went probe →
+runtime A* → closed table, and ships as `--lm2joint`.
+
+1. lm2jprobe (survivors_148, 3,452 boards): joint form prunes 780 slack-0
+   consults vs table-LM2's 136 (5.7x, 644 joint-only); zero advantage beyond
+   +2 in any stratum (depth thesis dead; breadth over the dominant
+   population). data/lm2jprobe_survivors148.txt.
+2. Runtime A* tier (memoized, decision-capped, surcharge-guided): R
+   exhaust-144 = 156,589,948 nodes (1.38x over --lm2) but cold miss cost
+   ~18-90 s and the key population never saturates. En route: the +201K-node
+   anomaly — TB-ONLY VARIANTS HAVE NO TABLE (CwdLm is type-3-only), so
+   demand-free skips returning degenerate floors lost the type-2 obligation
+   lift; fixed by confining skips to ta-present variants. Bisect toggles +
+   per-consult compare harness were the diagnosis instruments.
+3. lm2j1l probe: SINGLE-DEMANDED-LINE restriction retains 778/780 (99.7%) —
+   multi-line demand x obligation coupling is 2 boards. The closed table is
+   the production form. data/lm2j1l_survivors148.txt.
+4. k8 cross-tab (k8_vs_joint_survivor_sample): joint prunes 780, k8 508
+   (17.0% — reproduces the 17.9% k6-probe figure on this dump), lm2 132;
+   JOINT-BEYOND-BOTH = 545 (70% of joint's prunes; union frontier coverage
+   20.5% -> 38.7%). Joint's demand x obligation information is ~orthogonal
+   to k8's 8-tile identity information. k8 keeps the deep (>=+4) advantages.
+5. cwd_lm1l build (src/puzzle24/search/cwd_lm1l.rs): 21B-entry table
+   (65.65M keys x 5 lines x 4 demands x 19 variants — 4 single-A, 3
+   single-B closing the tb-only hole, 12 pair — + 3 single-B r0 fields),
+   2-bit fields min((D-base)/2, 3) over base = wd + 2*curve_nibble (deltas
+   even by blank-parity; clamp-down = admissible; +6 effective cap).
+   Layered backward BFS per line: D_r from complete D_{r-1} (escape edges
+   seed, non-escape dial relaxes; CAS min-write — the 0xFF-only guard is an
+   admissibility bug under heterogeneous seeds; per-depth seed bitmaps — a
+   flat bitmap silently LOSES deep seeds; termination needs frontier-empty
+   AND seeds-exhausted). Flat adjacency precompute -> 6 s per 656M-state
+   pass, 35 MIN total build (not the estimated hours), ~18 GB peak.
+   Artifact data/cwd_lm1l_mm.bin: CWJ1, 112-B slots, 0.70 load, 10.50 GB.
+6. GATES, all passed: single-A r0 == cwd_lm.bin on 263K samples; demand
+   layers == uncapped A* oracle (smoke 106 + build 2,000 samples, 4
+   budget-outs counted); survivor gate = EXACTLY 778/0/0; frozen-oracle
+   outcomes 180 cases x both arms (45 s); engine composition shared
+   (cwd_lm1l::compose) between flat.rs and the gate so they cannot diverge.
+7. PRODUCTION NUMBERS (R exhaust-144, --parallel --lm2 --lm2joint, W=8):
+     nodes 134,801,951 vs --lm2's 216,158,191  =  1.604x
+     search wall 1.14 s vs 1.15 s              =  WALL PARITY (tier ~free)
+   Also 14% below the A*-memo form's 156.6M: the +4/+6 fields (invisible
+   under the memo's +2 decision cap) and gate-free consults both bind at
+   144. Consult order with --zpdb8: cWD -> LM2+1L -> k8.
+   All runtime knobs deleted; the A* survives only as the test oracle
+   (cwd_lm_joint.rs; reference_1l margin 6 resolves every 2-bit field).
+
+Open next: idle-box canary A/B at 146 (--lm2joint vs --lm2, and the cascade
+arm with pageins/cpu-wall per the cost-diagnosis protocol; ~49 GB mapped vs
+32 GB installed — measured-tolerable regime, vanishes on >=64 GB); then the
+148 rung. Untried, not killed: multi-line coupling (the 2 boards), joint-form
+analogues for k8, LM3-shaped 1L extensions.

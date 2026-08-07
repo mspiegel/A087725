@@ -470,6 +470,9 @@ struct Arena {
     /// LM2 combined front cache (single + pair values under one tag),
     /// allocated on first [`seed_lm2`].
     lm2cache: Option<Box<Lm2Cache>>,
+    /// Front cache for the single-demanded-line joint table (`--lm2joint`):
+    /// direct-mapped key → payload copy, allocated on first consult.
+    lm1l_cache: Option<Box<Lm1lCache>>,
 }
 
 impl Arena {
@@ -512,6 +515,7 @@ impl Arena {
             lmcache: None,
             lm2pos: vec![[0u8; 6]; MAX_DEPTH].into_boxed_slice(),
             lm2cache: None,
+            lm1l_cache: None,
         }
     }
 
@@ -1330,7 +1334,6 @@ pub fn lm2_cache_stats_report() {
 /// 15. Slack ≥ 7 consults are provably unable to prune (branch gain is
 /// capped at +6 by the excursion-splice bound), so this measures what a
 /// slack gate could skip.
-#[cfg(feature = "search-census")]
 // LM2 consult census, mirroring the k8 counters so the two tiers can be
 // compared apples-to-apples. The 2-D histogram is the one that matters for a
 // slack gate: a tier prunes only when advantage > slack, so ADV_BY_SLACK says
@@ -1587,6 +1590,175 @@ fn lm2_child(
     h_cwd.max(ba.min(bb).min(bc).min(bd))
 }
 
+/// Direct-mapped front cache for the single-demanded-line joint table:
+/// axis key → payload copy. Constant geometry (32K slots ≈ 3.4 MB/worker);
+/// like every front cache here, correctness never depends on it.
+struct Lm1lCache {
+    tags: Box<[u64]>,
+    payloads: Box<[[u8; super::cwd_lm1l::LM1L_PAYLOAD]]>,
+}
+
+const LM1L_CACHE_BITS: u32 = 15;
+
+impl Lm1lCache {
+    fn new() -> Self {
+        Lm1lCache {
+            tags: vec![0u64; 1 << LM1L_CACHE_BITS].into_boxed_slice(),
+            payloads: vec![[0u8; super::cwd_lm1l::LM1L_PAYLOAD]; 1 << LM1L_CACHE_BITS]
+                .into_boxed_slice(),
+        }
+    }
+    #[inline]
+    fn get(
+        &mut self,
+        t: &super::cwd_lm1l::CwdLm1lMm,
+        key: u64,
+    ) -> Option<&[u8; super::cwd_lm1l::LM1L_PAYLOAD]> {
+        let slot = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - LM1L_CACHE_BITS)) as usize;
+        if self.tags[slot] != key {
+            let p = t.probe(key)?;
+            self.payloads[slot].copy_from_slice(p);
+            self.tags[slot] = key;
+        }
+        Some(&self.payloads[slot])
+    }
+}
+
+#[cfg(feature = "search-census")]
+static LM1L_CONSULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "search-census")]
+static LM1L_PRUNES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Print and reset the 1L-tier census (call after a run).
+#[cfg(feature = "search-census")]
+pub fn lm1l_report_reset() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let c = LM1L_CONSULTS.swap(0, Relaxed);
+    let pr = LM1L_PRUNES.swap(0, Relaxed);
+    if c > 0 {
+        eprintln!(
+            "    lm1l: {c} consults; PRUNED {pr} ({:.2}% of consults)",
+            100.0 * pr as f64 / c.max(1) as f64
+        );
+    }
+}
+
+/// Price the four endgame branches with the single-demanded-line joint
+/// table and return `max(h_cwd, min(A, B, C, D))` — the table form of the
+/// joint LM2 heuristic. Per variant the value is
+/// `max(zero-demand table floor, max over demanded lines g of
+/// base(g, dem[g]) + 2·field)`, with `base = wd + 2·curve_nibble` from the
+/// merged cell and the 2-bit field from the artifact. tb-only variants
+/// (type-2 tracked while its type-3 partner is home) take their zero-demand
+/// floor from the artifact's single-B section — the placement no other
+/// table covers.
+#[allow(clippy::too_many_arguments)]
+fn lm1l_child(
+    arena: &mut Arena,
+    cache: &mut ProbeCache,
+    merged: MergedBacking,
+    mm: &super::cwd_lm::CwdLmMm,
+    t1l: &super::cwd_lm1l::CwdLm1lMm,
+    d: usize,
+    h_cwd: u8,
+) -> u8 {
+    use super::cwd_lm1l::LM1L_PAYLOAD;
+    let f = &arena.hot[d + 1];
+    let (row_at, col_at) = (f.row_at as usize, f.col_at as usize);
+    let (rkey, dr, rterm) = {
+        let s = &arena.row[row_at];
+        (s.key, s.dem, s.term())
+    };
+    let (ckey, dc, cterm) = {
+        let s = &arena.col[col_at];
+        (s.key, s.dem, s.term())
+    };
+    let lp = arena.lm2pos[d + 1];
+    let floors = {
+        let c = arena
+            .lm2cache
+            .as_mut()
+            .expect("seed_lm2 allocates")
+            .as_mut();
+        joint_floors(c, mm, rkey, ckey, &lp, rterm, cterm)
+    };
+    let (rwd, rcurves) = {
+        let cell = cache.get(merged, rkey);
+        (cell.wd, cell.curves)
+    };
+    let (cwd_, ccurves) = {
+        let cell = cache.get(merged, ckey);
+        (cell.wd, cell.curves)
+    };
+    let l1 = arena
+        .lm1l_cache
+        .get_or_insert_with(|| Box::new(Lm1lCache::new()));
+    let rp: [u8; LM1L_PAYLOAD] = match l1.get(t1l, rkey) {
+        Some(p) => *p,
+        None => return h_cwd,
+    };
+    let cp: [u8; LM1L_PAYLOAD] = match l1.get(t1l, ckey) {
+        Some(p) => *p,
+        None => return h_cwd,
+    };
+    let row = super::cwd_lm1l::AxisIn {
+        payload: &rp,
+        wd: rwd,
+        curves: rcurves,
+        dem: dr,
+        term: rterm,
+        floors: [floors[0], floors[1], floors[2]],
+    };
+    let col = super::cwd_lm1l::AxisIn {
+        payload: &cp,
+        wd: cwd_,
+        curves: ccurves,
+        dem: dc,
+        term: cterm,
+        floors: [floors[3], floors[4], floors[5]],
+    };
+    super::cwd_lm1l::compose(&row, &col, &lp, h_cwd)
+}
+
+/// Table branch values for both axes, `or_`-chained exactly like
+/// [`lm2_child`]'s composition, packaged as the joint evaluator's per-variant
+/// floors: `[r20, r19, pair_r, c24, c19, pair_c]` (each already floored at
+/// its axis term).
+#[inline]
+fn joint_floors(
+    cache: &mut Lm2Cache,
+    mm: &super::cwd_lm::CwdLmMm,
+    rkey: u64,
+    ckey: u64,
+    lp: &[u8; 6],
+    rterm: u8,
+    cterm: u8,
+) -> [u8; 6] {
+    let pri = if lp[0] < 4 && lp[2] < 3 {
+        lp[0] * 3 + lp[2]
+    } else {
+        0xFF
+    };
+    let pci = if lp[1] < 4 && lp[5] < 3 {
+        lp[1] * 3 + lp[5]
+    } else {
+        0xFF
+    };
+    let (r20, r19, pr) = cache.get3(mm, rkey, lp[0], lp[3], pri);
+    let (c24, c19, pc) = cache.get3(mm, ckey, lp[1], lp[4], pci);
+    let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+    let r20f = or_(r20, rterm);
+    let c24f = or_(c24, cterm);
+    [
+        r20f,
+        or_(r19, rterm),
+        or_(pr, r20f),
+        c24f,
+        or_(c19, cterm),
+        or_(pc, c24f),
+    ]
+}
+
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -1639,6 +1811,7 @@ where
         None,
         Some(lm),
         None,
+        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -1656,6 +1829,7 @@ pub fn flat_bounded_lm2_telemetry<F>(
     cwd: &Cwd,
     dfa: &MoveDfa,
     lm2: &super::cwd_lm::CwdLmMm,
+    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -1671,6 +1845,7 @@ where
         None,
         None,
         Some(lm2),
+        lm1l,
         orbit_split,
         max_bound,
         max_nodes,
@@ -1686,6 +1861,7 @@ pub fn flat_bounded_cascade_telemetry<F>(
     dfa: &MoveDfa,
     k8: &K8Ctx,
     lm2: &super::cwd_lm::CwdLmMm,
+    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
     orbit_split: bool,
     max_bound: u8,
     max_nodes: u64,
@@ -1701,6 +1877,7 @@ where
         Some(k8),
         None,
         Some(lm2),
+        lm1l,
         orbit_split,
         max_bound,
         max_nodes,
@@ -1730,6 +1907,7 @@ where
         cwd,
         dfa,
         Some(k8),
+        None,
         None,
         None,
         orbit_split,
@@ -1770,6 +1948,7 @@ where
         None,
         None,
         None,
+        None,
         orbit_split,
         max_bound,
         max_nodes,
@@ -1798,6 +1977,7 @@ where
         None,
         None,
         None,
+        None,
         orbit_split,
         max_bound,
         u64::MAX,
@@ -1813,6 +1993,7 @@ fn flat_bounded_inner_k8<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
+    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
     orbit_split: bool,
     max_bound: u8,
     budget: u64,
@@ -1862,37 +2043,45 @@ where
             lm.is_some(),
         ) {
             (true, false, false, false) => run_iteration::<false, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
+                &mut stats, budget,
             ),
             (false, false, false, false) => run_iteration::<true, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, bound, &mut stats,
-                budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
+                &mut stats, budget,
             ),
             // cascade: LM2 first, k8 only at LM2-survivors
             (true, true, true, _) => run_iteration::<false, true, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, lm1l, bound, &mut stats,
+                budget,
             ),
             (false, true, true, _) => run_iteration::<true, true, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, lm1l, bound, &mut stats,
+                budget,
             ),
             (true, true, false, _) => run_iteration::<false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
+                budget,
             ),
             (false, true, false, _) => run_iteration::<true, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
+                budget,
             ),
             (true, false, true, _) => run_iteration::<false, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, lm1l, bound, &mut stats,
+                budget,
             ),
             (false, false, true, _) => run_iteration::<true, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, lm1l, bound, &mut stats,
+                budget,
             ),
             (true, false, false, true) => run_iteration::<false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
+                budget,
             ),
             (false, false, false, true) => run_iteration::<true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, bound, &mut stats, budget,
+                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
+                budget,
             ),
         };
         match step {
@@ -2085,6 +2274,7 @@ pub fn flat_bounded_parallel<F>(
     k8: Option<&K8Ctx>,
     lm: Option<&super::cwd_lm::CwdLmMm>,
     lm2: Option<&super::cwd_lm::CwdLmMm>,
+    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
     orbit_split: bool,
     max_bound: u8,
     mut on_iter: F,
@@ -2222,6 +2412,45 @@ where
                             continue;
                         }
                     }
+                    // 1L joint tier — must mirror run_iteration's hook or
+                    // the split's tree diverges from the sequential one.
+                    if let Some(t1l) = lm1l {
+                        let (rmask, cmask) = {
+                            let f = &split_arena.hot[1];
+                            (
+                                split_arena.row[f.row_at as usize].dem_mask,
+                                split_arena.col[f.col_at as usize].dem_mask,
+                            )
+                        };
+                        let lp = split_arena.lm2pos[1];
+                        let tb_only = (lp[0] > 3 && lp[2] < 3) || (lp[1] > 3 && lp[5] < 3);
+                        if h > 1 && (rmask != 0 || cmask != 0 || tb_only) {
+                            #[cfg(feature = "search-census")]
+                            LM1L_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let hj = lm1l_child(
+                                &mut split_arena,
+                                &mut split_cache,
+                                merged,
+                                lm2t,
+                                t1l,
+                                0,
+                                h,
+                            )
+                            .max(heff);
+                            if hj > heff {
+                                let f2 = g_next.saturating_add(hj);
+                                if f2 > bound {
+                                    #[cfg(feature = "search-census")]
+                                    LM1L_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    stats.nodes += 1; // counted, same as the arms above
+                                    if f2 < min_f {
+                                        min_f = f2;
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                 }
                 // Lazy k8 consult at cWD-survivors — must mirror run_iteration
                 // exactly or the split's tree diverges from the sequential one.
@@ -2309,6 +2538,7 @@ where
                             k8,
                             lm,
                             lm2,
+                            lm1l,
                             reduced,
                             &mut st,
                             u64::MAX,
@@ -2321,6 +2551,7 @@ where
                             merged,
                             dfa,
                             k8,
+                            None,
                             None,
                             None,
                             reduced,
@@ -2337,6 +2568,7 @@ where
                             None,
                             lm,
                             lm2,
+                            lm1l,
                             reduced,
                             &mut st,
                             u64::MAX,
@@ -2351,6 +2583,7 @@ where
                             None,
                             lm,
                             None,
+                            None,
                             reduced,
                             &mut st,
                             u64::MAX,
@@ -2362,6 +2595,7 @@ where
                             cwd,
                             merged,
                             dfa,
+                            None,
                             None,
                             None,
                             None,
@@ -2750,6 +2984,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
     k8ctx: Option<&K8Ctx>,
     lmctx: Option<&super::cwd_lm::CwdLmMm>,
     lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
+    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
@@ -2920,6 +3155,39 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                         minf = f2;
                     }
                     continue;
+                }
+            }
+            // Single-demanded-line joint tier (`--lm2joint`): the table
+            // form's branch values, lifted by the strongest single-line
+            // demand from the 1L artifact. Skipped when it provably cannot
+            // move the heuristic: both axes demand-free and no tb-only
+            // variant live (`h <= 1` also excludes the goal/pre-goal
+            // states, whose final-move obligations are vacuous).
+            if let Some(t1l) = lm1l {
+                let (rmask, cmask) = {
+                    let f = &arena.hot[d + 1];
+                    (
+                        arena.row[f.row_at as usize].dem_mask,
+                        arena.col[f.col_at as usize].dem_mask,
+                    )
+                };
+                let lp = arena.lm2pos[d + 1];
+                let tb_only = (lp[0] > 3 && lp[2] < 3) || (lp[1] > 3 && lp[5] < 3);
+                if h > 1 && (rmask != 0 || cmask != 0 || tb_only) {
+                    #[cfg(feature = "search-census")]
+                    LM1L_CONSULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let hj = lm1l_child(arena, cache, merged, lm2ctx.unwrap(), t1l, d, h).max(heff);
+                    if hj > heff {
+                        let f2 = g_next.saturating_add(hj);
+                        if f2 > bound {
+                            #[cfg(feature = "search-census")]
+                            LM1L_PRUNES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if f2 < minf {
+                                minf = f2;
+                            }
+                            continue;
+                        }
+                    }
                 }
             }
         } else if LM {
@@ -4160,6 +4428,166 @@ mod tests {
         assert!(nb == 555, "sample size changed");
     }
 
+    /// Cross-tab on the unconditioned survivors_148 sample: does the joint
+    /// LM2 value prune boards that NEITHER the table LM2 NOR the k8 tier
+    /// prunes at the recorded slack? The `j_beyond` column is the joint
+    /// tier's marginal contribution to the full cascade.
+    ///
+    ///   cargo test --release k8_vs_joint_survivor_sample -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs data/cwd_mm.bin, data/cwd_lm_mm.bin, the three 32.8 GB zPDBs and data/survivors_148.txt"]
+    fn k8_vs_joint_survivor_sample() {
+        let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
+        let backing = cwd.backing().unwrap();
+        let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
+        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        let text = std::fs::read_to_string("data/survivors_148.txt").expect("survivor sample");
+        let goal = crate::puzzle24::search::cwd::goal_key();
+
+        use std::collections::BTreeMap;
+        #[derive(Default)]
+        struct Acc {
+            n: u64,
+            pk: u64,
+            pl: u64,
+            pj: u64,
+            j_beyond: u64, // joint prunes, k8 and table-lm2 both miss
+            k_only: u64,
+            neither: u64,
+        }
+        let mut acc: BTreeMap<u32, Acc> = BTreeMap::new();
+        for line in text.lines().filter(|l| l.contains("board=[")) {
+            let field = |k: &str| -> u32 {
+                line.split_whitespace()
+                    .find_map(|w| w.strip_prefix(k))
+                    .and_then(|v| v.parse().ok())
+                    .unwrap()
+            };
+            let (slack, hf) = (field("slack="), field("h="));
+            let seg = &line[line.find("board=[").unwrap() + 7..];
+            let seg = &seg[..seg.find(']').unwrap()];
+            let vals: Vec<u8> = seg.split(',').map(|w| w.trim().parse().unwrap()).collect();
+            if vals.len() != 25 {
+                continue;
+            }
+            let mut cells = [0u8; 25];
+            cells.copy_from_slice(&vals);
+            let s = State(cells);
+
+            let (mr, br, dr, mc, bc, dc) = project(&s);
+            let (rkey, ckey) = (pack(&mr, br), pack(&mc, bc));
+            let rc = backing.cell(rkey).expect("row reachable");
+            let cc = backing.cell(ckey).expect("col reachable");
+            let rterm = rc.wd + surcharge_from_curves(&rc.curves, &dr);
+            let cterm = cc.wd + surcharge_from_curves(&cc.curves, &dc);
+            let h0p = rterm as u32 + cterm as u32;
+            assert_eq!(h0p, hf, "baseline drift on {line}");
+
+            let pos = |t: u8| s.0.iter().position(|&x| x == t).unwrap();
+            let lp = [
+                (pos(20) / 5) as u8,
+                (pos(24) % 5) as u8,
+                (pos(15) / 5) as u8,
+                (pos(19) / 5) as u8,
+                (pos(19) % 5) as u8,
+                (pos(23) % 5) as u8,
+            ];
+            let probe = |key: u64| -> ([u8; 4], [u8; 12]) {
+                let (mut s4, mut p12) = ([0xFFu8; 4], [0xFFu8; 12]);
+                if let Some((a, b)) = mm.probe(key) {
+                    s4.copy_from_slice(a);
+                    p12.copy_from_slice(b);
+                }
+                (s4, p12)
+            };
+            let (vr, pr_all) = probe(rkey);
+            let (vc, pc_all) = probe(ckey);
+            let sv = |v: &[u8; 4], l: u8| if l < 4 { v[l as usize] } else { 0xFF };
+            let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
+            let pr = if lp[0] < 4 && lp[2] < 3 {
+                pr_all[(lp[0] * 3 + lp[2]) as usize]
+            } else {
+                0xFF
+            };
+            let pc = if lp[1] < 4 && lp[5] < 3 {
+                pc_all[(lp[1] * 3 + lp[5]) as usize]
+            } else {
+                0xFF
+            };
+            let r20f = or_(sv(&vr, lp[0]), rterm);
+            let c24f = or_(sv(&vc, lp[1]), cterm);
+            let floors = [
+                r20f,
+                or_(sv(&vr, lp[3]), rterm),
+                or_(pr, r20f),
+                c24f,
+                or_(sv(&vc, lp[4]), cterm),
+                or_(pc, c24f),
+            ];
+            let ba = or_(pr, r20f) as u32 + cterm as u32;
+            let bb = r20f as u32 + or_(sv(&vc, lp[4]), cterm) as u32;
+            let bcv = or_(sv(&vr, lp[3]), rterm) as u32 + c24f as u32;
+            let bd = rterm as u32 + or_(pc, c24f) as u32;
+            let lm2 = h0p.max(ba.min(bb).min(bcv).min(bd));
+
+            let hj = crate::puzzle24::search::cwd_lm_joint::eval_uncached(
+                backing,
+                goal,
+                rkey,
+                ckey,
+                &dr,
+                &dc,
+                rterm,
+                cterm,
+                &floors,
+                &lp,
+                h0p.min(255) as u8,
+            )
+            .max(lm2.min(255) as u8) as u32;
+
+            let rs = symmetry::reflect(&s);
+            let (mut s0, mut s1) = (0u32, 0u32);
+            for db in &ctx.dbs {
+                s0 += db.cold_lookup(&s) as u32;
+                s1 += db.cold_lookup(&rs) as u32;
+            }
+            let hk8 = s0.max(s1);
+
+            let need = hf + slack;
+            let (pk, pl, pj) = (hk8 > need, lm2 > need, hj > need);
+            let e = acc.entry(slack).or_default();
+            e.n += 1;
+            if pk {
+                e.pk += 1;
+            }
+            if pl {
+                e.pl += 1;
+            }
+            if pj {
+                e.pj += 1;
+            }
+            if pj && !pk && !pl {
+                e.j_beyond += 1;
+            }
+            if pk && !pj && !pl {
+                e.k_only += 1;
+            }
+            if !pk && !pj && !pl {
+                e.neither += 1;
+            }
+        }
+        for (slack, a) in &acc {
+            eprintln!(
+                "slack={slack}: n={} | prunes k8 {} lm2 {} joint {} | JOINT-BEYOND-BOTH {} | k8-only {} | none {}",
+                a.n, a.pk, a.pl, a.pj, a.j_beyond, a.k_only, a.neither
+            );
+        }
+        assert!(
+            acc.values().map(|a| a.n).sum::<u64>() == 3452,
+            "sample size changed"
+        );
+    }
+
     // ------------------------- fast, table-free LUT checks ---------------------
 
     /// `CAND` replaces two filters the generic engine applies inline (legality and
@@ -4643,6 +5071,69 @@ mod tests {
         );
     }
 
+    /// **The 1L joint-tier validity gate.** A changed heuristic voids node
+    /// identity, so the gate is *outcomes*: every frozen-oracle case must
+    /// produce the same tag/val (optimal length for `Solved`, proved bound
+    /// for `ProvedAtLeast`) with the LM2 tier and with LM2+1L. Both arms
+    /// run so a base-LM2 divergence cannot be misattributed to the table
+    /// tier. Node counts are deliberately not compared. Skips (with a
+    /// message) until the artifact is built.
+    #[cfg(feature = "cwd-table-tests")]
+    #[test]
+    fn flat_lm2_joint_matches_frozen_oracle_outcomes() {
+        let Some(cwd) = cwd_merged_or_skip() else {
+            return;
+        };
+        let lm_mm_path = std::path::Path::new("data/cwd_lm_mm.bin");
+        let Ok(lm2) = load_cwd_lm_mm(lm_mm_path) else {
+            eprintln!("cwd_lm_mm.bin absent — skipping joint oracle gate");
+            return;
+        };
+        let Ok(t1l) =
+            super::super::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new("data/cwd_lm1l_mm.bin"))
+        else {
+            eprintln!("cwd_lm1l_mm.bin absent — skipping joint oracle gate");
+            return;
+        };
+        let dfa = MoveDfa::build_default();
+        let mut checked = 0usize;
+        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
+            .iter()
+            .enumerate()
+        {
+            let s = State(c.board);
+            for (jname, joint) in [("off", None), ("on", Some(&t1l))] {
+                let (fo, _fs) = flat_bounded_lm2_telemetry(
+                    &s,
+                    cwd,
+                    &dfa,
+                    &lm2,
+                    joint,
+                    c.orbit_split,
+                    c.bound,
+                    u64::MAX,
+                    |_, _, _| {},
+                );
+                let ok = match &fo {
+                    BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
+                    BoundedOutcome::ProvedAtLeast(k) => c.tag == 1 && *k == c.val,
+                    BoundedOutcome::Unsolvable => c.tag == 2,
+                    BoundedOutcome::BudgetExhausted(_) => {
+                        panic!("oracle case {i} hit a node budget — the fixture is run unbudgeted")
+                    }
+                };
+                assert!(
+                    ok,
+                    "case {i} (joint={jname}): outcome differs (board {:?}, bound {}): \
+                     got {fo:?} vs frozen tag={} val={}",
+                    c.board, c.bound, c.tag, c.val
+                );
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 180, "oracle case count changed");
+    }
+
     /// **The parallel gate.** The tree-splitting driver must reproduce the frozen
     /// oracle exactly — same outcomes, same node counts, same iteration counts.
     ///
@@ -4682,8 +5173,18 @@ mod tests {
             .enumerate()
         {
             let s = State(c.board);
-            let (po, ps) =
-                flat_bounded_parallel(&s, cwd, &dfa, c.orbit_split, c.bound, |_, _, _| {});
+            let (po, ps) = flat_bounded_parallel(
+                &s,
+                cwd,
+                &dfa,
+                None,
+                None,
+                None,
+                None,
+                c.orbit_split,
+                c.bound,
+                |_, _, _| {},
+            );
             let ok = match &po {
                 BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
                 BoundedOutcome::ProvedAtLeast(k) => c.tag == 1 && *k == c.val,

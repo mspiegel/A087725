@@ -1,0 +1,22 @@
+lm2j1l: 3452 boards (2995 slack-0, 457 slack>=2)
+  200/3452 boards, 22s elapsed
+  400/3452 boards, 49s elapsed
+  600/3452 boards, 66s elapsed
+  800/3452 boards, 83s elapsed
+  1000/3452 boards, 116s elapsed
+  1200/3452 boards, 141s elapsed
+  1400/3452 boards, 160s elapsed
+  1600/3452 boards, 190s elapsed
+  1800/3452 boards, 219s elapsed
+  2000/3452 boards, 240s elapsed
+  2200/3452 boards, 268s elapsed
+  2400/3452 boards, 299s elapsed
+  2600/3452 boards, 323s elapsed
+  2800/3452 boards, 365s elapsed
+  3000/3452 boards, 420s elapsed
+  3200/3452 boards, 486s elapsed
+  3400/3452 boards, 539s elapsed
+=== lm2j1l [/Users/michaelspiegel/Projects/atom-planet-embrace/A087725/data/survivors_148.txt] (561s) ===
+slack=0: n=2995 | prunes full 780 1L 778 both 778 full-only 2 | fb 0 hmism 0
+slack=2: n=425 | prunes full 0 1L 0 both 0 full-only 0 | fb 0 hmism 0
+slack=4: n=32 | prunes full 0 1L 0 both 0 full-only 0 | fb 0 hmism 0

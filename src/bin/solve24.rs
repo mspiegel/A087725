@@ -62,6 +62,10 @@ struct Args {
     /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
     /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
     lm2: bool,
+    /// Add the joint-form LM2 memo tier on top of --lm2: demand-carrying
+    /// branch values from a lazily-memoized capped constrained A*, consulted
+    /// only where the table form failed to prune within +2 of the bound.
+    lm2joint: bool,
     /// Disable the neighbour-WD child pre-prune (profile: 10.2% of runtime
     /// under the LM2 stack; its value was established before LM2 existed).
     no_neighbor_prune: bool,
@@ -85,6 +89,11 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
+  --lm2joint              with --lm2: the single-demanded-line joint tier —
+                          LM2's endgame branches lifted by escape demands,
+                          read from data/cwd_lm1l_mm.bin (~10.5 GB mmap'd).
+                          Composes with --zpdb8 (consult order cWD → LM2+1L
+                          → k8).
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~30.5 GB mmap'd),
                           consulted only at children the tiers above fail to
@@ -108,6 +117,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut zpdb8 = false;
     let mut lm = false;
     let mut lm2 = false;
+    let mut lm2joint = false;
     let mut no_neighbor_prune = false;
 
     let mut i = 0;
@@ -134,6 +144,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--zpdb8" => zpdb8 = true,
             "--lm" => lm = true,
             "--lm2" => lm2 = true,
+            "--lm2joint" => lm2joint = true,
             "--no-cwd-neighbor-prune" => no_neighbor_prune = true,
             "--max-nodes" => {
                 i += 1;
@@ -164,6 +175,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         zpdb8,
         lm,
         lm2,
+        lm2joint,
         no_neighbor_prune,
     })
 }
@@ -353,6 +365,25 @@ fn main() -> ExitCode {
     } else {
         None
     };
+    if args.lm2joint && !args.lm2 {
+        eprintln!("error: --lm2joint requires --lm2");
+        return ExitCode::FAILURE;
+    }
+    let lm1l = if args.lm2joint {
+        let path = "data/cwd_lm1l_mm.bin";
+        eprintln!("lm2joint: mmapping {path}…");
+        match puzzle8::puzzle24::search::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new(path)) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!(
+                    "error: --lm2joint (build {path} with the build_cwd_lm1l_artifact test): {e}"
+                );
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     if args.lm && args.zpdb8 {
         eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 --zpdb8");
         return ExitCode::FAILURE;
@@ -456,6 +487,8 @@ fn main() -> ExitCode {
             );
             #[cfg(feature = "probe-cache-stats")]
             puzzle8::puzzle24::search::flat::lm2_slack_report_reset();
+            #[cfg(feature = "search-census")]
+            puzzle8::puzzle24::search::flat::lm1l_report_reset();
             // Per-node event rates for this threshold alone. Counts are
             // frequency-independent, so these are comparable across
             // thresholds even on battery.
@@ -492,6 +525,7 @@ fn main() -> ExitCode {
                 k8.as_ref(),
                 lmt.as_ref(),
                 lm2t.as_ref(),
+                lm1l.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 on_iter,
@@ -503,6 +537,7 @@ fn main() -> ExitCode {
                 &dfa,
                 ctx,
                 t2,
+                lm1l.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 args.max_nodes,
@@ -514,6 +549,7 @@ fn main() -> ExitCode {
                 &cwd,
                 &dfa,
                 t2,
+                lm1l.as_ref(),
                 orbit,
                 args.max_bound.unwrap_or(u8::MAX),
                 args.max_nodes,

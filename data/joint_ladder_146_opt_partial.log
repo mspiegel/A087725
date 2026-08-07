@@ -1,0 +1,42 @@
+image slide: 0x2eb8000
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 8 rayon workers (RAYON_NUM_THREADS to change)
+[23:57:40.898 UTC] search: start  (setup 5.08s)
+    lm2joint[live]: consults 6195385 (+6195385), misses 58854 (+58854), keys 58776, prunes 892918, fallbacks 0
+[23:58:09.206 UTC] threshold 144 exhausted:       156791186 nodes in 28.31s (5.54 Mn/s)
+    lm2joint: 39906523 consults; axis-memo misses 95744 (0.0400% — 95634 distinct keys across workers); PRUNED 5892029 (14.76% of consults); budget fallbacks 0
+    lm2joint[live]: consults 27640 (+18446744073703383871), misses 1948 (+18446744073709494710), keys 97571, prunes 4362, fallbacks 0
+    lm2joint[live]: consults 98189 (+70549), misses 9971 (+8023), keys 105592, prunes 10190, fallbacks 0
+    lm2joint[live]: consults 173274 (+75085), misses 17561 (+7590), keys 113177, prunes 17861, fallbacks 0
+    lm2joint[live]: consults 265280 (+92006), misses 24465 (+6904), keys 120078, prunes 27213, fallbacks 0
+    lm2joint[live]: consults 392366 (+127086), misses 31709 (+7244), keys 127321, prunes 38816, fallbacks 0
+    lm2joint[live]: consults 494497 (+102131), misses 37506 (+5797), keys 133117, prunes 47364, fallbacks 0
+    lm2joint[live]: consults 583888 (+89391), misses 43107 (+5601), keys 138718, prunes 55152, fallbacks 0
+    lm2joint[live]: consults 677567 (+93679), misses 49301 (+6194), keys 144912, prunes 64453, fallbacks 0
+    lm2joint[live]: consults 879612 (+202045), misses 56406 (+7105), keys 152015, prunes 81987, fallbacks 0
+    lm2joint[live]: consults 1018294 (+138682), misses 65016 (+8610), keys 160625, prunes 100398, fallbacks 0
+    lm2joint[live]: consults 1173671 (+155377), misses 72848 (+7832), keys 168458, prunes 119266, fallbacks 0
+    lm2joint[live]: consults 1334179 (+160508), misses 79836 (+6988), keys 175443, prunes 135945, fallbacks 0
+    lm2joint[live]: consults 1525312 (+191133), misses 87093 (+7257), keys 182700, prunes 155063, fallbacks 0
+    lm2joint[live]: consults 1738334 (+213022), misses 96178 (+9085), keys 191785, prunes 180505, fallbacks 0
+    lm2joint[live]: consults 1973265 (+234931), misses 105800 (+9622), keys 201407, prunes 205982, fallbacks 0
+    lm2joint[live]: consults 2162294 (+189029), misses 113846 (+8046), keys 209453, prunes 228253, fallbacks 0
+    lm2joint[live]: consults 2361370 (+199076), misses 120698 (+6852), keys 216302, prunes 252458, fallbacks 0
+    lm2joint[live]: consults 2665488 (+304118), misses 129999 (+9301), keys 225603, prunes 288626, fallbacks 0
+    lm2joint[live]: consults 3037840 (+372352), misses 139645 (+9646), keys 235249, prunes 332428, fallbacks 0
+    lm2joint[live]: consults 3468623 (+430783), misses 151753 (+12108), keys 247356, prunes 381635, fallbacks 0
+    lm2joint[live]: consults 3951471 (+482848), misses 163101 (+11348), keys 258704, prunes 434450, fallbacks 0
+    lm2joint[live]: consults 4456452 (+504981), misses 174178 (+11077), keys 269780, prunes 496367, fallbacks 0
+    lm2joint[live]: consults 4854510 (+398058), misses 185049 (+10871), keys 280651, prunes 550670, fallbacks 0
+    lm2joint[live]: consults 5450852 (+596342), misses 196638 (+11589), keys 292240, prunes 593083, fallbacks 0
+    lm2joint[live]: consults 6059201 (+608349), misses 206660 (+10022), keys 302261, prunes 643512, fallbacks 0
+    lm2joint[live]: consults 6908831 (+849630), misses 220397 (+13737), keys 315998, prunes 717764, fallbacks 0
+    lm2joint[live]: consults 7982139 (+1073308), misses 232615 (+12218), keys 328216, prunes 782735, fallbacks 0
+    lm2joint[live]: consults 9048691 (+1066552), misses 245781 (+13166), keys 341382, prunes 831491, fallbacks 0
+    lm2joint[live]: consults 9955335 (+906644), misses 258626 (+12845), keys 354227, prunes 922597, fallbacks 0
+    lm2joint[live]: consults 10882417 (+927082), misses 269455 (+10829), keys 365056, prunes 1013150, fallbacks 0
+    lm2joint[live]: consults 11493899 (+611482), misses 278288 (+8833), keys 373889, prunes 1081696, fallbacks 0
