@@ -2199,3 +2199,27 @@ Next rung: exhaust-148 cascade+lm1l (the cascade's growth regime; starts
 1.39x ahead). Possible later lever: standalone consult-cost trim (front
 cache geometry / dem-mask popcount gating) — only if a standalone config
 ever matters.
+
+148 crossover run: NOT crossed on 32 GB — nodes 2.52x, wall 1.38x slower, 194 GB paging (2026-08-07)
+----------------------------------------------------------------------------------------------------
+Canary-bracketed (59.17/58.90 s @146 — valid), same-night --lm2 @148
+baseline refresh: 288,304,558,446 nodes (ledger-exact) / 2,182 s (132.1
+Mn/s; +3% vs the 2,118 s of 2026-08-02). Raw: data/ab148_clm2_canary.log.
+
+  --clm2 --zpdb8 @148: 114,245,221,757 nodes / 3,008.6 s (38.0 Mn/s)
+    nodes 2.524x fewer  |  wall 1.38x SLOWER  |  RSS 27.4 GB
+    pageins 12.7M pages = ~194 GB SSD reads (vs 16.5 GB @146!) —
+    the ~49 GB mapped working set exceeds 32 GB at 148's breadth and the
+    run churns continuously (10.8M faults, 342 s sys, cpu/wall 7.4/8).
+
+- clm2-in-cascade node multiplier: 1.55x @144 -> 1.39x @146 -> 1.27x @148
+  (on k8's 1.98x). The information compounds as projected; the wall does
+  not — per-node cost 3.48x vs cut 2.52x.
+- Wall deficit vs --lm2 narrows with depth (1.60x @146 -> 1.38x @148) but
+  the paging term grows with depth on this box; naive extrapolation puts
+  the 32 GB crossover at ~150-152 and is likely optimistic.
+- VERDICT: on 32 GB, --lm2 alone remains the fastest 148 proof engine. The
+  cascade family's case is now a MEMORY case: ~194 GB of re-faults is the
+  dominant recoverable loss; on >=64 GB (everything resident) the toll
+  should shed most of its paging share — measure there before the 150
+  rung, or run 150 on --lm2 alone on this box.
