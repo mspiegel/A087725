@@ -1628,7 +1628,6 @@ pub fn lm1l_report_reset() {
 /// (type-2 tracked while its type-3 partner is home) take their zero-demand
 /// floor from the artifact's single-B section — the placement no other
 /// table covers.
-#[allow(clippy::too_many_arguments)]
 fn lm1l_child(
     arena: &mut Arena,
     cache: &mut ProbeCache,
@@ -1761,223 +1760,91 @@ pub fn flat_bounded(
     orbit_split: bool,
     max_bound: u8,
 ) -> (BoundedOutcome, SearchStats) {
-    flat_bounded_telemetry(start, cwd, dfa, orbit_split, max_bound, |_, _, _| {})
-}
-
-/// [`flat_bounded_telemetry`] with the Last-Move tier (`cwd-lm`):
-/// `h = max(cWD, min(branch20, branch24))`, priced lazily at cWD-survivors.
-#[allow(clippy::too_many_arguments)]
-pub fn flat_bounded_lm_telemetry<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    lm: &super::cwd_lm::CwdLmMm,
-    orbit_split: bool,
-    max_bound: u8,
-    max_nodes: u64,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
+    flat_bounded_tiers(
         start,
         cwd,
         dfa,
-        None,
-        Some(lm),
-        None,
-        None,
-        orbit_split,
-        max_bound,
-        max_nodes,
-        on_iter,
+        Tiers::default(),
+        SearchOpts {
+            orbit_split,
+            max_bound,
+            ..SearchOpts::default()
+        },
+        |_, _, _| {},
     )
 }
 
-/// [`flat_bounded_telemetry`] with the last-two-moves tier (`cwd-lm2`):
-/// `h = max(cWD, min(A, B, C, D))` over the four endgame branches, priced
-/// lazily at cWD-survivors. Needs BOTH tables — the pair table serves
-/// branches A/D, the single table serves B/C and the pair fallbacks.
-#[allow(clippy::too_many_arguments)]
-pub fn flat_bounded_lm2_telemetry<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    lm2: &super::cwd_lm::CwdLmMm,
-    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
-    orbit_split: bool,
-    max_bound: u8,
-    max_nodes: u64,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
-        start,
-        cwd,
-        dfa,
-        None,
-        None,
-        Some(lm2),
-        lm1l,
-        orbit_split,
-        max_bound,
-        max_nodes,
-        on_iter,
-    )
+/// The optional heuristic tiers layered on the base cWD stack. `Default` is
+/// plain cWD. Valid combinations mirror the [`tier`] markers: `lm` and `lm2`
+/// are mutually exclusive, `lm1l` (the `--clm2` joint table) requires `lm2`,
+/// and `k8` composes with any of them — both entry points assert this.
+#[derive(Clone, Copy, Default)]
+pub struct Tiers<'a> {
+    pub k8: Option<&'a K8Ctx>,
+    pub lm: Option<&'a super::cwd_lm::CwdLmMm>,
+    pub lm2: Option<&'a super::cwd_lm::CwdLmMm>,
+    pub lm1l: Option<&'a super::cwd_lm1l::CwdLm1lMm>,
 }
 
-/// The cascade: LM2 first, k8 consulted only at LM2-survivors.
-#[allow(clippy::too_many_arguments)]
-pub fn flat_bounded_cascade_telemetry<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    k8: &K8Ctx,
-    lm2: &super::cwd_lm::CwdLmMm,
-    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
-    orbit_split: bool,
-    max_bound: u8,
-    max_nodes: u64,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
-        start,
-        cwd,
-        dfa,
-        Some(k8),
-        None,
-        Some(lm2),
-        lm1l,
-        orbit_split,
-        max_bound,
-        max_nodes,
-        on_iter,
-    )
+impl Tiers<'_> {
+    fn assert_valid(&self) {
+        assert!(
+            self.lm.is_none() || self.lm2.is_none(),
+            "LM and LM2 are mutually exclusive"
+        );
+        assert!(
+            self.lm1l.is_none() || self.lm2.is_some(),
+            "the 1L joint tier (--clm2) requires the LM2 branch tables"
+        );
+    }
 }
 
-/// [`flat_bounded_telemetry`] with the lazy k8 tier: `max(cWD, k8)` consulted at
-/// cWD-survivors, node-identical to the recorded 2-tier trees (§8j:
-/// 269,180,930 at exhaust-144; 8,808,311,484 at exhaust-146).
-#[allow(clippy::too_many_arguments)]
-pub fn flat_bounded_k8_telemetry<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    k8: &K8Ctx,
-    orbit_split: bool,
-    max_bound: u8,
-    max_nodes: u64,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
-        start,
-        cwd,
-        dfa,
-        Some(k8),
-        None,
-        None,
-        None,
-        orbit_split,
-        max_bound,
-        max_nodes,
-        on_iter,
-    )
+/// Driver options shared by [`flat_bounded_tiers`] and
+/// [`flat_bounded_parallel`]. `Default` is an unbounded, unbudgeted search
+/// with no orbit split.
+#[derive(Clone, Copy)]
+pub struct SearchOpts {
+    /// σ-orbit split at the root; only sound on a σ-fixed board (the caller
+    /// owns that precondition, and it is debug-asserted).
+    pub orbit_split: bool,
+    /// Deepest threshold to exhaust; `u8::MAX` = search to the optimum.
+    pub max_bound: u8,
+    /// Node budget, `u64::MAX` = none. Benchmarking only — a truncated run
+    /// proves nothing. Rejected by the parallel driver.
+    pub budget: u64,
 }
 
-/// [`flat_bounded_telemetry`] with a **node budget**: stop after `max_nodes` and
-/// return [`BoundedOutcome::BudgetExhausted`].
-///
-/// This exists for A/B benchmarking at depth, not for proving anything. An
-/// exhaust-146 run on `R` is ~18.2 B nodes and ~12 minutes; capping it at, say,
-/// 3 B lets the 144 pass finish and then samples ~2.6 B nodes of the 146 pass in
-/// ~100 s. Because the engine is node-identical across variants, the budget cuts
-/// every arm at the *same* tree position, so the truncated runs stay directly
-/// comparable — which is the whole point.
-///
-/// Pass `u64::MAX` for no budget; that dispatches to the same monomorphisation
-/// [`flat_bounded`] uses, in which the budget check does not exist.
-pub fn flat_bounded_budgeted<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    orbit_split: bool,
-    max_bound: u8,
-    max_nodes: u64,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
-        start,
-        cwd,
-        dfa,
-        None,
-        None,
-        None,
-        None,
-        orbit_split,
-        max_bound,
-        max_nodes,
-        on_iter,
-    )
+impl Default for SearchOpts {
+    fn default() -> Self {
+        SearchOpts {
+            orbit_split: false,
+            max_bound: u8::MAX,
+            budget: u64::MAX,
+        }
+    }
 }
 
-/// [`flat_bounded`] with a per-iteration callback, mirroring
-/// [`idastar_inc_bounded_telemetry`](super::idastar::idastar_inc_bounded_telemetry)
-/// so the ladder harnesses can report per-threshold nodes and wall time.
-pub fn flat_bounded_telemetry<F>(
+/// [`flat_bounded`] with a tier selection, [`SearchOpts`] and a per-iteration
+/// callback — the single entry point behind every solve24 configuration. Pass
+/// `Tiers::default()` for the plain cWD stack.
+pub fn flat_bounded_tiers<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
-    orbit_split: bool,
-    max_bound: u8,
-    on_iter: F,
-) -> (BoundedOutcome, SearchStats)
-where
-    F: FnMut(u8, &SearchStats, std::time::Duration),
-{
-    flat_bounded_inner_k8(
-        start,
-        cwd,
-        dfa,
-        None,
-        None,
-        None,
-        None,
-        orbit_split,
-        max_bound,
-        u64::MAX,
-        on_iter,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn flat_bounded_inner_k8<F>(
-    start: &State,
-    cwd: &Cwd,
-    dfa: &MoveDfa,
-    k8: Option<&K8Ctx>,
-    lm: Option<&super::cwd_lm::CwdLmMm>,
-    lm2: Option<&super::cwd_lm::CwdLmMm>,
-    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
-    orbit_split: bool,
-    max_bound: u8,
-    budget: u64,
+    tiers: Tiers,
+    opts: SearchOpts,
     mut on_iter: F,
 ) -> (BoundedOutcome, SearchStats)
 where
     F: FnMut(u8, &SearchStats, std::time::Duration),
 {
+    tiers.assert_valid();
+    let Tiers { k8, lm, lm2, lm1l } = tiers;
+    let SearchOpts {
+        orbit_split,
+        max_bound,
+        budget,
+    } = opts;
     let merged = cwd
         .backing()
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
@@ -2012,53 +1879,40 @@ where
         let iter_start = std::time::Instant::now();
         // Re-seed: the previous iteration consumed the root's candidate set.
         seed_root(&mut arena, start, cwd, merged, dfa, orbit_split);
-        let step = match (
-            budget == u64::MAX,
-            k8.is_some(),
-            lm2.is_some(),
-            lm.is_some(),
-        ) {
-            (true, false, false, false) => run_iteration::<false, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
-                &mut stats, budget,
-            ),
-            (false, false, false, false) => run_iteration::<true, false, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, None, None, None, bound,
-                &mut stats, budget,
-            ),
-            // cascade: LM2 first, k8 only at LM2-survivors
-            (true, true, true, _) => run_iteration::<false, true, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, lm1l, bound, &mut stats,
-                budget,
-            ),
-            (false, true, true, _) => run_iteration::<true, true, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, lm, lm2, lm1l, bound, &mut stats,
-                budget,
-            ),
-            (true, true, false, _) => run_iteration::<false, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
-                budget,
-            ),
-            (false, true, false, _) => run_iteration::<true, true, false, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, k8, None, None, None, bound, &mut stats,
-                budget,
-            ),
-            (true, false, true, _) => run_iteration::<false, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, lm1l, bound, &mut stats,
-                budget,
-            ),
-            (false, false, true, _) => run_iteration::<true, false, false, true>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, lm2, lm1l, bound, &mut stats,
-                budget,
-            ),
-            (true, false, false, true) => run_iteration::<false, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
-                budget,
-            ),
-            (false, false, false, true) => run_iteration::<true, false, true, false>(
-                &mut arena, &mut cache, cwd, merged, dfa, None, lm, None, None, bound, &mut stats,
-                budget,
-            ),
+        // One arm per tier stack; `run!` supplies the budgeted/unbudgeted
+        // monomorphization pair. `assert_valid` covered the `_` arms.
+        let ctx = SearchCtx {
+            cwd,
+            merged,
+            dfa,
+            k8,
+            lm,
+            lm2,
+            lm1l,
+        };
+        macro_rules! run {
+            ($T:ty) => {
+                if budget == u64::MAX {
+                    run_iteration::<$T, false>(
+                        &mut arena, &mut cache, ctx, bound, &mut stats, budget,
+                    )
+                } else {
+                    run_iteration::<$T, true>(
+                        &mut arena, &mut cache, ctx, bound, &mut stats, budget,
+                    )
+                }
+            };
+        }
+        let step = match (k8.is_some(), lm.is_some(), lm2.is_some(), lm1l.is_some()) {
+            (false, false, false, false) => run!(tier::Cwd),
+            (true, false, false, false) => run!(tier::K8),
+            (false, true, false, false) => run!(tier::Lm),
+            (false, false, true, false) => run!(tier::Lm2),
+            (false, false, true, true) => run!(tier::Clm2),
+            (true, true, false, false) => run!(tier::K8Lm),
+            (true, false, true, false) => run!(tier::K8Lm2),
+            (true, false, true, true) => run!(tier::K8Clm2),
+            _ => unreachable!("rejected by Tiers::assert_valid"),
         };
         match step {
             Step::BudgetOut => {
@@ -2232,17 +2086,12 @@ thread_local! {
 /// scratch arena rather than reimplementing them, so its pruning decisions cannot
 /// drift from the sequential engine's.
 #[cfg(feature = "parallel")]
-#[allow(clippy::too_many_arguments)]
 pub fn flat_bounded_parallel<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
-    k8: Option<&K8Ctx>,
-    lm: Option<&super::cwd_lm::CwdLmMm>,
-    lm2: Option<&super::cwd_lm::CwdLmMm>,
-    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
-    orbit_split: bool,
-    max_bound: u8,
+    tiers: Tiers,
+    opts: SearchOpts,
     mut on_iter: F,
 ) -> (BoundedOutcome, SearchStats)
 where
@@ -2251,6 +2100,19 @@ where
     use rayon::prelude::*;
     use std::collections::VecDeque;
 
+    tiers.assert_valid();
+    let Tiers { k8, lm, lm2, lm1l } = tiers;
+    let SearchOpts {
+        orbit_split,
+        max_bound,
+        budget,
+    } = opts;
+    assert_eq!(
+        budget,
+        u64::MAX,
+        "the parallel driver does not support node budgets: the budget would cut \
+         each worker independently, so the truncation point would not be reproducible"
+    );
     let merged = cwd
         .backing()
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
@@ -2417,6 +2279,21 @@ where
                             }
                         }
                     }
+                } else if let Some(lmt) = lm {
+                    // LM tier — must mirror run_iteration's `else if LM` arm or
+                    // the split's tree diverges from the sequential one.
+                    let t = TILE_OF_CODE[tile] as usize;
+                    let heff = lm_child(&mut split_arena, lmt, 0, t, h);
+                    if heff > h {
+                        let f2 = g_next.saturating_add(heff);
+                        if f2 > bound {
+                            stats.nodes += 1; // counted, same as the cWD over-bound arm
+                            if f2 < min_f {
+                                min_f = f2;
+                            }
+                            continue;
+                        }
+                    }
                 }
                 // Lazy k8 consult at cWD-survivors — must mirror run_iteration
                 // exactly or the split's tree diverges from the sequential one.
@@ -2494,81 +2371,40 @@ where
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
                     let reduced = bound - u.g;
-                    let step = if k8.is_some() && lm2.is_some() {
-                        run_iteration::<false, true, false, true>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            k8,
-                            lm,
-                            lm2,
-                            lm1l,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
-                    } else if k8.is_some() {
-                        run_iteration::<false, true, false, false>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            k8,
-                            None,
-                            None,
-                            None,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
-                    } else if lm2.is_some() {
-                        run_iteration::<false, false, false, true>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            None,
-                            lm,
-                            lm2,
-                            lm1l,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
-                    } else if lm.is_some() {
-                        run_iteration::<false, false, true, false>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            None,
-                            lm,
-                            None,
-                            None,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
-                    } else {
-                        run_iteration::<false, false, false, false>(
-                            arena,
-                            cache,
-                            cwd,
-                            merged,
-                            dfa,
-                            None,
-                            None,
-                            None,
-                            None,
-                            reduced,
-                            &mut st,
-                            u64::MAX,
-                        )
+                    // Workers never carry a budget (`--parallel` rejects
+                    // `--max-nodes`), so every arm is the unbudgeted
+                    // monomorphization — the same six the sequential driver uses.
+                    let ctx = SearchCtx {
+                        cwd,
+                        merged,
+                        dfa,
+                        k8,
+                        lm,
+                        lm2,
+                        lm1l,
+                    };
+                    macro_rules! run {
+                        ($T:ty) => {
+                            run_iteration::<$T, false>(
+                                arena,
+                                cache,
+                                ctx,
+                                reduced,
+                                &mut st,
+                                u64::MAX,
+                            )
+                        };
+                    }
+                    let step = match (k8.is_some(), lm.is_some(), lm2.is_some(), lm1l.is_some()) {
+                        (false, false, false, false) => run!(tier::Cwd),
+                        (true, false, false, false) => run!(tier::K8),
+                        (false, true, false, false) => run!(tier::Lm),
+                        (false, false, true, false) => run!(tier::Lm2),
+                        (false, false, true, true) => run!(tier::Clm2),
+                        (true, true, false, false) => run!(tier::K8Lm),
+                        (true, false, true, false) => run!(tier::K8Lm2),
+                        (true, false, true, true) => run!(tier::K8Clm2),
+                        _ => unreachable!("rejected by Tiers::assert_valid"),
                     };
                     let wr = match step {
                         Step::Found(mut path) => {
@@ -2917,6 +2753,48 @@ fn seed_root(
     h
 }
 
+/// Compile-time tier configuration for a [`run_iteration`] monomorphization.
+/// One marker type per real stack (the [`tier`] module) instead of loose const
+/// bools, so an instantiation names its configuration and the invalid
+/// combinations — LM with LM2, or the 1L joint table without LM2 — are
+/// unrepresentable.
+trait TierCfg {
+    /// Lazy k8 zPDB tier, consulted last (at survivors of every other tier).
+    const K8: bool;
+    /// Last-Move tier (`--lm`).
+    const LM: bool;
+    /// Last-two-moves tier (`--lm2`); mutually exclusive with `LM`.
+    const LM2: bool;
+    /// The single-demanded-line joint tier (`--clm2`), inside the LM2 arm.
+    const LM1L: bool;
+}
+
+/// The eight stacks the engine runs, as [`TierCfg`] markers:
+/// columns are K8, LM, LM2, LM1L.
+mod tier {
+    macro_rules! tiers {
+        ($($name:ident: $k8:literal $lm:literal $lm2:literal $lm1l:literal),* $(,)?) => {$(
+            pub(super) struct $name;
+            impl super::TierCfg for $name {
+                const K8: bool = $k8;
+                const LM: bool = $lm;
+                const LM2: bool = $lm2;
+                const LM1L: bool = $lm1l;
+            }
+        )*};
+    }
+    tiers! {
+        Cwd:    false false false false,
+        K8:     true  false false false,
+        Lm:     false true  false false,
+        Lm2:    false false true  false,
+        Clm2:   false false true  true,
+        K8Lm:   true  true  false false,
+        K8Lm2:  true  false true  false,
+        K8Clm2: true  false true  true,
+    }
+}
+
 /// One IDA\* iteration at `bound`, as an explicit-cursor DFS over the arena.
 ///
 /// The ordering here is load-bearing for node identity. The generic engine
@@ -2924,23 +2802,38 @@ fn seed_root(
 /// (`idastar.rs:1324`, `:1340`), so a child that is immediately over bound **is**
 /// counted, while one dropped by the pre-prune is **not** — it `continue`s before
 /// recursing. Both are reproduced below.
-// Same convention as `build_child` and the sibling engine's search functions:
-// most of these are loop invariants threaded down from the driver.
-#[allow(clippy::too_many_arguments)]
-fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
+/// The iteration-invariant references a driver threads into
+/// [`run_iteration`]: table handles and tier contexts. Cold to build — once
+/// per threshold sequentially, once per work unit in parallel — so bundling
+/// them costs nothing on the hot path.
+#[derive(Clone, Copy)]
+struct SearchCtx<'a> {
+    cwd: &'a Cwd,
+    merged: MergedBacking<'a>,
+    dfa: &'a MoveDfa,
+    k8: Option<&'a K8Ctx>,
+    lm: Option<&'a super::cwd_lm::CwdLmMm>,
+    lm2: Option<&'a super::cwd_lm::CwdLmMm>,
+    lm1l: Option<&'a super::cwd_lm1l::CwdLm1lMm>,
+}
+
+fn run_iteration<T: TierCfg, const BUDGETED: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
-    cwd: &Cwd,
-    merged: MergedBacking,
-    dfa: &MoveDfa,
-    k8ctx: Option<&K8Ctx>,
-    lmctx: Option<&super::cwd_lm::CwdLmMm>,
-    lm2ctx: Option<&super::cwd_lm::CwdLmMm>,
-    lm1l: Option<&super::cwd_lm1l::CwdLm1lMm>,
+    ctx: SearchCtx,
     bound: u8,
     stats: &mut SearchStats,
     budget: u64,
 ) -> Step {
+    let SearchCtx {
+        cwd,
+        merged,
+        dfa,
+        k8: k8ctx,
+        lm: lmctx,
+        lm2: lm2ctx,
+        lm1l,
+    } = ctx;
     let lut = cwd.demand_lut();
     let neighbor_prune = cwd.neighbor_prune_enabled();
 
@@ -3080,7 +2973,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                 }
             }
         }
-        if LM2 {
+        if T::LM2 {
             #[cfg(feature = "probe-cache-stats")]
             LM2_SLACK_HIST[((bound - g_next - h) as usize).min(15)]
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3109,13 +3002,14 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                     continue;
                 }
             }
-            // Single-demanded-line joint tier (`--lm2joint`): the table
+            // Single-demanded-line joint tier (`--clm2`): the table
             // form's branch values, lifted by the strongest single-line
             // demand from the 1L artifact. Skipped when it provably cannot
             // move the heuristic: both axes demand-free and no tb-only
             // variant live (`h <= 1` also excludes the goal/pre-goal
             // states, whose final-move obligations are vacuous).
-            if let Some(t1l) = lm1l {
+            if T::LM1L {
+                let t1l = lm1l.unwrap();
                 let (rmask, cmask) = {
                     let f = &arena.hot[d + 1];
                     (
@@ -3142,7 +3036,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
                     }
                 }
             }
-        } else if LM {
+        } else if T::LM {
             let t = TILE_OF_CODE[tile] as usize;
             let heff = lm_child(arena, lmctx.unwrap(), d, t, h);
             if heff > h {
@@ -3169,7 +3063,7 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // values, so its consults are independent. A need-monotone depth gate
         // WOULD be sound here, but it measured as a wash — see the
         // FLAT_K8_MIN_NEED entry in the r_flat_k8_lazy.txt ledger.)
-        if K8 {
+        if T::K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
             // Census: cheap counters, safe to run at depth.
             #[cfg(feature = "search-census")]
@@ -5047,15 +4941,20 @@ mod tests {
         {
             let s = State(c.board);
             for (jname, joint) in [("off", None), ("on", Some(&t1l))] {
-                let (fo, _fs) = flat_bounded_lm2_telemetry(
+                let (fo, _fs) = flat_bounded_tiers(
                     &s,
                     cwd,
                     &dfa,
-                    &lm2,
-                    joint,
-                    c.orbit_split,
-                    c.bound,
-                    u64::MAX,
+                    Tiers {
+                        lm2: Some(&lm2),
+                        lm1l: joint,
+                        ..Tiers::default()
+                    },
+                    SearchOpts {
+                        orbit_split: c.orbit_split,
+                        max_bound: c.bound,
+                        ..SearchOpts::default()
+                    },
                     |_, _, _| {},
                 );
                 let ok = match &fo {
@@ -5121,12 +5020,12 @@ mod tests {
                 &s,
                 cwd,
                 &dfa,
-                None,
-                None,
-                None,
-                None,
-                c.orbit_split,
-                c.bound,
+                Tiers::default(),
+                SearchOpts {
+                    orbit_split: c.orbit_split,
+                    max_bound: c.bound,
+                    ..SearchOpts::default()
+                },
                 |_, _, _| {},
             );
             let ok = match &po {

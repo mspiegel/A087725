@@ -41,7 +41,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use puzzle8::puzzle24::search::cwd::Cwd;
-use puzzle8::puzzle24::search::flat::flat_bounded_budgeted;
+use puzzle8::puzzle24::search::flat::{flat_bounded_tiers, SearchOpts, Tiers};
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
@@ -78,8 +78,9 @@ struct Args {
 
     /// Add the Last-Move tier (cwd-lm): max(cWD, last-move branch min) from
     /// data/cwd_lm.bin. Sound; not node-identical to plain cWD (stronger
-    /// heuristic). Not wired with --zpdb8 — use --lm2 or --clm2 there.
-    #[arg(long, conflicts_with_all = ["lm2", "clm2", "zpdb8"])]
+    /// heuristic). Composes with --zpdb8 (consult order cWD → LM → k8),
+    /// though --lm2/--clm2 dominate it there.
+    #[arg(long, conflicts_with_all = ["lm2", "clm2"])]
     lm: bool,
 
     /// Add the last-two-moves tier (cwd-lm2): 4-branch endgame min from
@@ -449,76 +450,24 @@ fn main() -> ExitCode {
             }
         };
 
+        let tiers = Tiers {
+            k8: k8.as_ref(),
+            lm: lmt.as_ref(),
+            lm2: lm2t.as_ref(),
+            lm1l: lm1l.as_ref(),
+        };
+        // `budget` stays u64::MAX under --parallel: clap rejects the combination.
+        let opts = SearchOpts {
+            orbit_split: orbit,
+            max_bound: max_bound.unwrap_or(u8::MAX),
+            budget: max_nodes,
+        };
         if args.parallel {
             puzzle8::puzzle24::search::flat::flat_bounded_parallel(
-                &start,
-                &cwd,
-                &dfa,
-                k8.as_ref(),
-                lmt.as_ref(),
-                lm2t.as_ref(),
-                lm1l.as_ref(),
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                on_iter,
-            )
-        } else if let (Some(t2), Some(ctx)) = (lm2t.as_ref(), k8.as_ref()) {
-            puzzle8::puzzle24::search::flat::flat_bounded_cascade_telemetry(
-                &start,
-                &cwd,
-                &dfa,
-                ctx,
-                t2,
-                lm1l.as_ref(),
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                max_nodes,
-                on_iter,
-            )
-        } else if let Some(t2) = lm2t.as_ref() {
-            puzzle8::puzzle24::search::flat::flat_bounded_lm2_telemetry(
-                &start,
-                &cwd,
-                &dfa,
-                t2,
-                lm1l.as_ref(),
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                max_nodes,
-                on_iter,
-            )
-        } else if let Some(t) = lmt.as_ref() {
-            puzzle8::puzzle24::search::flat::flat_bounded_lm_telemetry(
-                &start,
-                &cwd,
-                &dfa,
-                t,
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                max_nodes,
-                on_iter,
-            )
-        } else if let Some(ctx) = k8.as_ref() {
-            puzzle8::puzzle24::search::flat::flat_bounded_k8_telemetry(
-                &start,
-                &cwd,
-                &dfa,
-                ctx,
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                max_nodes,
-                on_iter,
+                &start, &cwd, &dfa, tiers, opts, on_iter,
             )
         } else {
-            flat_bounded_budgeted(
-                &start,
-                &cwd,
-                &dfa,
-                orbit,
-                max_bound.unwrap_or(u8::MAX),
-                max_nodes,
-                on_iter,
-            )
+            flat_bounded_tiers(&start, &cwd, &dfa, tiers, opts, on_iter)
         }
     });
     let elapsed = t0.elapsed();
