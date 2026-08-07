@@ -551,22 +551,19 @@ pub struct K8SharedCache {
     shift: u32,
 }
 
+/// Shared k8 cache size, in bits (2^21 = 16 MB). Size is not
+/// performance-critical: a sweep over 2^19..2^25 moved wall clock less
+/// than the canary spread despite hit rates ranging 76% to 92%.
+const K8_SHARED_BITS: u32 = 21;
+
 impl K8SharedCache {
-    /// `FLAT_K8_SHARED_BITS` entries (default 2^21 = 16 MB). Size is not
-    /// performance-critical: a sweep over 2^19..2^25 moved wall clock less
-    /// than the canary spread despite hit rates ranging 76% to 92%.
     pub fn new() -> Self {
-        let bits: u32 = std::env::var("FLAT_K8_SHARED_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(21);
-        assert!((8..=26).contains(&bits), "implausible shared k8 cache size");
         K8SharedCache {
-            slots: (0..1usize << bits)
+            slots: (0..1usize << K8_SHARED_BITS)
                 .map(|_| std::sync::atomic::AtomicU64::new(0))
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
-            shift: 64 - bits,
+            shift: 64 - K8_SHARED_BITS,
         }
     }
 
@@ -1121,9 +1118,8 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
 /// Sized by measured priors, not a fresh sim: LM probes are axis keys — the
 /// exact population the cWD [`ProbeCache`] serves at a measured in-situ
 /// 98.9–99.7% across 64 K–256 K entries — and the LM stream is the hotter
-/// survivor subset of it. Default 18 bits (16 B slots → 4 MB/worker, half the
-/// cWD cache); `FLAT_LM_CACHE_BITS` overrides for sweeps (read once, at
-/// allocation).
+/// survivor subset of it. 18 bits (16 B slots → 4 MB/worker, half the
+/// cWD cache).
 struct LmCache {
     slots: Box<[LmSlot]>,
     shift: u32,
@@ -1155,30 +1151,20 @@ pub fn lm_cache_stats_report() {
     }
 }
 
-fn lm_cache_bits() -> u32 {
-    static BITS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-    *BITS.get_or_init(|| {
-        std::env::var("FLAT_LM_CACHE_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(18)
-    })
-}
+const LM_CACHE_BITS: u32 = 18;
 
 impl LmCache {
     fn new() -> Self {
-        let bits = lm_cache_bits();
-        assert!((8..=24).contains(&bits), "implausible LM cache size");
         LmCache {
             slots: vec![
                 LmSlot {
                     tag: 0,
                     vals: [0xFF; 4]
                 };
-                1usize << bits
+                1usize << LM_CACHE_BITS
             ]
             .into_boxed_slice(),
-            shift: 64 - bits,
+            shift: 64 - LM_CACHE_BITS,
         }
     }
 
@@ -1412,20 +1398,10 @@ pub fn lm2_slack_report_reset() {
     );
 }
 
-fn lm2_cache_bits() -> u32 {
-    static BITS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-    *BITS.get_or_init(|| {
-        std::env::var("FLAT_LM2_CACHE_BITS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(19)
-    })
-}
+const LM2_CACHE_BITS: u32 = 19;
 
 impl Lm2Cache {
     fn new() -> Self {
-        let bits = lm2_cache_bits();
-        assert!((8..=24).contains(&bits), "implausible LM2 cache size");
         Lm2Cache {
             slots: vec![
                 Lm2Slot {
@@ -1433,10 +1409,10 @@ impl Lm2Cache {
                     single: [0xFF; 4],
                     pair: [0xFF; 12]
                 };
-                1usize << bits
+                1usize << LM2_CACHE_BITS
             ]
             .into_boxed_slice(),
-            shift: 64 - bits,
+            shift: 64 - LM2_CACHE_BITS,
         }
     }
 
@@ -2166,9 +2142,9 @@ const SPLIT_TARGET: usize = 4096;
 #[cfg(feature = "parallel")]
 const WORKER_CACHE_BITS: u32 = 18;
 
-/// Both tuning constants, overridable from the environment so that a sweep costs
-/// runs rather than rebuilds. Gated behind the profile feature, so the default
-/// build reads no environment and keeps the constants.
+/// Overridable from the environment so that a sweep costs runs rather than
+/// rebuilds. Gated behind the profile feature, so the default build reads no
+/// environment and keeps the constant.
 #[cfg(feature = "parallel-profile")]
 fn env_usize(name: &str, default: usize) -> usize {
     std::env::var(name)
@@ -2185,16 +2161,6 @@ fn split_target() -> usize {
 #[cfg(all(feature = "parallel", not(feature = "parallel-profile")))]
 fn split_target() -> usize {
     SPLIT_TARGET
-}
-
-#[cfg(feature = "parallel-profile")]
-fn worker_cache_bits() -> u32 {
-    env_usize("FLAT_WORKER_CACHE_BITS", WORKER_CACHE_BITS as usize) as u32
-}
-
-#[cfg(all(feature = "parallel", not(feature = "parallel-profile")))]
-fn worker_cache_bits() -> u32 {
-    WORKER_CACHE_BITS
 }
 
 /// One subtree-root work unit: enough to reseed a worker's arena, plus the
@@ -2454,7 +2420,7 @@ where
                 }
                 // Lazy k8 consult at cWD-survivors — must mirror run_iteration
                 // exactly or the split's tree diverges from the sequential one.
-                if let Some(ctx) = k8.filter(|_| (bound - g_next) >= k8_min_need()) {
+                if let Some(ctx) = k8 {
                     let hk8 = k8_child(&mut split_arena, ctx, 0, geom, tile);
                     if hk8 > h {
                         let f2 = g_next.saturating_add(hk8);
@@ -2508,7 +2474,7 @@ where
                 WORKER.with(|slot| {
                     let mut slot = slot.borrow_mut();
                     let (arena, cache) = slot.get_or_insert_with(|| {
-                        (Arena::new(), ProbeCache::with_bits(worker_cache_bits()))
+                        (Arena::new(), ProbeCache::with_bits(WORKER_CACHE_BITS))
                     });
                     #[cfg(feature = "probe-cache-stats")]
                     let c0 = cache.stats();
@@ -2961,20 +2927,6 @@ fn seed_root(
 // Same convention as `build_child` and the sibling engine's search functions:
 // most of these are loop invariants threaded down from the driver.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
-/// Minimum remaining budget at which the k8 tier is consulted
-/// (`FLAT_K8_MIN_NEED`, default 0 = always consult). Read once.
-fn k8_min_need() -> u8 {
-    static V: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("FLAT_K8_MIN_NEED")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0)
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
 fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2: bool>(
     arena: &mut Arena,
     cache: &mut ProbeCache,
@@ -3214,18 +3166,10 @@ fn run_iteration<const BUDGETED: bool, const K8: bool, const LM: bool, const LM2
         // often is therefore not available to a differentially-encoded table:
         // the 1-bit encoding that makes 30.5 GB affordable is exactly what
         // forbids skipping. (LM2 is unaffected — its tables store absolute
-        // values, so its consults are independent.)
-        // Depth gate. `need = bound - g` is the remaining budget and decreases
-        // monotonically with depth, so "skip when need < N" is closed under
-        // descent: a skipped node's whole subtree is skipped, and the
-        // differential chain is never asked for a value we did not compute.
-        // (Contrast the slack gate, which was unsound precisely because slack
-        // is not monotone.) The motivation: a node's subtree can only run as
-        // deep as its budget allows, so a prune near the frontier saves almost
-        // nothing while costing a full consult — and most nodes are near the
-        // frontier. `need` is measured from the *reduced* bound in workers, so
-        // it means the same thing sequentially and in parallel.
-        if K8 && (bound - g_next) >= k8_min_need() {
+        // values, so its consults are independent. A need-monotone depth gate
+        // WOULD be sound here, but it measured as a wash — see the
+        // FLAT_K8_MIN_NEED entry in the r_flat_k8_lazy.txt ledger.)
+        if K8 {
             let hk8 = k8_child(arena, k8ctx.unwrap(), d, geom, tile);
             // Census: cheap counters, safe to run at depth.
             #[cfg(feature = "search-census")]
