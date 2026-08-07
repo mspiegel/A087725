@@ -2173,3 +2173,29 @@ arm with pageins/cpu-wall per the cost-diagnosis protocol; ~49 GB mapped vs
 32 GB installed — measured-tolerable regime, vanishes on >=64 GB); then the
 148 rung. Untried, not killed: multi-line coupling (the 2 boards), joint-form
 analogues for k8, LM3-shaped 1L extensions.
+
+Idle-box canary A/B at 146: lm1l standalone loses, CASCADE+lm1l WINS (2026-08-07)
+---------------------------------------------------------------------------------
+Canaries 59.16 / 58.62 s (0.9% — valid window), non-census build, W=8,
+full ladder (--prove-at-least 147). Raw log: data/ab146_lm1l_canary.log.
+
+  arm                      nodes@146        search@146  cpu/wall  pageins
+  --lm2 (canary)           8,975,456,521    59.2/58.6s  8.0/8     ~0
+  --lm2joint               6,169,211,419    66.1s       7.4/8     1.1 GB
+  --lm2 --zpdb8            6,048,044,884    101.0s      6.9/8     11.1 GB
+  --lm2joint --zpdb8       4,363,759,350    94.4s       6.3/8     16.5 GB
+
+- STANDALONE @146: cut 1.455x, wall 1.12x SLOWER (throughput 152 -> 93
+  Mn/s): per-consult table work outgrows the node win one rung above the
+  144 parity point. Not the config to run at 146.
+- CASCADE @146: 1.386x fewer nodes AND 1.07x faster wall — the
+  k8-orthogonality cashing in as consult pre-emption + new prunes. Cascade
+  baseline nodes reproduce the ledger's 6,048,044,884 exactly.
+- 49 GB-mapped regime on 32 GB: RSS 26.1 GB, +5.4 GB pageins vs plain
+  cascade, ~8 pts more blocked time, no thrash collapse. Vanishes >=64 GB.
+- 144-in-cascade: 115,436,814 vs 178,863,576 (1.55x).
+
+Next rung: exhaust-148 cascade+lm1l (the cascade's growth regime; starts
+1.39x ahead). Possible later lever: standalone consult-cost trim (front
+cache geometry / dem-mask popcount gating) — only if a standalone config
+ever matters.

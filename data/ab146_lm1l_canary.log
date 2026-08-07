@@ -1,0 +1,66 @@
+=== ARM canary1-lm2 (01:17:26) ===
+Pageins:                                   112730310. Pageouts:                                     187550. (pre)
+[05:17:30.323 UTC] threshold 144 exhausted:       216158191 nodes in 1.15s (187.91 Mn/s)
+[05:18:29.482 UTC] threshold 146 exhausted:      8975456521 nodes in 59.16s (151.72 Mn/s)
+Lower bound: depth >= 148
+Wall-clock     : 62.62s
+Nodes          : 9191614712
+Search time    : 60.31s
+       62.80 real       477.81 user         1.08 sys
+          6250168320  maximum resident set size
+               70247  page faults
+Pageins:                                   112800768. Pageouts:                                     187629. (post)
+
+=== ARM lm2joint (01:18:39) ===
+Pageins:                                   112800834. Pageouts:                                     187629. (pre)
+[05:18:45.009 UTC] threshold 144 exhausted:       134801951 nodes in 1.14s (117.85 Mn/s)
+[05:19:51.139 UTC] threshold 146 exhausted:      6169211419 nodes in 66.13s (93.29 Mn/s)
+Lower bound: depth >= 148
+Wall-clock     : 71.54s
+Nodes          : 6304013370
+Search time    : 67.27s
+       71.59 real       527.69 user         3.38 sys
+         16778395648  maximum resident set size
+               68300  page faults
+Pageins:                                   112869985. Pageouts:                                     187673. (post)
+
+=== ARM cascade-lm2-k8 (01:20:01) ===
+Pageins:                                   112869992. Pageouts:                                     187673. (pre)
+[05:20:12.990 UTC] threshold 144 exhausted:       178863576 nodes in 10.29s (17.39 Mn/s)
+[05:21:54.003 UTC] threshold 146 exhausted:      6048044884 nodes in 101.01s (59.87 Mn/s)
+Lower bound: depth >= 148
+Wall-clock     : 112.72s
+Nodes          : 6226908460
+Search time    : 111.39s
+      112.81 real       770.48 user        10.63 sys
+         17351966720  maximum resident set size
+              664742  page faults
+Pageins:                                   113600555. Pageouts:                                     187766. (post)
+
+=== ARM cascade-joint-k8 (01:22:04) ===
+Pageins:                                   113600563. Pageouts:                                     187766. (pre)
+[05:22:26.082 UTC] threshold 144 exhausted:       115436814 nodes in 8.85s (13.05 Mn/s)
+[05:24:00.447 UTC] threshold 146 exhausted:      4363759350 nodes in 94.37s (46.24 Mn/s)
+Lower bound: depth >= 148
+Wall-clock     : 116.24s
+Nodes          : 4479196164
+Search time    : 103.25s
+      116.36 real       726.64 user        11.39 sys
+         26149945344  maximum resident set size
+              937951  page faults
+Pageins:                                   114678903. Pageouts:                                     187936. (post)
+
+=== ARM canary2-lm2 (01:24:10) ===
+Pageins:                                   114679109. Pageouts:                                     187936. (pre)
+[05:24:12.610 UTC] threshold 144 exhausted:       216158191 nodes in 1.14s (189.19 Mn/s)
+[05:25:11.226 UTC] threshold 146 exhausted:      8975456521 nodes in 58.62s (153.12 Mn/s)
+Lower bound: depth >= 148
+Wall-clock     : 60.55s
+Nodes          : 9191614712
+Search time    : 59.76s
+       60.57 real       477.33 user         0.73 sys
+          6249381888  maximum resident set size
+                   8  page faults
+Pageins:                                   114680009. Pageouts:                                     187936. (post)
+
+BATCH DONE
