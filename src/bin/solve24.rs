@@ -62,10 +62,11 @@ struct Args {
     /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
     /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
     lm2: bool,
-    /// Add the joint-form LM2 memo tier on top of --lm2: demand-carrying
-    /// branch values from a lazily-memoized capped constrained A*, consulted
-    /// only where the table form failed to prune within +2 of the bound.
-    lm2joint: bool,
+    /// Enable the constrained-LM2 tier (clm2): the LM2 endgame branches
+    /// lifted by single-demanded-line escape constraints — the joint form of
+    /// cWD and the last-two-moves obligations, as closed tables. Standalone:
+    /// mutually exclusive with --lm and --lm2 (it subsumes --lm2).
+    clm2: bool,
     /// Disable the neighbour-WD child pre-prune (profile: 10.2% of runtime
     /// under the LM2 stack; its value was established before LM2 existed).
     no_neighbor_prune: bool,
@@ -89,11 +90,14 @@ usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-
                           node-identical to plain cWD (stronger heuristic).
   --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
                           endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
-  --lm2joint              with --lm2: the single-demanded-line joint tier —
-                          LM2's endgame branches lifted by escape demands,
-                          read from data/cwd_lm1l_mm.bin (~10.5 GB mmap'd).
-                          Composes with --zpdb8 (consult order cWD → LM2+1L
-                          → k8).
+  --clm2                  the constrained-LM2 tier: LM2's endgame branches
+                          lifted by single-demanded-line escape constraints
+                          (cWD + last-two-moves, jointly priced), read from
+                          data/cwd_lm_mm.bin + data/cwd_lm1l_mm.bin
+                          (~13.5 GB mmap'd). Standalone — use at most one of
+                          --lm / --lm2 / --clm2. Composes with --zpdb8
+                          (consult order cWD → cLM2 → k8): 1.39x fewer
+                          nodes and faster than --lm2 --zpdb8 at 146.
   --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
                           8-tile ZPDBs (data/pdb24_k8_*.zbin, ~30.5 GB mmap'd),
                           consulted only at children the tiers above fail to
@@ -117,7 +121,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut zpdb8 = false;
     let mut lm = false;
     let mut lm2 = false;
-    let mut lm2joint = false;
+    let mut clm2 = false;
     let mut no_neighbor_prune = false;
 
     let mut i = 0;
@@ -144,7 +148,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--zpdb8" => zpdb8 = true,
             "--lm" => lm = true,
             "--lm2" => lm2 = true,
-            "--lm2joint" => lm2joint = true,
+            "--clm2" => clm2 = true,
             "--no-cwd-neighbor-prune" => no_neighbor_prune = true,
             "--max-nodes" => {
                 i += 1;
@@ -175,7 +179,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         zpdb8,
         lm,
         lm2,
-        lm2joint,
+        clm2,
         no_neighbor_prune,
     })
 }
@@ -365,18 +369,18 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if args.lm2joint && !args.lm2 {
-        eprintln!("error: --lm2joint requires --lm2");
+    if (args.lm as u8) + (args.lm2 as u8) + (args.clm2 as u8) > 1 {
+        eprintln!("error: use at most one of --lm, --lm2, --clm2");
         return ExitCode::FAILURE;
     }
-    let lm1l = if args.lm2joint {
+    let lm1l = if args.clm2 {
         let path = "data/cwd_lm1l_mm.bin";
-        eprintln!("lm2joint: mmapping {path}…");
+        eprintln!("clm2: mmapping {path}…");
         match puzzle8::puzzle24::search::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new(path)) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!(
-                    "error: --lm2joint (build {path} with the build_cwd_lm1l_artifact test): {e}"
+                    "error: --clm2 (build {path} with the build_cwd_lm1l_artifact test): {e}"
                 );
                 return ExitCode::FAILURE;
             }
@@ -385,15 +389,19 @@ fn main() -> ExitCode {
         None
     };
     if args.lm && args.zpdb8 {
-        eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 --zpdb8");
+        eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 or --clm2 with --zpdb8");
         return ExitCode::FAILURE;
     }
-    let lm2t = if args.lm2 {
+    // --clm2 subsumes the LM2 tier: it needs the same branch tables.
+    let lm2t = if args.lm2 || args.clm2 {
+        let flag = if args.clm2 { "--clm2" } else { "--lm2" };
         eprintln!("cwd-lm2: mmapping {lm_mm_path}…");
         match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
             Ok(t) => Some(t),
             Err(e) => {
-                eprintln!("error: --lm2 (build data/cwd_lm_mm.bin with the build_cwd_lm_mm_artifact test): {e}");
+                eprintln!(
+                    "error: {flag} (build data/cwd_lm_mm.bin with the build_cwd_lm_mm_artifact test): {e}"
+                );
                 return ExitCode::FAILURE;
             }
         }
