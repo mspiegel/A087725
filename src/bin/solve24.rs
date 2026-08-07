@@ -2,186 +2,138 @@
 //! depth, with the flat (iterative) IDA\* engine over cWD.
 //!
 //! ```text
-//! solve24 --position "<25 tokens>" [--prove-at-least T] [--no-root-orbit-split]
+//! solve24 --position "<25 tokens>" [--prove-at-least T] [tier flags] [--parallel]
 //! ```
 //!
 //! Position format: 25 whitespace-separated tokens in row-major order, `_`/`.`/`0`
 //! for the blank and `1..=24` for tiles. The board must be solvable.
 //!
-//! - Omit `--prove-at-least` to search unbounded until the optimum is found.
+//! The base stack is fixed: **cWD + move-DFA + neighbour-WD child pre-prune +
+//! root σ-orbit split**, the configuration the `R` lower-bound program runs.
+//! The flags select what runs on top of it:
+//!
 //! - `--prove-at-least T` caps the search at threshold `T-1`; exhausting it
 //!   *proves* `dist ≥ T`. This is a threshold, not a guess: cWD(R) = 144, so on
 //!   `R` anything at or below 145 returns immediately having searched nothing.
+//!   Omit it to search unbounded until the optimum is found.
+//! - The heuristic tiers `--lm` / `--lm2` / `--clm2` (one at most) and
+//!   `--zpdb8`, all sound. The production stack for deep `R` bounds is the
+//!   cascade `--clm2 --zpdb8` (consult order cWD → cLM2 → k8); per-tier
+//!   semantics, artifacts and measured ratios are in `--help`.
+//! - `--parallel` runs each threshold on the tree-splitting rayon driver,
+//!   node-identical to the sequential engine.
 //! - `--no-root-orbit-split` disables the σ-orbit split, which is otherwise
 //!   auto-enabled on σ-symmetric boards. That split is *soundness*-critical
 //!   rather than merely fast — it discards half the root's children on the
 //!   strength of the symmetry argument — so running a proof both ways and
 //!   confirming the same bound is a cheap end-to-end check on that reasoning.
 //!
-//! # Why there are no other flags
-//!
-//! This binary drives exactly one configuration: **cWD + move-DFA + neighbour-WD
-//! child pre-prune + root σ-orbit split**, the stack the `R` lower-bound program
-//! runs. None of it is selectable, because there is nothing to select between —
-//! the PDB heuristics and the recursive engine are gone, and the DFA is folded
-//! into the flat engine's per-node candidate mask rather than applied as a
-//! separate filter.
-//!
-//! `Cwd::new()` locates its own tables at `data/wd24.bin` and
-//! `data/cwd_single.bin`, which is why there is no `--pdb-dir`.
+//! Tables: the merged cWD artifact and the LM/LM2 artifact default to
+//! `data/cwd_mm.bin` and `data/cwd_lm_mm.bin` (`--cwd-mm` / `--cwd-lm-mm`
+//! override them, e.g. for dense-repack A/Bs); the clm2 joint table and the
+//! three k8 zPDBs are fixed at `data/cwd_lm1l_mm.bin` and
+//! `data/pdb24_k8_{a,b,c}.zbin`. Without `data/cwd_mm.bin`, `Cwd::new()` falls
+//! back to `data/wd24.bin` + `data/cwd_single.bin`, building via BFS as a last
+//! resort.
 
 use std::process::ExitCode;
 use std::time::Instant;
 
+use clap::Parser;
 use puzzle8::puzzle24::search::cwd::Cwd;
 use puzzle8::puzzle24::search::flat::flat_bounded_budgeted;
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
+/// Solve a 24-puzzle position optimally, or prove a lower bound on its optimal
+/// depth, with the flat (iterative) IDA* engine over cWD.
+#[derive(Parser)]
+#[command(name = "solve24")]
 struct Args {
-    position: Option<String>,
-    /// `--prove-at-least T` stores `T-1`: the deepest threshold to exhaust.
-    max_bound: Option<u8>,
-    /// `None` = auto (on iff the board is σ-symmetric).
-    root_orbit_split: Option<bool>,
-    /// Stop after this many nodes. Benchmarking only — a truncated run proves
-    /// nothing. `u64::MAX` = no budget.
-    max_nodes: u64,
-    /// Use the tree-splitting parallel driver. Thread count comes from rayon,
-    /// i.e. `RAYON_NUM_THREADS` or the core count — matching how the deleted
-    /// recursive driver was invoked (`PUZZLE24.md:484`).
+    /// Board: 25 whitespace-separated tokens, row-major. Blank is 0, _ or .;
+    /// tiles are 1..=24.
+    #[arg(long, value_name = "P")]
+    position: String,
+
+    /// Cap the search at threshold T-1; exhausting it proves dist >= T. Omit
+    /// to solve optimally with no cap. This is a threshold, not a guess:
+    /// cWD(R) = 144, so on R anything at or below 145 returns immediately
+    /// having searched nothing.
+    #[arg(long, value_name = "T", value_parser = clap::value_parser!(u8).range(1..))]
+    prove_at_least: Option<u8>,
+
+    /// Disable the σ-orbit split (auto-on when the board is σ-symmetric). Use
+    /// to cross-check a proof: the split is soundness-critical rather than
+    /// merely fast, so running a proof both ways and confirming the same bound
+    /// is a cheap end-to-end check on the symmetry argument.
+    #[arg(long)]
+    no_root_orbit_split: bool,
+
+    /// Split each threshold into subtrees and search them on rayon workers.
+    /// Node counts are identical to the sequential driver. Thread count from
+    /// RAYON_NUM_THREADS (default: core count).
+    #[arg(long, conflicts_with = "max_nodes")]
     parallel: bool,
-    /// Enable the Last-Move tier (cwd-lm): max(cWD, min of the two last-move
-    /// branch values) from data/cwd_lm.bin (~850 MB, resident).
+
+    /// Add the Last-Move tier (cwd-lm): max(cWD, last-move branch min) from
+    /// data/cwd_lm.bin. Sound; not node-identical to plain cWD (stronger
+    /// heuristic). Not wired with --zpdb8 — use --lm2 or --clm2 there.
+    #[arg(long, conflicts_with_all = ["lm2", "clm2", "zpdb8"])]
     lm: bool,
-    /// Enable the lazy k8 tier: `max(cWD, k8)` with the three 8-tile ZPDBs
-    /// (`data/pdb24_k8_{a,b,c}.zbin`, ~32.8 GB mmap'd), consulted only at
-    /// children cWD fails to prune.
-    zpdb8: bool,
-    /// Enable the last-two-moves tier (cwd-lm2): max(cWD, min of the four
-    /// endgame branch values) from data/cwd_lm.bin + data/cwd_lm2.bin.
+
+    /// Add the last-two-moves tier (cwd-lm2): 4-branch endgame min from
+    /// data/cwd_lm.bin + data/cwd_lm2.bin.
+    #[arg(long, conflicts_with = "clm2")]
     lm2: bool,
-    /// Enable the constrained-LM2 tier (clm2): the LM2 endgame branches
-    /// lifted by single-demanded-line escape constraints — the joint form of
-    /// cWD and the last-two-moves obligations, as closed tables. Standalone:
-    /// mutually exclusive with --lm and --lm2 (it subsumes --lm2).
+
+    /// The constrained-LM2 tier: LM2's endgame branches lifted by
+    /// single-demanded-line escape constraints (cWD + last-two-moves, jointly
+    /// priced), read from data/cwd_lm_mm.bin + data/cwd_lm1l_mm.bin (~13.5 GB
+    /// mmap'd). Standalone — use at most one of --lm / --lm2 / --clm2.
+    /// Composes with --zpdb8 (consult order cWD → cLM2 → k8): 1.39x fewer
+    /// nodes and faster than --lm2 --zpdb8 at 146.
+    #[arg(long)]
     clm2: bool,
-    /// Disable the neighbour-WD child pre-prune (profile: 10.2% of runtime
-    /// under the LM2 stack; its value was established before LM2 existed).
+
+    /// Add the lazy k8 tier: max(cWD, k8) from the three 8-tile ZPDBs
+    /// (data/pdb24_k8_*.zbin, ~30.5 GB mmap'd), consulted only at children
+    /// the tiers above fail to prune, through a shared packed-position cache.
+    /// With --lm2 this is the cascade: 1.98x fewer nodes than --lm2 alone at
+    /// threshold 148, and the cut grows with depth (1.21x @144, 1.48x @146).
+    #[arg(long)]
+    zpdb8: bool,
+
+    /// Disable the neighbour-WD child pre-prune.
+    #[arg(long = "no-cwd-neighbor-prune")]
     no_neighbor_prune: bool,
+
+    /// Merged-table artifact, e.g. a dense repack, for footprint/throughput
+    /// A/Bs.
+    #[arg(long, value_name = "PATH", default_value = "data/cwd_mm.bin")]
+    cwd_mm: String,
+
+    /// LM/LM2 artifact, used by --lm / --lm2 / --clm2.
+    #[arg(long, value_name = "PATH", default_value = "data/cwd_lm_mm.bin")]
+    cwd_lm_mm: String,
+
+    /// Stop after N nodes ('_' separators allowed). BENCHMARKING ONLY — the
+    /// result is not a proof, and is reported as such. Useful because the
+    /// engine is node-identical across variants, so a budget cuts every A/B
+    /// arm at the same tree position. Not supported with --parallel: the
+    /// budget would cut each worker independently, so the truncation point
+    /// would not be reproducible.
+    #[arg(long, value_name = "N", value_parser = parse_max_nodes)]
+    max_nodes: Option<u64>,
 }
 
-const USAGE: &str = "\
-usage: solve24 --position \"<25 tokens>\" [--prove-at-least T] [--no-root-orbit-split]
-
-  --position P            board, 25 whitespace-separated tokens, row-major.
-                          blank is 0, _ or .; tiles are 1..=24.
-  --prove-at-least T      cap the search at threshold T-1; exhausting it proves
-                          dist >= T. omit to solve optimally with no cap.
-  --no-root-orbit-split   disable the σ-orbit split (auto-on when the board is
-                          σ-symmetric). use to cross-check a proof.
-  --parallel              split each threshold into subtrees and search them on
-                          rayon workers. Node counts are identical to the
-                          sequential driver. Thread count from RAYON_NUM_THREADS
-                          (default: core count).
-  --lm                    add the Last-Move tier (cwd-lm): max(cWD, last-move
-                          branch min) from data/cwd_lm.bin. Sound; not
-                          node-identical to plain cWD (stronger heuristic).
-  --lm2                   add the last-two-moves tier (cwd-lm2): 4-branch
-                          endgame min from data/cwd_lm.bin + data/cwd_lm2.bin.
-  --clm2                  the constrained-LM2 tier: LM2's endgame branches
-                          lifted by single-demanded-line escape constraints
-                          (cWD + last-two-moves, jointly priced), read from
-                          data/cwd_lm_mm.bin + data/cwd_lm1l_mm.bin
-                          (~13.5 GB mmap'd). Standalone — use at most one of
-                          --lm / --lm2 / --clm2. Composes with --zpdb8
-                          (consult order cWD → cLM2 → k8): 1.39x fewer
-                          nodes and faster than --lm2 --zpdb8 at 146.
-  --zpdb8                 add the lazy k8 tier: max(cWD, k8) from the three
-                          8-tile ZPDBs (data/pdb24_k8_*.zbin, ~30.5 GB mmap'd),
-                          consulted only at children the tiers above fail to
-                          prune, through a shared packed-position cache.
-                          With --lm2 this is the cascade: 1.98x fewer nodes
-                          than --lm2 alone at threshold 148, and the cut grows
-                          with depth (1.21x @144, 1.48x @146).
-  --no-cwd-neighbor-prune disable the neighbour-WD child pre-prune.
-  --max-nodes N           stop after N nodes. BENCHMARKING ONLY — the result is
-                          not a proof, and is reported as such. Useful because
-                          the engine is node-identical across variants, so a
-                          budget cuts every A/B arm at the same tree position.
-  --help                  this message.";
-
-fn parse_args(argv: &[String]) -> Result<Args, String> {
-    let mut position = None;
-    let mut max_bound = None;
-    let mut root_orbit_split = None;
-    let mut max_nodes = u64::MAX;
-    let mut parallel = false;
-    let mut zpdb8 = false;
-    let mut lm = false;
-    let mut lm2 = false;
-    let mut clm2 = false;
-    let mut no_neighbor_prune = false;
-
-    let mut i = 0;
-    while i < argv.len() {
-        match argv[i].as_str() {
-            "--position" => {
-                i += 1;
-                position = Some(argv.get(i).ok_or("--position needs a value")?.clone());
-            }
-            "--prove-at-least" => {
-                i += 1;
-                let t: u8 = argv
-                    .get(i)
-                    .ok_or("--prove-at-least needs a value")?
-                    .parse()
-                    .map_err(|e| format!("--prove-at-least: {e}"))?;
-                if t < 1 {
-                    return Err("--prove-at-least must be >= 1".into());
-                }
-                max_bound = Some(t - 1);
-            }
-            "--no-root-orbit-split" => root_orbit_split = Some(false),
-            "--parallel" => parallel = true,
-            "--zpdb8" => zpdb8 = true,
-            "--lm" => lm = true,
-            "--lm2" => lm2 = true,
-            "--clm2" => clm2 = true,
-            "--no-cwd-neighbor-prune" => no_neighbor_prune = true,
-            "--max-nodes" => {
-                i += 1;
-                max_nodes = argv
-                    .get(i)
-                    .ok_or("--max-nodes needs a value")?
-                    .replace('_', "")
-                    .parse()
-                    .map_err(|e| format!("--max-nodes: {e}"))?;
-                if max_nodes == 0 {
-                    return Err("--max-nodes must be >= 1".into());
-                }
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            other => return Err(format!("unknown flag {other:?}\n\n{USAGE}")),
-        }
-        i += 1;
+/// `--max-nodes` accepts `_` separators (e.g. `2_000_000_000`).
+fn parse_max_nodes(s: &str) -> Result<u64, String> {
+    let n: u64 = s.replace('_', "").parse().map_err(|e| format!("{e}"))?;
+    if n == 0 {
+        return Err("must be >= 1".into());
     }
-    Ok(Args {
-        position,
-        max_bound,
-        root_orbit_split,
-        max_nodes,
-        parallel,
-        zpdb8,
-        lm,
-        lm2,
-        clm2,
-        no_neighbor_prune,
-    })
+    Ok(n)
 }
 
 fn parse_position(s: &str) -> Result<State, String> {
@@ -303,20 +255,12 @@ fn main() -> ExitCode {
     eprintln!("image slide: {:#x}", unsafe {
         _dyld_get_image_vmaddr_slide(0)
     });
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    let args = match parse_args(&argv) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let args = Args::parse();
+    // `--prove-at-least T` caps at threshold `T-1`: the deepest to exhaust.
+    let max_bound = args.prove_at_least.map(|t| t - 1);
+    let max_nodes = args.max_nodes.unwrap_or(u64::MAX);
 
-    let Some(position_str) = args.position.as_ref() else {
-        eprintln!("error: --position is required\n\n{USAGE}");
-        return ExitCode::FAILURE;
-    };
-    let start = match parse_position(position_str) {
+    let start = match parse_position(&args.position) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: position parse: {e}");
@@ -331,7 +275,7 @@ fn main() -> ExitCode {
     // The σ-orbit split is sound only on a σ-fixed root, so it is auto-detected
     // rather than requested; the flag exists only to turn it off.
     let symmetric = puzzle8::puzzle24::symmetry::is_symmetric(&start);
-    let orbit = args.root_orbit_split.unwrap_or(true) && symmetric;
+    let orbit = !args.no_root_orbit_split && symmetric;
     if orbit {
         eprintln!(
             "root-orbit-split: board is σ-symmetric; searching one representative \
@@ -341,9 +285,7 @@ fn main() -> ExitCode {
         eprintln!("root-orbit-split: σ-symmetric board, split disabled by flag");
     }
 
-    // SOLVE24_CWD_MM overrides the merged-table artifact path (e.g. the dense
-    // repack data/cwd_mm_dense.bin) for footprint/throughput A/Bs.
-    let mm_path = std::env::var("SOLVE24_CWD_MM").unwrap_or_else(|_| "data/cwd_mm.bin".to_string());
+    let mm_path = &args.cwd_mm;
     let cwd = if std::path::Path::new(&mm_path).exists() {
         eprintln!("cWD: mmapping {mm_path}…");
         puzzle8::puzzle24::search::cwd::Cwd::mm_only(std::path::Path::new(&mm_path))
@@ -353,10 +295,7 @@ fn main() -> ExitCode {
         eprintln!("cWD: loading tables… (build data/cwd_mm.bin with build_cwd_mm_artifact for fast setup)");
         Cwd::new().with_neighbor_prune(!args.no_neighbor_prune)
     };
-    // SOLVE24_CWD_LM_MM overrides the LM/LM2 artifact path (e.g. the dense
-    // repack data/cwd_lm_mm_dense.bin) for footprint/throughput A/Bs.
-    let lm_mm_path =
-        std::env::var("SOLVE24_CWD_LM_MM").unwrap_or_else(|_| "data/cwd_lm_mm.bin".to_string());
+    let lm_mm_path = &args.cwd_lm_mm;
     let lmt = if args.lm {
         eprintln!("cwd-lm: mmapping {lm_mm_path}…");
         match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
@@ -369,10 +308,6 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if (args.lm as u8) + (args.lm2 as u8) + (args.clm2 as u8) > 1 {
-        eprintln!("error: use at most one of --lm, --lm2, --clm2");
-        return ExitCode::FAILURE;
-    }
     let lm1l = if args.clm2 {
         let path = "data/cwd_lm1l_mm.bin";
         eprintln!("clm2: mmapping {path}…");
@@ -388,10 +323,6 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    if args.lm && args.zpdb8 {
-        eprintln!("error: --lm with --zpdb8 is not wired; use --lm2 or --clm2 with --zpdb8");
-        return ExitCode::FAILURE;
-    }
     // --clm2 subsumes the LM2 tier: it needs the same branch tables.
     let lm2t = if args.lm2 || args.clm2 {
         let flag = if args.clm2 { "--clm2" } else { "--lm2" };
@@ -463,13 +394,6 @@ fn main() -> ExitCode {
         0u64, // nodes at the last threshold boundary
     ));
 
-    if args.parallel && args.max_nodes != u64::MAX {
-        eprintln!("error: --max-nodes is not supported with --parallel");
-        eprintln!("       (the budget would cut each worker independently, so the");
-        eprintln!("        truncation point would not be reproducible)");
-        return ExitCode::FAILURE;
-    }
-
     if args.parallel {
         eprintln!(
             "parallel: tree-splitting driver on {} rayon workers (RAYON_NUM_THREADS to change)",
@@ -535,7 +459,7 @@ fn main() -> ExitCode {
                 lm2t.as_ref(),
                 lm1l.as_ref(),
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
+                max_bound.unwrap_or(u8::MAX),
                 on_iter,
             )
         } else if let (Some(t2), Some(ctx)) = (lm2t.as_ref(), k8.as_ref()) {
@@ -547,8 +471,8 @@ fn main() -> ExitCode {
                 t2,
                 lm1l.as_ref(),
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
-                args.max_nodes,
+                max_bound.unwrap_or(u8::MAX),
+                max_nodes,
                 on_iter,
             )
         } else if let Some(t2) = lm2t.as_ref() {
@@ -559,8 +483,8 @@ fn main() -> ExitCode {
                 t2,
                 lm1l.as_ref(),
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
-                args.max_nodes,
+                max_bound.unwrap_or(u8::MAX),
+                max_nodes,
                 on_iter,
             )
         } else if let Some(t) = lmt.as_ref() {
@@ -570,8 +494,8 @@ fn main() -> ExitCode {
                 &dfa,
                 t,
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
-                args.max_nodes,
+                max_bound.unwrap_or(u8::MAX),
+                max_nodes,
                 on_iter,
             )
         } else if let Some(ctx) = k8.as_ref() {
@@ -581,8 +505,8 @@ fn main() -> ExitCode {
                 &dfa,
                 ctx,
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
-                args.max_nodes,
+                max_bound.unwrap_or(u8::MAX),
+                max_nodes,
                 on_iter,
             )
         } else {
@@ -591,8 +515,8 @@ fn main() -> ExitCode {
                 &cwd,
                 &dfa,
                 orbit,
-                args.max_bound.unwrap_or(u8::MAX),
-                args.max_nodes,
+                max_bound.unwrap_or(u8::MAX),
+                max_nodes,
                 on_iter,
             )
         }
@@ -640,7 +564,7 @@ fn main() -> ExitCode {
 
     match outcome {
         BoundedOutcome::Solved(s) => {
-            if let Some(mb) = args.max_bound {
+            if let Some(mb) = max_bound {
                 println!("Found within bound {mb} (optimal):");
             }
             print_solution(&start, &s, elapsed);

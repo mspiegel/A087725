@@ -13,7 +13,8 @@
 //! ZPDB artifacts); regenerate the `.bin` locally with this tool.
 //!
 //! Once `data/wd24.bin` exists, every 24-puzzle harness picks it up
-//! automatically (or point `WD24_TABLE` at an explicit path). This also
+//! automatically (an explicit path goes through
+//! `WalkingDistanceHeuristic::warm_up_from`). This also
 //! establishes the persistence path for the future wildcard-complement `hB`
 //! heuristic, which reuses the same `save_dist_table`/`load_dist_table` format.
 

@@ -411,30 +411,16 @@ static T: OnceLock<WdTable> = OnceLock::new();
 static SOURCE: OnceLock<WdTableSource> = OnceLock::new();
 
 /// Load-or-build cascade for the full WD table:
-/// 1. If `WD24_TABLE` is set, load that path — and *panic* on failure (the user
-///    explicitly pointed at an artifact; silently rebuilding would mask the
-///    misconfiguration).
-/// 2. Else if `data/wd24.bin` exists, load it — on failure *warn and fall back*
+/// 1. If `data/wd24.bin` exists, load it — on failure *warn and fall back*
 ///    to BFS (an opportunistic default; a failed load can't corrupt a result,
 ///    only a successfully-loaded-but-wrong table could, which the header/count
 ///    checks reject).
-/// 3. Else build via BFS (the original behavior).
+/// 2. Else build via BFS (the original behavior).
+///
+/// An explicit artifact path bypasses the cascade via [`warm_up_from`]
+/// (`WalkingDistanceHeuristic::warm_up_from`), which fails loudly instead of
+/// silently rebuilding.
 fn load_or_build() -> (WdTable, WdTableSource) {
-    if let Ok(p) = std::env::var("WD24_TABLE") {
-        let path = PathBuf::from(&p);
-        match load_dist_table(&path, WD_KIND_FULL, Some(FULL_WD_ENTRIES)) {
-            Ok(m) => {
-                let entries = m.len();
-                return (m, WdTableSource::Loaded { path, entries });
-            }
-            Err(e) => panic!(
-                "WD24_TABLE={} is set but the table failed to load: {}",
-                path.display(),
-                e
-            ),
-        }
-    }
-
     let default = PathBuf::from("data/wd24.bin");
     if default.exists() {
         match load_dist_table(&default, WD_KIND_FULL, Some(FULL_WD_ENTRIES)) {
@@ -475,9 +461,9 @@ pub struct WalkingDistanceHeuristic;
 
 impl WalkingDistanceHeuristic {
     /// Force the lookup table to be initialized. Optional — `h` will initialize
-    /// on first call regardless. Prefers a pre-built artifact (`WD24_TABLE` env
-    /// var, else `data/wd24.bin`) and falls back to the ~17–25 s BFS; warming up
-    /// at startup keeps the first solve from paying for whichever path is taken.
+    /// on first call regardless. Prefers the pre-built `data/wd24.bin` artifact
+    /// and falls back to the ~17–25 s BFS; warming up at startup keeps the
+    /// first solve from paying for whichever path is taken.
     pub fn warm_up() {
         let _ = table();
     }
