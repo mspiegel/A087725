@@ -126,6 +126,17 @@ struct Args {
     /// would not be reproducible.
     #[arg(long, value_name = "N", value_parser = parse_max_nodes)]
     max_nodes: Option<u64>,
+
+    /// Checkpoint long proofs into DIR: each rayon worker appends completed
+    /// work units to its own file (no cross-thread synchronization) and the
+    /// driver records exhausted thresholds. Interrupted? Re-run the same
+    /// command with the same DIR — completed thresholds and units restore,
+    /// only unfinished work re-searches (at most one in-flight unit per
+    /// worker is lost). Records are keyed to the position + flag
+    /// configuration, so a stale DIR is ignored rather than misapplied.
+    /// Requires --parallel.
+    #[arg(long, value_name = "DIR", requires = "parallel")]
+    checkpoint: Option<String>,
 }
 
 /// `--max-nodes` accepts `_` separators (e.g. `2_000_000_000`).
@@ -454,11 +465,13 @@ fn main() -> ExitCode {
             lm2: lm2t.as_ref(),
             lm1l: lm1l.as_ref(),
         };
-        // `budget` stays u64::MAX under --parallel: clap rejects the combination.
+        // `budget` stays u64::MAX under --parallel, and `checkpoint` stays
+        // None without it: clap rejects both combinations.
         let opts = SearchOpts {
             orbit_split: orbit,
             max_bound: max_bound.unwrap_or(u8::MAX),
             budget: max_nodes,
+            checkpoint: args.checkpoint.as_ref().map(std::path::PathBuf::from),
         };
         if args.parallel {
             puzzle8::puzzle24::search::flat::flat_bounded_parallel(

@@ -1801,8 +1801,8 @@ impl Tiers<'_> {
 
 /// Driver options shared by [`flat_bounded_tiers`] and
 /// [`flat_bounded_parallel`]. `Default` is an unbounded, unbudgeted search
-/// with no orbit split.
-#[derive(Clone, Copy)]
+/// with no orbit split and no checkpointing.
+#[derive(Clone)]
 pub struct SearchOpts {
     /// σ-orbit split at the root; only sound on a σ-fixed board (the caller
     /// owns that precondition, and it is debug-asserted).
@@ -1812,6 +1812,12 @@ pub struct SearchOpts {
     /// Node budget, `u64::MAX` = none. Benchmarking only — a truncated run
     /// proves nothing. Rejected by the parallel driver.
     pub budget: u64,
+    /// Checkpoint directory: workers append completed-unit records to
+    /// per-thread files (no cross-thread synchronization) and the driver
+    /// appends completed-threshold records, so re-running the same command
+    /// resumes instead of restarting. Parallel driver only — the sequential
+    /// driver rejects it.
+    pub checkpoint: Option<std::path::PathBuf>,
 }
 
 impl Default for SearchOpts {
@@ -1820,6 +1826,7 @@ impl Default for SearchOpts {
             orbit_split: false,
             max_bound: u8::MAX,
             budget: u64::MAX,
+            checkpoint: None,
         }
     }
 }
@@ -1844,7 +1851,12 @@ where
         orbit_split,
         max_bound,
         budget,
+        checkpoint,
     } = opts;
+    assert!(
+        checkpoint.is_none(),
+        "checkpointing is only supported by the parallel driver"
+    );
     let merged = cwd
         .backing()
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
@@ -2061,6 +2073,179 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+// ------------------------------ checkpointing --------------------------------
+//
+// Crash/interrupt recovery for long parallel proofs. Two record kinds, both
+// plain text lines in `*.ckpt` files under the checkpoint dir:
+//
+//   i <run_id> <bound> <next> <nodes>            (main.ckpt, driver thread)
+//   u <run_id> <bound> <idx> <fp> <nodes> b<m>   (w<tid>.ckpt, per worker)
+//   u <run_id> <bound> <idx> <fp> <nodes> f<UDLR…>
+//
+// Each rayon worker appends only to its own `w<tid>.ckpt` — no cross-thread
+// synchronization anywhere. Resume re-runs the same command: completed
+// thresholds restore from `i` records; the split re-runs (it is
+// deterministic), finished units restore from `u` records keyed by frontier
+// index and guarded by a per-unit fingerprint, and only unfinished units are
+// searched. At most one in-flight unit per worker is lost to a crash.
+//
+// The run id folds in the position, the tier configuration, the orbit/prune
+// flags and [`CKPT_TREE_VERSION`], so records from a different search — or a
+// different engine tree — never apply. Malformed lines (torn final write)
+// are skipped.
+
+/// Bump when a change alters the search tree (heuristic strength, consult
+/// order, split shape): unit records from a different tree must not resume
+/// into this one.
+#[cfg(feature = "parallel")]
+const CKPT_TREE_VERSION: u8 = 1;
+
+#[cfg(feature = "parallel")]
+fn fnv1a(h: u64, byte: u8) -> u64 {
+    (h ^ byte as u64).wrapping_mul(0x0000_0100_0000_01B3)
+}
+
+#[cfg(feature = "parallel")]
+fn ckpt_run_id(start: &State, orbit_split: bool, tiers: [bool; 4], neighbor_prune: bool) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    h = fnv1a(h, CKPT_TREE_VERSION);
+    for &c in &start.0 {
+        h = fnv1a(h, c);
+    }
+    h = fnv1a(h, orbit_split as u8);
+    for t in tiers {
+        h = fnv1a(h, t as u8);
+    }
+    fnv1a(h, neighbor_prune as u8)
+}
+
+/// Fingerprint of one work unit (board, depth, DFA state, arrival move):
+/// guards a `u` record against applying to a different unit at the same
+/// frontier index — e.g. after a code change that reshaped the split.
+#[cfg(feature = "parallel")]
+fn ckpt_unit_fp(u: &Unit) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for &c in &u.board.0 {
+        h = fnv1a(h, c);
+    }
+    h = fnv1a(h, u.g);
+    for b in u.dfa.to_le_bytes() {
+        h = fnv1a(h, b);
+    }
+    fnv1a(h, u.last as u8)
+}
+
+#[cfg(feature = "parallel")]
+fn ckpt_mv_char(m: Move) -> char {
+    match m {
+        Move::Up => 'U',
+        Move::Down => 'D',
+        Move::Left => 'L',
+        Move::Right => 'R',
+    }
+}
+
+#[cfg(feature = "parallel")]
+fn ckpt_mv_parse(c: char) -> Option<Move> {
+    match c {
+        'U' => Some(Move::Up),
+        'D' => Some(Move::Down),
+        'L' => Some(Move::Left),
+        'R' => Some(Move::Right),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "parallel")]
+enum CkptUnitRes {
+    Bound(u8),
+    Found(Vec<Move>),
+}
+
+#[cfg(feature = "parallel")]
+#[derive(Default)]
+struct CkptStore {
+    /// `bound → (next bound, nodes this iteration)` for exhausted thresholds.
+    iters: std::collections::HashMap<u8, (u8, u64)>,
+    /// `(bound, frontier idx) → (unit fingerprint, nodes, result)`.
+    units: std::collections::HashMap<(u8, u32), (u64, u64, CkptUnitRes)>,
+}
+
+/// Parse every `*.ckpt` file under `dir`, keeping records whose run id
+/// matches. Later records win (a re-run may legitimately re-record a unit).
+#[cfg(feature = "parallel")]
+fn ckpt_load(dir: &std::path::Path, run_id: u64) -> CkptStore {
+    let mut s = CkptStore::default();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return s;
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("ckpt") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in text.lines() {
+            let t: Vec<&str> = line.split_whitespace().collect();
+            let id_ok = |s: &str| u64::from_str_radix(s, 16) == Ok(run_id);
+            match t.as_slice() {
+                ["i", id, b, n, nodes] if id_ok(id) => {
+                    if let (Ok(b), Ok(n), Ok(nd)) = (b.parse(), n.parse(), nodes.parse()) {
+                        s.iters.insert(b, (n, nd));
+                    }
+                }
+                ["u", id, b, idx, fp, nodes, res] if id_ok(id) => {
+                    let parsed = (
+                        b.parse::<u8>(),
+                        idx.parse::<u32>(),
+                        u64::from_str_radix(fp, 16),
+                        nodes.parse::<u64>(),
+                    );
+                    let ((Ok(b), Ok(idx), Ok(fp), Ok(nd)), Some(first)) =
+                        (parsed, res.chars().next())
+                    else {
+                        continue;
+                    };
+                    let r = match first {
+                        'b' => res[1..].parse::<u8>().ok().map(CkptUnitRes::Bound),
+                        'f' => res[1..]
+                            .chars()
+                            .map(ckpt_mv_parse)
+                            .collect::<Option<Vec<Move>>>()
+                            .map(CkptUnitRes::Found),
+                        _ => None,
+                    };
+                    if let Some(r) = r {
+                        s.units.insert((b, idx), (fp, nd, r));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    s
+}
+
+/// Append one record. A failed write warns and continues — losing a
+/// checkpoint line must never abort a proof in flight.
+#[cfg(feature = "parallel")]
+fn ckpt_append(path: &std::path::Path, line: &str) {
+    use std::io::Write;
+    let r = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| f.write_all(line.as_bytes()));
+    if let Err(e) = r {
+        eprintln!(
+            "warning: checkpoint write to {} failed: {e}",
+            path.display()
+        );
+    }
+}
+
 /// [`flat_bounded`] with each threshold iteration parallelised by
 /// **tree-splitting + work-stealing**.
 ///
@@ -2106,6 +2291,7 @@ where
         orbit_split,
         max_bound,
         budget,
+        checkpoint,
     } = opts;
     assert_eq!(
         budget,
@@ -2113,6 +2299,23 @@ where
         "the parallel driver does not support node budgets: the budget would cut \
          each worker independently, so the truncation point would not be reproducible"
     );
+    let ckpt = checkpoint.as_deref().map(|dir| {
+        std::fs::create_dir_all(dir).expect("create checkpoint dir");
+        let run_id = ckpt_run_id(
+            start,
+            orbit_split,
+            [k8.is_some(), lm.is_some(), lm2.is_some(), lm1l.is_some()],
+            cwd.neighbor_prune_enabled(),
+        );
+        let store = ckpt_load(dir, run_id);
+        eprintln!(
+            "checkpoint: dir {}, run id {run_id:016x}; {} threshold / {} unit records apply",
+            dir.display(),
+            store.iters.len(),
+            store.units.len()
+        );
+        (dir, run_id, store)
+    });
     let merged = cwd
         .backing()
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
@@ -2146,6 +2349,19 @@ where
         if bound > max_bound {
             return (BoundedOutcome::ProvedAtLeast(bound), stats);
         }
+        // A checkpointed threshold restores whole: its recorded node count
+        // folds into the totals and the search skips straight to the next.
+        if let Some((_, _, store)) = &ckpt {
+            if let Some(&(next, nodes)) = store.iters.get(&bound) {
+                stats.iterations += 1;
+                stats.nodes += nodes;
+                eprintln!("checkpoint: threshold {bound} restored ({nodes} nodes)");
+                on_iter(bound, &stats, std::time::Duration::ZERO);
+                bound = next;
+                continue;
+            }
+        }
+        let iter_nodes0 = stats.nodes;
         stats.iterations += 1;
         let iter_start = std::time::Instant::now();
 
@@ -2331,6 +2547,15 @@ where
             if min_f == u8::MAX {
                 return (BoundedOutcome::Unsolvable, stats);
             }
+            if let Some((dir, run_id, _)) = &ckpt {
+                ckpt_append(
+                    &dir.join("main.ckpt"),
+                    &format!(
+                        "i {run_id:016x} {bound} {min_f} {}\n",
+                        stats.nodes - iter_nodes0
+                    ),
+                );
+            }
             on_iter(bound, &stats, iter_start.elapsed());
             bound = min_f;
             continue;
@@ -2342,11 +2567,48 @@ where
             Bound(u8),
         }
         let units: Vec<Unit> = frontier.into_iter().collect();
+        // Partition against the checkpoint: restored units contribute their
+        // recorded result and node count; only the rest are searched. A
+        // record applies only if its fingerprint matches this split's unit
+        // at the same index (the split is deterministic, so a mismatch means
+        // the records belong to a different code state — they are ignored).
+        let mut todo: Vec<(u32, &Unit)> = Vec::with_capacity(units.len());
+        if let Some((_, _, store)) = &ckpt {
+            let mut restored = 0u32;
+            for (i, u) in units.iter().enumerate() {
+                match store.units.get(&(bound, i as u32)) {
+                    Some((fp, nodes, res)) if *fp == ckpt_unit_fp(u) => {
+                        restored += 1;
+                        stats.nodes += nodes;
+                        match res {
+                            CkptUnitRes::Bound(m) => {
+                                if *m < min_f {
+                                    min_f = *m;
+                                }
+                            }
+                            // First Solved wins, as in the live reduce.
+                            CkptUnitRes::Found(path) => {
+                                return (BoundedOutcome::Solved(path.clone()), stats);
+                            }
+                        }
+                    }
+                    _ => todo.push((i as u32, u)),
+                }
+            }
+            if restored > 0 {
+                eprintln!(
+                    "checkpoint: threshold {bound}: {restored}/{} units restored",
+                    units.len()
+                );
+            }
+        } else {
+            todo.extend(units.iter().enumerate().map(|(i, u)| (i as u32, u)));
+        }
         let _split_span = iter_start.elapsed();
         let _par_start = std::time::Instant::now();
-        let results: Vec<(Wr, SearchStats, UnitProf)> = units
+        let results: Vec<(Wr, SearchStats, UnitProf)> = todo
             .par_iter()
-            .map(|u| {
+            .map(|&(uidx, u)| {
                 let unit_start = std::time::Instant::now();
                 WORKER.with(|slot| {
                     let mut slot = slot.borrow_mut();
@@ -2416,6 +2678,28 @@ where
                         Step::Exhausted(n) => Wr::Bound(n.saturating_add(u.g)),
                         Step::BudgetOut => unreachable!("the parallel driver sets no budget"),
                     };
+                    // Checkpoint the finished unit — each worker appends only
+                    // to its own file, so no synchronization is involved.
+                    if let Some((dir, run_id, _)) = &ckpt {
+                        let tid = rayon::current_thread_index().unwrap_or(usize::MAX);
+                        let res = match &wr {
+                            Wr::Bound(m) => format!("b{m}"),
+                            Wr::Found(p) => {
+                                format!(
+                                    "f{}",
+                                    p.iter().map(|&m| ckpt_mv_char(m)).collect::<String>()
+                                )
+                            }
+                        };
+                        ckpt_append(
+                            &dir.join(format!("w{tid}.ckpt")),
+                            &format!(
+                                "u {run_id:016x} {bound} {uidx} {:016x} {} {res}\n",
+                                ckpt_unit_fp(u),
+                                st.nodes
+                            ),
+                        );
+                    }
                     (
                         wr,
                         st,
@@ -2462,6 +2746,15 @@ where
         }
         #[cfg(feature = "parallel-profile")]
         report_parallel_profile(bound, &_prof, _split_span, _par_span);
+        if let Some((dir, run_id, _)) = &ckpt {
+            ckpt_append(
+                &dir.join("main.ckpt"),
+                &format!(
+                    "i {run_id:016x} {bound} {min_f} {}\n",
+                    stats.nodes - iter_nodes0
+                ),
+            );
+        }
         on_iter(bound, &stats, iter_start.elapsed());
         bound = min_f;
     }
