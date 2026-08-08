@@ -1020,6 +1020,88 @@ pub fn build_cwd_lm1l(goal_key: u64, cwd_mm: &CwdMm, out_path: &Path) -> std::io
     Ok(())
 }
 
+/// The full build: three tracked families × (r0 + 20 demand layers), 2-bit
+/// payload assembly, artifact write, reload, and validation against the
+/// uncapped A\* oracle (hours, ~18 GB peak, ~7 GB transient disk; the
+/// artifact is ~10.5 GB). If `out` already exists the build is skipped and
+/// only the validation runs. Panics on any gate failure; run by
+/// `build_cwd_artifacts lm1l`.
+pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
+    use crate::puzzle24::search::cwd::{goal_key, MergedBacking};
+    use crate::puzzle24::search::cwd_lm_joint::reference_1l;
+
+    let mm = CwdMm::load(cwd_mm_bin).expect("cwd_mm.bin");
+    let gk = goal_key();
+    if out.exists() {
+        eprintln!("artifact present — skipping build, validating only");
+    } else {
+        build_cwd_lm1l(gk, &mm, out).expect("build");
+    }
+
+    let t = CwdLm1lMm::load(out).expect("reload");
+    // Goal sanity: single-B r0 at the goal is 4 (base wd = 0 → field 2).
+    let gp = t.probe(gk).expect("goal key present");
+    assert_eq!(read_field(gp, field_b0(TB)), 2, "goal single-B r0 field");
+    // Absent-key negative (key 1 is not a reachable contingency).
+    assert!(t.probe(1).is_none());
+
+    // Sampled oracle validation across all variant kinds.
+    let backing = MergedBacking::Mm(&mm);
+    let infra = build_infra(gk, &mm); // rebuilt for keys/bases (cheap vs build)
+    let mut checked = 0u64;
+    let mut skipped = 0u64;
+    let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    while checked < 2_000 {
+        let idx = (next() % infra.keys.len() as u64) as usize;
+        let key = infra.keys[idx];
+        let g = (next() % 5) as usize;
+        let d = (next() % 4 + 1) as u8;
+        let v = (next() % NV as u64) as usize;
+        let (ta, tb) = if v < 4 {
+            (Some(v as u8), None)
+        } else if v < 7 {
+            (None, Some((v - 4) as u8))
+        } else {
+            (Some(((v - 7) / 3) as u8), Some(((v - 7) % 3) as u8))
+        };
+        // Skip invalid placements: the oracle tracks phantoms, the
+        // builder stores 0, and production never queries them.
+        let ok_a = ta.is_none_or(|la| infra.c3(idx, la as usize) >= 1);
+        let ok_b = tb.is_none_or(|lb| infra.c2(idx, lb as usize) >= 1);
+        let payload = t.probe(key).expect("key present");
+        let field = read_field(payload, field_of(g, d as usize, v));
+        if !ok_a || !ok_b {
+            assert_eq!(field, 0, "invalid placement must store 0");
+            continue;
+        }
+        let Some(dv) = reference_1l(backing, gk, key, g, d, ta, tb) else {
+            skipped += 1; // oracle pop budget — counted, never silent
+            continue;
+        };
+        let base = infra.base(idx, g, d as usize);
+        assert!(dv as u32 >= base, "oracle below base at key {key:#x}");
+        let expect = (((dv as u32 - base) / 2).min(3)) as u8;
+        assert_eq!(
+            field, expect,
+            "field mismatch key {key:#x} g {g} d {d} v {v} (D {dv}, base {base})"
+        );
+        checked += 1;
+    }
+    assert!(
+        skipped * 20 < checked,
+        "oracle budget-outs exceed 5%: {skipped} vs {checked}"
+    );
+    eprintln!(
+        "build: {checked} sampled fields match the A* oracle ({skipped} budget-outs skipped)"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1198,88 +1280,6 @@ mod tests {
         assert_eq!(
             prunes[0], 778,
             "slack-0 prune set must match the lm2j1l probe"
-        );
-    }
-
-    /// The full build: three tracked families × (r0 + 20 demand layers),
-    /// 2-bit payload assembly, artifact write, reload, and validation
-    /// against the uncapped A\* oracle.
-    ///
-    ///   cargo test --release build_cwd_lm1l_artifact -- --ignored --nocapture
-    #[test]
-    #[ignore = "builds the 21B-entry single-demanded-line joint table (hours, ~18 GB peak, \
-                ~7 GB transient disk); writes data/cwd_lm1l_mm.bin (~10.5 GB)"]
-    fn build_cwd_lm1l_artifact() {
-        let mm = CwdMm::load(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
-        let gk = goal_key();
-        let out = std::path::Path::new("data/cwd_lm1l_mm.bin");
-        if out.exists() {
-            eprintln!("artifact present — skipping build, validating only");
-        } else {
-            build_cwd_lm1l(gk, &mm, out).expect("build");
-        }
-
-        let t = CwdLm1lMm::load(out).expect("reload");
-        // Goal sanity: single-B r0 at the goal is 4 (base wd = 0 → field 2).
-        let gp = t.probe(gk).expect("goal key present");
-        assert_eq!(read_field(gp, field_b0(TB)), 2, "goal single-B r0 field");
-        // Absent-key negative (key 1 is not a reachable contingency).
-        assert!(t.probe(1).is_none());
-
-        // Sampled oracle validation across all variant kinds.
-        let backing = MergedBacking::Mm(&mm);
-        let infra = build_infra(gk, &mm); // rebuilt for keys/bases (cheap vs build)
-        let mut checked = 0u64;
-        let mut skipped = 0u64;
-        let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
-        let mut next = || {
-            rng ^= rng << 13;
-            rng ^= rng >> 7;
-            rng ^= rng << 17;
-            rng
-        };
-        while checked < 2_000 {
-            let idx = (next() % infra.keys.len() as u64) as usize;
-            let key = infra.keys[idx];
-            let g = (next() % 5) as usize;
-            let d = (next() % 4 + 1) as u8;
-            let v = (next() % NV as u64) as usize;
-            let (ta, tb) = if v < 4 {
-                (Some(v as u8), None)
-            } else if v < 7 {
-                (None, Some((v - 4) as u8))
-            } else {
-                (Some(((v - 7) / 3) as u8), Some(((v - 7) % 3) as u8))
-            };
-            // Skip invalid placements: the oracle tracks phantoms, the
-            // builder stores 0, and production never queries them.
-            let ok_a = ta.is_none_or(|la| infra.c3(idx, la as usize) >= 1);
-            let ok_b = tb.is_none_or(|lb| infra.c2(idx, lb as usize) >= 1);
-            let payload = t.probe(key).expect("key present");
-            let field = read_field(payload, field_of(g, d as usize, v));
-            if !ok_a || !ok_b {
-                assert_eq!(field, 0, "invalid placement must store 0");
-                continue;
-            }
-            let Some(dv) = reference_1l(backing, gk, key, g, d, ta, tb) else {
-                skipped += 1; // oracle pop budget — counted, never silent
-                continue;
-            };
-            let base = infra.base(idx, g, d as usize);
-            assert!(dv as u32 >= base, "oracle below base at key {key:#x}");
-            let expect = (((dv as u32 - base) / 2).min(3)) as u8;
-            assert_eq!(
-                field, expect,
-                "field mismatch key {key:#x} g {g} d {d} v {v} (D {dv}, base {base})"
-            );
-            checked += 1;
-        }
-        assert!(
-            skipped * 20 < checked,
-            "oracle budget-outs exceed 5%: {skipped} vs {checked}"
-        );
-        eprintln!(
-            "build: {checked} sampled fields match the A* oracle ({skipped} budget-outs skipped)"
         );
     }
 }

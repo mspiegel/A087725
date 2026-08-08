@@ -67,9 +67,12 @@ impl CwdLm {
         let mut w = BufWriter::new(std::fs::File::create(path)?);
         w.write_all(b"CWLM")?;
         w.write_all(&(self.map.len() as u64).to_le_bytes())?;
-        for (&k, v) in &self.map {
+        // Sorted-key order: byte-deterministic file, reproducible SHA pin.
+        let mut keys: Vec<u64> = self.map.keys().copied().collect();
+        keys.sort_unstable();
+        for k in keys {
             w.write_all(&k.to_le_bytes())?;
-            w.write_all(v)?;
+            w.write_all(&self.map[&k])?;
         }
         Ok(())
     }
@@ -253,9 +256,12 @@ impl CwdLm2 {
         let mut w = BufWriter::new(std::fs::File::create(path)?);
         w.write_all(b"CWL2")?;
         w.write_all(&(self.map.len() as u64).to_le_bytes())?;
-        for (&k, v) in &self.map {
+        // Sorted-key order: byte-deterministic file, reproducible SHA pin.
+        let mut keys: Vec<u64> = self.map.keys().copied().collect();
+        keys.sort_unstable();
+        for k in keys {
             w.write_all(&k.to_le_bytes())?;
-            w.write_all(v)?;
+            w.write_all(&self.map[&k])?;
         }
         Ok(())
     }
@@ -579,8 +585,15 @@ pub fn build_cwd_lm_mm(lm: &CwdLm, lm2: &CwdLm2, path: &Path) -> std::io::Result
             .to_le_bytes(),
     );
     buf[8..16].copy_from_slice(&(lm2.map.len() as u64).to_le_bytes());
+    // Insert in sorted-key order so the artifact is byte-deterministic (the
+    // open-addressed layout places colliding keys in insertion order, and
+    // HashMap iteration order is process-random). Same recipe as build_wd24's
+    // key-sorted layout; makes the SHA-256 pin reproducible across rebuilds.
+    let mut keys: Vec<u64> = lm2.map.keys().copied().collect();
+    keys.sort_unstable();
     let (mut occupied, mut max_chain) = (0u64, 0u32);
-    for (&k, pv) in &lm2.map {
+    for &k in &keys {
+        let pv = &lm2.map[&k];
         assert_ne!(k, 0, "key 0 is the empty sentinel");
         let sv = lm.get_all(k).expect("key present in lm2 but not in lm");
         let mut i = lmm_home(k, slots);
@@ -612,91 +625,77 @@ pub fn build_cwd_lm_mm(lm: &CwdLm, lm2: &CwdLm2, path: &Path) -> std::io::Result
     std::fs::write(path, &buf)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::puzzle24::search::cwd::goal_key;
+/// Build the Last-Move refined table and save it to `out` (~66 M keys,
+/// minutes, ~3 GB peak). Panics on the goal-sanity gate; run by
+/// `build_cwd_artifacts lm`.
+pub fn build_cwd_lm_table(out: &Path) {
+    let gk = super::cwd::goal_key();
+    let t0 = std::time::Instant::now();
+    let lm = build_cwd_lm(gk);
+    eprintln!("built {} keys in {:.0?}", lm.len(), t0.elapsed());
+    // Sanity: from the goal, the tracked tile must leave line 3 and
+    // return — exactly 2 abstract moves.
+    assert_eq!(lm.get(gk, 3), Some(2), "D(goal, line 3) must be 2");
+    lm.save(out).expect("save");
+    eprintln!("saved {}", out.display());
+}
 
-    /// Build the Last-Move Escape-Constrained WD table and save it.
-    ///
-    ///   cargo test --release build_cwd_lm_table -- --ignored --nocapture
-    #[test]
-    #[ignore = "builds the ~66M-key refined table (minutes, ~3 GB peak); writes data/cwd_lm.bin"]
-    fn build_cwd_lm_table() {
-        let gk = goal_key();
-        let t0 = std::time::Instant::now();
-        let lm = build_cwd_lm(gk);
-        eprintln!("built {} keys in {:.0?}", lm.len(), t0.elapsed());
-        // Sanity: from the goal, the tracked tile must leave line 3 and
-        // return — exactly 2 abstract moves.
-        assert_eq!(lm.get(gk, 3), Some(2), "D(goal, line 3) must be 2");
-        lm.save(std::path::Path::new("data/cwd_lm.bin"))
-            .expect("save");
-        eprintln!("saved data/cwd_lm.bin");
-    }
-
-    /// Build the last-two-moves pair table and save it.
-    ///
-    ///   cargo test --release build_cwd_lm2_table -- --ignored --nocapture
-    #[test]
-    #[ignore = "builds the ~6.6B-state pair table (tens of minutes, ~9 GB peak); writes data/cwd_lm2.bin"]
-    fn build_cwd_lm2_table() {
-        let gk = goal_key();
-        let t0 = std::time::Instant::now();
-        let lm2 = build_cwd_lm2(gk);
-        eprintln!("built {} keys in {:.0?}", lm2.len(), t0.elapsed());
-        // Sanity: from the goal, each tracked token must make its excursion
-        // and return — two independent 2-move round trips.
-        assert_eq!(lm2.get(gk, 3, 2), Some(4), "D2(goal, 3, 2) must be 4");
-        // Pair dominates single on every placement where both are defined.
-        if let Ok(lm) = CwdLm::load(std::path::Path::new("data/cwd_lm.bin")) {
-            let mut checked = 0u64;
-            for (&k, v2) in lm2.map.iter().take(200_000) {
-                if let Some(v1) = lm.get_all(k) {
-                    for la in 0..W {
-                        for lb in 0..W {
-                            let (a, b) = (v2[la * W + lb], v1[la]);
-                            if a != 0xFF && b != 0xFF {
-                                assert!(a >= b, "pair < single at key {k:#x} ({la},{lb})");
-                                checked += 1;
-                            }
+/// Build the last-two-moves pair table and save it to `out` (~6.6 B product
+/// states, tens of minutes, ~9 GB peak). If the single table at `lm_bin`
+/// exists, gates pair ≥ single dominance on a sample. Run by
+/// `build_cwd_artifacts lm2`.
+pub fn build_cwd_lm2_table(lm_bin: &Path, out: &Path) {
+    let gk = super::cwd::goal_key();
+    let t0 = std::time::Instant::now();
+    let lm2 = build_cwd_lm2(gk);
+    eprintln!("built {} keys in {:.0?}", lm2.len(), t0.elapsed());
+    // Sanity: from the goal, each tracked token must make its excursion
+    // and return — two independent 2-move round trips.
+    assert_eq!(lm2.get(gk, 3, 2), Some(4), "D2(goal, 3, 2) must be 4");
+    // Pair dominates single on every placement where both are defined.
+    if let Ok(lm) = CwdLm::load(lm_bin) {
+        let mut checked = 0u64;
+        for (&k, v2) in lm2.map.iter().take(200_000) {
+            if let Some(v1) = lm.get_all(k) {
+                for la in 0..W {
+                    for lb in 0..W {
+                        let (a, b) = (v2[la * W + lb], v1[la]);
+                        if a != 0xFF && b != 0xFF {
+                            assert!(a >= b, "pair < single at key {k:#x} ({la},{lb})");
+                            checked += 1;
                         }
                     }
                 }
             }
-            eprintln!("pair>=single dominance checked on {checked} placements");
         }
-        lm2.save(std::path::Path::new("data/cwd_lm2.bin"))
-            .expect("save");
-        eprintln!("saved data/cwd_lm2.bin");
+        eprintln!("pair>=single dominance checked on {checked} placements");
     }
+    lm2.save(out).expect("save");
+    eprintln!("saved {}", out.display());
+}
 
-    /// Build the combined mmap artifact and verify every key round-trips.
-    ///
-    ///   cargo test --release build_cwd_lm_mm_artifact -- --ignored --nocapture
-    #[test]
-    #[ignore = "builds the 4 GiB mmap artifact from cwd_lm.bin + cwd_lm2.bin; writes data/cwd_lm_mm.bin"]
-    fn build_cwd_lm_mm_artifact() {
-        let t0 = std::time::Instant::now();
-        let lm = CwdLm::load(std::path::Path::new("data/cwd_lm.bin")).expect("cwd_lm.bin");
-        let lm2 = CwdLm2::load(std::path::Path::new("data/cwd_lm2.bin")).expect("cwd_lm2.bin");
-        eprintln!("tables loaded in {:.0?}", t0.elapsed());
-        let path = std::path::Path::new("data/cwd_lm_mm.bin");
-        build_cwd_lm_mm(&lm, &lm2, path).expect("build");
-        let mm = CwdLmMm::load(path).expect("load");
-        let mut n = 0u64;
-        for (&k, pv) in &lm2.map {
-            let (s, p) = mm.probe(k).expect("every key must probe");
-            assert_eq!(s, &lm.get_all(k).unwrap()[..4], "single mismatch at {k:#x}");
-            for la in 0..4 {
-                for lb in 0..3 {
-                    assert_eq!(p[la * 3 + lb], pv[la * W + lb], "pair mismatch at {k:#x}");
-                }
+/// Build the combined mmap artifact at `out` from the two canonical tables
+/// (~4 GiB written) and verify every key round-trips. Run by
+/// `build_cwd_artifacts lm-mm`.
+pub fn build_cwd_lm_mm_artifact(lm_bin: &Path, lm2_bin: &Path, out: &Path) {
+    let t0 = std::time::Instant::now();
+    let lm = CwdLm::load(lm_bin).expect("cwd_lm.bin");
+    let lm2 = CwdLm2::load(lm2_bin).expect("cwd_lm2.bin");
+    eprintln!("tables loaded in {:.0?}", t0.elapsed());
+    build_cwd_lm_mm(&lm, &lm2, out).expect("build");
+    let mm = CwdLmMm::load(out).expect("load");
+    let mut n = 0u64;
+    for (&k, pv) in &lm2.map {
+        let (s, p) = mm.probe(k).expect("every key must probe");
+        assert_eq!(s, &lm.get_all(k).unwrap()[..4], "single mismatch at {k:#x}");
+        for la in 0..4 {
+            for lb in 0..3 {
+                assert_eq!(p[la * 3 + lb], pv[la * W + lb], "pair mismatch at {k:#x}");
             }
-            n += 1;
         }
-        assert!(!lm2.map.contains_key(&1));
-        assert!(mm.probe(1).is_none(), "absent key must return None");
-        eprintln!("verified {n} keys round-trip in {:.0?} total", t0.elapsed());
+        n += 1;
     }
+    assert!(!lm2.map.contains_key(&1));
+    assert!(mm.probe(1).is_none(), "absent key must return None");
+    eprintln!("verified {n} keys round-trip in {:.0?} total", t0.elapsed());
 }

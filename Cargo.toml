@@ -158,6 +158,10 @@ name = "solve24"
 required-features = ["mmap", "parallel", "cli"]
 
 [[bin]]
+name = "build_cwd_artifacts"
+required-features = ["mmap", "parallel", "cli"]
+
+[[bin]]
 name = "verify15"
 required-features = ["mmap"]
 

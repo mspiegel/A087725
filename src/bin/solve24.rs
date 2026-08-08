@@ -293,7 +293,7 @@ fn main() -> ExitCode {
             .expect("cwd_mm artifact")
             .with_neighbor_prune(!args.no_neighbor_prune)
     } else {
-        eprintln!("cWD: loading tables… (build data/cwd_mm.bin with build_cwd_mm_artifact for fast setup)");
+        eprintln!("cWD: loading tables… (build data/cwd_mm.bin with `build_cwd_artifacts mm` for fast setup)");
         Cwd::new().with_neighbor_prune(!args.no_neighbor_prune)
     };
     let lm_mm_path = &args.cwd_lm_mm;
@@ -315,9 +315,7 @@ fn main() -> ExitCode {
         match puzzle8::puzzle24::search::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new(path)) {
             Ok(t) => Some(t),
             Err(e) => {
-                eprintln!(
-                    "error: --clm2 (build {path} with the build_cwd_lm1l_artifact test): {e}"
-                );
+                eprintln!("error: --clm2 (build {path} with `build_cwd_artifacts lm1l`): {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -332,7 +330,7 @@ fn main() -> ExitCode {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!(
-                    "error: {flag} (build data/cwd_lm_mm.bin with the build_cwd_lm_mm_artifact test): {e}"
+                    "error: {flag} (build data/cwd_lm_mm.bin with `build_cwd_artifacts lm-mm`): {e}"
                 );
                 return ExitCode::FAILURE;
             }

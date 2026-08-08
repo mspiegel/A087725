@@ -174,6 +174,34 @@ pub(crate) fn dense_slots(count: usize) -> usize {
 /// Build the mmap artifact from a fully-prepared [`Cwd`] (merged table
 /// present, `nbr_wd` filled). Writes the dense geometry (`magic "CWDN"`,
 /// 0.70 load) directly — building and compaction are one step.
+/// Build the merged-table mmap artifact at `out` (from `data/wd24.bin` +
+/// `data/cwd_single.bin`, ~4 GiB written) and verify every key round-trips.
+/// Panics on any mismatch — this is the artifact's validation gate, run by
+/// the `build_cwd_artifacts mm` binary.
+pub fn build_cwd_mm_artifact(out: &Path) {
+    let t0 = std::time::Instant::now();
+    let cwd = Cwd::new().with_neighbor_prune(true);
+    assert!(cwd.has_overlay(), "needs data/cwd_single.bin");
+    eprintln!("merged table ready in {:.0?}", t0.elapsed());
+    build_cwd_mm(&cwd, out).expect("build");
+    let mm = CwdMm::load(out).expect("load");
+    let merged = cwd.merged_table().unwrap();
+    let mut n = 0u64;
+    for (&k, cell) in merged {
+        let got = mm.probe_cell(k).expect("every key must probe");
+        assert_eq!(got.wd, cell.wd, "wd mismatch at {k:#x}");
+        assert_eq!(got.curves, cell.curves, "curves mismatch at {k:#x}");
+        assert_eq!(got.nbr_wd, cell.nbr_wd, "nbr mismatch at {k:#x}");
+        n += 1;
+    }
+    assert!(!merged.contains_key(&1));
+    assert!(mm.probe_cell(1).is_none(), "absent key must return None");
+    eprintln!(
+        "verified {n} cells round-trip in {:.0?} total",
+        t0.elapsed()
+    );
+}
+
 pub fn build_cwd_mm(cwd: &Cwd, path: &Path) -> std::io::Result<()> {
     let merged = cwd
         .merged_table()
@@ -936,36 +964,6 @@ mod tests {
 
     /// The demand LUT + key-packing must reproduce the LIS reference on every line
     /// of arbitrary boards. Table-free, so it runs fast (no `#[ignore]`).
-    /// Build the merged-table mmap artifact and verify every key round-trips.
-    ///
-    ///   cargo test --release build_cwd_mm_artifact -- --ignored --nocapture
-    #[test]
-    #[ignore = "builds the 4 GiB merged-table artifact from data/cwd_single.bin; writes data/cwd_mm.bin"]
-    fn build_cwd_mm_artifact() {
-        let t0 = std::time::Instant::now();
-        let cwd = Cwd::new().with_neighbor_prune(true);
-        assert!(cwd.has_overlay(), "needs data/cwd_single.bin");
-        eprintln!("merged table ready in {:.0?}", t0.elapsed());
-        let path = Path::new("data/cwd_mm.bin");
-        build_cwd_mm(&cwd, path).expect("build");
-        let mm = CwdMm::load(path).expect("load");
-        let merged = cwd.merged_table().unwrap();
-        let mut n = 0u64;
-        for (&k, cell) in merged {
-            let got = mm.probe_cell(k).expect("every key must probe");
-            assert_eq!(got.wd, cell.wd, "wd mismatch at {k:#x}");
-            assert_eq!(got.curves, cell.curves, "curves mismatch at {k:#x}");
-            assert_eq!(got.nbr_wd, cell.nbr_wd, "nbr mismatch at {k:#x}");
-            n += 1;
-        }
-        assert!(!merged.contains_key(&1));
-        assert!(mm.probe_cell(1).is_none(), "absent key must return None");
-        eprintln!(
-            "verified {n} cells round-trip in {:.0?} total",
-            t0.elapsed()
-        );
-    }
-
     #[test]
     fn demand_lut_matches_lis_reference() {
         let lut = build_demand_lut();
