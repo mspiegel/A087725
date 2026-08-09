@@ -257,13 +257,16 @@ const PMU_EVENTS: &[&str] = &[
 // PCs, and deriving the slide by searching for the value that best fits the
 // symbol table is unreliable at low sample counts — it produced a profile
 // attributing 14% of time to a once-per-threshold callback. Printing it makes
-// symbolisation exact.
+// symbolisation exact. macOS-only (dyld); Linux profilers get the slide from
+// /proc/self/maps.
+#[cfg(target_os = "macos")]
 extern "C" {
     fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
 }
 
 fn main() -> ExitCode {
     let t0 = Instant::now();
+    #[cfg(target_os = "macos")]
     eprintln!("image slide: {:#x}", unsafe {
         _dyld_get_image_vmaddr_slide(0)
     });
