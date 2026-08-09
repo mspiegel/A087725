@@ -153,10 +153,12 @@ impl Infra {
     }
 }
 
+/// All cores. This was `.min(8)` (the dev machine's P-core count) until the
+/// 64-core Azure build ran the whole pairs phase at 1/8th of the machine;
+/// content is chunking-independent by construction (atomic min-writes, layer
+/// barriers), which the pinned-sha rebuild gate enforces.
 fn threads() -> usize {
-    std::thread::available_parallelism()
-        .map_or(4, |n| n.get())
-        .min(8)
+    std::thread::available_parallelism().map_or(4, |n| n.get())
 }
 
 /// Run `f(chunk_start, chunk_end)` over `0..n` on all worker threads.
