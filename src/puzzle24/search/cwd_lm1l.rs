@@ -1059,12 +1059,14 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
     //
     // Parallel with sequential-identical semantics: every iteration consumes
     // exactly 4 RNG draws, so the sample stream is a deterministic sequence
-    // independent of outcomes. Batches are drawn sequentially, the expensive
-    // A* oracle probes are evaluated on all cores, and results are consumed
-    // IN ORDER until the 2000th passing check — the same samples gate the
-    // build and the same counts are reported as the old sequential scan.
-    // Samples evaluated past the cut are surplus strictness (their asserts
-    // still run; on a correct artifact they pass).
+    // independent of outcomes. The stream is drawn up front (cheap), workers
+    // pull samples continuously from one monotone cursor — no batch barriers,
+    // so nothing idles behind a straggling probe — and stop pulling once the
+    // unordered count of passing checks reaches 2000. The pulled set is then
+    // a contiguous prefix holding ≥ 2000 checks, and the ordered scan below
+    // finds the same 2000th-check cutoff, gating samples, and counts as the
+    // old sequential loop. Samples evaluated past the cut are surplus
+    // strictness (their asserts still run; on a correct artifact they pass).
     let infra = build_infra(gk, &mm); // rebuilt for keys/bases (cheap vs build)
     let mut checked = 0u64;
     let mut skipped = 0u64;
@@ -1075,12 +1077,14 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
         rng ^= rng << 17;
         rng
     };
-    const BATCH: usize = 512;
+    // ~2.6 K iterations yield 2000 checks; one stream is plenty, and the
+    // outer loop draws another only if invalid-placement density defies that.
+    const STREAM: usize = 16_384;
     const R_INVALID: u8 = 0;
     const R_CHECKED: u8 = 1;
     const R_SKIP: u8 = 2;
     'outer: loop {
-        let samples: Vec<(usize, usize, u8, usize)> = (0..BATCH)
+        let samples: Vec<(usize, usize, u8, usize)> = (0..STREAM)
             .map(|_| {
                 let idx = (next() % infra.keys.len() as u64) as usize;
                 let g = (next() % 5) as usize;
@@ -1089,15 +1093,19 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
                 (idx, g, d, v)
             })
             .collect();
-        let results: Vec<AtomicU8> = (0..BATCH).map(|_| AtomicU8::new(R_INVALID)).collect();
+        let results: Vec<AtomicU8> = (0..STREAM).map(|_| AtomicU8::new(R_INVALID)).collect();
         let cursor = AtomicUsize::new(0);
+        let done = AtomicU64::new(0);
         std::thread::scope(|s| {
             for _ in 0..threads() {
-                let (samples, results, cursor) = (&samples, &results, &cursor);
+                let (samples, results, cursor, done) = (&samples, &results, &cursor, &done);
                 let (infra, t, mm) = (&infra, &t, &mm);
                 s.spawn(move || {
                     let backing = MergedBacking::Mm(mm);
                     loop {
+                        if done.load(Relaxed) >= 2_000 {
+                            break;
+                        }
                         let j = cursor.fetch_add(1, Relaxed);
                         if j >= samples.len() {
                             break;
@@ -1134,6 +1142,7 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
                             "field mismatch key {key:#x} g {g} d {d} v {v} (D {dv}, base {base})"
                         );
                         results[j].store(R_CHECKED, Relaxed);
+                        done.fetch_add(1, Relaxed);
                     }
                 });
             }
