@@ -35,7 +35,7 @@
 //! `cwd_lm_mm` values the consult already reads.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering::Relaxed};
 use std::sync::OnceLock;
 
 use super::cwd::{pack, unpack, CwdMm};
@@ -162,18 +162,26 @@ fn threads() -> usize {
 }
 
 /// Run `f(chunk_start, chunk_end)` over `0..n` on all worker threads.
+///
+/// Threads pull fixed-size chunks from a shared cursor rather than taking one
+/// static `n/nt` slice each: the live work (frontier bits, seed hits) clusters
+/// in narrow index regions, and under static chunking the threads whose slices
+/// missed the cluster finished instantly — measured 1–2 busy cores out of 8
+/// during the pairs-phase dial rounds. Work-stealing granularity fixes the
+/// skew; `f` sees the same (lo, hi) contract, just more calls of smaller span.
 fn par_ranges(n: usize, f: impl Fn(usize, usize) + Sync) {
-    let nt = threads();
-    let chunk = n.div_ceil(nt);
+    const CHUNK: usize = 4096;
+    let cursor = AtomicUsize::new(0);
     std::thread::scope(|s| {
-        for w in 0..nt {
-            let lo = w * chunk;
-            let hi = ((w + 1) * chunk).min(n);
-            if lo >= hi {
-                continue;
-            }
-            let f = &f;
-            s.spawn(move || f(lo, hi));
+        for _ in 0..threads() {
+            let (f, cursor) = (&f, &cursor);
+            s.spawn(move || loop {
+                let lo = cursor.fetch_add(CHUNK, Relaxed);
+                if lo >= n {
+                    break;
+                }
+                f(lo, (lo + CHUNK).min(n));
+            });
         }
     });
 }
@@ -1048,7 +1056,15 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
     assert!(t.probe(1).is_none());
 
     // Sampled oracle validation across all variant kinds.
-    let backing = MergedBacking::Mm(&mm);
+    //
+    // Parallel with sequential-identical semantics: every iteration consumes
+    // exactly 4 RNG draws, so the sample stream is a deterministic sequence
+    // independent of outcomes. Batches are drawn sequentially, the expensive
+    // A* oracle probes are evaluated on all cores, and results are consumed
+    // IN ORDER until the 2000th passing check — the same samples gate the
+    // build and the same counts are reported as the old sequential scan.
+    // Samples evaluated past the cut are surplus strictness (their asserts
+    // still run; on a correct artifact they pass).
     let infra = build_infra(gk, &mm); // rebuilt for keys/bases (cheap vs build)
     let mut checked = 0u64;
     let mut skipped = 0u64;
@@ -1059,41 +1075,81 @@ pub fn build_cwd_lm1l_artifact(cwd_mm_bin: &Path, out: &Path) {
         rng ^= rng << 17;
         rng
     };
-    while checked < 2_000 {
-        let idx = (next() % infra.keys.len() as u64) as usize;
-        let key = infra.keys[idx];
-        let g = (next() % 5) as usize;
-        let d = (next() % 4 + 1) as u8;
-        let v = (next() % NV as u64) as usize;
-        let (ta, tb) = if v < 4 {
-            (Some(v as u8), None)
-        } else if v < 7 {
-            (None, Some((v - 4) as u8))
-        } else {
-            (Some(((v - 7) / 3) as u8), Some(((v - 7) % 3) as u8))
-        };
-        // Skip invalid placements: the oracle tracks phantoms, the
-        // builder stores 0, and production never queries them.
-        let ok_a = ta.is_none_or(|la| infra.c3(idx, la as usize) >= 1);
-        let ok_b = tb.is_none_or(|lb| infra.c2(idx, lb as usize) >= 1);
-        let payload = t.probe(key).expect("key present");
-        let field = read_field(payload, field_of(g, d as usize, v));
-        if !ok_a || !ok_b {
-            assert_eq!(field, 0, "invalid placement must store 0");
-            continue;
+    const BATCH: usize = 512;
+    const R_INVALID: u8 = 0;
+    const R_CHECKED: u8 = 1;
+    const R_SKIP: u8 = 2;
+    'outer: loop {
+        let samples: Vec<(usize, usize, u8, usize)> = (0..BATCH)
+            .map(|_| {
+                let idx = (next() % infra.keys.len() as u64) as usize;
+                let g = (next() % 5) as usize;
+                let d = (next() % 4 + 1) as u8;
+                let v = (next() % NV as u64) as usize;
+                (idx, g, d, v)
+            })
+            .collect();
+        let results: Vec<AtomicU8> = (0..BATCH).map(|_| AtomicU8::new(R_INVALID)).collect();
+        let cursor = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..threads() {
+                let (samples, results, cursor) = (&samples, &results, &cursor);
+                let (infra, t, mm) = (&infra, &t, &mm);
+                s.spawn(move || {
+                    let backing = MergedBacking::Mm(mm);
+                    loop {
+                        let j = cursor.fetch_add(1, Relaxed);
+                        if j >= samples.len() {
+                            break;
+                        }
+                        let (idx, g, d, v) = samples[j];
+                        let key = infra.keys[idx];
+                        let (ta, tb) = if v < 4 {
+                            (Some(v as u8), None)
+                        } else if v < 7 {
+                            (None, Some((v - 4) as u8))
+                        } else {
+                            (Some(((v - 7) / 3) as u8), Some(((v - 7) % 3) as u8))
+                        };
+                        // Skip invalid placements: the oracle tracks phantoms,
+                        // the builder stores 0, and production never queries
+                        // them.
+                        let ok_a = ta.is_none_or(|la| infra.c3(idx, la as usize) >= 1);
+                        let ok_b = tb.is_none_or(|lb| infra.c2(idx, lb as usize) >= 1);
+                        let payload = t.probe(key).expect("key present");
+                        let field = read_field(payload, field_of(g, d as usize, v));
+                        if !ok_a || !ok_b {
+                            assert_eq!(field, 0, "invalid placement must store 0");
+                            continue;
+                        }
+                        let Some(dv) = reference_1l(backing, gk, key, g, d, ta, tb) else {
+                            results[j].store(R_SKIP, Relaxed); // pop budget — counted, never silent
+                            continue;
+                        };
+                        let base = infra.base(idx, g, d as usize);
+                        assert!(dv as u32 >= base, "oracle below base at key {key:#x}");
+                        let expect = (((dv as u32 - base) / 2).min(3)) as u8;
+                        assert_eq!(
+                            field, expect,
+                            "field mismatch key {key:#x} g {g} d {d} v {v} (D {dv}, base {base})"
+                        );
+                        results[j].store(R_CHECKED, Relaxed);
+                    }
+                });
+            }
+        });
+        for r in &results {
+            match r.load(Relaxed) {
+                R_CHECKED => {
+                    checked += 1;
+                    if checked == 2_000 {
+                        break 'outer;
+                    }
+                }
+                R_SKIP => skipped += 1,
+                _ => {}
+            }
         }
-        let Some(dv) = reference_1l(backing, gk, key, g, d, ta, tb) else {
-            skipped += 1; // oracle pop budget — counted, never silent
-            continue;
-        };
-        let base = infra.base(idx, g, d as usize);
-        assert!(dv as u32 >= base, "oracle below base at key {key:#x}");
-        let expect = (((dv as u32 - base) / 2).min(3)) as u8;
-        assert_eq!(
-            field, expect,
-            "field mismatch key {key:#x} g {g} d {d} v {v} (D {dv}, base {base})"
-        );
-        checked += 1;
     }
     assert!(
         skipped * 20 < checked,
