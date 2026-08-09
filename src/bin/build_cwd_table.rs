@@ -72,11 +72,13 @@ fn r_row_key() -> u64 {
     pack(&m, 0)
 }
 
+/// One line's `D(σ, r)` table: σ key → distance per demand `r = 0..=K`.
+type LineDist = HashMap<u64, [u8; K + 1], WdBuild>;
+
 /// `D(σ, r)` for the fixed line `g`, all σ and `r = 0..=K` (backward product BFS).
-fn build_line(g: usize) -> HashMap<u64, [u8; K + 1], WdBuild> {
+fn build_line(g: usize) -> LineDist {
     let goal = goal_key();
-    let mut dist: HashMap<u64, [u8; K + 1], WdBuild> =
-        HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
+    let mut dist: LineDist = HashMap::with_capacity_and_hasher(66_000_000, WdBuild::default());
     dist.insert(goal, {
         let mut a = [UNSEEN; K + 1];
         a[0] = 0;
@@ -221,63 +223,118 @@ fn main() {
         overlay.insert(k, [0u16; W]);
     }
 
-    let mut rng: u64 = 0x51ED_C0DE;
-    let mut next = || {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        rng
-    };
     let keys: Vec<u64> = wd.keys().copied().collect();
 
-    for g in 0..W {
-        let tb = Instant::now();
-        let dist = build_line(g);
-        assert_eq!(
-            dist.len(),
-            wd.len(),
-            "line {g}: reachable set size mismatch"
-        );
-        // invariant 1: r=0 layer == WD, per contingency; and pack the surcharge.
-        for (&k, d) in dist.iter() {
-            let wdv = wd[&k];
-            assert_eq!(d[0], wdv, "line {g}: D(σ,0) != WD(σ)");
-            let mut packed = 0u16;
-            for dm in 1..=K {
-                let surch = d[dm] - d[0]; // Δ, even, ≤ 8
-                debug_assert!(surch % 2 == 0 && surch <= 8, "unexpected Δ={surch}");
-                packed |= ((surch / 2) as u16 & 0xF) << (4 * (dm - 1));
-            }
-            overlay.get_mut(&k).unwrap()[g] = packed;
-        }
-        if g == 2 {
-            let d = dist[&r_row_key()];
-            assert_eq!(d, [70, 70, 70, 70, 72], "R row curve wrong: {d:?}");
-            eprintln!("  g=2 R-row check OK: {d:?}");
-        }
-        // cheap random cross-check vs reference A*
-        let mut ok = 0u32;
-        for _ in 0..150 {
-            let sk = keys[(next() as usize) % keys.len()];
-            let (m, br) = unpack(sk);
-            let dm = ((next() % K as u64) + 1) as u8;
-            let surch = 2 * (((overlay[&sk][g] >> (4 * (dm - 1))) & 0xF) as u8);
-            let tv = wd[&sk] + surch;
-            if let Some(reference) = cwd_axis_single(&wd, &m, br, goal, g, dm) {
-                assert_eq!(
-                    tv, reference,
-                    "line {g} σ={sk:#x} d={dm}: {tv} vs A* {reference}"
-                );
-                ok += 1;
-            }
+    /// Everything one line's worker computes: packed surcharges (in the line's
+    /// own BFS-map iteration order), check tally, and phase timings.
+    struct LineResult {
+        packed: Vec<(u64, u16)>,
+        ok: u32,
+        bfs_secs: f64,
+        check_secs: f64,
+    }
+
+    // The five lines are fully independent, so the ENTIRE per-line pipeline —
+    // product BFS, the D(σ,0)==WD(σ) invariant scan, surcharge packing, and the
+    // random A* cross-checks — runs on five threads against the shared read-only
+    // WD table. Each line's RNG is the sequential build's stream advanced to that
+    // line's offset (exactly 300 draws per line), so the sampled checks are
+    // identical to the sequential build's; the packed values are identical too,
+    // so the serialized bytes (and the SHA pin) cannot change. Only the overlay
+    // writes stay on the main thread. Peak RSS ~25 GB.
+    let (wd_ref, keys_ref) = (&wd, &keys);
+    let line_results: Vec<LineResult> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..W)
+            .map(|g| {
+                s.spawn(move || {
+                    let tb = Instant::now();
+                    let dist = build_line(g);
+                    let bfs_secs = tb.elapsed().as_secs_f64();
+                    let tc = Instant::now();
+                    assert_eq!(
+                        dist.len(),
+                        wd_ref.len(),
+                        "line {g}: reachable set size mismatch"
+                    );
+                    // invariant 1: r=0 layer == WD, per contingency; and pack.
+                    let mut packed = Vec::with_capacity(dist.len());
+                    for (&k, d) in dist.iter() {
+                        assert_eq!(d[0], wd_ref[&k], "line {g}: D(σ,0) != WD(σ)");
+                        let mut p = 0u16;
+                        for dm in 1..=K {
+                            let surch = d[dm] - d[0]; // Δ, even, ≤ 8
+                            debug_assert!(surch % 2 == 0 && surch <= 8, "unexpected Δ={surch}");
+                            p |= ((surch / 2) as u16 & 0xF) << (4 * (dm - 1));
+                        }
+                        packed.push((k, p));
+                    }
+                    if g == 2 {
+                        let d = dist[&r_row_key()];
+                        assert_eq!(d, [70, 70, 70, 70, 72], "R row curve wrong: {d:?}");
+                        eprintln!("  g=2 R-row check OK: {d:?}");
+                    }
+                    // cheap random cross-check vs reference A*, on this line's
+                    // slice of the sequential build's RNG stream
+                    let mut rng: u64 = 0x51ED_C0DE;
+                    let mut next = || {
+                        rng ^= rng << 13;
+                        rng ^= rng >> 7;
+                        rng ^= rng << 17;
+                        rng
+                    };
+                    for _ in 0..300 * g {
+                        next();
+                    }
+                    let mut ok = 0u32;
+                    for _ in 0..150 {
+                        let sk = keys_ref[(next() as usize) % keys_ref.len()];
+                        let (m, br) = unpack(sk);
+                        let dm = ((next() % K as u64) + 1) as u8;
+                        let d = &dist[&sk];
+                        let tv = wd_ref[&sk] + (d[dm as usize] - d[0]);
+                        if let Some(reference) = cwd_axis_single(wd_ref, &m, br, goal, g, dm) {
+                            assert_eq!(
+                                tv, reference,
+                                "line {g} σ={sk:#x} d={dm}: {tv} vs A* {reference}"
+                            );
+                            ok += 1;
+                        }
+                    }
+                    LineResult {
+                        packed,
+                        ok,
+                        bfs_secs,
+                        check_secs: tc.elapsed().as_secs_f64(),
+                    }
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    for (g, r) in line_results.into_iter().enumerate() {
+        let tm = Instant::now();
+        let ok = r.ok;
+        for (k, p) in r.packed {
+            overlay.get_mut(&k).unwrap()[g] = p;
         }
         eprintln!(
-            "line g={g}: built {:.1}s, WD-layer invariant OK, {ok}/150 A* cross-checks matched",
-            tb.elapsed().as_secs_f64()
+            "line g={g}: BFS {:.1}s, scan+checks {:.1}s, merge {:.1}s, WD-layer invariant OK, \
+             {ok}/150 A* cross-checks matched",
+            r.bfs_secs,
+            r.check_secs,
+            tm.elapsed().as_secs_f64()
         );
     }
 
     // ---- serialize ----
+    // Sorted-key order: byte-deterministic across platforms. Raw HashMap
+    // iteration order is NOT — hashbrown's bucket layout differs by
+    // architecture, which is how the original (unsorted) pin built on aarch64
+    // failed to reproduce on x86-64 despite bit-identical content (proven via
+    // the round-trip-verified cwd_mm.bin matching its pin on both).
+    let mut sorted_keys: Vec<u64> = overlay.keys().copied().collect();
+    sorted_keys.sort_unstable();
     let out = Path::new("data/cwd_single.bin");
     let f = std::fs::File::create(out).expect("create cwd_single.bin");
     let mut w = BufWriter::new(f);
@@ -285,10 +342,10 @@ fn main() {
     w.write_all(&1u32.to_le_bytes()).unwrap(); // version
     w.write_all(&(overlay.len() as u64).to_le_bytes()).unwrap();
     let mut buf = Vec::with_capacity(18);
-    for (&k, curves) in overlay.iter() {
+    for k in sorted_keys {
         buf.clear();
         buf.extend_from_slice(&k.to_le_bytes());
-        for c in curves {
+        for c in &overlay[&k] {
             buf.extend_from_slice(&c.to_le_bytes());
         }
         w.write_all(&buf).unwrap();

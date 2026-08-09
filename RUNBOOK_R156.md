@@ -150,7 +150,7 @@ Reference values (the tracked sidecars, 2026-08-08 state):
 | artifact | bytes | sha256 |
 |---|---:|---|
 | `data/wd24.bin` | 590,854,479 | `c1652299a8a098b71d543bb9cd20e6b7d8dc9dd6dfee44d89b64e0accc37d734` |
-| `data/cwd_single.bin` | 1,181,708,926 | `32db859345da0a9e736887f766db9f173264e5e7dd8237c16d1510da5a5012fa` |
+| `data/cwd_single.bin` | 1,181,708,926 | `5a5b15a1bd8279803ded809fd599dc04b9912545fc0c95fe47f99d093190ad08` |
 | `data/cwd_mm.bin` | 3,001,165,488 | `7bd7e712877c7fa331130b48a72ccc7c60e73b15c07a384096cbfa4ba573d3a4` |
 | `data/cwd_lm.bin` | 853,456,447 | `b5e6c0daaf4d1b456ad2bc605150adf4b2232f9c0b1eaf125be141143662fd58` |
 | `data/cwd_lm2.bin` | 2,166,466,347 | `2e9304c8d8227d09c0604301f3e63877797847c2421dbb5432e5bf252bb08681` |
@@ -159,6 +159,12 @@ Reference values (the tracked sidecars, 2026-08-08 state):
 | `data/pdb24_k8_a.zbin` | 10,919,800,104 | `7e4772e79d7c4d369eec96d2145fa008a8c15f5bdf67a066e06e2efefd2ac5f1` |
 | `data/pdb24_k8_b.zbin` | 10,919,800,104 | `ccf23af56a62092967e4cd80481d2b406268b38d2b8237b9088f37c1aea77344` |
 | `data/pdb24_k8_c.zbin` | 10,919,800,104 | `f421e9e1699b2bd99d1069b023dd028a4ec096c93c885b0f3af3b8f060e44fcf` |
+
+All ten pins are platform-independent: every builder serializes in sorted-key
+(or fixed-layout) order. The `cwd_single.bin` pin above supersedes the
+pre-2026-08-09 value `32db8593…`, which was raw-HashMap-order serialization —
+reproducible only on aarch64, where it was built (content proven equal via the
+round-trip-verified `cwd_mm.bin` pin matching on both architectures).
 
 A sha mismatch on a bit-identical rebuild means a real problem (toolchain
 nondeterminism or corruption) — stop and compare against the dev machine

@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering::Relaxed};
 
 use crate::puzzle24::state::W;
 
@@ -295,12 +296,16 @@ fn code_of(la: usize, ca: bool, lb: usize, cb: bool) -> usize {
     (ca as usize) * 50 + (cb as usize) * 25 + la * W + lb
 }
 
+/// Record predecessor `(pidx, pcode)` at depth `d1` through the layer's atomic
+/// views. Two threads may race on one slot, but both store the SAME `d1`
+/// (first discovery within the layer), so the outcome is deterministic; the
+/// atomics only make the benign race defined behavior.
 #[inline]
-fn set_pred(dist: &mut [u8], nextbm: &mut [u64], d1: u8, pidx: usize, pcode: usize) {
-    let s = &mut dist[pidx * 100 + pcode];
-    if *s == 0xFF {
-        *s = d1;
-        nextbm[pidx >> 6] |= 1u64 << (pidx & 63);
+fn set_pred(dist: &[AtomicU8], nextbm: &[AtomicU64], d1: u8, pidx: usize, pcode: usize) {
+    let s = &dist[pidx * 100 + pcode];
+    if s.load(Relaxed) == 0xFF {
+        s.store(d1, Relaxed);
+        nextbm[pidx >> 6].fetch_or(1u64 << (pidx & 63), Relaxed);
     }
 }
 
@@ -357,113 +362,153 @@ pub fn build_cwd_lm2(goal_key: u64) -> CwdLm2 {
     dist[code_of(TT, true, TB, true)] = 0; // goal is idx 0
     cur[0] |= 1;
 
+    // Layer expansion fans out over all cores: a shared cursor hands out
+    // word-chunks of the frontier bitmap; layer writes go through atomic views
+    // of `dist` / `next`. Within one layer every write to a slot stores the
+    // SAME value (d+1, first discovery), so racing writers are benign and the
+    // content is deterministic for any thread count; layers are barriers, and
+    // the sorted-key save already makes the file bytes canonical.
+    let nt = std::thread::available_parallelism().map_or(1, |p| p.get());
+    const CHUNK: usize = 2048;
+    let (keys_r, index_r) = (&keys, &index);
     let mut d: u8 = 0;
     let mut total_set: u64 = 1;
     loop {
-        let mut layer: u64 = 0;
-        for w in 0..words {
-            let mut bits = cur[w];
-            while bits != 0 {
-                let idx = (w << 6) + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let base = idx * 100;
-                let mut active = [0u8; 100];
-                let mut na = 0usize;
-                for c in 0..100 {
-                    if dist[base + c] == d {
-                        active[na] = c as u8;
-                        na += 1;
-                    }
-                }
-                if na == 0 {
-                    continue;
-                }
-                let key = keys[idx];
-                let (m, blank) = unpack(key);
-                let b = blank as usize;
-                let d1 = d.checked_add(1).expect("depth overflow");
-                for f in [b.wrapping_sub(1), b + 1] {
-                    if f >= W {
-                        continue;
-                    }
-                    for t in 0..W {
-                        if m[f][t] == 0 {
-                            continue;
-                        }
-                        let mut m2 = m;
-                        m2[f][t] -= 1;
-                        m2[b][t] += 1;
-                        let pkey = pack(&m2, f as u8);
-                        let pidx = index[&pkey] as usize;
-                        // forward move: token t, line b → line f
-                        let crossing_a = t == TT && b == 3 && f == 4;
-                        let crossing_b = t == TB && b == 2 && f == 3;
-                        for &cd in &active[..na] {
-                            let cd = cd as usize;
-                            let (ca, cb) = (cd >= 50, (cd % 50) >= 25);
-                            let (la, lb) = ((cd % 25) / W, cd % W);
-                            // (i) moved token is neither tracked one
-                            let ok_a = if t == TT && la == b {
-                                m2[b][TT] >= 2
-                            } else {
-                                m2[la][TT] >= 1
-                            };
-                            let ok_b = if t == TB && lb == b {
-                                m2[b][TB] >= 2
-                            } else {
-                                m2[lb][TB] >= 1
-                            };
-                            if ok_a && ok_b {
-                                set_pred(&mut dist, &mut next, d1, pidx, code_of(la, ca, lb, cb));
+        // SAFETY: AtomicU8 / AtomicU64 have the same size, alignment and bit
+        // validity as u8 / u64, and the plain views are untouched while the
+        // atomic views are live (worker threads are scoped below).
+        let dist_a: &[AtomicU8] =
+            unsafe { std::slice::from_raw_parts(dist.as_mut_ptr().cast(), dist.len()) };
+        let next_a: &[AtomicU64] =
+            unsafe { std::slice::from_raw_parts(next.as_mut_ptr().cast(), next.len()) };
+        let cur_r: &[u64] = &cur;
+        let cursor = AtomicUsize::new(0);
+        let d1 = d.checked_add(1).expect("depth overflow");
+        let layer: u64 = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..nt)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mut local: u64 = 0;
+                        loop {
+                            let w0 = cursor.fetch_add(CHUNK, Relaxed);
+                            if w0 >= words {
+                                break;
                             }
-                            // (ii) moved token IS tracked A (type 3)
-                            if t == TT && la == f {
-                                let preds: &[bool] = if crossing_a {
-                                    if ca {
-                                        &[true, false]
-                                    } else {
-                                        &[]
+                            for w in w0..(w0 + CHUNK).min(words) {
+                                let mut bits = cur_r[w];
+                                while bits != 0 {
+                                    let idx = (w << 6) + bits.trailing_zeros() as usize;
+                                    bits &= bits - 1;
+                                    let base = idx * 100;
+                                    let mut active = [0u8; 100];
+                                    let mut na = 0usize;
+                                    for c in 0..100 {
+                                        if dist_a[base + c].load(Relaxed) == d {
+                                            active[na] = c as u8;
+                                            na += 1;
+                                        }
                                     }
-                                } else {
-                                    &[ca]
-                                };
-                                for &cap in preds {
-                                    set_pred(
-                                        &mut dist,
-                                        &mut next,
-                                        d1,
-                                        pidx,
-                                        code_of(b, cap, lb, cb),
-                                    );
+                                    if na == 0 {
+                                        continue;
+                                    }
+                                    let key = keys_r[idx];
+                                    let (m, blank) = unpack(key);
+                                    let b = blank as usize;
+                                    for f in [b.wrapping_sub(1), b + 1] {
+                                        if f >= W {
+                                            continue;
+                                        }
+                                        for t in 0..W {
+                                            if m[f][t] == 0 {
+                                                continue;
+                                            }
+                                            let mut m2 = m;
+                                            m2[f][t] -= 1;
+                                            m2[b][t] += 1;
+                                            let pkey = pack(&m2, f as u8);
+                                            let pidx = index_r[&pkey] as usize;
+                                            // forward move: token t, line b → line f
+                                            let crossing_a = t == TT && b == 3 && f == 4;
+                                            let crossing_b = t == TB && b == 2 && f == 3;
+                                            for &cd in &active[..na] {
+                                                let cd = cd as usize;
+                                                let (ca, cb) = (cd >= 50, (cd % 50) >= 25);
+                                                let (la, lb) = ((cd % 25) / W, cd % W);
+                                                // (i) moved token is neither tracked one
+                                                let ok_a = if t == TT && la == b {
+                                                    m2[b][TT] >= 2
+                                                } else {
+                                                    m2[la][TT] >= 1
+                                                };
+                                                let ok_b = if t == TB && lb == b {
+                                                    m2[b][TB] >= 2
+                                                } else {
+                                                    m2[lb][TB] >= 1
+                                                };
+                                                if ok_a && ok_b {
+                                                    set_pred(
+                                                        dist_a,
+                                                        next_a,
+                                                        d1,
+                                                        pidx,
+                                                        code_of(la, ca, lb, cb),
+                                                    );
+                                                }
+                                                // (ii) moved token IS tracked A (type 3)
+                                                if t == TT && la == f {
+                                                    let preds: &[bool] = if crossing_a {
+                                                        if ca {
+                                                            &[true, false]
+                                                        } else {
+                                                            &[]
+                                                        }
+                                                    } else {
+                                                        &[ca]
+                                                    };
+                                                    for &cap in preds {
+                                                        set_pred(
+                                                            dist_a,
+                                                            next_a,
+                                                            d1,
+                                                            pidx,
+                                                            code_of(b, cap, lb, cb),
+                                                        );
+                                                    }
+                                                }
+                                                // (iii) moved token IS tracked B (type 2)
+                                                if t == TB && lb == f {
+                                                    let preds: &[bool] = if crossing_b {
+                                                        if cb {
+                                                            &[true, false]
+                                                        } else {
+                                                            &[]
+                                                        }
+                                                    } else {
+                                                        &[cb]
+                                                    };
+                                                    for &cbp in preds {
+                                                        set_pred(
+                                                            dist_a,
+                                                            next_a,
+                                                            d1,
+                                                            pidx,
+                                                            code_of(la, ca, b, cbp),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    local += na as u64;
                                 }
                             }
-                            // (iii) moved token IS tracked B (type 2)
-                            if t == TB && lb == f {
-                                let preds: &[bool] = if crossing_b {
-                                    if cb {
-                                        &[true, false]
-                                    } else {
-                                        &[]
-                                    }
-                                } else {
-                                    &[cb]
-                                };
-                                for &cbp in preds {
-                                    set_pred(
-                                        &mut dist,
-                                        &mut next,
-                                        d1,
-                                        pidx,
-                                        code_of(la, ca, b, cbp),
-                                    );
-                                }
-                            }
                         }
-                    }
-                }
-                layer += na as u64;
-            }
-        }
+                        local
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).sum()
+        });
         if layer == 0 {
             break;
         }
