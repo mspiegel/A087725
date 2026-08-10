@@ -1,5 +1,5 @@
 //! Solve a 24-puzzle position optimally, or prove a lower bound on its optimal
-//! depth, with the flat (iterative) IDA\* engine over cWD.
+//! depth, with the (iterative, arena-based) search engine over cWD.
 //!
 //! ```text
 //! solve24 --position "<25 tokens>" [--prove-at-least T] [tier flags] [--parallel]
@@ -41,13 +41,13 @@ use std::time::Instant;
 
 use clap::Parser;
 use puzzle8::puzzle24::search::cwd::Cwd;
-use puzzle8::puzzle24::search::flat::{flat_bounded_tiers, SearchOpts, Tiers};
+use puzzle8::puzzle24::search::engine::{bounded_tiers, SearchOpts, Tiers};
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
 /// Solve a 24-puzzle position optimally, or prove a lower bound on its optimal
-/// depth, with the flat (iterative) IDA* engine over cWD.
+/// depth, with the (iterative, arena-based) search engine over cWD.
 #[derive(Parser)]
 #[command(name = "solve24")]
 struct Args {
@@ -317,7 +317,7 @@ fn main() -> ExitCode {
     let lm_mm_path = &args.cwd_lm_mm;
     let lmt = if args.lm {
         eprintln!("cwd-lm: mmapping {lm_mm_path}…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
+        match puzzle8::puzzle24::search::engine::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!("error: --lm: {e}");
@@ -344,7 +344,7 @@ fn main() -> ExitCode {
     let lm2t = if args.lm2 || args.clm2 {
         let flag = if args.clm2 { "--clm2" } else { "--lm2" };
         eprintln!("cwd-lm2: mmapping {lm_mm_path}…");
-        match puzzle8::puzzle24::search::flat::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
+        match puzzle8::puzzle24::search::engine::load_cwd_lm_mm(std::path::Path::new(&lm_mm_path)) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!(
@@ -358,7 +358,7 @@ fn main() -> ExitCode {
     };
     let k8 = if args.zpdb8 {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
-        match puzzle8::puzzle24::search::flat::K8Ctx::load_mmap(std::path::Path::new("data")) {
+        match puzzle8::puzzle24::search::engine::K8Ctx::load_mmap(std::path::Path::new("data")) {
             Ok(ctx) => {
                 eprintln!(
                     "k8 ready: lazy max(cWD, k8) at survivors, both σ-views, \
@@ -385,7 +385,7 @@ fn main() -> ExitCode {
 
     let dfa = MoveDfa::build_default();
     eprintln!(
-        "flat engine: iterative arena, move-pruning DFA {} states, {} KiB",
+        "engine: iterative arena, move-pruning DFA {} states, {} KiB",
         dfa.states(),
         dfa.table_bytes() / 1024
     );
@@ -418,9 +418,9 @@ fn main() -> ExitCode {
                 now_hms()
             );
             #[cfg(feature = "probe-cache-stats")]
-            puzzle8::puzzle24::search::flat::lm2_slack_report_reset();
+            puzzle8::puzzle24::search::engine::lm2_slack_report_reset();
             #[cfg(feature = "search-census")]
-            puzzle8::puzzle24::search::flat::lm1l_report_reset();
+            puzzle8::puzzle24::search::engine::lm1l_report_reset();
             // Per-node event rates for this threshold alone. Counts are
             // frequency-independent, so these are comparable across
             // thresholds even on battery.
@@ -445,27 +445,27 @@ fn main() -> ExitCode {
             checkpoint: args.checkpoint.as_ref().map(std::path::PathBuf::from),
         };
         if args.parallel {
-            puzzle8::puzzle24::search::flat::flat_bounded_parallel(
+            puzzle8::puzzle24::search::engine::bounded_parallel(
                 &start, &cwd, &dfa, tiers, opts, on_iter,
             )
         } else {
-            flat_bounded_tiers(&start, &cwd, &dfa, tiers, opts, on_iter)
+            bounded_tiers(&start, &cwd, &dfa, tiers, opts, on_iter)
         }
     });
     let elapsed = t0.elapsed();
 
     #[cfg(feature = "probe-cache-stats")]
-    puzzle8::puzzle24::search::flat::lm_cache_stats_report();
+    puzzle8::puzzle24::search::engine::lm_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
-    puzzle8::puzzle24::search::flat::lm2_cache_stats_report();
+    puzzle8::puzzle24::search::engine::lm2_cache_stats_report();
     #[cfg(feature = "probe-cache-stats")]
-    puzzle8::puzzle24::search::flat::k8_cache_stats_report();
+    puzzle8::puzzle24::search::engine::k8_cache_stats_report();
     #[cfg(feature = "search-census")]
-    puzzle8::puzzle24::search::flat::k8_prune_stats_report(st.nodes);
+    puzzle8::puzzle24::search::engine::k8_prune_stats_report(st.nodes);
     #[cfg(feature = "search-census")]
-    puzzle8::puzzle24::search::flat::lm2_prune_stats_report(st.nodes);
+    puzzle8::puzzle24::search::engine::lm2_prune_stats_report(st.nodes);
     #[cfg(feature = "search-census")]
-    puzzle8::puzzle24::search::flat::surviving_children_report();
+    puzzle8::puzzle24::search::engine::surviving_children_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.

@@ -1,8 +1,9 @@
-//! Flat (iterative) IDA\* — one hardcoded configuration, no recursion, no undo.
+//! **The** 24-puzzle search engine — flat (iterative) IDA\*, one hardcoded
+//! configuration, no recursion, no undo.
 //!
-//! **The** 24-puzzle search engine, specialised to the exact stack the `R`
-//! lower-bound program runs: **cWD + move-DFA + neighbour-WD child pre-prune +
-//! root σ-orbit split**, bounded lower-bound mode only.
+//! Specialised to the exact stack the `R` lower-bound program runs: **cWD +
+//! move-DFA + neighbour-WD child pre-prune + root σ-orbit split**, bounded
+//! lower-bound mode only.
 //!
 //! It began as a second engine beside a generic recursive one, which is why so
 //! much below is phrased against "the generic engine". That engine has since
@@ -51,7 +52,7 @@
 //! this module changes a pruning decision; it only evaluates the same predicates
 //! more cheaply.
 //!
-//! Since that engine is gone, the gate is now [`super::flat_oracle`]: 180 cases
+//! Since that engine is gone, the gate is now [`super::oracle`]: 180 cases
 //! and ~3.7 × 10^7 nodes of its frozen answers, captured before removal. It
 //! **cannot be regenerated** — a mismatch means this engine's tree changed, not
 //! that the fixture is stale.
@@ -77,8 +78,8 @@ const NO_CELL: u8 = u8::MAX;
 /// Per-`(blank, move)` move geometry. [`Cwd::make`](super::cwd::Cwd) recomputes
 /// all of this at every node — `parent_blank = br*W + bc`, then `from/W`, `to/W`,
 /// `from%W`, `to%W` — six divisions by 5 plus a multiply-add, each division
-/// lowering to a multiply-high/shift/multiply/subtract on aarch64. The flat
-/// engine already carries the blank cell, so one indexed load replaces the lot.
+/// lowering to a multiply-high/shift/multiply/subtract on aarch64. The engine
+/// already carries the blank cell, so one indexed load replaces the lot.
 #[derive(Clone, Copy)]
 struct Geom {
     /// Cell the moved tile comes from (equivalently, the blank's destination).
@@ -1706,14 +1707,14 @@ fn joint_floors(
 /// If `cwd` has no merged table — the A\* reference path is deliberately not
 /// reachable from this engine, since silently falling back to it would make a
 /// throughput comparison meaningless.
-pub fn flat_bounded(
+pub fn bounded(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
     orbit_split: bool,
     max_bound: u8,
 ) -> (BoundedOutcome, SearchStats) {
-    flat_bounded_tiers(
+    bounded_tiers(
         start,
         cwd,
         dfa,
@@ -1752,8 +1753,8 @@ impl Tiers<'_> {
     }
 }
 
-/// Driver options shared by [`flat_bounded_tiers`] and
-/// [`flat_bounded_parallel`]. `Default` is an unbounded, unbudgeted search
+/// Driver options shared by [`bounded_tiers`] and
+/// [`bounded_parallel`]. `Default` is an unbounded, unbudgeted search
 /// with no orbit split and no checkpointing.
 #[derive(Clone)]
 pub struct SearchOpts {
@@ -1785,10 +1786,10 @@ impl Default for SearchOpts {
     }
 }
 
-/// [`flat_bounded`] with a tier selection, [`SearchOpts`] and a per-iteration
+/// [`bounded`] with a tier selection, [`SearchOpts`] and a per-iteration
 /// callback — the single entry point behind every solve24 configuration. Pass
 /// `Tiers::default()` for the plain cWD stack.
-pub fn flat_bounded_tiers<F>(
+pub fn bounded_tiers<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
@@ -1813,7 +1814,7 @@ where
     );
     let merged = cwd
         .backing()
-        .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
+        .expect("bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
     // Not a `debug_assert!`: dropping one representative per σ-orbit at the root
     // halves the search, and on a board that is not σ-fixed it would discard
     // subtrees no symmetry maps back — an unsound answer from a release build,
@@ -2247,7 +2248,7 @@ fn ckpt_append(path: &std::path::Path, line: &str) {
     }
 }
 
-/// [`flat_bounded`] with each threshold iteration parallelised by
+/// [`bounded`] with each threshold iteration parallelised by
 /// **tree-splitting + work-stealing**.
 ///
 /// A cheap sequential expansion grows a frontier of ~[`SPLIT_TARGET`] subtree
@@ -2272,7 +2273,7 @@ fn ckpt_append(path: &std::path::Path, line: &str) {
 /// scratch arena rather than reimplementing them, so its pruning decisions cannot
 /// drift from the sequential engine's.
 #[cfg(feature = "parallel")]
-pub fn flat_bounded_parallel<F>(
+pub fn bounded_parallel<F>(
     start: &State,
     cwd: &Cwd,
     dfa: &MoveDfa,
@@ -2319,7 +2320,7 @@ where
     });
     let merged = cwd
         .backing()
-        .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
+        .expect("bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
     let lut = cwd.demand_lut();
     let neighbor_prune = cwd.neighbor_prune_enabled();
     // Not a `debug_assert!`: dropping one representative per σ-orbit at the root
@@ -5119,9 +5120,9 @@ mod tests {
         super::super::cwd::shared_merged_cwd()
     }
 
-    /// **The gate.** The flat engine's tree, compared node-for-node against the
+    /// **The gate.** The engine's tree, compared node-for-node against the
     /// frozen answers of the deleted recursive engine
-    /// ([`super::flat_oracle`]). Node counts are compared exactly: they catch
+    /// ([`super::oracle`]). Node counts are compared exactly: they catch
     /// tree-shape divergence that comparing `h` values or final bounds would
     /// miss.
     ///
@@ -5140,12 +5141,12 @@ mod tests {
     /// Hence the real cases sit at `h0 + {4,6,8}` on 200-700 step walks, where
     /// cWD stops being exact and the search genuinely exhausts.
     ///
-    /// A failure here means the flat engine's tree changed. The fixture is not
+    /// A failure here means the engine's tree changed. The fixture is not
     /// refreshable — the engine that produced it is gone — so it is ground
     /// truth, never something to regenerate to make a test pass.
     #[cfg(feature = "cwd-table-tests")]
     #[test]
-    fn flat_matches_frozen_recursive_oracle() {
+    fn engine_matches_frozen_recursive_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
@@ -5153,12 +5154,9 @@ mod tests {
 
         let mut checked = 0usize;
         let mut nodes_total = 0u64;
-        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
-            .iter()
-            .enumerate()
-        {
+        for (i, c) in crate::puzzle24::search::oracle::CASES.iter().enumerate() {
             let s = State(c.board);
-            let (fo, fs) = flat_bounded(&s, cwd, &dfa, c.orbit_split, c.bound);
+            let (fo, fs) = bounded(&s, cwd, &dfa, c.orbit_split, c.bound);
 
             let ok = match &fo {
                 BoundedOutcome::Solved(mv) => c.tag == 0 && mv.len() as u8 == c.val,
@@ -5173,7 +5171,7 @@ mod tests {
             assert!(
                 ok,
                 "case {i}: outcome differs (board {:?}, bound {}, orbit_split {}): \
-                 flat {fo:?} vs frozen tag={} val={}",
+                 engine {fo:?} vs frozen tag={} val={}",
                 c.board, c.bound, c.orbit_split, c.tag, c.val
             );
             assert_eq!(
@@ -5208,7 +5206,7 @@ mod tests {
     /// message) until the artifact is built.
     #[cfg(feature = "cwd-table-tests")]
     #[test]
-    fn flat_lm2_joint_matches_frozen_oracle_outcomes() {
+    fn engine_lm2_joint_matches_frozen_oracle_outcomes() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
@@ -5225,13 +5223,10 @@ mod tests {
         };
         let dfa = MoveDfa::build_default();
         let mut checked = 0usize;
-        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
-            .iter()
-            .enumerate()
-        {
+        for (i, c) in crate::puzzle24::search::oracle::CASES.iter().enumerate() {
             let s = State(c.board);
             for (jname, joint) in [("off", None), ("on", Some(&t1l))] {
-                let (fo, _fs) = flat_bounded_tiers(
+                let (fo, _fs) = bounded_tiers(
                     &s,
                     cwd,
                     &dfa,
@@ -5294,19 +5289,16 @@ mod tests {
     /// reaches.
     #[cfg(all(feature = "cwd-table-tests", feature = "parallel"))]
     #[test]
-    fn flat_parallel_matches_frozen_oracle() {
+    fn engine_parallel_matches_frozen_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
         let dfa = MoveDfa::build_default();
         let mut checked = 0usize;
         let mut exhausts = 0usize;
-        for (i, c) in crate::puzzle24::search::flat_oracle::CASES
-            .iter()
-            .enumerate()
-        {
+        for (i, c) in crate::puzzle24::search::oracle::CASES.iter().enumerate() {
             let s = State(c.board);
-            let (po, ps) = flat_bounded_parallel(
+            let (po, ps) = bounded_parallel(
                 &s,
                 cwd,
                 &dfa,
@@ -5374,13 +5366,13 @@ mod tests {
     /// 144, so this doubles as a full-scale node-identity canary — the frozen
     /// oracle above covers only small boards.
     ///
-    ///   cargo test flat_cascade_assertions_hold_at_144 -- --ignored --nocapture
+    ///   cargo test engine_cascade_assertions_hold_at_144 -- --ignored --nocapture
     #[cfg(feature = "parallel")]
     #[test]
     #[ignore = "needs data/cwd_mm.bin, data/cwd_lm_mm.bin, data/cwd_lm1l_mm.bin and the three \
                 k8 zPDBs (~49 GB total); ~4 min in the debug profile (~30 s release); run with \
-                `cargo test flat_cascade_assertions_hold_at_144 -- --ignored --nocapture`"]
-    fn flat_cascade_assertions_hold_at_144() {
+                `cargo test engine_cascade_assertions_hold_at_144 -- --ignored --nocapture`"]
+    fn engine_cascade_assertions_hold_at_144() {
         let Ok(cwd) = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")) else {
             eprintln!("cwd_mm.bin absent — skipping the assertion gate");
             return;
@@ -5409,7 +5401,7 @@ mod tests {
         ]);
         assert!(symmetry::is_symmetric(&r), "board R must be σ-symmetric");
 
-        let (out, stats) = flat_bounded_parallel(
+        let (out, stats) = bounded_parallel(
             &r,
             &cwd,
             &dfa,
@@ -5441,7 +5433,7 @@ mod tests {
     /// without needing the deleted engine.
     #[cfg(feature = "cwd-table-tests")]
     #[test]
-    fn flat_orbit_split_reduces_nodes_against_oracle() {
+    fn engine_orbit_split_reduces_nodes_against_oracle() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
@@ -5454,19 +5446,19 @@ mod tests {
         assert!(symmetry::is_symmetric(&r), "board R must be σ-symmetric");
 
         let mut pairs = 0usize;
-        for c in crate::puzzle24::search::flat_oracle::CASES
+        for c in crate::puzzle24::search::oracle::CASES
             .iter()
             .filter(|c| c.orbit_split)
         {
             let s = State(c.board);
             assert!(symmetry::is_symmetric(&s), "orbit case must be σ-symmetric");
-            let Some(off) = crate::puzzle24::search::flat_oracle::CASES
+            let Some(off) = crate::puzzle24::search::oracle::CASES
                 .iter()
                 .find(|o| !o.orbit_split && o.board == c.board && o.bound == c.bound)
             else {
                 continue;
             };
-            let (_, on_stats) = flat_bounded(&s, cwd, &dfa, true, c.bound);
+            let (_, on_stats) = bounded(&s, cwd, &dfa, true, c.bound);
             assert_eq!(on_stats.nodes, c.nodes, "split node count differs");
             assert!(
                 c.nodes < off.nodes,
@@ -5483,14 +5475,14 @@ mod tests {
     /// The bounded-lower-bound contract, mirroring `tests/puzzle24_bounded.rs`.
     #[cfg(feature = "cwd-table-tests")]
     #[test]
-    fn flat_bounded_outcome_contract() {
+    fn bounded_outcome_contract() {
         let Some(cwd) = cwd_merged_or_skip() else {
             return;
         };
         let dfa = MoveDfa::build_default();
 
         // Solved at the goal itself, with an empty path and no search.
-        let (o, s) = flat_bounded(&GOAL, cwd, &dfa, false, 10);
+        let (o, s) = bounded(&GOAL, cwd, &dfa, false, 10);
         assert_eq!(o, BoundedOutcome::Solved(Vec::new()));
         assert_eq!(s.nodes, 0);
 
@@ -5500,7 +5492,7 @@ mod tests {
         // carry the optimum in `val`.
         let solved: Vec<(State, u8)> = {
             let mut seen: Vec<[u8; N_CELLS]> = Vec::new();
-            crate::puzzle24::search::flat_oracle::CASES
+            crate::puzzle24::search::oracle::CASES
                 .iter()
                 .filter(|c| c.tag == 0 && !c.orbit_split)
                 .filter(|c| {
@@ -5520,23 +5512,23 @@ mod tests {
             let start = &start;
 
             // bound == depth ⇒ Solved at exactly that length.
-            match flat_bounded(start, cwd, &dfa, false, d).0 {
+            match bounded(start, cwd, &dfa, false, d).0 {
                 BoundedOutcome::Solved(p) => assert_eq!(p.len() as u8, d),
                 other => panic!("expected Solved at bound {d}, got {other:?}"),
             }
 
             // bound == depth-1 ⇒ ProvedAtLeast(depth): the exhaust is the proof.
             assert_eq!(
-                flat_bounded(start, cwd, &dfa, false, d - 1).0,
+                bounded(start, cwd, &dfa, false, d - 1).0,
                 BoundedOutcome::ProvedAtLeast(d),
             );
 
             // bound < h0 ⇒ the bound is returned without visiting a single node.
-            let h0 = match flat_bounded(start, cwd, &dfa, false, 0).0 {
+            let h0 = match bounded(start, cwd, &dfa, false, 0).0 {
                 BoundedOutcome::ProvedAtLeast(k) => k,
                 other => panic!("expected ProvedAtLeast, got {other:?}"),
             };
-            let (o, s) = flat_bounded(start, cwd, &dfa, false, h0 - 1);
+            let (o, s) = bounded(start, cwd, &dfa, false, h0 - 1);
             assert_eq!(o, BoundedOutcome::ProvedAtLeast(h0));
             assert_eq!(s.nodes, 0, "no node should be visited below h0");
         }

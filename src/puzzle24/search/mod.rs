@@ -4,14 +4,14 @@ pub mod cwd;
 pub mod cwd_lm;
 pub mod cwd_lm1l;
 pub mod cwd_lm_joint;
-pub mod flat;
+pub mod engine;
 // Only the `cwd-table-tests` gate consumes the frozen oracle.
-#[cfg(all(test, feature = "cwd-table-tests"))]
-mod flat_oracle;
 pub mod heuristic;
 pub mod idastar;
 pub mod linear_conflict;
 pub mod move_dfa;
+#[cfg(all(test, feature = "cwd-table-tests"))]
+mod oracle;
 pub mod outcome;
 pub mod walking_distance;
 

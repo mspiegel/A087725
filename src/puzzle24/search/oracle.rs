@@ -4,7 +4,7 @@
 //! engine before it was removed, and committed as source: it **cannot be
 //! regenerated**, because the engine that produced it no longer exists.
 //! Treat every value here as ground truth, not as something to refresh if a
-//! test starts failing — a mismatch means the flat engine changed its tree.
+//! test starts failing — a mismatch means the engine changed its tree.
 //!
 //! Node counts are the load-bearing column. Outcomes alone would let a
 //! tree-shape divergence through that still happens to reach the same

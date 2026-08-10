@@ -5,11 +5,11 @@
 //! This module used to hold the project's general-purpose 24-puzzle search,
 //! including a make/unmake (`IncHeuristicMut`) driver, a `Search` builder and
 //! rayon tree-splitting parallel drivers. All of that is deleted: searching is
-//! done by [`flat`](super::flat), which is faster and is the only engine the `R`
+//! done by [`engine`](super::engine), which is faster and is the only engine the `R`
 //! lower-bound program uses.
 //!
 //! What remains is the `Copy`-context driver family, retained for two consumers
-//! that [`flat`](super::flat) cannot serve — it is cWD-only, has no deadline,
+//! that [`engine`](super::engine) cannot serve — it is cWD-only, has no deadline,
 //! and does bounded lower-bound work rather than general optimal solving:
 //!
 //! - `gen_corridors` (`--mode exact` and `--mode audit`), which solves boards
