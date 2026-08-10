@@ -551,10 +551,31 @@ pub struct K8SharedCache {
     shift: u32,
 }
 
-/// Shared k8 cache size, in bits (2^21 = 16 MB). Size is not
-/// performance-critical: a sweep over 2^19..2^25 moved wall clock less
-/// than the canary spread despite hit rates ranging 76% to 92%.
-const K8_SHARED_BITS: u32 = 21;
+/// Shared k8 cache size, in bits (2^27 slots x 8 B = 1 GB).
+///
+/// Was 21 (16 MB) on an 8-thread measurement where a 2^19..2^25 sweep moved
+/// wall clock less than the canary spread despite hit rates ranging 76-92%.
+/// **That conclusion does not survive 64 threads.** All workers share this one
+/// structure, so unique-key pressure scales with thread count: measured at
+/// exhaust-148, the hit rate falls from 72.905% at W=16 to 66.271% at W=64 —
+/// 24.6% more misses, each a rank walk plus a random probe into the 33 GB
+/// zPDB mmaps.
+///
+/// Swept at exhaust-148, W=64 (seconds), against a 3.3% canary spread
+/// (three bits=21 references at 23.67 / 24.46 / 24.05 s on threshold 146):
+///
+/// | bits | 21 | 22 | 24 | 25 | 26 | 27 | 28 |
+/// |------|----|----|----|----|----|----|-----|
+/// | size | 16M | 32M | 128M | 256M | 512M | 1G | 2G |
+/// | wall | 568.4 | 540.6 | 508.5 | 492.9 | 462.6 | **448.4** | 445.2 |
+///
+/// Monotone to 27 (**-21.1%**), then flat — 28 buys 0.7% for double the
+/// memory, so 27 is the knee. 1 GB is a rounding error against the 49 GB
+/// table set the machine is already sized for (peak RSS 50.7 GB).
+///
+/// Re-measure if the thread count changes again: the 8-thread and 64-thread
+/// answers differ by 21%, so there is no reason to expect this one final.
+const K8_SHARED_BITS: u32 = 27;
 
 impl K8SharedCache {
     pub fn new() -> Self {
