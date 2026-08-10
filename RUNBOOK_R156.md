@@ -1,4 +1,11 @@
-# RUNBOOK — proving optimal(R) = 156 on a 144-core machine
+# RUNBOOK — proving optimal(R) = 156 on a 64-core machine
+
+> **Status 2026-08-10.** Steps 1–8 have been executed on Azure VM `r156`
+> (Standard_F64ams_v6, New Zealand North). Tables built and all ten SHA-256
+> pins verified; all four node-identity canaries exact; E1/E2/E3 measured.
+> Outstanding: E5 (checkpoint rehearsal), step 9 (exhaust-150 calibration),
+> two new A/Bs added below (E6 huge pages, E7 k8 cache size), then step 10.
+> Measured numbers replace the projections throughout.
 
 The goal: prove `dist(R) ≥ 156` by exhaustive IDA\* search. The upper bound 156
 is already published and replay-verified (`FINDINGS_R.md` §1), so `≥ 156`
@@ -10,38 +17,46 @@ is 144, 146, 148, 150, 152, 154. Exhausting threshold 154 proves ≥ 156.
 "exhaust through 154". Engine ceiling `MAX_DEPTH = 210` — no limit concerns.
 
 The production stack is the cascade `--clm2 --zpdb8` (consult order
-cWD → cLM2 → k8). On the 32 GB dev machine the cascade loses to `--lm2` at
-148 **only because of paging** (~194 GB of pageins; the mapped tables total
-~49 GB). On a ≥ 96 GB machine that toll disappears and the cascade's node cut
-(2.52× at 148, growing with depth) should convert to wall clock.
+cWD → cLM2 → k8). On the 32 GB dev machine the cascade lost to `--lm2` at 148
+**only because of paging** (~194 GB of pageins against ~49 GB of mapped
+tables). With 503 GB that toll is gone, confirmed: the cascade exhausted 148
+in 592.8 s here.
 
-Known measured rungs (sequential, dev machine, for scale):
+Rungs — measured through 148, extrapolated beyond:
 
-| threshold | stack | nodes | growth |
-|---|---|---:|---:|
-| 144 | `--clm2` | 134,801,951 | — |
-| 146 | `--clm2 --zpdb8` | 4,363,759,350 | — |
-| 148 | `--clm2 --zpdb8` | 114,245,221,757 | ×26.2 |
-| 150 | extrapolated | ~3 × 10¹² | ×~26 |
-| 152 | extrapolated | ~8 × 10¹³ | ×~26 |
-| 154 | extrapolated | ~2 × 10¹⁵ | ×~26 |
+| threshold | nodes | growth | wall @ W=64 |
+|---|---:|---:|---:|
+| 144 | 115,436,814 | — | 1.16 s |
+| 146 | 4,363,759,350 | ×37.8 | 19.95 s |
+| 148 | 114,245,221,757 | ×26.2 | 592.8 s |
+| 150 | ~3 × 10¹² | ×~26 | ~4.3 h |
+| 152 | ~8 × 10¹³ | ×~26 | ~4.7 days |
+| 154 | ~2 × 10¹⁵ | ×~26 | **~4 months** |
 
-At a plausible 144-core cascade rate (0.5–1.5 Gn/s — Step 8 measures the real
-number), 150 is ~an hour, 152 is ~a day or two, and **154 is weeks-to-months
-and dominates everything**. Step 9's calibration gate re-fits the growth ratio
-from rungs measured on this machine before committing to 152/154.
+**Exhaust-154 is 96% of the total cost**, so the growth ratio — currently one
+measured transition — dominates every other variable. Step 9 gives it a
+second point before any real money is committed. At $0.719/h that projects
+**~$2,100** for the proof.
 
-Assumptions: **ARM64 (aarch64) Linux server**, ≥ 96 GB RAM (hard floor 64 GB —
-below that the cascade pages and `--lm2` becomes the better engine), ~130 GB
-free disk (~50 GB artifacts + ~60 GB transient build peak + checkpoints),
-`tmux` or `nohup` for long runs (the `caffeinate` habit is macOS-only).
-`numactl` installed if the box is multi-socket.
+Machine (measured, `r156`): **x86-64 AMD EPYC 9V74 (Genoa), 64 physical cores,
+1 thread/core (no SMT), 503 GiB RAM, single NUMA node, 4 KiB pages, THP =
+madvise**, Ubuntu 26.04, 256 GiB Standard SSD. Requirements for a substitute
+machine: ≥ 96 GB RAM (hard floor 64 GB — below that the cascade pages and
+`--lm2` becomes the better engine), ~130 GB free disk, `tmux` for long runs
+(the `caffeinate` habit is macOS-only). `numactl` is **not** needed on a
+single-socket box.
 
 Portability: the codebase is developed on ARM64 macOS; the one macOS-only
-symbol (`_dyld_get_image_vmaddr_slide` in `solve24`) is now cfg-gated to
-macOS, so the default-feature build links cleanly on Linux. Do **not** enable
-the `pmu-counters` feature on Linux (Apple kperf only). Make sure the branch
-with that gate is pushed before cloning on the big machine.
+symbol (`_dyld_get_image_vmaddr_slide` in `solve24`) is cfg-gated to macOS,
+so the default-feature build links cleanly on Linux. Do **not** enable the
+`pmu-counters` feature on Linux (Apple kperf only).
+
+Cross-architecture reproducibility is **verified**: every table artifact
+rebuilt on x86-64 Linux matches its ARM64-macOS SHA-256 pin, and all four
+node-identity canaries are exact. Per-core throughput ratio against the dev
+Mac, for future machine sizing: **1.69× slower per core for the search**
+(the number that matters), 1.39× for the k8 builds, 2–3.5× for the
+latency-bound table builders.
 
 ---
 
@@ -123,10 +138,13 @@ target/release/build_pdb24 --zero-aware --tiles 11,12,13,16,17,18,21,22 --out da
 ```
 
 Each group was ~8 h at 8 threads via the frontier-free 2-bit builder
-(~20 GB peak per group); 144 cores should cut that substantially, and the
-three groups can also run concurrently in separate shells (3 × 20 GB peak +
-whatever else is resident — fine at ≥ 96 GB). Build log should report
-eccentricities 46 / 50 / 46 (Σ-ecc = 142).
+(~20 GB peak per group). **Measured on 64 cores: 83.5 / 91.7 / 88.7 min**
+(a / b / c) — the builder is fully rayon-parallel and sweeps the whole packed
+array once per BFS depth level, so wall time is ~109-116 s per level and
+tracks eccentricity almost exactly. Groups must report eccentricities
+**46 / 50 / 46** (Σ-ecc = 142); b runs deepest because its tiles are spread
+along the right and bottom edges rather than clustered. Run them serially —
+they already use every core.
 
 ## 5. Verify artifact SHA-256 against the pinned references
 
@@ -210,128 +228,103 @@ breadth): `--prove-at-least 149 --clm2 --zpdb8 --parallel` → threshold 148 =
   Bracket every batch with an untouched-engine canary run (gate 3 above is a
   good ~90 s canary) — if the canary drifts more than a couple of percent,
   the measurements in between are suspect.
-- **NUMA** (if multi-socket): run everything under `numactl --interleave=all`.
-  The ~49 GB of mmap'd tables and the 16 MB shared k8 cache otherwise land on
-  whichever node touches them first, and the far socket eats the latency.
-- **Page size**: check `getconf PAGESIZE`. ARM64 Linux kernels ship with
-  4 KiB or 64 KiB pages; a 64 KiB kernel natively cuts TLB pressure on the
-  multi-GB random-probe tables (a measured dominant cost of this workload)
-  16-fold — worth knowing which regime the box is in before interpreting any
-  throughput number. (All working-set arithmetic in the repo's notes assumes
-  the dev machine's 16 KiB pages.)
-- **Huge pages** (4 KiB kernels): check
-  `cat /sys/kernel/mm/transparent_hugepage/enabled`; `always` is worth an
-  A/B against `madvise` (the engine does not madvise).
-- **SMT**: most ARM server parts (Ampere, Graviton, Grace) are one thread
-  per core, so 144 is likely 144 physical — confirm with `lscpu`, and if SMT
-  does exist, E1's W sweep covers it.
+- **NUMA — not applicable.** `r156` is single-socket, one NUMA node, so
+  `numactl` buys nothing. Re-check with `numactl --hardware` on any
+  substitute machine.
+- **SMT — none.** The Fasv6 family runs 1 thread per core, so all 64 vCPUs
+  are physical cores. `lscpu` confirms `Thread(s) per core: 1`.
+- **Page size — 4 KiB, and it costs us.** x86-64 fixes the base page size in
+  hardware; no kernel option changes it (64 KiB base pages are ARM64-only).
+  The kernel already caches the tables in 2 MiB folios but never PMD-maps
+  them into the process, and `CONFIG_READ_ONLY_THP_FOR_FS` is off, so no
+  `madvise` on a file mapping helps:
+
+  ```text
+  FileHugePages:  38023168 kB   <- 38 GB of tables in huge folios
+  FilePmdMapped:         0 kB   <- none huge-mapped into the process
+  ```
+
+  The lever is `solve24 --hugepages`, which copies the tables into anonymous
+  `MADV_HUGEPAGE` memory (needs `transparent_hugepage/enabled` = `madvise`
+  or `always`, and enough RAM to hold ~49 GB resident). Quantified in E6.
 - Long runs: `tmux` + `--checkpoint` (below). No sleep management needed on a
   server.
 
-## 8. Tuning experiments for 144 cores
+## 8. Tuning experiments for 64 cores
 
-Goal: *good enough to exploit the parallelism*, not perfect. Expected total
-tuning budget: a day. All experiments at exhaust-148 (`--prove-at-least 149`)
-with the cascade — deep enough to see contention (144's tree is too small to
-occupy 144 workers; 146 is marginal), cheap enough to iterate.
+Goal: *good enough to exploit the parallelism*, not perfect. All experiments
+at exhaust-148 (`--prove-at-least 149`) with the cascade — deep enough to see
+contention, cheap enough to iterate at ~10 min per run.
 
-### E1 — thread scaling curve (run first)
+### E1 — thread scaling curve — **DONE**
 
-```sh
-for W in 18 36 72 108 144; do
-  RAYON_NUM_THREADS=$W target/release/solve24 --position "$R" \
-    --prove-at-least 149 --clm2 --zpdb8 --parallel 2>&1 | tee runs/e1_w$W.log
-done
-```
+Node count identical at every W (114,245,221,757), which re-confirms the
+driver's node-identity across thread counts:
 
-Record threshold-148 wall and Mn/s per W. This one curve answers most
-questions at once: where DRAM bandwidth saturates, whether SMT helps, and
-what the realistic proof-run rate is (feeds Step 9's extrapolation). If the
-curve flattens hard before 144, the memory system — not any tuning constant —
-is the ceiling, and the remaining experiments matter less.
+| W | wall | Mn/s | per-core | efficiency vs W=16 |
+|---:|---:|---:|---:|---:|
+| 16 | 1929.4 s | 59.21 | 3.70 | 100% |
+| 32 | 1045.8 s | 109.24 | 3.41 | 92% |
+| 48 | 743.6 s | 153.63 | 3.20 | 87% |
+| **64** | **592.8 s** | **192.71** | 3.01 | 81% |
 
-### E2 — SPLIT_TARGET (answer: raise it to ~64 K)
+Sub-linear but healthy: 4× the threads gives 3.26× the throughput, and W=64
+still buys 25% over W=48. **Run proofs at W=64** (rayon's default here, so no
+`RAYON_NUM_THREADS` needed). No hard memory-bandwidth plateau, which is what
+retires E4.
 
-`SPLIT_TARGET` (`src/puzzle24/search/flat.rs`, const, currently **4096**) is
-the number of subtree-root work units the sequential frontier grows before
-going parallel. 4096 was chosen for W=8 — ~500 units/worker of work-stealing
-slack, needed because subtree sizes vary by orders of magnitude. At W=144,
-4096 is only ~28 units/worker — thin enough that a handful of monster subtrees
-serialize the tail of every threshold.
+### E2 — SPLIT_TARGET — **DONE** (4096 → 32768)
 
-**Recommendation: 65,536** (2¹⁶ ≈ 455 units/worker, preserving the measured
-slack ratio). Split cost is negligible at proof depths: at exhaust-148's
-114 B nodes, 64 K units still average ~1.7 M nodes each; unit records and
-checkpoint lines scale linearly and stay trivial. The value is not sharp —
-anything in 32 K–128 K should sit on the same plateau. Confirm with one sweep
-using the env-gated profile build (the env knob exists only under the
-`parallel-profile` feature, so the production binary stays knob-free):
+`SPLIT_TARGET` (`src/puzzle24/search/flat.rs`) is the number of subtree-root
+work units the sequential frontier grows before going parallel. 4096 was
+chosen for W=8 — ~500 units/worker of stealing slack, needed because subtree
+sizes vary by orders of magnitude. At W=64 that is only ~64 units/worker,
+thin enough that a few monster subtrees serialize each threshold's tail.
 
-```sh
-cargo build --release --features "sha parallel-profile"
-for S in 4096 16384 65536 131072; do
-  FLAT_SPLIT_TARGET=$S RAYON_NUM_THREADS=144 target/release/solve24 --position "$R" \
-    --prove-at-least 149 --clm2 --zpdb8 --parallel 2>&1 | tee runs/e2_s$S.log
-done
-```
+Swept at exhaust-148, W=64, via the `parallel-profile` build (that feature is
+the only thing exposing the `FLAT_SPLIT_TARGET` env knob, so the production
+binary stays knob-free):
 
-Then hard-set the winner as the `SPLIT_TARGET` const and **rebuild without
-`parallel-profile`** — proof runs use the constant, per the no-env-knobs
-policy.
+| SPLIT_TARGET | 4096 | 16384 | 32768 | 65536 |
+|---|---:|---:|---:|---:|
+| wall (s) | 595.1 | 576.6 | 580.1 | 577.5 |
 
-### E3 — the shared k8 cache under 144 threads (answer: likely fine; one A/B)
+Everything at or above 16 K is one plateau within 0.6% — tied — while 4096
+costs ~3%. **Set to 32768** (commit `5be4aec`), the middle of the plateau,
+which restores the original ~500-units-per-worker ratio at W=64. Rebuilt
+without `parallel-profile` afterwards.
 
-The `--zpdb8` tier fronts the 33 GB zPDB mmaps with **one process-wide
-shared cache** (`K8SharedCache`, 2²¹ × AtomicU64 = 16 MB). Design facts that
-bound the contention risk:
+### E3 — shared k8 cache under 64 threads — **DONE, and it found pressure**
 
-- Lock-free: relaxed single-`u64` load on probe, relaxed store on miss-fill.
-  No CAS, no locks, no retry loops — nothing serializes. Correctness is
-  interleaving-proof (tag check rejects foreign entries), so this is purely
-  a throughput question.
-- Writes are rare per node: k8 is consulted only at children the earlier
-  tiers fail to prune (~6–12% of nodes), and only cache *misses* store
-  (8–24% of consults at the measured 76–92% hit rates) → a store on roughly
-  1–2% of nodes. Coherence-line invalidations at that rate, spread over 2M
-  slots, are noise next to the DRAM traffic the misses themselves generate.
+The `--zpdb8` tier fronts the 33 GB zPDB mmaps with one process-wide shared
+cache (`K8SharedCache`, 2²¹ × AtomicU64 = 16 MB). It is lock-free — relaxed
+`u64` load on probe, relaxed store on miss-fill, no CAS or retry — so it was
+never a *serialization* risk. The question was capacity under 64-way sharing,
+and the answer is that it matters:
 
-So: **not expected to be a contention source in the lock sense; the real
-exposure is NUMA placement and aggregate hit rate.** With 144 threads sharing
-2M slots, unique-key pressure rises (more distinct subtrees in flight →
-more capacity evictions). Two cheap mitigations to A/B once:
+| | W=16 | W=64 |
+|---|---:|---:|
+| k8 hit rate | **72.905%** | **66.271%** |
+| k8 misses | 44.3 B | 55.2 B (**+24.6%**) |
+| LM2 per-worker cache | 99.757% | 99.749% |
 
-1. `K8_SHARED_BITS` 21 → **24** (16 MB → 128 MB; one-line const edit +
-   rebuild). On the dev machine size was measured irrelevant (2¹⁹–2²⁵ moved
-   wall less than canary spread) — but that was 8 threads sharing the key
-   stream; 144 threads is a different regime, and 128 MB costs nothing here.
-2. `numactl --interleave=all` (Step 7) so the cache and the mmaps stripe
-   across nodes.
+Every extra miss is a rank walk plus a probe into the 33 GB mmap. The
+dev-machine finding that cache size was irrelevant does **not** transfer —
+that was 8 threads sharing the key stream. The per-worker LM2 cache is
+unaffected, so this is specific to the shared structure. Follow-up is **E7**.
 
-Diagnostic if suspicion remains: build with `--features probe-cache-stats`
-and compare the k8 hit rate at W=8 vs W=144 — a large drop confirms capacity
-pressure (fix: more bits); a stable hit rate with poor E1 scaling points at
-DRAM/NUMA instead.
+Method note: `probe-cache-stats` costs ~14× wall time at W=64 (atomic counter
+contention across all workers). Use it for hit rates only — **never** read a
+timing off an instrumented build.
 
-### E4 — per-worker ("split") cache sizing (answer: adequate; one optional sweep)
+### E4 — per-worker cache sizing — **RETIRED, no action**
 
-Each rayon worker owns private front caches; nothing is shared, so there is
-no contention — the question is only RAM footprint and hit rate:
-
-| cache | const | size/worker | ×144 |
-|---|---|---:|---:|
-| cWD probe cache | `WORKER_CACHE_BITS = 18` | 8.4 MB | 1.2 GB |
-| LM2 branch cache | `LM2_CACHE_BITS = 19` | ~15 MB | ~2.2 GB |
-| LM1L joint cache | `LM1L_CACHE_BITS = 15` | 3.4 MB | 0.5 GB |
-
-≈ 27 MB/worker, ≈ 3.9 GB total at W=144 — trivial next to 49 GB of tables on
-a ≥ 96 GB box. **Keep the defaults.** The 18-bit choice was validated by the
-insight that these caches exist to avoid probing the multi-GB tables (DRAM +
-TLB cost), *not* to fit in L2 — that reasoning transfers to any machine. The
-one thing 144 threads changes: aggregate table-miss traffic scales ×18 vs the
-measured W=8 config, so if E1 shows a memory-bound plateau, one notch larger
-(`WORKER_CACHE_BITS` 18→19, `LM2_CACHE_BITS` 19→20; +25 MB/worker, ~3.6 GB
-more total) is the cheapest lever to cut DRAM pressure. Sweep only if E1
-motivates it; expect single-digit percent either way.
+Each worker owns private front caches (cWD probe 8.4 MB + LM2 ~15 MB + LM1L
+3.4 MB ≈ 27 MB, so ~1.7 GB across 64 workers — trivial against 503 GB). The
+runbook made a size bump conditional on E1 showing a memory-bandwidth
+plateau; E1 shows no such plateau (81% efficiency at W=64, still gaining 25%
+over W=48). **Keep `WORKER_CACHE_BITS = 18`, `LM2_CACHE_BITS = 19`,
+`LM1L_CACHE_BITS = 15`.**
 
 ### E5 — checkpoint rehearsal
 
@@ -339,30 +332,97 @@ Before the long rungs, prove the recovery path at scale:
 
 ```sh
 mkdir -p runs/ckpt156
-RAYON_NUM_THREADS=144 target/release/solve24 --position "$R" \
+target/release/solve24 --position "$R" \
   --prove-at-least 151 --clm2 --zpdb8 --parallel --checkpoint runs/ckpt156
-# kill it mid-threshold-150 (Ctrl-C), then re-run the same command:
+# kill it ~30 min in (Ctrl-C), then re-run the identical command:
 # completed thresholds and finished units restore; only unfinished work re-searches.
 ```
+
+**Fold this into step 9 rather than running it separately.** Start the
+exhaust-150 calibration with `--checkpoint`, kill it half an hour in, resume,
+confirm the restore line, and let the resumed run continue to completion as
+the calibration itself. That buys the crash-recovery proof for ~5 minutes of
+re-searched work instead of a separate multi-hour run, and proves it at the
+scale where it actually matters.
 
 Checkpoint records are keyed to position + tier config + tree version (NOT to
 `--prove-at-least`), so the same directory carries across the staged proof
 runs below. At most one in-flight unit per worker is lost on a kill.
 
+### E6 — huge pages for the tables (NEW — highest-value untested lever)
+
+`solve24 --hugepages` copies each table into anonymous `MADV_HUGEPAGE` memory
+instead of mapping its file, so probes translate through 2 MiB pages. The
+motivation is measured (step 7): the kernel already holds 38 GB of tables in
+huge folios but PMD-maps none of them, and `CONFIG_READ_ONLY_THP_FOR_FS` is
+off, so the automatic paths cannot help. 49 GB at 4 KiB needs ~12.8 M TLB
+entries against a ~3,000-entry L2 TLB; at 2 MiB it needs ~25 K.
+
+E3's 66% k8 hit rate means ~55 B misses into the 33 GB zPDBs per exhaust-148
+run, each a random dependent access — exactly the traffic huge pages help.
+
+```sh
+# A/B at exhaust-148, W=64, back to back, idle box
+target/release/solve24 --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
+  --parallel > runs/e6_base.log 2>&1
+target/release/solve24 --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
+  --parallel --hugepages > runs/e6_huge.log 2>&1
+```
+
+Baseline to beat: **592.8 s / 192.71 Mn/s**. Node counts must stay identical
+(huge pages change only translation). Costs ~49 GB of resident anonymous
+memory and adds a one-time ~2–4 min load; check `AnonHugePages` in
+`/proc/meminfo` during the run to confirm THP actually backed the region.
+If this wins, use `--hugepages` for step 9 and the proof runs.
+
+### E7 — k8 shared-cache size (NEW — motivated by E3)
+
+E3 showed 64-way sharing costs 24.6% more k8 misses than 16-way. Raise
+`K8_SHARED_BITS` (`src/puzzle24/search/flat.rs`) from 21 (16 MB) to 24
+(128 MB) — a one-line const edit plus rebuild — and re-run the exhaust-148
+baseline. 128 MB is nothing against 503 GB.
+
+Two outcomes worth distinguishing: if wall time improves, keep it and record
+the new hit rate; if the hit rate rises but wall time does not, the misses
+were not on the critical path and the earlier dev-machine conclusion still
+holds at scale — record that and revert, because a bigger cache costs L3
+residency.
+
+Run E6 and E7 **before** step 9, so the calibration measures the final
+configuration.
+
 ## 9. Calibration gate — before committing to 152/154
 
-From E1/E5 output, record for this machine: nodes and wall at exhaust-148 and
-exhaust-150, cascade, W=chosen. Fit the per-+2 growth ratio (dev-machine
-ratio: ×26 at 146→148, drifting slowly; use the local 148→150 number) and
-extrapolate 152 and 154. The 152 and 154 rungs are **calibration data, not
-results** — only exhaust-154 proves anything new; each completed rung's
-node count refines the 154 estimate (and everything banks in the checkpoint
-dir regardless). Decision points:
+Everything downstream rests on the per-+2 growth ratio, which currently has
+**one** measured value. Run exhaust-150 on the final configuration (after E6
+and E7 decide `--hugepages` and `K8_SHARED_BITS`), with `--checkpoint` so E5
+folds in, and record nodes and wall.
 
-- 154 lands in weeks → proceed.
-- 154 lands in many months → stop and reassess (consider more machines —
-  the checkpoint format is per-worker append-only, but multi-host sharding
-  is *not* built, so that would be new work).
+Current model, from measured 148 (114,245,221,757 nodes / 592.8 s at W=64):
+
+| ratio | 154 nodes | wall | cost @ $0.719/h |
+|---:|---:|---:|---:|
+| 20 | 7.3 × 10¹⁴ | 1.5 months | ~$780 |
+| **26.2 (measured 146→148)** | **2.0 × 10¹⁵** | **~4 months** | **~$2,100** |
+| 33 | 4.1 × 10¹⁵ | 8.2 months | ~$4,300 |
+
+The ratio enters *cubed* from 148, so it swings the total by more than every
+hardware decision available — Hetzner vs Azure, buying vs renting, and every
+alternative architecture all live inside a 2× band. This one measurement,
+which costs about **$3**, is worth more than all of them.
+
+Decision points:
+
+- 154 lands in weeks-to-a-few-months → proceed to step 10.
+- 154 lands in many months → reassess before spending. Options: more machines
+  (needs an Azure quota increase beyond 64 regional vCPUs *and* multi-host
+  sharding, which is not built — though the driver's deterministic indexed
+  work units make a `--shard K/N` filter a small change), or a cheaper
+  provider (Hetzner AX162 bare metal is ~1.8× cheaper per core), or stopping.
+
+The 152 and 154 rungs are **calibration data, not results** — only
+exhaust-154 proves anything new; each completed rung refines the estimate,
+and everything banks in the checkpoint dir regardless.
 
 ## 10. The proof runs
 
@@ -372,16 +432,21 @@ The intermediate stages exist for calibration and risk-reduction only — the
 result is stage 3 or nothing:
 
 ```sh
-RUN="numactl --interleave=all target/release/solve24 --position \"$R\" \
+# W=64 is rayon's default here; add --hugepages if E6 wins.
+RUN="target/release/solve24 --position \"$R\" \
      --clm2 --zpdb8 --parallel --checkpoint runs/ckpt156"
 
 # stage 1 (calibration): exhausts through 150; re-fit the growth ratio
-RAYON_NUM_THREADS=144 $RUN --prove-at-least 152
+$RUN --prove-at-least 152
 # stage 2 (calibration): exhausts 152; final go/no-go on 154's cost
-RAYON_NUM_THREADS=144 $RUN --prove-at-least 154
+$RUN --prove-at-least 154
 # stage 3 (the result): exhausts 154 → optimal(R) = 156
-RAYON_NUM_THREADS=144 $RUN --prove-at-least 156
+$RUN --prove-at-least 156
 ```
+
+Deallocate between stages if there is a gap before the next decision:
+`az vm deallocate -g A087725 -n r156` stops compute billing (a guest-OS
+shutdown does **not**); `az vm start` resumes with the disk and IP intact.
 
 Success criterion per stage: `Lower bound: depth >= T` on stdout with no
 `NOT A PROOF` marker. Keep the full stderr logs (per-threshold node counts
@@ -392,22 +457,30 @@ The root σ-orbit split stays on throughout (it auto-enables on R and is a
 cross-checked end-to-end on the dev machine's proven rungs, so no
 `--no-root-orbit-split` arm is scheduled here.
 
-## 11. Open questions this runbook can't settle from the dev machine
+## 11. Open questions
 
-1. **DRAM bandwidth ceiling** — the dev machine's parallel loss was half
-   memory contention at W=8. Whether 144 workers hammering ~49 GB of tables
-   saturate the memory system at W≪144 is the single biggest unknown; E1
-   answers it and everything else adjusts to that answer.
-2. **Topology** — single- or dual-socket, and per-socket memory channel
-   count (`lscpu`, `numactl --hardware`)? Changes E1's interpretation and
-   whether the interleave advice matters at all.
-3. **Page size / huge pages** — 4 KiB vs 64 KiB kernel, and on 4 KiB,
-   `always` vs `madvise` THP: an easy A/B with possibly large payoff on
-   this TLB-bound workload; untested anywhere so far.
-4. **k8 shared-cache capacity at 144-way sharing** — hit rate was
-   size-insensitive at W=8; E3's probe-cache-stats comparison says whether
-   that survives ×18 thread count.
-5. **Growth-ratio drift** — the ×26/rung ratio has only been measured
-   through 148 on the cascade. If it climbs at 150+ (it is expected to),
-   the 154 estimate moves materially; Step 9 gates on the locally measured
-   number, not the dev-machine one.
+Resolved by the 2026-08-09/10 run: DRAM ceiling (no plateau; 81% efficiency
+at W=64), topology (single socket, one NUMA node, no SMT), and k8 cache
+capacity (real pressure at 64-way — see E3/E7).
+
+Still open:
+
+1. **Growth-ratio drift** — ×26.2 is measured only at 146→148. FINDINGS
+   expects it to climb with depth; if it reaches 33 the proof doubles in
+   cost. Step 9 is the gate, and it is the single highest-leverage number
+   remaining.
+2. **Huge pages** — quantified motivation exists (step 7) but no A/B yet.
+   E6 settles it; potentially the largest single throughput lever left.
+3. **Bare metal vs virtualized** — every TLB miss inside a VM pays a
+   two-dimensional page walk through the hypervisor's nested tables. A
+   Hetzner AX162 (48 Genoa cores, €199/mo, ~1.8× cheaper per core) would
+   remove that, but 48 bare cores vs 64 virtualized is unmeasured. The clean
+   test is one hourly-billed AX162 running the identical exhaust-148
+   benchmark against the 592.8 s baseline.
+4. **Multi-host sharding** — not built, but cheaper than previously thought:
+   the driver already splits each threshold into deterministic, stably
+   indexed work units with per-unit checkpoint records, so `--shard K/N`
+   filtering on `idx % N` is a small change. The real work is making shards
+   agree on the threshold ladder (an explicit `--bounds` list, or a sync
+   point between rungs). Only worth building if step 9 says 154 is too slow
+   on one machine.
