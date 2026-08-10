@@ -484,7 +484,52 @@ The root σ-orbit split stays on throughout (it auto-enables on R and is a
 cross-checked end-to-end on the dev machine's proven rungs, so no
 `--no-root-orbit-split` arm is scheduled here.
 
-## 11. Open questions
+## 11. Moving the proof to another machine
+
+Everything needed to continue a proof elsewhere is portable, verified:
+
+**Tables** rebuild bit-identically anywhere — all ten SHA-256 pins reproduced
+on x86-64 Linux from ARM64-macOS originals. Rebuild on the new host (step 4,
+~6 h, mostly the three k8 groups) rather than transferring 49 GB.
+
+**Checkpoints** are pure ASCII, ~7.6 MB for a full 4-threshold ladder
+(131,072 unit records). Copy `runs/ckpt156/` and pass it to `--checkpoint`;
+completed thresholds and finished units restore in under a second. A backup
+lives at `~/A087725-checkpoints/` on the dev laptop.
+
+A resume is accepted only if these match, because `run_id` hashes them:
+position, tier flags (`--clm2 --zpdb8`), orbit-split, neighbour-prune, and
+`CKPT_TREE_VERSION`. **Plus one that is NOT in the run id and fails silently:
+`SPLIT_TARGET`.** A different value produces the same run id but different
+unit indices and fingerprints, so every record is rejected as foreign and the
+work is re-searched with no error. Current checkpoints require **32768**
+(commit `5be4aec`); anything built earlier has 4096 and will not resume them.
+
+**Thread count may differ** — the loader reads every `*.ckpt` in the directory
+regardless of name, so a 64-worker checkpoint restores onto any core count.
+Cache sizes (`K8_SHARED_BITS`, the per-worker constants) are irrelevant to
+resumption; they do not change the tree.
+
+### Candidate targets
+
+| | cores | $/hr | $/core-hr | notes |
+|---|---:|---:|---:|---|
+| Azure F64ams_v6 on-demand | 64 Genoa | 0.719 | 0.0112 | current; quota already 64 |
+| Azure F64ams_v6 **spot** | 64 Genoa | 0.133 | **0.0021** | needs `lowPriorityCores` raised from 3 |
+| Hetzner AX162 | 48 Genoa | ~0.295 | 0.0061 | bare metal, monthly, no quota gate |
+
+Spot is ~3x cheaper per core than Hetzner and keeps all 64 cores, and eviction
+is survivable: SIGKILL recovery is proven (a hard kill lost nothing beyond
+in-flight units). It needs a supervisor loop to restart after eviction, and
+its real risk is unknown eviction frequency in this region.
+
+Hetzner needs no quota and cannot be evicted, but has 25% fewer cores and a
+monthly commitment. Its unmeasured upside is bare metal: every TLB miss in a
+VM pays a two-dimensional page walk through nested tables, and 48 bare cores
+might match 64 virtualised ones. The clean test is one hourly-billed AX162
+running exhaust-148 against the **444.73 s** baseline.
+
+## 12. Open questions
 
 Resolved by the 2026-08-09/10 run: DRAM ceiling (no plateau; 81% efficiency
 at W=64), topology (single socket, one NUMA node, no SMT), and k8 cache
