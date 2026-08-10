@@ -174,7 +174,7 @@ finding, and it has two distinct signals:
   boards — the reachable deep region is large. Six generations → 542 distinct
   boards; more generations would keep adding breadth at a flat depth fraction.
 
-The loop remains primed (`data/reseed_g7.txt`, `data/escalate_g{1..6}.txt`).
+The loop remains primed (`records/reseed_g7.txt`, `data/escalate_g{1..6}.txt`).
 Because the catalog is append-only and joins on canonical board, every
 generation's evidence accumulated idempotently — recurring boards merged with no
 double-counting, and no generation ever produced a `LB > UB` inversion.
@@ -189,7 +189,7 @@ double-counting, and no generation ever produced a `LB > UB` inversion.
 - **Artifacts:** `data/pool_g{1..6}.txt` (the pools), `data/catalog24.tsv`
   (append-only evidence + brackets, all six generations), `data/reseed_g{2..7}.txt`
   (each generation's deepest → next-gen seeds), `data/escalate_g{1..6}.txt`,
-  `data/phase2a_calibration.txt` (the R ≥ 148 run). Raw per-board run TSVs
+  `records/phase2a_calibration.txt` (the R ≥ 148 run). Raw per-board run TSVs
   (`runs/`) are regenerable and gitignored; their evidence is inlined in the
   catalog.
 - **Nets:** `data/ml24_frame2` (forward UB solver), `data/ml24_pair` (pair-distance

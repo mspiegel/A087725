@@ -2,7 +2,7 @@
 
 ## Context
 
-The project's open goal is bounding the 24-puzzle diameter (currently `[152, 205]` STM; see memory `bounds-24-puzzle-corrected.md`). In an earlier session we analyzed the existing antipode data files (`data/antipodes8.txt`, `data/pdb15_antipodes.txt`) and found empirical structure that constrains where antipodes live. The most actionable finding — the **frame rule** — is concrete enough to use as a search-space restriction at m=5.
+The project's open goal is bounding the 24-puzzle diameter (currently `[152, 205]` STM; see memory `bounds-24-puzzle-corrected.md`). In an earlier session we analyzed the existing antipode data files (`records/antipodes8.txt`, `data/pdb15_antipodes.txt`) and found empirical structure that constrains where antipodes live. The most actionable finding — the **frame rule** — is concrete enough to use as a search-space restriction at m=5.
 
 This plan is focused on that single use: build 24-puzzle search infrastructure, then attack the frame-conformant subspace to either raise the lower bound past 152 or refute the frame rule at m=5.
 
@@ -132,7 +132,7 @@ End-to-end signals that the plan worked:
 ## Critical file references
 
 - `data/pdb15_antipodes.txt` — empirical justification for the frame rule at m=4
-- `data/antipodes8.txt` — m=3 comparison
+- `records/antipodes8.txt` — m=3 comparison
 - `docs/zpdb-codec-spec.md` — the zero-aware PDB + 1-bit codec spec (Phase 2)
 - `src/puzzle24/pdb/{zpdb,zbuild}.rs` — the `(m,p,r)` index and the region-aware BFS
 - `src/puzzle24/{state,rank,symmetry}.rs`, `src/puzzle24/search/`, `src/puzzle24/pdb/` — the built 24-puzzle stack

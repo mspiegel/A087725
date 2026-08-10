@@ -284,7 +284,7 @@ disjoint+cover check), 2–3 corner/strata-aligned (RESIDUE-informed) partitions
 Optional exactness upgrade if the max lands within a few of 140: a projected single-board additive
 solver (0-1 BFS over the region-collapsed projected graph).
 
-**Result (measured, `examples/rceiling24.rs` → `data/rceiling24.txt`, 2026-06-30).** On `R`, the
+**Result (measured, `examples/rceiling24.rs` → `records/rceiling24.txt`, 2026-06-30).** On `R`, the
 best k6 zpdb Korf-max over 8 diverse partitions (korf, value-strata, spatial, 5 random) is **126**
 (korf); every partition landed 118–126, all far below WD's **140**. So **no k6 collection beats WD
 on deep boards like R** — the max over partitions ≈ the best single, because the additive/anon-free
@@ -397,7 +397,7 @@ overnight)** — both real improvements over the 144 baseline. Reproducing 152 i
 scope here and is recorded as a hardware/heuristic limit, not a stack bug. The parity rule still gives
 +2 per exhausted threshold (`R`'s blank travels cell 0→24, Manhattan 8 = even, so `dist(R)` is even;
 exhausting an even threshold T proves ≥ T+2). Current best proven: **depth ≥ 146** (this session).
-Calibration data: `data/phase2a_calibration.txt`.
+Calibration data: `records/phase2a_calibration.txt`.
 
 **Implication for 2D.** The same ~29×/+2 wall governs the hunt: a per-board budget buys only a few
 thresholds above the board's root h. Size 2D budgets accordingly — many boards get a cheap shallow
@@ -424,7 +424,7 @@ what the generator needs.)
 **STATUS — PASSED, both tiers (2026-07-07/08).** Tier-1 (search-free, `examples/frame24.rs`):
 frame-conformant construction shifts the proven-LB (WD) distribution **+30 over random** (mean WD
 108 vs 78, near-disjoint) — the rule is a genuine deep-board generator. Tier-2 (`gen_corridors
---mode ubfile`, `data/frame24_tier2.txt`): 30 frame boards bracketed with a bounded-LB floor
+--mode ubfile`, `records/frame24_tier2.txt`): 30 frame boards bracketed with a bounded-LB floor
 (≥130–134 at 240 s/board) and a replay-verified learned UB (148–162), true depth ~150 — certified
 deep, *not* anchored on `R`. **Decision: frame-conformant construction seeds 2C.**
 
@@ -436,7 +436,7 @@ after this plan was written; the hunt tooling below folds it in per four decisio
   replay-verified learned UB. Above WD's 140 saturation the UB is the only depth signal.
 - **Scoring:** **hybrid** — admissible WD hill-climb *generates* (score = free proven LB); the
   frame2 forward net and the pair net *rank* the WD-saturated top. Certification stays bounded search.
-- **UB budget ladder** (from the three-way baseline, `data/pairnet_forward_only_baseline.txt`):
+- **UB budget ladder** (from the three-way baseline, `records/pairnet_forward_only_baseline.txt`):
   bulk = BWAS/forward-only with the frame2 net (never worse than +4 vs the fancy backends);
   finalists = `solve_ff` FF-MITM + pair-net.
 
@@ -592,7 +592,7 @@ Tomas Rokicki), <http://forum.cubeman.org/?q=node/view/238>, linked from OEIS A0
 
 So our machine-found **156 EQUALS the published best-known** (2026-07-08) — but where the
 literature's 156 was *hand-constructed* from R's rotational symmetry (78+78 quarter-turn solves,
-`data/r156_solution.txt`), ours was **discovered by a general value net that never saw R or its
+`records/r156_solution.txt`), ours was **discovered by a general value net that never saw R or its
 corridor**. The path: frame-conformant construction (Tier-2, non-R, certified deep) → optimal
 geodesic-corridor labels with a deep tail to ~170 → V stays monotone-informative to depth ~156 →
 the search finds a 156-move solution. `optimal(R) ∈ [152, 156]`: our upper bound now equals the
@@ -620,7 +620,7 @@ the WD floor). Frame-rule Tier-1 (2B) **passed**: frame-conformant construction 
 proven-LB distribution +30 over random (mean WD 108 vs 78, near-disjoint); Tier-2 (UB/LB
 bracketing of frame boards' true depth) **also passed** — 30 frame boards bracketed at proven
 LB ≥130–134 with replay-verified learned UB 148–162 (true depth ~150), certified deep and not
-`R`-derived (`data/frame24_tier2.txt`). Frame construction now seeds the Phase-2 hunt generator.
+`R`-derived (`records/frame24_tier2.txt`). Frame construction now seeds the Phase-2 hunt generator.
 
 **Sources:** [OEIS A087725](https://oeis.org/A087725) ·
 [Rokicki/Hannanov thread (LB 152, UB 156)](http://forum.cubeman.org/?q=node/view/238) ·

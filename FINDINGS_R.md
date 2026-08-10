@@ -274,7 +274,7 @@ table for this hardware.
 *Reproducibility:* `solve24 --heuristic cwd --prove-at-least N --parallel`; table
 build `examples/build_cwd_table.rs` → `data/cwd_single.bin`; heuristic
 `src/puzzle24/search/cwd.rs`; soundness `proofs/puzzle15-wd`; calibration
-`data/phase2a_calibration.txt`.
+`records/phase2a_calibration.txt`.
 
 ## 8b. Three more levers — and R ≥ 150 *proven* (2026-07-11)
 
@@ -371,7 +371,7 @@ was pruned at first touch either way (unit test proves node-identity end-to-end;
 all A/B node counts below match bit-for-bit).
 
 Measured on R (full default stack, same machine/session, search-only time;
-log `data/cwdzpdb_lazy_ab.txt`):
+log `records/cwdzpdb_lazy_ab.txt`):
 
 | thr | engine | nodes | search | vs pure cWD |
 |---|---|---:|---:|---:|
@@ -402,7 +402,7 @@ prune case (kept) is the entire win.
 Every §8c measurement was on R — the one board where cWD is pathologically
 strong (R is max-WD). Measured on three generic deep catalog boards (proven
 LB 142 via cheap root, UB ≥ 158; `data/catalog24.tsv` g2/g3/g4), exhausting
-threshold 144 with the full default stack (log `data/cwdzpdb_deepboard_ab.txt`):
+threshold 144 with the full default stack (log `records/cwdzpdb_deepboard_ab.txt`):
 
 | board | engine | nodes | search | node red. | wall vs cWD |
 |---|---|---:|---:|---:|---:|
@@ -450,7 +450,7 @@ reflection / compound / Lipschitz-deferral all measured and closed around it.
 ## 8f. Congestion location is free; multi-line coupling is real but marginal (2026-07-13)
 
 Two candidate second-order cWD strengtheners tested end-to-end
-(`examples/center_congestion.rs`, log `data/center_congestion_probe.txt`).
+(`examples/center_congestion.rs`, log `records/center_congestion_probe.txt`).
 
 **Center-congestion hypothesis — NULL, twice.** Hypothesis: congestion near
 the board center costs more than the same congestion at the edges.
@@ -542,7 +542,7 @@ measurement (how much any demand-vector rule can certify, and the ceiling of
 the whole escape-counter family via observed-path escape counts) before any
 fast implementation. Data: `data/sa_walks_{70,90,110}.tsv`,
 `data/cc_walks_110.tsv` (completes the §8f regression set),
-`data/slack_anatomy_probe.txt`.
+`records/slack_anatomy_probe.txt`.
 
 ## 8h. Transit-yield gap measurement — the family ceiling reaches the slack; soundness is the whole problem (2026-07-13)
 
@@ -576,7 +576,7 @@ and an upper envelope for every per-line escape-demand rule.
   mid-search even from scrambled roots — R1's per-node firing rate is a
   separate (A/B-only, per the §8c/§8f lesson) question from its root rate.
 
-Data: `data/yg_{70,90,110}.tsv`, `data/yield_gap_probe.txt`.
+Data: `data/yg_{70,90,110}.tsv`, `records/yield_gap_probe.txt`.
 
 ## 8i. Engine throughput — the deep-board heuristic is compute-bound, and only *work-reduction* pays (2026-07-19)
 
@@ -667,7 +667,7 @@ faster combiner.
 Caveat: *search time* is the fair metric — wall-clock adds the identical ~25 s
 k8 mmap + cWD load both tiers pay. Off-R this is untested; like the rest of the
 combiner family (§8e) the balance is expected to shift on boards where cWD is
-weaker and k6 carries more of the max. A/B log: `data/r_k8lazy_2tier_vs_3tier_ab.txt`.
+weaker and k6 carries more of the max. A/B log: `records/r_k8lazy_2tier_vs_3tier_ab.txt`.
 
 ## 8k. The pruning-tier trade is iso-time — you only win by moving *one* axis (2026-07-19)
 
@@ -936,7 +936,7 @@ count-only contingency abstracts away (the same crux as §8o). So #3 is not dead
 but Phase 1 reframes it precisely: the target is a *gap-blocked* refinement
 carrying minimal within-line position, not a bigger count-demand. Encouragingly,
 R2 is already unsound on only 0.1% of boards, so the guard that must be added is
-narrow. Diagnostic saved to `data/yielddiag_len55.txt`; `yielddiag` mode retained.
+narrow. Diagnostic saved to `records/yielddiag_len55.txt`; `yielddiag` mode retained.
 
 ## 8q. Gap-blocked rule refuted; the sound transit-yield demand is redundant with LIS on R (Phase 2 first cut) (2026-07-19)
 
@@ -966,7 +966,7 @@ the whole problem") into a mechanism: the gain lives exactly in the exits that
 free-slot escape makes unprovable. A sound gain would require a relaxation *richer
 than a scalar per-line demand* — carrying within-line column order (→ a PDB, which
 collapses to ≤126 on R) or cost-partitioning cWD with a PDB (candidate #1, still
-unmeasured). `gbtest`/`yielddiag` retained; results in `data/gbtest_len55.txt`.
+unmeasured). `gbtest`/`yielddiag` retained; results in `records/gbtest_len55.txt`.
 
 Net after §8m–§8q: of the "beating cWD" menu, cross-axis congestion (cut/flow =
 Manhattan), blank-ferry coupling (= WD), and per-line transit-yield (sound ⊆ LIS)
@@ -1004,7 +1004,7 @@ establishing sound net gain. The decisive next step is a **soundness-checked det
 rule** (gbtest-style: a state-computable "transiter with no on-band gap must detour
 ≥ k columns" demand, tested for 0% unsound + gain over cWD on the bulk set). Prior
 is guarded — path detours are reroutable — but detour is now the specific,
-localized target, which yields never were. Saved to `data/ydceiling_r.txt`;
+localized target, which yields never were. Saved to `records/ydceiling_r.txt`;
 `ydceiling` mode retained.
 
 ## 8s. The detour rule is unsound — yield-or-detour closes; R's churn is provably-optional to a static bound (2026-07-19)
@@ -1030,7 +1030,7 @@ appears on R's optimal path but can be rerouted across the space of optimal
 solutions, so no *static, state-computable* sound bound can charge it (only a
 path-specific one can, which is §8h's R4 — sound for one path, not a heuristic).
 That is precisely why cWD's sound demands are ⊆ LIS and every strengthening is
-unsound. `dettest`/`ydceiling` retained; results in `data/dettest_len55.txt`.
+unsound. `dettest`/`ydceiling` retained; results in `records/dettest_len55.txt`.
 
 **Net over §8m–§8s — the admissible-bound search over cWD is complete for R.** Every
 sound-by-construction family has been built and measured out: cut/flow congestion
@@ -1079,7 +1079,7 @@ The remaining honest unknown is which cWD-region actually dominates the R-proof
 tree's node count (near-R cWD≥130, where no complement exists, vs the cWD~110–125
 shell, where k8 fires but pays for it). That needs instrumenting the real search's
 per-node cWD distribution — a node-count profile, not a heuristic probe.
-`deepboard_profile` retained; results in `data/deepboard_complement_profile.txt`.
+`deepboard_profile` retained; results in `records/deepboard_complement_profile.txt`.
 
 ## 8u. The R-proof workload lives at cWD 100–125 — where the complement DOES fire (corrects §8t) (2026-07-20)
 
@@ -1126,7 +1126,7 @@ wall-clock is a *throughput* problem (cheapen k8's per-node cost — the §8i–
 frontier) or a *structurally cheaper complement* problem (a partition with lower
 per-node apply+rank cost that still fires on the cWD 100–125 workload), not a gating
 problem. The `cwd-node-hist` instrumentation lives on branch `cwd-node-hist` (kept off
-main); results in `data/cwd_node_hist_r144.txt`.
+main); results in `records/cwd_node_hist_r144.txt`.
 
 ## 8v. cWD is pinned to depth on the proof contour — the cWD-gate IS the depth-gate (2026-07-20)
 
@@ -1153,7 +1153,7 @@ a depth gate (probe k8 only when g ≥ 32) — which is exactly the `--zpdb-dept
 experiment, already measured a wash. The cWD value carries no information beyond depth
 on the contour, so there is nothing a cWD-keyed decision can do that a depth-keyed one
 cannot — and the depth-keyed one lost. The wall-clock lever is throughput or a
-structurally cheaper complement, not any gate. Results in `data/cwd_depth_hist_r144.txt`;
+structurally cheaper complement, not any gate. Results in `records/cwd_depth_hist_r144.txt`;
 tool on branch `cwd-node-hist`.
 
 ## 8w. Mid-tree transpositions are already gone — the move-DFA leaves only ~7% (2026-07-20)
@@ -1191,7 +1191,7 @@ already-failed depth-gate (§8u/§8v); (3) they are *not* transposition-redundan
 (§8b) — and the wall-clock frontier is throughput (§8i–§8l) or a structurally
 cheaper complement, not a tighter bound, a gate, or a transposition table. The
 `midtree-dedup` tool is on branch `midtree-dedup`; data in
-`data/midtree_dedup_r144.txt`.
+`records/midtree_dedup_r144.txt`.
 
 ## 8x. The cWD ladder ratio is ~43×/+2, not 29×, and throughput *falls* with depth (2026-07-29)
 
@@ -1264,11 +1264,11 @@ work-removal wins (C, D1, A, F, G3, H1, widemul-fold hash): 21.83 s → 13.41 s 
 exhaust-144, **−39% search time / +63% throughput**, unchanged nodes. Five
 loop-*restructuring* attempts all lost (prefetch −37%, index table −3.5%, probe
 cache **at 1 K** +5.8%, H5 +16%, H5b +12.7%). Full log:
-`data/r_flat_engine_ab.txt`.
+`records/r_flat_engine_ab.txt`.
 
 *(Corrected 2026-07-29: this list previously read "probe cache −5.8%", which
 inverted the sign and dropped the size qualifier. −5.8% is the **winning** 64 K →
-256 K sizing delta (`data/r_flat_engine_ab.txt:911`); the reject was the 1 K
+256 K sizing delta (`records/r_flat_engine_ab.txt:911`); the reject was the 1 K
 variant at +5.8%, i.e. slower (`:990`). The engine ships a 256 K probe cache and
 §8y makes it the single largest lever in the parallel regime, so listing "probe
 cache" among the failures was actively misleading.)*
@@ -1484,7 +1484,7 @@ lifetime bug, then a sizing constant justified by the wrong constraint, and fina
 an irreducible floor that is half all-core clock and half depth-driven memory
 contention. The decomposition `B × c₁/c_p` is what made that visible; the aggregate
 speedup number pointed at the scheduler, which was innocent at every depth and
-every worker count. Full log: `data/r_flat_parallel_efficiency.txt`.
+every worker count. Full log: `records/r_flat_parallel_efficiency.txt`.
 
 ## 8z. The lazy k8 tier on the flat engine — iso-time at 148 again; adopted for the R ≥ 152 run (2026-07-30)
 
@@ -1537,7 +1537,7 @@ because the work it memoizes (a cache-hot rank + mostly-resident byte read,
 ~25 ns) is cheaper than any random memo lookup large enough to hit; hit rate is
 not savings, the cache-side sibling of §8i's sample-share law. Still unpulled:
 k8 slot sharing (~5–10% of the layer) and W=12 (+21%, machine-saturating).
-Full program log: `data/r_flat_k8_lazy.txt`.
+Full program log: `records/r_flat_k8_lazy.txt`.
 
 ## 9. Summary
 

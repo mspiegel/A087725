@@ -107,7 +107,7 @@ target/release/build_cwd_table        # → data/cwd_single.bin (reads data/wd24
 `build_cwd_table` runs five backward product-graph BFS passes (one per goal
 line) and checks the WD-layer invariant for every contingency. Single-threaded
 but fast: **~7 minutes** measured on the dev machine (~83 s per line;
-ledger entry 2026-08-04 in `data/r_flat_k8_lazy.txt`).
+ledger entry 2026-08-04 in `records/r_flat_k8_lazy.txt`).
 
 ### 4b. The cWD table family (five artifacts, dependency order)
 
