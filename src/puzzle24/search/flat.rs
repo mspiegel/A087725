@@ -2039,6 +2039,28 @@ const SPLIT_TARGET: usize = 32768;
 /// exhaust-144 cannot see this (there the same sweep spans only 1.2%, because
 /// misses at that depth are 4.2x rarer per node and land in cache rather than
 /// DRAM).
+///
+/// **Re-measured at W=64 on 64-core Genoa (exhaust-148): 18 still wins.**
+/// Scaling all four per-worker caches together (this one, [`LM_CACHE_BITS`],
+/// [`LM2_CACHE_BITS`], [`LM1L_CACHE_BITS`]) gave, in seconds:
+///
+/// | ~MB/worker | 7 | 14 | 27 | 54 |
+/// |---|---|---|---|---|
+/// | wall | 522.3 | 507.1 | **496.5** | 495.1 |
+///
+/// Monotone penalty for shrinking, a tie for growing — so the sizing above is
+/// the knee at 64 threads too. This was worth checking because 64 workers hold
+/// ~1.7 GB of private caches against 256 MiB of L3 (32 MiB per CCD, 8 cores
+/// each), ~7x oversubscribed; the hypothesis was that copies now evict each
+/// other. They do not, and the reason is the one already stated above: what
+/// these caches buy is not cache residency but *not probing the multi-GB
+/// tables*, and an L3-missing cache lookup still beats a random mmap probe.
+///
+/// Contrast [`K8_SHARED_BITS`], where the same 8-thread reasoning failed
+/// badly: that cache is *shared*, so unique-key pressure scales with W and its
+/// 8-thread sizing left 21% on the table at 64. The rule the two results
+/// suggest: constants guarding per-thread state transfer across machines;
+/// constants guarding shared state must be re-measured per thread count.
 #[cfg(feature = "parallel")]
 const WORKER_CACHE_BITS: u32 = 18;
 

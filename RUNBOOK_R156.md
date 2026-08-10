@@ -317,14 +317,33 @@ Method note: `probe-cache-stats` costs ~14× wall time at W=64 (atomic counter
 contention across all workers). Use it for hit rates only — **never** read a
 timing off an instrumented build.
 
-### E4 — per-worker cache sizing — **RETIRED, no action**
+### E4/E9 — per-worker cache sizing — **MEASURED, no change**
 
-Each worker owns private front caches (cWD probe 8.4 MB + LM2 ~15 MB + LM1L
-3.4 MB ≈ 27 MB, so ~1.7 GB across 64 workers — trivial against 503 GB). The
-runbook made a size bump conditional on E1 showing a memory-bandwidth
-plateau; E1 shows no such plateau (81% efficiency at W=64, still gaining 25%
-over W=48). **Keep `WORKER_CACHE_BITS = 18`, `LM2_CACHE_BITS = 19`,
-`LM1L_CACHE_BITS = 15`.**
+Each worker holds ~27 MB of private caches (cWD probe 8.4 + LM2 12.6 + LM 4 +
+LM1L 3.4), so 64 workers hold ~1.7 GB against 256 MiB of L3 (32 MiB per CCD,
+8 cores each) — about 7x oversubscribed, versus 1.7x at W=16. The hypothesis
+was that 64 copies now evict each other and the caches should *shrink*.
+Measured at exhaust-148, W=64, scaling all four constants together:
+
+| ~MB/worker | 7 | 14 | **27 (current)** | 54 |
+|---|---:|---:|---:|---:|
+| wall (s) | 522.3 | 507.1 | **496.5** | 495.1 |
+
+Monotone penalty for shrinking, a tie for growing: **the existing sizing is
+already the knee at 64 threads.** Keep `WORKER_CACHE_BITS = 18`,
+`LM_CACHE_BITS = 18`, `LM2_CACHE_BITS = 19`, `LM1L_CACHE_BITS = 15`.
+
+The hypothesis was wrong for the reason the source already gave: these caches
+exist to avoid probing the multi-GB tables, not to achieve cache residency,
+and an L3-missing cache lookup still beats a random probe into a 4.4 GB or
+33 GB mmap.
+
+**The generalisable result**, from E7 and E9 together: constants guarding
+*per-thread* state transfer across machines unchanged; constants guarding
+*shared* state must be re-measured at every thread count, because unique-key
+pressure through a shared structure scales with W. The shared k8 cache's
+8-thread sizing left 21% on the table at 64; the per-worker sizing lost
+nothing.
 
 ### E5 — checkpoint rehearsal
 
