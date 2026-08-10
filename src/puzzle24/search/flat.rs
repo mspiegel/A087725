@@ -1972,8 +1972,21 @@ enum Step {
 /// Far more than the core count, because subtree sizes vary by orders of
 /// magnitude and rayon's work-stealing needs slack to balance them. The deleted
 /// recursive driver used the same figure for the same reason.
+///
+/// Was 4096, which gave ~500 units per worker at the 8-thread scale it was
+/// tuned on but only ~64 at W=64, thin enough that a few oversized subtrees
+/// serialise each threshold's tail. Swept at exhaust-148, W=64 (seconds):
+///
+/// | 4096 | 16384 | 32768 | 65536 |
+/// |------|-------|-------|-------|
+/// | 595.1 | 576.6 | 580.1 | 577.5 |
+///
+/// Everything at or above 16 K sits on one plateau within 0.6% — i.e. tied —
+/// while 4096 costs ~3%. 32768 is the middle of that plateau and restores the
+/// original ~500-units-per-worker ratio at W=64; deeper thresholds have more
+/// subtree-size variance, so the extra slack is the safer end of a flat range.
 #[cfg(feature = "parallel")]
-const SPLIT_TARGET: usize = 4096;
+const SPLIT_TARGET: usize = 32768;
 
 /// Probe-cache size for a *worker*, in bits. Same as the sequential
 /// [`CACHE_BITS`], and that is not a coincidence — see below.
