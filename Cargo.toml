@@ -26,41 +26,56 @@ needless_range_loop = "allow"
 # gated on `mmap` and omitted. Targets that require these features
 # declare `required-features` and are skipped rather than failing to compile.
 default = ["parallel", "mmap", "cli"]
+
 parallel = ["dep:rayon"]
+
 mmap = ["dep:memmap2"]
+
 # clap-based argument parsing (currently solve24 only). In `default` so a bare
 # `cargo build --bin solve24` works; the lean `--no-default-features` 15-puzzle
 # build skips it along with the binary.
 cli = ["dep:clap"]
+
+# SHA-256 sidecars for the build artifacts: every table builder writes or
+# verifies a `.sha256` next to its output.
 sha = ["dep:sha2"]
+
 # Umbrella enabling the full 15-puzzle CLI surface.
 puzzle15 = ["parallel", "mmap"]
+
 # Umbrella enabling the full 24-puzzle CLI surface.
 puzzle24 = ["parallel", "mmap"]
+
 # Table-gated 24-puzzle tests that build the ~4.4 GB merged cWD map: the flat
-# engine's frozen-oracle node-identity gate and the load-factor instruments. Deliberately a FEATURE and not `#[ignore]` — an ignored test still
-# runs under `cargo test -- --ignored`, whereas these are not even compiled
-# unless asked for. They share one process-wide table (see
-# `cwd::shared_merged_cwd`), so the cost is ~4.4 GB once rather than per test.
+# engine's frozen-oracle node-identity gate and the load-factor instruments.
+# Deliberately a FEATURE and not `#[ignore]` — an ignored test still runs under
+# `cargo test -- --ignored`, whereas these are not even compiled unless asked
+# for. They share one process-wide table (see `cwd::shared_merged_cwd`), so the
+# cost is ~4.4 GB once rather than per test.
 #
 #   cargo test --release --features cwd-table-tests -- --nocapture
 cwd-table-tests = []
+
 # In-situ hit/miss counters for the direct-mapped probe cache, reported per
 # threshold. Off by default. NOTE: ~14x wall time at W=64 from atomic counter
 # contention across workers — valid for hit rates, never for timings.
 probe-cache-stats = []
+
 # Structural census of the search itself: per-tier consult/raise/prune counts,
 # the advantage-by-slack histogram (a tier prunes only when advantage > slack,
 # so this says directly what a slack gate would forfeit), and the distribution
 # of surviving children per expanded node. A few relaxed atomics per consult —
 # cheap enough to run at 146/148.
 search-census = []
+
 # Per-threshold decomposition of the flat parallel driver's efficiency: busy
 # fraction, worker ns/node, and the unit-time distribution against three makespan
 # bounds (work/W, LPT, actual). Off by default. The measurement itself is free
 # (two `Instant::now()` per work unit, ~4096 per threshold), so this feature gates
-# only the stderr report.
+# only the stderr report. Also exposes FLAT_SPLIT_TARGET so a SPLIT_TARGET sweep
+# costs runs rather than rebuilds.
 parallel-profile = ["parallel"]
+
 # 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
 # See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
 # automatically on macOS via the target block below, with runtime CPU fallback
