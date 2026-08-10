@@ -42,31 +42,7 @@
 use crate::puzzle24::state::{Move, State, GOAL};
 
 use super::heuristic::Heuristic;
-
-/// Search-effort statistics for a single IDA\* solve.
-///
-/// `nodes` counts every node visited (one [`search`] invocation, equivalently
-/// one heuristic evaluation), summed across all threshold iterations.
-/// `iterations` counts the IDA\* deepening passes. Both are the natural levers
-/// for benchmarking: incremental-heuristic and codegen changes move wall-clock
-/// at fixed `nodes`, while move-ordering and duplicate-pruning changes move
-/// `nodes` directly.
-///
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SearchStats {
-    /// Total nodes visited across all iterations.
-    pub nodes: u64,
-    /// Number of IDA\* threshold iterations performed.
-    pub iterations: u32,
-}
-
-impl SearchStats {
-    /// Component-wise add: merge per-solve stats into a running total.
-    pub fn add(&mut self, other: &SearchStats) {
-        self.nodes += other.nodes;
-        self.iterations += other.iterations;
-    }
-}
+pub use super::outcome::{BoundedOutcome, SearchStats};
 
 /// Return an optimal move sequence from `start` to [`GOAL`].
 ///
@@ -303,27 +279,6 @@ fn search_inc<E: IncHeuristic>(
         path.pop();
     }
     Step::Bound(min_next)
-}
-
-/// Outcome of a bounded ([lower-bound](idastar_inc_bounded_with_stats)) search.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BoundedOutcome {
-    /// An optimal solution was found within the bound; its length is the true
-    /// optimal distance.
-    Solved(Vec<Move>),
-    /// Every IDA\* iteration up to and including threshold `max_bound` was
-    /// exhausted without finding the goal. Since the heuristics are consistent,
-    /// this *proves* `dist(start) ≥ K` (the next threshold the search would have
-    /// tried).
-    ProvedAtLeast(u8),
-    /// `start` is unreachable from `GOAL` (impossible for solvable states).
-    Unsolvable,
-    /// The search was cut short by an explicit node budget while inside
-    /// threshold `.0`. **This is not a proof of anything** — the threshold was
-    /// not exhausted, so no lower bound follows. It exists so that a truncated
-    /// benchmarking run cannot be mistaken for, or silently folded into, a real
-    /// result: every `match` on this enum has to name it.
-    BudgetExhausted(u8),
 }
 
 /// Bounded / lower-bound IDA\* driven by an [`IncHeuristic`].
