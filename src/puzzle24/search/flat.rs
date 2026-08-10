@@ -590,6 +590,11 @@ impl K8SharedCache {
 
     #[inline(always)]
     fn full_key(tiles_key: u64, blank: u8, group: usize) -> u64 {
+        // The three fields must not overlap, and the packed key must leave the
+        // low 8 bits of the entry free for the value: 40 + 5 + 2 = 47 ≤ 56.
+        debug_assert!(tiles_key < 1 << 40, "eight 5-bit tile cells fit in 40 bits");
+        debug_assert!((blank as usize) < N_CELLS, "blank is a cell index");
+        debug_assert!(group < 3, "three disjoint k8 patterns");
         tiles_key | ((blank as u64) << 40) | ((group as u64) << 45)
     }
 
@@ -913,6 +918,22 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     child.keys[0][gi] ^= ((n ^ b) as u64) << (5 * ctx.slot_of[tile]);
     child.keys[1][gj] ^= ((rn ^ rb) as u64) << (5 * ctx.slot_of[rt]);
     let (k0, k1) = (child.keys[0][gi], child.keys[1][gj]);
+    // A key is built by [`pack_group`] once at seed time and never again: from
+    // here on it is carried by XOR alone, so a wrong `slot_of`, a wrong group,
+    // or a missed update would go unnoticed — the cache would simply answer
+    // under the wrong key. Check the two groups this move touched against a
+    // from-scratch pack of the child board (`build_child` has already written
+    // it), the same way `lmpos`/`lm2pos` are checked.
+    debug_assert_eq!(
+        ctx.pack_group(&arena.board[d + 1].0.decode(), gi),
+        k0,
+        "incremental k8 key drifted from the board"
+    );
+    debug_assert_eq!(
+        ctx.pack_group(&symmetry::reflect(&arena.board[d + 1].0.decode()), gj),
+        k1,
+        "incremental k8 σ-key drifted from the reflected board"
+    );
 
     let (c0, c1) = (
         ctx.shared.peek(k0, n as u8, gi),
@@ -927,6 +948,23 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         debug_assert_eq!(cost, 1, "moved tile must be in its own group's pattern");
     }
     if let Some(v) = c0 {
+        // Every front cache here is an accelerator, never an authority: a hit
+        // must equal what the miss path below would have computed. That is the
+        // property which lets a 47-bit key share a `u64` with its value and lets
+        // racing writers go unsynchronised — the tag compare must be exact, and
+        // the key must name this exact projected state. Re-deriving it costs the
+        // rank walk the cache exists to avoid, so this is debug-only by nature.
+        debug_assert_eq!(
+            {
+                let db = &ctx.dbs[gi];
+                db.diff_lookup(
+                    db.layout().rank(&child.views[0][gi], db.pattern()),
+                    parent.h[0][gi],
+                )
+            },
+            v,
+            "k8 shared-cache hit disagrees with the zPDB"
+        );
         child.h[0][gi] = v;
     } else {
         let db = &ctx.dbs[gi];
@@ -944,6 +982,17 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
         debug_assert_eq!(cost, 1, "σ-image tile must be in its own group's pattern");
     }
     if let Some(v) = c1 {
+        debug_assert_eq!(
+            {
+                let db = &ctx.dbs[gj];
+                db.diff_lookup(
+                    db.layout().rank(&child.views[1][gj], db.pattern()),
+                    parent.h[1][gj],
+                )
+            },
+            v,
+            "k8 shared-cache hit disagrees with the zPDB (σ-view)"
+        );
         child.h[1][gj] = v;
     } else {
         let db = &ctx.dbs[gj];
@@ -1022,6 +1071,8 @@ impl LmCache {
     /// The four branch values for `key`, via the cache.
     #[inline(always)]
     fn get(&mut self, lm: &super::cwd_lm::CwdLmMm, key: u64) -> [u8; 4] {
+        // Tag 0 marks an empty slot, so a real axis key must never be 0.
+        debug_assert_ne!(key, 0, "a real axis key has nonzero matrix bits");
         let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
         if self.slots[i].tag != key {
             let mut vals = [0xFFu8; 4];
@@ -1093,6 +1144,9 @@ fn lm_child(
     let cslot = &arena.col[f.col_at as usize];
     let rterm = rslot.term();
     let cterm = cslot.term();
+    // The bare WD of each axis, kept for the `D ≥ WD` checks below: the cache
+    // borrow ends the `rslot`/`cslot` borrows, so they must be read now.
+    let (wd_row, wd_col) = (rslot.wd, cslot.wd);
     let (rkey, ckey) = (rslot.key, cslot.key);
     let cache = arena
         .lmcache
@@ -1105,7 +1159,17 @@ fn lm_child(
     } else {
         match cache.get(lm, rkey)[lp[0] as usize] {
             0xFF => h_cwd,
-            d20 => d20.saturating_add(cterm),
+            d20 => {
+                // `D` prices a WD plan carrying one extra obligation (tile 20
+                // crosses 3→4 and returns), so it can only cost more than the
+                // unconstrained WD — the defining invariant of `cwd_lm`. Note
+                // the comparison is against `wd`, *not* `term()`: the refined
+                // table knows nothing of the surcharge, so `D` may legitimately
+                // fall below `wd + surch` and leave this branch weaker than cWD
+                // alone. The final `max(h_cwd, ..)` is what keeps that sound.
+                debug_assert!(d20 >= wd_row, "cwd_lm: D ≥ WD on the row axis");
+                d20.saturating_add(cterm)
+            }
         }
     };
     let b24 = if lp[1] >= 4 {
@@ -1113,7 +1177,10 @@ fn lm_child(
     } else {
         match cache.get(lm, ckey)[lp[1] as usize] {
             0xFF => h_cwd,
-            d24 => d24.saturating_add(rterm),
+            d24 => {
+                debug_assert!(d24 >= wd_col, "cwd_lm: D ≥ WD on the column axis");
+                d24.saturating_add(rterm)
+            }
         }
     };
     h_cwd.max(b20.min(b24))
@@ -1282,6 +1349,11 @@ impl Lm2Cache {
         s2: u8,
         pidx: u8,
     ) -> (u8, u8, u8) {
+        // An empty slot carries tag 0, so a real axis key must never be 0 or a
+        // cold slot would answer as a hit (with all-0xFF, which degrades to
+        // `h_cwd` — safe, but it would mask a genuinely broken key).
+        debug_assert_ne!(key, 0, "a real axis key has nonzero matrix bits");
+        debug_assert!(pidx == 0xFF || pidx < 12, "pair index is la∈0..4 × lb∈0..3");
         let i = ((key.wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> self.shift) as usize;
         if self.slots[i].tag != key {
             let mut single = [0xFFu8; 4];
@@ -1309,6 +1381,12 @@ impl Lm2Cache {
         } else {
             0xFF
         };
+        // Tracking a second tile only adds an obligation to the same abstract
+        // plan, so the pair value can never undercut the single it refines.
+        debug_assert!(
+            p == 0xFF || a == 0xFF || p >= a,
+            "cwd_lm2: the tracked pair refines its first single"
+        );
         (a, b, p)
     }
 }
@@ -1389,6 +1467,8 @@ fn lm2_child(
     let cslot = &arena.col[f.col_at as usize];
     let rterm = rslot.term();
     let cterm = cslot.term();
+    // See `lm_child`: the refined tables are comparable to `wd`, not `term()`.
+    let (wd_row, wd_col) = (rslot.wd, cslot.wd);
     let (rkey, ckey) = (rslot.key, cslot.key);
     let cache = arena
         .lm2cache
@@ -1407,6 +1487,28 @@ fn lm2_child(
     };
     let (r20, r19, pr) = cache.get3(mm, rkey, lp[0], lp[3], pri);
     let (c24, c19, pc) = cache.get3(mm, ckey, lp[1], lp[4], pci);
+    // Each of these prices a WD plan carrying an extra crossing obligation, so
+    // it dominates the bare WD of its own axis. The comparison is against `wd`,
+    // *not* `term()`: the refined tables know nothing of the surcharge, so a
+    // value may legitimately fall below `wd + surch` and leave its branch weaker
+    // than cWD alone — the closing `max(h_cwd, ..)` is what keeps that sound.
+    // A violation here means a mis-keyed cache or a corrupt artifact.
+    debug_assert!(
+        r20 == 0xFF || r20 >= wd_row,
+        "cwd_lm2: D ≥ WD (row, tile 20)"
+    );
+    debug_assert!(
+        r19 == 0xFF || r19 >= wd_row,
+        "cwd_lm2: D ≥ WD (row, tile 19)"
+    );
+    debug_assert!(
+        c24 == 0xFF || c24 >= wd_col,
+        "cwd_lm2: D ≥ WD (col, tile 24)"
+    );
+    debug_assert!(
+        c19 == 0xFF || c19 >= wd_col,
+        "cwd_lm2: D ≥ WD (col, tile 19)"
+    );
     let or_ = |v: u8, fb: u8| if v != 0xFF { v } else { fb };
     let r20f = or_(r20, rterm);
     let c24f = or_(c24, cterm);
@@ -1711,7 +1813,11 @@ where
     let merged = cwd
         .backing()
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
-    debug_assert!(
+    // Not a `debug_assert!`: dropping one representative per σ-orbit at the root
+    // halves the search, and on a board that is not σ-fixed it would discard
+    // subtrees no symmetry maps back — an unsound answer from a release build,
+    // which is the only kind of build a proof runs. Once per search, so free.
+    assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "root orbit-split is only sound on a σ-fixed board"
     );
@@ -1803,6 +1909,14 @@ where
                     );
                 }
                 on_iter(bound, &stats, iter_start.elapsed());
+                // Observed ladders climb by exactly 2 (144, 146, 148, ...)
+                // because cWD is parity-consistent with the true distance, so
+                // every frontier f shares the root's parity. That is *not*
+                // asserted: the k8 and LM tiers can prune on values whose parity
+                // is not tied to d*, and a +1 step would cost efficiency without
+                // costing soundness. The strict increase below is the part the
+                // ladder's termination actually rests on.
+                debug_assert!(next > bound, "the IDA* threshold must strictly increase");
                 bound = next;
             }
         }
@@ -2207,7 +2321,11 @@ where
         .expect("flat_bounded needs the merged cWD table (data/cwd_mm.bin or cwd_single.bin)");
     let lut = cwd.demand_lut();
     let neighbor_prune = cwd.neighbor_prune_enabled();
-    debug_assert!(
+    // Not a `debug_assert!`: dropping one representative per σ-orbit at the root
+    // halves the search, and on a board that is not σ-fixed it would discard
+    // subtrees no symmetry maps back — an unsound answer from a release build,
+    // which is the only kind of build a proof runs. Once per search, so free.
+    assert!(
         !orbit_split || symmetry::is_symmetric(start),
         "root orbit-split is only sound on a σ-fixed board"
     );
@@ -2283,6 +2401,16 @@ where
                 seed_root(&mut split_arena, &u.board, cwd, merged, dfa, orbit_split);
             } else {
                 seed_subtree(&mut split_arena, &u.board, u.dfa, u.last, merged, dfa);
+                // A unit *carries* the cWD `h` its parent computed instead of
+                // recomputing it. Reseeding regenerates that value from the
+                // board, so the two must agree — a mismatch means the carried
+                // board, DFA state or last move drifted from the expansion that
+                // produced them. The root is exempt: `h0` was already raised by
+                // the seed-time k8 consult.
+                debug_assert_eq!(
+                    split_arena.hot[0].h, u.h,
+                    "unit's carried h disagrees with a reseed of its board"
+                );
             }
             if let Some(ctx) = k8 {
                 seed_k8(&mut split_arena, &u.board, ctx);
@@ -2443,6 +2571,9 @@ where
                 );
             }
             on_iter(bound, &stats, iter_start.elapsed());
+            // Same ladder invariant the sequential driver documents: strictly
+            // increasing, which is what makes the iteration terminate.
+            debug_assert!(min_f > bound, "the IDA* threshold must strictly increase");
             bound = min_f;
             continue;
         }
@@ -2505,6 +2636,15 @@ where
                     let c0 = cache.stats();
                     let mut st = SearchStats::default();
                     seed_subtree(arena, &u.board, u.dfa, u.last, merged, dfa);
+                    // The carried-h contract, checked once per work unit. This
+                    // is also the checkpoint's guard: a restored run re-enters
+                    // here with units rebuilt from the split, and a `h` that no
+                    // longer matches its board means the frontier was rebuilt
+                    // under a different tree than the one being resumed.
+                    debug_assert!(
+                        u.g == 0 || arena.hot[0].h == u.h,
+                        "unit's carried h disagrees with a reseed of its board"
+                    );
                     if let Some(ctx) = k8 {
                         #[cfg_attr(not(feature = "probe-cache-stats"), allow(unused))]
                         seed_k8(arena, &u.board, ctx);
@@ -2518,6 +2658,13 @@ where
                     // f = g + d + h <= bound  <=>  d + h <= bound - g, so the
                     // worker searches its own subtree with a reduced threshold and
                     // needs no notion of the depth it sits at.
+                    // A unit only reached the frontier by passing `g + h <= bound`,
+                    // so its depth cannot exceed the bound and the subtraction
+                    // cannot wrap.
+                    debug_assert!(
+                        u.g <= bound,
+                        "unit deeper than the threshold it is searched at"
+                    );
                     let reduced = bound - u.g;
                     // Workers never carry a budget (`--parallel` rejects
                     // `--max-nodes`), so every arm is the unbudgeted
@@ -2642,6 +2789,7 @@ where
             );
         }
         on_iter(bound, &stats, iter_start.elapsed());
+        debug_assert!(min_f > bound, "the IDA* threshold must strictly increase");
         bound = min_f;
     }
 }
@@ -3048,6 +3196,12 @@ fn run_iteration<T: TierCfg, const BUDGETED: bool>(
             surv_finish(d);
             // Children exhausted: fold this subtree's minimum into the parent.
             if d == 0 {
+                // `minf` only ever takes f-values that already failed `f > bound`
+                // (or stays u8::MAX when nothing was pruned), so the next
+                // threshold strictly exceeds this one. That strict increase is
+                // what makes the IDA* ladder terminate: an equal bound would
+                // re-search the identical tree forever.
+                debug_assert!(minf > bound, "the next threshold must exceed this one");
                 return Step::Exhausted(minf);
             }
             let sub = minf;

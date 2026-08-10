@@ -41,9 +41,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static USE_HUGEPAGES: AtomicBool = AtomicBool::new(false);
 
+/// Set once [`map_table`] has run, so the "configure before loading" rule above
+/// can be checked rather than merely documented. Only ever written under
+/// `debug_assertions`, so the release path is exactly what it was.
+static ANY_TABLE_MAPPED: AtomicBool = AtomicBool::new(false);
+
 /// Route later [`map_table`] calls through the anonymous huge-page path.
 /// Call once at startup, before loading any table.
 pub fn set_hugepages(on: bool) {
+    // The flag is global precisely because it is written once before any table
+    // is opened — that is what makes a plain relaxed store race-free here. Set
+    // it after a table is already mapped and the run silently ends up with a
+    // mixture of file-backed and anonymous tables.
+    debug_assert!(
+        !ANY_TABLE_MAPPED.load(Ordering::Relaxed),
+        "set_hugepages must run before any table is mapped"
+    );
     USE_HUGEPAGES.store(on, Ordering::Relaxed);
 }
 
@@ -56,10 +69,22 @@ pub fn hugepages_enabled() -> bool {
 /// transparent huge pages. Both return the same `Mmap` type, so callers are
 /// unchanged.
 pub fn map_table(path: &Path) -> std::io::Result<memmap2::Mmap> {
+    #[cfg(debug_assertions)]
+    ANY_TABLE_MAPPED.store(true, Ordering::Relaxed);
     let f = std::fs::File::open(path)?;
     if !hugepages_enabled() {
         // SAFETY: write-once-then-immutable build artifact.
-        return unsafe { memmap2::Mmap::map(&f) };
+        let m = unsafe { memmap2::Mmap::map(&f) }?;
+        // Both paths must hand back exactly the file's bytes: every caller
+        // parses a fixed header and then indexes by absolute offset, so a short
+        // or padded region would be read as corrupt data rather than caught.
+        // This is the one property the two paths have to share.
+        debug_assert_eq!(
+            m.len(),
+            f.metadata().map(|md| md.len() as usize).unwrap_or(m.len()),
+            "mapped length must equal the file length"
+        );
+        return Ok(m);
     }
 
     let len = f.metadata()?.len() as usize;
@@ -74,8 +99,15 @@ pub fn map_table(path: &Path) -> std::io::Result<memmap2::Mmap> {
         );
     }
 
+    debug_assert_eq!(
+        anon.len(),
+        len,
+        "anonymous region must match the file length"
+    );
     use std::io::Read;
     let mut r = std::io::BufReader::with_capacity(1 << 22, f);
+    // `read_exact` is what makes the copy faithful: a short file is an error
+    // here rather than a region of zeros the search would read as real entries.
     r.read_exact(&mut anon[..])?;
     eprintln!(
         "hugepages: {} copied into anonymous memory ({:.1} GB resident)",
