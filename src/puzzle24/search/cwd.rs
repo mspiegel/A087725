@@ -807,19 +807,11 @@ impl IncHeuristic for Cwd {
     type Ctx = ();
 
     fn root(&self, s: &State, stats: &mut SearchStats) -> (u8, ()) {
-        #[cfg(feature = "verifier-stats")]
-        {
-            stats.wd_advances += 1;
-        }
         let _ = stats;
         (self.h(s), ())
     }
 
     fn advance(&self, _parent: &(), child: &State, _m: Move, stats: &mut SearchStats) -> (u8, ()) {
-        #[cfg(feature = "verifier-stats")]
-        {
-            stats.wd_advances += 1;
-        }
         let _ = stats;
         (self.h(child), ())
     }

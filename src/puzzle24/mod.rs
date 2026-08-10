@@ -12,10 +12,6 @@
 pub mod frame;
 pub mod hugemap;
 pub mod pdb;
-#[cfg(feature = "pmu-counters")]
-pub mod pmu;
-#[cfg(feature = "probe-locality")]
-pub mod probe_locality;
 pub mod rank;
 pub mod search;
 pub mod state;

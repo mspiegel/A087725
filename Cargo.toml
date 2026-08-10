@@ -32,20 +32,13 @@ mmap = ["dep:memmap2"]
 # `cargo build --bin solve24` works; the lean `--no-default-features` 15-puzzle
 # build skips it along with the binary.
 cli = ["dep:clap"]
-survivor-dump = []
 sha = ["dep:sha2"]
 # Umbrella enabling the full 15-puzzle CLI surface.
 puzzle15 = ["parallel", "mmap"]
 # Umbrella enabling the full 24-puzzle CLI surface.
 puzzle24 = ["parallel", "mmap"]
-# Per-component call counters in the IDA* verifier (LC/WD/ZPDB advances,
-# ProjectedState::apply, ZpdbLayout::rank). Off by default — the per-node
-# counter bumps cost ~5-10% wall time. Turn on to derive accurate ns/call per
-# component when paired with a samply profile (`enumerate15` prints totals).
-verifier-stats = []
 # Table-gated 24-puzzle tests that build the ~4.4 GB merged cWD map: the flat
-# engine's frozen-oracle node-identity gate and the probe-locality/load-factor
-# instruments. Deliberately a FEATURE and not `#[ignore]` — an ignored test still
+# engine's frozen-oracle node-identity gate and the load-factor instruments. Deliberately a FEATURE and not `#[ignore]` — an ignored test still
 # runs under `cargo test -- --ignored`, whereas these are not even compiled
 # unless asked for. They share one process-wide table (see
 # `cwd::shared_merged_cwd`), so the cost is ~4.4 GB once rather than per test.
@@ -53,30 +46,15 @@ verifier-stats = []
 #   cargo test --release --features cwd-table-tests -- --nocapture
 cwd-table-tests = []
 # In-situ hit/miss counters for the direct-mapped probe cache, reported per
-# threshold. Off by default. Needed because the LRU model in `probe-locality` is
-# fully associative and therefore blind to the CONFLICT misses a direct-mapped
-# cache suffers — it under-predicted the 64K->256K win by ~14x.
+# threshold. Off by default. NOTE: ~14x wall time at W=64 from atomic counter
+# contention across workers — valid for hit rates, never for timings.
 probe-cache-stats = []
 # Structural census of the search itself: per-tier consult/raise/prune counts,
 # the advantage-by-slack histogram (a tier prunes only when advantage > slack,
 # so this says directly what a slack gate would forfeit), and the distribution
 # of surviving children per expanded node. A few relaxed atomics per consult —
-# cheap enough to run at 146/148, unlike `k8-surplus-gate`.
+# cheap enough to run at 146/148.
 search-census = []
-# Tooling for the 2-bit absolute (surplus) re-encoding investigation: the
-# surplus histogram with clamp-loss per cap, and the distinct-page working set
-# replayed under both the 1-bit and 2-bit layouts. EXPENSIVE — six 25-cell
-# scans per consult, ~12x wall time. Use at 144 only.
-k8-surplus-gate = ["search-census"]
-# Page-locality of the merged-table probe: records the 16 KiB page of every
-# probed cell and runs it through fixed-size LRUs to produce a TLB hit-rate vs
-# reach curve. Off by default (an LRU probe per node). No root needed.
-probe-locality = []
-# Named CPU performance counters (Apple kperf/kperfdata private API), read at
-# each threshold boundary and printed by solve24. REQUIRES ROOT (sudo). Off by
-# default. Counts are frequency-independent, so unlike timings this is valid on
-# battery, and comparing thresholds within one process removes cross-run drift.
-pmu-counters = []
 # Per-threshold decomposition of the flat parallel driver's efficiency: busy
 # fraction, worker ns/node, and the unit-time distribution against three makespan
 # bounds (work/W, LPT, actual). Off by default. The measurement itself is free

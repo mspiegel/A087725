@@ -251,18 +251,6 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     assert_eq!(cur, GOAL, "solution must reach GOAL");
 }
 
-/// Events to count when built with `pmu-counters`. Chosen to separate the two
-/// live hypotheses for the depth slowdown: cache locality vs page walks. The
-/// TLB pair is the interesting one — those pages are all resident, so TLB
-/// pressure is completely invisible to the FAULTS counter in `top`.
-#[cfg(feature = "pmu-counters")]
-const PMU_EVENTS: &[&str] = &[
-    "CORE_ACTIVE_CYCLE",
-    "INST_ALL",
-    "L1D_CACHE_MISS_LD_NONSPEC",
-    "L2_TLB_MISS_DATA",
-];
-
 // dyld's ASLR slide for the main executable. Sampling tools report raw runtime
 // PCs, and deriving the slide by searching for the value that best fits the
 // symbol table is unreliable at low sample counts — it produced a profile
@@ -405,23 +393,6 @@ fn main() -> ExitCode {
     // Per-threshold telemetry. Cumulative totals hide that the rate FALLS with
     // depth — 31.50 Mn/s exhausting 144 vs ~26.7 exhausting 146 (FINDINGS §8x) —
     // and a ladder run's cumulative average silently blends the two.
-    #[cfg(feature = "pmu-counters")]
-    let pmu = match puzzle8::puzzle24::pmu::Pmu::new(PMU_EVENTS) {
-        Ok(p) => {
-            eprintln!("pmu: counting {}", PMU_EVENTS.join(", "));
-            Some(p)
-        }
-        Err(e) => {
-            eprintln!("pmu: disabled ({e})");
-            None
-        }
-    };
-
-    #[cfg(feature = "pmu-counters")]
-    let pmu_state = std::cell::RefCell::new((
-        pmu.as_ref().map(|p| p.read()).unwrap_or_default(),
-        0u64, // nodes at the last threshold boundary
-    ));
 
     if args.parallel {
         eprintln!(
@@ -457,25 +428,6 @@ fn main() -> ExitCode {
             // the moment the deeper pass begins. Keying on the deeper bound
             // instead would never fire, because a budgeted run never
             // exhausts it.
-            #[cfg(feature = "probe-locality")]
-            if prev_nodes == nodes {
-                eprintln!("    probe-locality: recording the next 40M probes of the next pass");
-                puzzle8::puzzle24::probe_locality::start(40_000_000);
-            }
-            #[cfg(feature = "pmu-counters")]
-            if let Some(p) = pmu.as_ref() {
-                let now = p.read();
-                let mut st = pmu_state.borrow_mut();
-                for (i, name) in p.names().iter().enumerate() {
-                    let d = now.get(i).copied().unwrap_or(0) - st.0.get(i).copied().unwrap_or(0);
-                    eprintln!(
-                        "    pmu {name:<28} {d:>18}  {:>8.3} /node",
-                        d as f64 / nodes as f64
-                    );
-                }
-                st.0 = now;
-                st.1 = stats.nodes;
-            }
         };
 
         let tiers = Tiers {
@@ -514,32 +466,9 @@ fn main() -> ExitCode {
     puzzle8::puzzle24::search::flat::lm2_prune_stats_report(st.nodes);
     #[cfg(feature = "search-census")]
     puzzle8::puzzle24::search::flat::surviving_children_report();
-    #[cfg(feature = "k8-surplus-gate")]
-    puzzle8::puzzle24::search::flat::k8_surplus_report();
-    #[cfg(feature = "k8-surplus-gate")]
-    puzzle8::puzzle24::search::flat::k8_working_set_report();
 
     // The budget-truncated threshold never "exhausts", so the per-iteration hook
     // never fires for it — and that is precisely the threshold under study.
-    #[cfg(feature = "pmu-counters")]
-    if let Some(p) = pmu.as_ref() {
-        let st_pmu = pmu_state.borrow();
-        let partial = st.nodes.saturating_sub(st_pmu.1);
-        if partial > 0 {
-            let now = p.read();
-            eprintln!("    -- partial (unexhausted) threshold: {partial} nodes --");
-            for (i, name) in p.names().iter().enumerate() {
-                let d = now.get(i).copied().unwrap_or(0) - st_pmu.0.get(i).copied().unwrap_or(0);
-                eprintln!(
-                    "    pmu {name:<28} {d:>18}  {:>8.3} /node",
-                    d as f64 / partial as f64
-                );
-            }
-        }
-    }
-
-    #[cfg(feature = "probe-locality")]
-    eprintln!("{}", puzzle8::puzzle24::probe_locality::report());
 
     match outcome {
         BoundedOutcome::Solved(s) => {

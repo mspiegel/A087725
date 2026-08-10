@@ -332,11 +332,6 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
         m: Move,
         _stats: &mut SearchStats,
     ) -> (u8, Self::Ctx) {
-        #[cfg(feature = "verifier-stats")]
-        {
-            _stats.zpdb_advances += 1;
-            _stats.proj_applies += 2 * N as u64;
-        }
         let tm = transpose_move(m);
         let mut ctx = *parent;
         for i in 0..N {
@@ -349,10 +344,6 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             // (ctx already inherits parent's `n_h[i]` via `*parent`).
             let (np, n_cost) = parent.normal[i].apply(m);
             if n_cost != 0 {
-                #[cfg(feature = "verifier-stats")]
-                {
-                    _stats.zpdb_rank_calls += 1;
-                }
                 let n_idx = db.layout().rank(&np, db.pattern());
                 ctx.n_h[i] = db.diff_lookup(n_idx, parent.n_h[i]);
             }
@@ -361,10 +352,6 @@ impl<'a, const N: usize> IncHeuristic for ZpdbInc<'a, N> {
             // Reflected view (same logic under transpose_move(m)).
             let (rp, r_cost) = parent.reflected[i].apply(tm);
             if r_cost != 0 {
-                #[cfg(feature = "verifier-stats")]
-                {
-                    _stats.zpdb_rank_calls += 1;
-                }
                 let r_idx = db.layout().rank(&rp, db.pattern());
                 ctx.r_h[i] = db.diff_lookup(r_idx, parent.r_h[i]);
             }

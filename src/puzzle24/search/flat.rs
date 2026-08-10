@@ -637,144 +637,6 @@ static K8_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 // b bits hold surplus/2 up to 2^b - 1. Clamping DOWN stays admissible. The
 // question is only what the clamp costs in prunes.
 //   cap 6 -> 2 bits (~33 GB, today's footprint) | 14 -> 3 bits | 30 -> 4 bits
-#[cfg(feature = "k8-surplus-gate")]
-pub(crate) const SURPLUS_CAPS: [u16; 3] = [4, 6, 14];
-
-#[cfg(feature = "k8-surplus-gate")]
-static SURPLUS_HIST: [std::sync::atomic::AtomicU64; 16] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 16];
-/// Must stay 0: h < MD_sum would mean the projection or the σ-relabelling is
-/// wrong, since MD over a pattern's own tiles is a lower bound on its ZPDB
-/// value. Doubles as a correctness check on the reflected view.
-#[cfg(feature = "k8-surplus-gate")]
-static SURPLUS_NEG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// Prunes the true encoding makes that each clamped cap would LOSE.
-#[cfg(feature = "k8-surplus-gate")]
-static SURPLUS_LOST: [std::sync::atomic::AtomicU64; 3] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
-/// Consults where the clamped tier value is strictly below the true one.
-#[cfg(feature = "k8-surplus-gate")]
-static SURPLUS_LOWER: [std::sync::atomic::AtomicU64; 3] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
-
-// ---- working-set estimate for a wider k8 encoding ----------------------
-// A 2-bit (surplus) re-encoding doubles the table to ~65.6 GB against 32 GB of
-// RAM. What that costs depends NOT on table size but on how many distinct
-// pages the search actually touches: if probes are scattered (one entry per
-// page) the page count is unchanged and so is the pressure; if they are dense,
-// it doubles. Replay one access trace under both layouts and count.
-// 16 KiB pages (Apple Silicon). 1 bit/entry -> idx/131072; 2 bits -> idx/65536.
-#[cfg(feature = "k8-surplus-gate")]
-const PAGE_WORDS: usize = 1 << 16; // 4.19M pages = 64 GB of coverage per map
-
-#[cfg(feature = "k8-surplus-gate")]
-fn page_maps() -> &'static [Vec<std::sync::atomic::AtomicU64>; 2] {
-    static M: std::sync::OnceLock<[Vec<std::sync::atomic::AtomicU64>; 2]> =
-        std::sync::OnceLock::new();
-    M.get_or_init(|| {
-        [
-            (0..PAGE_WORDS)
-                .map(|_| std::sync::atomic::AtomicU64::new(0))
-                .collect(),
-            (0..PAGE_WORDS)
-                .map(|_| std::sync::atomic::AtomicU64::new(0))
-                .collect(),
-        ]
-    })
-}
-
-/// Record one table read at entry index `idx` of group `g`.
-#[cfg(feature = "k8-surplus-gate")]
-#[inline]
-fn record_page(g: usize, idx: u64) {
-    // Groups are laid out end to end for accounting; each is ~87.4G entries.
-    let base = g as u64 * 87_400_000_000;
-    let maps = page_maps();
-    for (layout, div) in [(0usize, 131_072u64), (1usize, 65_536u64)] {
-        let pg = ((base + idx) / div) as usize;
-        let (w, b) = (pg / 64, pg % 64);
-        if w < PAGE_WORDS {
-            maps[layout][w].fetch_or(1u64 << b, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-}
-
-#[cfg(feature = "k8-surplus-gate")]
-pub fn k8_working_set_report() {
-    let maps = page_maps();
-    let count = |m: &Vec<std::sync::atomic::AtomicU64>| -> u64 {
-        m.iter()
-            .map(|w| w.load(std::sync::atomic::Ordering::Relaxed).count_ones() as u64)
-            .sum()
-    };
-    let (p1, p2) = (count(&maps[0]), count(&maps[1]));
-    if p1 == 0 {
-        return;
-    }
-    let gb = |p: u64| p as f64 * 16384.0 / 1e9;
-    eprintln!(
-        "    k8 working set: 1-bit layout {p1} pages ({:.2} GB of 32.8) | 2-bit layout {p2} pages ({:.2} GB of 65.6) | growth {:.2}x",
-        gb(p1),
-        gb(p2),
-        p2 as f64 / p1 as f64
-    );
-}
-
-/// Manhattan sum over a projection's OWN pattern tiles (blank and ANON skipped).
-#[cfg(feature = "k8-surplus-gate")]
-fn md_sum(ps: &crate::puzzle24::pdb::pattern::ProjectedState) -> u16 {
-    let mut s = 0u16;
-    for (i, &v) in ps.cells.iter().enumerate() {
-        if v != 0 && v != crate::puzzle24::pdb::pattern::ANON {
-            let g = (v - 1) as usize;
-            s += (i / W).abs_diff(g / W) as u16 + (i % W).abs_diff(g % W) as u16;
-        }
-    }
-    s
-}
-
-#[cfg(feature = "k8-surplus-gate")]
-thread_local! {
-    /// Clamped tier value per cap for the consult just performed.
-    static K8_CLAMPED: std::cell::Cell<[u8; 3]> = const { std::cell::Cell::new([0; 3]) };
-}
-
-#[cfg(feature = "k8-surplus-gate")]
-pub fn k8_surplus_report() {
-    let neg = SURPLUS_NEG.load(std::sync::atomic::Ordering::Relaxed);
-    let hist: Vec<u64> = SURPLUS_HIST
-        .iter()
-        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
-        .collect();
-    let tot: u64 = hist.iter().sum();
-    if tot == 0 {
-        return;
-    }
-    eprintln!("    k8 surplus: {tot} group-values, {neg} negative (must be 0)");
-    let mut cum = 0u64;
-    for (b, &c) in hist.iter().enumerate() {
-        if c > 0 {
-            cum += c;
-            eprintln!(
-                "      surplus {:>2}: {:>12} ({:>5.2}%)  cum {:>6.2}%",
-                b * 2,
-                c,
-                100.0 * c as f64 / tot as f64,
-                100.0 * cum as f64 / tot as f64
-            );
-        }
-    }
-    let prunes = K8_PRUNES.load(std::sync::atomic::Ordering::Relaxed);
-    for (i, cap) in SURPLUS_CAPS.iter().enumerate() {
-        let lost = SURPLUS_LOST[i].load(std::sync::atomic::Ordering::Relaxed);
-        let lower = SURPLUS_LOWER[i].load(std::sync::atomic::Ordering::Relaxed);
-        eprintln!(
-            "    cap {cap:>2} ({} bits): tier lowered on {lower}; prunes LOST {lost} of {prunes} ({:.3}%)",
-            (*cap as f64 / 2.0 + 1.0).log2().ceil() as u32,
-            100.0 * lost as f64 / prunes.max(1) as f64
-        );
-    }
-}
 
 // ---- surviving-children distribution ----------------------------------
 // How many children does an expanded node actually descend into, AFTER the
@@ -1069,8 +931,6 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gi];
         let idx = db.layout().rank(&child.views[0][gi], db.pattern());
-        #[cfg(feature = "k8-surplus-gate")]
-        record_page(gi, idx);
         let v = db.diff_lookup(idx, parent.h[0][gi]);
         child.h[0][gi] = v;
         ctx.shared.store(k0, n as u8, gi, v);
@@ -1088,8 +948,6 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
     } else {
         let db = &ctx.dbs[gj];
         let idx = db.layout().rank(&child.views[1][gj], db.pattern());
-        #[cfg(feature = "k8-surplus-gate")]
-        record_page(gj, idx);
         let v = db.diff_lookup(idx, parent.h[1][gj]);
         child.h[1][gj] = v;
         ctx.shared.store(k1, rn as u8, gj, v);
@@ -1097,34 +955,6 @@ fn k8_child(arena: &mut Arena, ctx: &K8Ctx, d: usize, geom: Geom, tile: usize) -
 
     let s0 = child.h[0][0] as u16 + child.h[0][1] as u16 + child.h[0][2] as u16;
     let s1 = child.h[1][0] as u16 + child.h[1][1] as u16 + child.h[1][2] as u16;
-
-    #[cfg(feature = "k8-surplus-gate")]
-    {
-        let mut acc = [[0u16; 2]; 3];
-        for v in 0..2 {
-            for g in 0..3 {
-                let md = md_sum(&child.views[v][g]);
-                let h = child.h[v][g] as u16;
-                if h < md {
-                    SURPLUS_NEG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-                let sur = h.saturating_sub(md);
-                SURPLUS_HIST[((sur / 2) as usize).min(15)]
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                for (i, cap) in SURPLUS_CAPS.iter().enumerate() {
-                    acc[i][v] += md + sur.min(*cap);
-                }
-            }
-        }
-        let mut out = [0u8; 3];
-        for i in 0..3 {
-            out[i] = acc[i][0].max(acc[i][1]).min(255) as u8;
-            if (out[i] as u16) < s0.max(s1) {
-                SURPLUS_LOWER[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
-        K8_CLAMPED.with(|c| c.set(out));
-    }
 
     s0.max(s1).min(255) as u8
 }
@@ -3287,41 +3117,10 @@ fn run_iteration<T: TierCfg, const BUDGETED: bool>(
         // recursive convention, so the tree matches §8j's node counts). The
         // child is already counted; a k8 prune folds its full f and moves on.
         // Compiles away entirely when `K8` is false.
-        // Unconditioned survivor sampling (stats build + FLAT_SURVIVOR_DUMP=N):
+        // Unconditioned survivor sampling:
         // every Nth child that survives cWD, before any tier consults — the
         // population all heuristic upgrades compete to prune, free of the
         // k8-prune-event conditioning of the autopsy sample.
-        #[cfg(feature = "survivor-dump")]
-        {
-            static DUMP_EVERY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-            let every = *DUMP_EVERY.get_or_init(|| {
-                std::env::var("FLAT_SURVIVOR_DUMP")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(0)
-            });
-            if every > 0 {
-                // Sample by hashing the child's axis keys rather than by a
-                // shared counter: an atomic per survivor would serialise the
-                // workers at deep thresholds, where this hook is needed most.
-                // Deterministic, thread-local, and unbiased with respect to
-                // slack, which is the stratum being sampled.
-                let hk = arena.row[arena.hot[d + 1].row_at as usize]
-                    .key
-                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                    ^ arena.col[arena.hot[d + 1].col_at as usize]
-                        .key
-                        .wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
-                if hk % every == 0 {
-                    let b = arena.board[d + 1].0.decode();
-                    eprintln!(
-                        "SURVIVOR bound={bound} g={g_next} h={h} slack={} board={:?}",
-                        bound - g_next - h,
-                        b.0
-                    );
-                }
-            }
-        }
         if T::LM2 {
             #[cfg(feature = "probe-cache-stats")]
             LM2_SLACK_HIST[((bound - g_next - h) as usize).min(15)]
@@ -3426,15 +3225,6 @@ fn run_iteration<T: TierCfg, const BUDGETED: bool>(
                 }
             }
             // Surplus gate: what a clamped encoding would have lost here.
-            #[cfg(feature = "k8-surplus-gate")]
-            if hk8 > h && g_next.saturating_add(hk8) > bound {
-                let cl = K8_CLAMPED.with(|c| c.get());
-                for i in 0..SURPLUS_CAPS.len() {
-                    if g_next.saturating_add(cl[i]) <= bound {
-                        SURPLUS_LOST[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                }
-            }
             if hk8 > h {
                 let f2 = g_next.saturating_add(hk8);
                 if f2 > bound {
@@ -3752,8 +3542,6 @@ fn build_child(
         debug_assert_eq!(key, pack(&mat, geom.rf), "key_row drift");
 
         let cell = cache.get(merged, key);
-        #[cfg(feature = "probe-locality")]
-        crate::puzzle24::probe_locality::note_probe(cell as *const _ as usize);
         arena.row[d + 1] = AxisSlot {
             key,
             dem,
@@ -3799,8 +3587,6 @@ fn build_child(
         debug_assert_eq!(key, pack(&mat, geom.cf), "key_col drift");
 
         let cell = cache.get(merged, key);
-        #[cfg(feature = "probe-locality")]
-        crate::puzzle24::probe_locality::note_probe(cell as *const _ as usize);
         arena.col[d + 1] = AxisSlot {
             key,
             dem,
@@ -4998,7 +4784,7 @@ mod tests {
     /// run). Greedy descent picks one optimal plan among many; classification
     /// is over that canonical plan (caveat noted in the report).
     ///
-    ///   AUTOPSY_FILE=... cargo test --release --features k8-probe-locality \
+    ///   AUTOPSY_FILE=... cargo test --release \
     ///       k8_prune_autopsy -- --ignored --nocapture
     #[test]
     #[ignore = "needs the 32.8 GB k8 tables and an AUTOPSY_FILE dump"]

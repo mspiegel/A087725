@@ -180,10 +180,6 @@ impl IncHeuristic for LinearConflictInc {
         m: Move,
         _stats: &mut SearchStats,
     ) -> (u8, LcCtx) {
-        #[cfg(feature = "verifier-stats")]
-        {
-            _stats.lc_advances += 1;
-        }
         // After the move: the blank moved by `delta(m)`, the tile that filled
         // the blank's old cell is what just moved. Hence:
         //   from = blank_new (where the tile was, in the parent)

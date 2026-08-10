@@ -235,10 +235,6 @@ impl IncHeuristic for WalkingDistanceInc {
         m: Move,
         _stats: &mut SearchStats,
     ) -> (u8, WdCtx) {
-        #[cfg(feature = "verifier-stats")]
-        {
-            _stats.wd_advances += 1;
-        }
         // The moved tile's (from, to) cells (see LinearConflictInc for the
         // identity): from = blank_new, to = blank_old. The parent carries the
         // blank's old (br, bc), so blank_old is reconstructed without rescanning.

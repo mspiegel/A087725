@@ -19,15 +19,11 @@ use std::time::Instant;
 use puzzle8::puzzle15::enumerate::{antipodes, cache, frontier, histogram, Store};
 use puzzle8::puzzle15::pdb::{ZPatternDb, ZpdbPlusInc};
 use puzzle8::puzzle15::rank::{rank, unrank};
-#[cfg(feature = "verifier-stats")]
-use puzzle8::puzzle15::search::SearchStats;
 use puzzle8::puzzle15::search::{
     idastar_inc_with_stats, LinearConflictInc, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle15::state::DIAMETER;
 use puzzle8::puzzle15::symmetry::reflect;
-#[cfg(feature = "verifier-stats")]
-use std::sync::Mutex;
 
 struct Args {
     pdb_dir: PathBuf,
@@ -176,16 +172,12 @@ fn run() -> Result<(), String> {
     WalkingDistanceHeuristic::warm_up();
     LinearConflictInc::warm_up();
     let h = ZpdbPlusInc::new([&zdbs[0], &zdbs[1]]);
-    // Under `--features verifier-stats`: cross-thread accumulator for the
+    // Cross-thread accumulator for the
     // per-solve SearchStats. Lock is held briefly once per solve — solves
     // take milliseconds, so contention is negligible and the resulting totals
     // let us compute ns-per-call per component. Off by default.
-    #[cfg(feature = "verifier-stats")]
-    let stats_total: Mutex<SearchStats> = Mutex::new(SearchStats::default());
     let verify = |r: u64| -> u8 {
         let (sol, _stats) = idastar_inc_with_stats(&unrank(r), &h);
-        #[cfg(feature = "verifier-stats")]
-        stats_total.lock().unwrap().add(&_stats);
         sol.map(|v| v.len() as u8).unwrap_or(u8::MAX)
     };
 
@@ -337,47 +329,6 @@ fn run() -> Result<(), String> {
     // self-time; these counts tell us *how often* each function ran. Combine
     // them: `ns/call = (profile_pct/100) × total_cpu_ns / calls`, immune to
     // inlining attribution because the counter sits inside the function body.
-    // Gated behind `--features verifier-stats` — the counter bumps cost
-    // ~5-10% wall time, off by default.
-    #[cfg(feature = "verifier-stats")]
-    {
-        let st = stats_total.into_inner().unwrap();
-        let wall_ns = t0.elapsed().as_nanos() as f64;
-        let threads: f64 = std::env::var("RAYON_NUM_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1.0);
-        let total_cpu_ns = wall_ns * threads;
-        let row = |label: &str, calls: u64, hint: &str| {
-            let per_call_at_100pct = if calls == 0 {
-                "—".to_string()
-            } else {
-                format!("{:.1} ns/call @100% CPU", total_cpu_ns / calls as f64)
-            };
-            println!(
-                "  {:<18} {:>16}  {:<28} {}",
-                label, calls, per_call_at_100pct, hint
-            );
-        };
-        println!(
-            "\nverifier call totals  (wall {:.2}s × {} threads = {:.1}s CPU):",
-            wall_ns / 1e9,
-            threads as u32,
-            total_cpu_ns / 1e9
-        );
-        row("nodes", st.nodes, "(one search_inc per call)");
-        row("zpdb_advances", st.zpdb_advances, "");
-        row("lc_advances", st.lc_advances, "");
-        row("wd_advances", st.wd_advances, "");
-        row("proj_applies", st.proj_applies, "(= 2*N*zpdb_advances)");
-        row(
-            "zpdb_rank_calls",
-            st.zpdb_rank_calls,
-            "(only cost-1 projected edges)",
-        );
-        println!("  {:<18} {:>16}", "iterations", st.iterations);
-        println!("  (multiply ns/call by the component's samply self-time %% to get the real per-call cost)");
-    }
 
     if !all_ok {
         return Err("an enumerated layer did not match its A087725 count".into());
