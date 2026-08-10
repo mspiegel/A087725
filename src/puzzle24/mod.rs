@@ -10,6 +10,7 @@
 //! the 8-puzzle's blank-independent solvability rule.
 
 pub mod frame;
+pub mod hugemap;
 pub mod pdb;
 #[cfg(feature = "pmu-counters")]
 pub mod pmu;

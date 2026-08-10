@@ -127,6 +127,16 @@ struct Args {
     #[arg(long, value_name = "N", value_parser = parse_max_nodes)]
     max_nodes: Option<u64>,
 
+    /// Copy each table into anonymous MADV_HUGEPAGE memory instead of mapping
+    /// its file, so probes are translated through 2 MiB pages. The tables are
+    /// probed randomly across ~49 GB, so at 4 KiB nearly every probe pays a
+    /// page walk; huge pages cut the TLB footprint ~512x. Costs real RSS —
+    /// the tables become resident anonymous memory rather than evictable page
+    /// cache, so this needs a machine with RAM to spare (fine at 500 GB,
+    /// fatal at 32). Requires transparent_hugepage/enabled = madvise|always.
+    #[arg(long)]
+    hugepages: bool,
+
     /// Checkpoint long proofs into DIR: each rayon worker appends completed
     /// work units to its own file (no cross-thread synchronization) and the
     /// driver records exhausted thresholds. Interrupted? Re-run the same
@@ -298,6 +308,12 @@ fn main() -> ExitCode {
         );
     } else if symmetric {
         eprintln!("root-orbit-split: σ-symmetric board, split disabled by flag");
+    }
+
+    // Set before any table is opened: the loaders read this globally.
+    puzzle8::puzzle24::hugemap::set_hugepages(args.hugepages);
+    if args.hugepages {
+        eprintln!("hugepages: tables will be copied into anonymous MADV_HUGEPAGE memory");
     }
 
     let mm_path = &args.cwd_mm;

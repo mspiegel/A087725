@@ -226,9 +226,7 @@ impl ZPatternDb {
 
     #[cfg(feature = "mmap")]
     pub fn load_mmap(path: &Path) -> Result<Self, LoadError> {
-        let f = File::open(path)?;
-        // SAFETY: ZPDB files are write-once-then-immutable build artifacts.
-        let map = unsafe { memmap2::Mmap::map(&f)? };
+        let map = crate::puzzle24::hugemap::map_table(path)?;
         if map.len() < HEADER_BYTES {
             return Err(LoadError::ShortFile { got: map.len() });
         }

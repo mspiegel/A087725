@@ -832,9 +832,7 @@ pub struct CwdLm1lMm {
 
 impl CwdLm1lMm {
     pub fn load(path: &Path) -> std::io::Result<Self> {
-        let f = std::fs::File::open(path)?;
-        // SAFETY: write-once-then-immutable build artifact.
-        let map = unsafe { memmap2::Mmap::map(&f)? };
+        let map = crate::puzzle24::hugemap::map_table(path)?;
         assert_eq!(&map[..4], b"CWJ1", "bad cwd_lm1l magic");
         let slots = u32::from_le_bytes(map[4..8].try_into().unwrap()) as usize;
         assert_eq!(
