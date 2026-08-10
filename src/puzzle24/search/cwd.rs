@@ -18,7 +18,7 @@
 //! precompute the escape-constrained distances into a table.
 
 use super::heuristic::Heuristic;
-use super::idastar::IncHeuristic;
+use super::recursive::IncHeuristic;
 use super::walking_distance::{
     build_full_table, load_dist_table, WdBuild, WdTable, FULL_WD_ENTRIES, WD_KIND_FULL,
 };

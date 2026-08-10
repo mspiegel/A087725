@@ -65,10 +65,10 @@ impl<A, B> MaxInc<A, B> {
     }
 }
 
-impl<A, B> crate::puzzle24::search::idastar::IncHeuristic for MaxInc<A, B>
+impl<A, B> crate::puzzle24::search::recursive::IncHeuristic for MaxInc<A, B>
 where
-    A: crate::puzzle24::search::idastar::IncHeuristic,
-    B: crate::puzzle24::search::idastar::IncHeuristic,
+    A: crate::puzzle24::search::recursive::IncHeuristic,
+    B: crate::puzzle24::search::recursive::IncHeuristic,
 {
     type Ctx = (A::Ctx, B::Ctx);
 
@@ -133,7 +133,7 @@ macro_rules! max_inc {
 ///   admissible by the Lipschitz bound. Deferred moves popped on backtrack
 ///   before a catch-up are *never* applied to `B` at all.
 ///
-/// [`make_bounded`]: crate::puzzle24::search::idastar::IncHeuristicMut::make_bounded
+/// [`make_bounded`]: crate::puzzle24::search::recursive::IncHeuristicMut::make_bounded
 pub struct LazyMaxInc<A, B> {
     a: A,
     b: B,
@@ -148,10 +148,10 @@ impl<A, B> LazyMaxInc<A, B> {
 /// Eager copy-context impl so [`LazyMaxInc`] satisfies drivers requiring both
 /// bounds (the parallel splitter's frontier expansion is cold — laziness only
 /// matters in the hot make/unmake recursion).
-impl<A, B> crate::puzzle24::search::idastar::IncHeuristic for LazyMaxInc<A, B>
+impl<A, B> crate::puzzle24::search::recursive::IncHeuristic for LazyMaxInc<A, B>
 where
-    A: crate::puzzle24::search::idastar::IncHeuristic,
-    B: crate::puzzle24::search::idastar::IncHeuristic,
+    A: crate::puzzle24::search::recursive::IncHeuristic,
+    B: crate::puzzle24::search::recursive::IncHeuristic,
 {
     type Ctx = (A::Ctx, B::Ctx);
 
@@ -182,7 +182,7 @@ where
 /// nothing else does. Used to validate the [`IncHeuristic`] driver and as the
 /// template for the zero-aware incremental PDB evaluator.
 ///
-/// [`IncHeuristic`]: crate::puzzle24::search::idastar::IncHeuristic
+/// [`IncHeuristic`]: crate::puzzle24::search::recursive::IncHeuristic
 pub struct IncManhattan;
 
 /// Manhattan distance of a single tile value at a given cell.
@@ -194,7 +194,7 @@ fn tile_manhattan(tile: u8, pos: usize) -> u8 {
     (dr.unsigned_abs() + dc.unsigned_abs()) as u8
 }
 
-impl crate::puzzle24::search::idastar::IncHeuristic for IncManhattan {
+impl crate::puzzle24::search::recursive::IncHeuristic for IncManhattan {
     type Ctx = u8; // running Manhattan distance
 
     fn root(&self, s: &State, _stats: &mut crate::puzzle24::search::SearchStats) -> (u8, u8) {
@@ -269,7 +269,7 @@ mod tests {
     /// `advance` over a long walk (the combinator just maxes the two terms).
     #[test]
     fn maxinc_lc_wd_matches_scratch_max_random_walk() {
-        use crate::puzzle24::search::idastar::IncHeuristic;
+        use crate::puzzle24::search::recursive::IncHeuristic;
         use crate::puzzle24::search::{
             LinearConflictHeuristic, LinearConflictInc, SearchStats, WalkingDistanceHeuristic,
             WalkingDistanceInc,

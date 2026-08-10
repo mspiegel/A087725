@@ -1,12 +1,17 @@
-//! Iterative-deepening A* over the 24-puzzle [`State`] — the `Copy`-context path.
+//! Recursive IDA\* over the 24-puzzle [`State`] — the generic `Copy`-context path.
+//!
+//! Not the project's search engine: that is [`engine`](super::engine), which is
+//! faster and is the only thing the `R` lower-bound program runs. This module is
+//! the general-purpose fallback, kept for the jobs the engine is too specialised
+//! to do. It is named for its structure — a call frame per node, against the
+//! engine's depth-indexed arena.
 //!
 //! # Scope
 //!
 //! This module used to hold the project's general-purpose 24-puzzle search,
 //! including a make/unmake (`IncHeuristicMut`) driver, a `Search` builder and
-//! rayon tree-splitting parallel drivers. All of that is deleted: searching is
-//! done by [`engine`](super::engine), which is faster and is the only engine the `R`
-//! lower-bound program uses.
+//! rayon tree-splitting parallel drivers. All of that is deleted — it was the
+//! "generic engine" the engine's own docs still measure themselves against.
 //!
 //! What remains is the `Copy`-context driver family, retained for two consumers
 //! that [`engine`](super::engine) cannot serve — it is cWD-only, has no deadline,
@@ -52,7 +57,7 @@ pub fn idastar<H: Heuristic>(start: &State, h: &H) -> Option<Vec<Move>> {
     idastar_with_stats(start, h).0
 }
 
-/// Like [`idastar`], but also returns [`SearchStats`].
+/// Like [`recursive`], but also returns [`SearchStats`].
 pub fn idastar_with_stats<H: Heuristic>(start: &State, h: &H) -> (Option<Vec<Move>>, SearchStats) {
     let mut stats = SearchStats::default();
     if start == &GOAL {

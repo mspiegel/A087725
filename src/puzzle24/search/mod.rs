@@ -7,23 +7,23 @@ pub mod cwd_lm_joint;
 pub mod engine;
 // Only the `cwd-table-tests` gate consumes the frozen oracle.
 pub mod heuristic;
-pub mod idastar;
 pub mod linear_conflict;
 pub mod move_dfa;
 #[cfg(all(test, feature = "cwd-table-tests"))]
 mod oracle;
 pub mod outcome;
+pub mod recursive;
 pub mod walking_distance;
 
 pub use cwd::{load_cwd_overlay, Cwd, CwdOverlay, CwdScratch};
 pub use heuristic::{Heuristic, IncManhattan, ManhattanHeuristic, MaxInc};
-pub use idastar::{
-    idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,
-    idastar_inc_ladder, idastar_inc_with_stats, idastar_with_stats, IncHeuristic, LadderOutcome,
-};
 pub use linear_conflict::{LcCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use move_dfa::{MoveDfa, MovePruner, NullPruner};
 pub use outcome::{BoundedOutcome, SearchStats};
+pub use recursive::{
+    idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,
+    idastar_inc_ladder, idastar_inc_with_stats, idastar_with_stats, IncHeuristic, LadderOutcome,
+};
 pub use walking_distance::{
     build_full_table, load_dist_table, save_dist_table, WalkingDistanceHeuristic,
     WalkingDistanceInc, WalkingDistanceTo, WdBuild, WdCtx, WdLoadError, WdTable, WdTableSource,

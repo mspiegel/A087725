@@ -7,7 +7,7 @@
 //!
 //! It began as a second engine beside a generic recursive one, which is why so
 //! much below is phrased against "the generic engine". That engine has since
-//! been deleted; what survives of it is [`idastar`](super::idastar)'s Copy-path
+//! been deleted; what survives of it is [`recursive`](super::recursive)'s Copy-path
 //! ladder, kept only for the ML/corridor tooling and the heuristic-correctness
 //! tests, and never used to search here.
 //!
@@ -61,8 +61,8 @@ use super::cwd::{
     demand_col_line, demand_row_line, key_bit, pack, project, surcharge_from_curves, Cwd,
     MergedBacking, DEMAND_LUT_LEN, KEY_BLANK_BIT,
 };
-use super::idastar::{BoundedOutcome, SearchStats};
 use super::move_dfa::MoveDfa;
+use super::outcome::{BoundedOutcome, SearchStats};
 use crate::puzzle24::state::{Move, MoveSet, State, GOAL, N_CELLS, W};
 use crate::puzzle24::symmetry;
 
@@ -1693,7 +1693,7 @@ fn joint_floors(
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
 /// pre-prune and (optionally) the root σ-orbit split.
 ///
-/// Returns exactly what [`idastar_inc_bounded_with_stats`](super::idastar::idastar_inc_bounded_with_stats)
+/// Returns exactly what [`idastar_inc_bounded_with_stats`](super::recursive::idastar_inc_bounded_with_stats)
 /// would for the same configuration, including the node count: an exhausted
 /// threshold `b` proves `dist(start) ≥ b+1`, reported as
 /// [`BoundedOutcome::ProvedAtLeast`].
