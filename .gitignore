@@ -21,3 +21,7 @@ runs/*
 
 # macOS Finder metadata
 .DS_Store
+
+# rho-paired k6 zPDBs: regenerable from the recipe in
+# records/r_flat_k8_lazy.txt; purged from history 2026-08-10.
+data/rho/

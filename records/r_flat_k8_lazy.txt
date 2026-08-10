@@ -2007,7 +2007,14 @@ LIKELY MECHANISM: a group permuting within its own six cells has DENSE
 conflicts but SHORT displacement, so its abstract distances stay small.
 Compact-but-distant groups have the opposite profile and it wins. Visible in
 the tails: compact reaches +4 on 3 boards and +6 on 1; rho +4 on 2, +6 never.
-Tables kept at data/rho/pdb24_rho_{a..d}.zbin (21.6 MiB each). The k6 proxy
+Tables NOT kept in git (purged 2026-08-10: 25 MB of a 33 MB repo for one
+#[ignore]d test of a rejected hypothesis). Regenerate in ~10 min each from the
+tile sets above:
+  build_pdb24 --zero-aware --tiles 2,5,6,20,21,24  --out data/rho/pdb24_rho_a.zbin
+  build_pdb24 --zero-aware --tiles 3,7,11,15,19,23 --out data/rho/pdb24_rho_b.zbin
+  build_pdb24 --zero-aware --tiles 4,9,10,16,17,22 --out data/rho/pdb24_rho_c.zbin
+  build_pdb24 --zero-aware --tiles 1,8,12,13,14,18 --out data/rho/pdb24_rho_d.zbin
+21.6 MiB each. The k6 proxy
 cost ~10 minutes; the 8-tile version of this question would have needed the
 222 G-state external-memory build.
 
