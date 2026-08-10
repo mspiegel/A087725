@@ -197,24 +197,47 @@ The R position (blank at cell 0, tile 25−i at cell i):
 R="0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
 ```
 
+`--config` is **required**. Use `large` on the proof machine (64 threads:
+1 GB shared k8 cache, 32768-unit split) and `standard` on an 8-thread dev box
+(16 MB cache, 4096-unit split). There is no default because neither is right
+on both machines.
+
+It does **not** change the search tree, so the *answer* is the same either way
+— same node counts, same proven bound — and every gate below holds under both.
+What it changes is wall clock: measured at exhaust-148 on the 64-core box,
+`standard` ran 21% slower on the shared k8 cache and ~3% slower on split
+granularity. The opposite cost, `large` on a small machine, is unmeasured.
+It does change `--checkpoint` resumes. The split count is not part of the run
+id, so records from the other config load and then fail to match index by
+index; the fingerprint guard makes that safe (a record is never applied to a
+different subtree) but every banked unit of an *unfinished* threshold is
+re-searched. Completed thresholds restore either way. Resuming
+`runs/ckpt156` therefore needs `--config large`:
+
+```text
+--config large     → checkpoint: threshold 152: 769/32768 units restored
+--config standard  → checkpoint: threshold 152: 0/4097 units restored — records
+                     exist but none match this split; re-searching
+```
+
 Run each gate and compare the per-threshold node counts printed on stderr.
 These are exact — any deviation is a red flag (table corruption, build skew):
 
 ```sh
 # gate 1: k8 2-tier ladder through 146
-target/release/solve24 --position "$R" --prove-at-least 147 --zpdb8
+target/release/solve24 --config large --position "$R" --prove-at-least 147 --zpdb8
 #   threshold 144: 269,180,917   threshold 146: 8,539,130,554
 
 # gate 2: clm2 standalone at 144
-target/release/solve24 --position "$R" --prove-at-least 145 --clm2
+target/release/solve24 --config large --position "$R" --prove-at-least 145 --clm2
 #   threshold 144: 134,801,951
 
 # gate 3: full cascade through 146
-target/release/solve24 --position "$R" --prove-at-least 147 --clm2 --zpdb8
+target/release/solve24 --config large --position "$R" --prove-at-least 147 --clm2 --zpdb8
 #   threshold 146: 4,363,759,350
 
 # gate 4: parallel driver is node-identical — repeat gate 3 with --parallel
-target/release/solve24 --position "$R" --prove-at-least 147 --clm2 --zpdb8 --parallel
+target/release/solve24 --config large --position "$R" --prove-at-least 147 --clm2 --zpdb8 --parallel
 #   same counts, bit for bit
 ```
 
@@ -359,7 +382,7 @@ Before the long rungs, prove the recovery path at scale:
 
 ```sh
 mkdir -p runs/ckpt156
-target/release/solve24 --position "$R" \
+target/release/solve24 --config large --position "$R" \
   --prove-at-least 151 --clm2 --zpdb8 --parallel --checkpoint runs/ckpt156
 # kill it ~30 min in (Ctrl-C), then re-run the identical command:
 # completed thresholds and finished units restore; only unfinished work re-searches.
@@ -390,9 +413,9 @@ run, each a random dependent access — exactly the traffic huge pages help.
 
 ```sh
 # A/B at exhaust-148, W=64, back to back, idle box
-target/release/solve24 --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
+target/release/solve24 --config large --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
   --parallel > runs/e6_base.log 2>&1
-target/release/solve24 --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
+target/release/solve24 --config large --position "$R" --prove-at-least 149 --clm2 --zpdb8 \
   --parallel --hugepages > runs/e6_huge.log 2>&1
 ```
 
@@ -460,7 +483,7 @@ result is stage 3 or nothing:
 
 ```sh
 # W=64 is rayon's default here; add --hugepages if E6 wins.
-RUN="target/release/solve24 --position \"$R\" \
+RUN="target/release/solve24 --config large --position \"$R\" \
      --clm2 --zpdb8 --parallel --checkpoint runs/ckpt156"
 
 # stage 1 (calibration): exhausts through 150; re-fit the growth ratio

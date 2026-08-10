@@ -2,8 +2,15 @@
 //! depth, with the (iterative, arena-based) search engine over cWD.
 //!
 //! ```text
-//! solve24 --position "<25 tokens>" [--prove-at-least T] [tier flags] [--parallel]
+//! solve24 --config <standard|large> --position "<25 tokens>" \
+//!         [--prove-at-least T] [tier flags] [--parallel]
 //! ```
+//!
+//! `--config` is required and has no default: it picks the machine scale the
+//! engine is tuned for (`standard` = 8 threads, `large` = 64). It does not
+//! change the search tree, so the answer is the same either way; what it costs
+//! is wall clock — 21% + ~3% measured for `standard` on the 64-core box. See
+//! `EngineConfig`.
 //!
 //! Position format: 25 whitespace-separated tokens in row-major order, `_`/`.`/`0`
 //! for the blank and `1..=24` for tiles. The board must be solvable.
@@ -39,18 +46,58 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use puzzle8::puzzle24::search::cwd::Cwd;
-use puzzle8::puzzle24::search::engine::{bounded_tiers, SearchOpts, Tiers};
+use puzzle8::puzzle24::search::engine::{bounded_tiers, EngineConfig, SearchOpts, Tiers};
 use puzzle8::puzzle24::search::move_dfa::MoveDfa;
 use puzzle8::puzzle24::search::{BoundedOutcome, SearchStats};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
+
+/// `--config` values. Mirrors [`EngineConfig`]; kept separate so the CLI
+/// spelling is not tied to the library type's variant names.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum ConfigArg {
+    /// Tuned on 8 threads: 16 MB shared k8 cache, 4096-unit split.
+    Standard,
+    /// Tuned on 64 threads: 1 GB shared k8 cache, 32768-unit split.
+    Large,
+}
+
+impl From<ConfigArg> for EngineConfig {
+    fn from(c: ConfigArg) -> Self {
+        match c {
+            ConfigArg::Standard => EngineConfig::Standard,
+            ConfigArg::Large => EngineConfig::Large,
+        }
+    }
+}
 
 /// Solve a 24-puzzle position optimally, or prove a lower bound on its optimal
 /// depth, with the (iterative, arena-based) search engine over cWD.
 #[derive(Parser)]
 #[command(name = "solve24")]
 struct Args {
+    /// Machine scale to tune for. Required: no default is right on both, and
+    /// the wrong choice is invisible in the output.
+    ///
+    /// `standard` is the 8-thread tuning (16 MB shared k8 cache, 4096-unit
+    /// split); `large` is the 64-thread tuning (1 GB cache, 32768-unit split).
+    /// The search tree is identical under both, so the answer is too — same
+    /// node count, same proven bound, same solution path (verified at R
+    /// exhaust-144: 115,436,814 nodes either way). Only wall clock differs.
+    ///
+    /// And only one direction of that is measured: at exhaust-148 on the
+    /// 64-core box, `standard` ran 21% slower on the shared k8 cache and ~3%
+    /// slower on split granularity. The reverse — `large` on a small machine —
+    /// is unmeasured; the 8-thread sweep that chose 16 MB spanned 2^19..2^25
+    /// and found them tied, but never tried 2^27. It does pin 1 GB of resident
+    /// cache, a rounding error at 503 GB and not at 32.
+    ///
+    /// With --checkpoint, resuming under a different --config re-searches every
+    /// banked unit of an unfinished threshold — safe, but wasted work.
+    #[arg(long, value_name = "SCALE", value_enum)]
+    config: ConfigArg,
+
     /// Board: 25 whitespace-separated tokens, row-major. Blank is 0, _ or .;
     /// tiles are 1..=24.
     #[arg(long, value_name = "P")]
@@ -269,6 +316,7 @@ fn main() -> ExitCode {
         _dyld_get_image_vmaddr_slide(0)
     });
     let args = Args::parse();
+    let engine_config: EngineConfig = args.config.into();
     // `--prove-at-least T` caps at threshold `T-1`: the deepest to exhaust.
     let max_bound = args.prove_at_least.map(|t| t - 1);
     let max_nodes = args.max_nodes.unwrap_or(u64::MAX);
@@ -358,7 +406,10 @@ fn main() -> ExitCode {
     };
     let k8 = if args.zpdb8 {
         eprintln!("k8: mmapping the three 8-tile ZPDBs (32.8 GB)…");
-        match puzzle8::puzzle24::search::engine::K8Ctx::load_mmap(std::path::Path::new("data")) {
+        match puzzle8::puzzle24::search::engine::K8Ctx::load_mmap(
+            std::path::Path::new("data"),
+            engine_config,
+        ) {
             Ok(ctx) => {
                 eprintln!(
                     "k8 ready: lazy max(cWD, k8) at survivors, both σ-views, \
@@ -443,6 +494,7 @@ fn main() -> ExitCode {
             max_bound: max_bound.unwrap_or(u8::MAX),
             budget: max_nodes,
             checkpoint: args.checkpoint.as_ref().map(std::path::PathBuf::from),
+            config: engine_config,
         };
         if args.parallel {
             puzzle8::puzzle24::search::engine::bounded_parallel(

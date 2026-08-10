@@ -552,15 +552,64 @@ pub struct K8SharedCache {
     shift: u32,
 }
 
-/// Shared k8 cache size, in bits (2^27 slots x 8 B = 1 GB).
+/// Which machine scale the engine is tuned for.
 ///
-/// Was 21 (16 MB) on an 8-thread measurement where a 2^19..2^25 sweep moved
-/// wall clock less than the canary spread despite hit rates ranging 76-92%.
-/// **That conclusion does not survive 64 threads.** All workers share this one
-/// structure, so unique-key pressure scales with thread count: measured at
-/// exhaust-148, the hit rate falls from 72.905% at W=16 to 66.271% at W=64 —
-/// 24.6% more misses, each a rank walk plus a random probe into the 33 GB
-/// zPDB mmaps.
+/// Only two values differ between them — the shared k8 cache size and the
+/// parallel split's unit count — but both were re-measured at W=64 and both
+/// moved enough to matter (21% and 3%). The generalisable rule the sweep
+/// produced: a constant guarding *per-thread* state transfers across machines,
+/// while a constant guarding *shared* state must be re-measured per thread
+/// count. `K8_SHARED_BITS` is the only shared one, and it is the one that moved
+/// 21%; the per-worker cache sizes were re-measured at W=64 and kept.
+///
+/// **Neither value changes the search tree.** The split count only decides how
+/// the same tree is partitioned into work units, and the cache size only
+/// decides how often a probe is answered without touching the mmap — so node
+/// counts are identical under both, and a proof run under either is equally
+/// valid. What the choice costs is wall clock, and — for `--checkpoint` —
+/// whether a resumed run's unit records still line up (see
+/// [`ckpt_unit_fp`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EngineConfig {
+    /// Tuned on 8 threads: 16 MB shared k8 cache, 4096-unit split.
+    Standard,
+    /// Tuned on 64 threads: 1 GB shared k8 cache, 32768-unit split.
+    Large,
+}
+
+impl EngineConfig {
+    fn k8_shared_bits(self) -> u32 {
+        match self {
+            EngineConfig::Standard => K8_SHARED_BITS_STANDARD,
+            EngineConfig::Large => K8_SHARED_BITS_LARGE,
+        }
+    }
+
+    /// Frontier size the parallel split grows to before dispatching.
+    #[cfg(feature = "parallel")]
+    pub fn split_target(self) -> usize {
+        match self {
+            EngineConfig::Standard => SPLIT_TARGET_STANDARD,
+            EngineConfig::Large => SPLIT_TARGET_LARGE,
+        }
+    }
+}
+
+/// Shared k8 cache size, in bits, for [`EngineConfig::Standard`] — 2^21 slots
+/// x 8 B = 16 MB.
+///
+/// Chosen on an 8-thread measurement where a 2^19..2^25 sweep moved wall clock
+/// less than the canary spread despite hit rates ranging 76-92%. That
+/// conclusion does not survive 64 threads; see [`K8_SHARED_BITS_LARGE`].
+const K8_SHARED_BITS_STANDARD: u32 = 21;
+
+/// Shared k8 cache size, in bits, for [`EngineConfig::Large`] — 2^27 slots
+/// x 8 B = 1 GB.
+///
+/// All workers share this one structure, so unique-key pressure scales with
+/// thread count: measured at exhaust-148, the hit rate falls from 72.905% at
+/// W=16 to 66.271% at W=64 — 24.6% more misses, each a rank walk plus a random
+/// probe into the 33 GB zPDB mmaps.
 ///
 /// Swept at exhaust-148, W=64 (seconds), against a 3.3% canary spread
 /// (three bits=21 references at 23.67 / 24.46 / 24.05 s on threshold 146):
@@ -570,22 +619,24 @@ pub struct K8SharedCache {
 /// | size | 16M | 32M | 128M | 256M | 512M | 1G | 2G |
 /// | wall | 568.4 | 540.6 | 508.5 | 492.9 | 462.6 | **448.4** | 445.2 |
 ///
-/// Monotone to 27 (**-21.1%**), then flat — 28 buys 0.7% for double the
-/// memory, so 27 is the knee. 1 GB is a rounding error against the 49 GB
-/// table set the machine is already sized for (peak RSS 50.7 GB).
+/// Monotone to 27 (**-21.1%** against bits=21), then flat — 28 buys 0.7% for
+/// double the memory, so 27 is the knee. 1 GB is a rounding error against the
+/// 49 GB table set the machine is already sized for (peak RSS 50.7 GB).
 ///
 /// Re-measure if the thread count changes again: the 8-thread and 64-thread
 /// answers differ by 21%, so there is no reason to expect this one final.
-const K8_SHARED_BITS: u32 = 27;
+const K8_SHARED_BITS_LARGE: u32 = 27;
 
 impl K8SharedCache {
-    pub fn new() -> Self {
+    /// Allocate the shared cache at `config`'s size.
+    pub fn new(config: EngineConfig) -> Self {
+        let bits = config.k8_shared_bits();
         K8SharedCache {
-            slots: (0..1usize << K8_SHARED_BITS)
+            slots: (0..1usize << bits)
                 .map(|_| std::sync::atomic::AtomicU64::new(0))
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
-            shift: 64 - K8_SHARED_BITS,
+            shift: 64 - bits,
         }
     }
 
@@ -622,12 +673,6 @@ impl K8SharedCache {
             (key << 8) | val as u64,
             std::sync::atomic::Ordering::Relaxed,
         );
-    }
-}
-
-impl Default for K8SharedCache {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -792,7 +837,7 @@ impl K8Ctx {
 
     /// Load `pdb24_k8_{a,b,c}.zbin` from `dir` and verify the patterns are
     /// pairwise disjoint and cover all 24 tiles (Korf–Felner additivity).
-    pub fn load_mmap(dir: &std::path::Path) -> Result<Self, String> {
+    pub fn load_mmap(dir: &std::path::Path, config: EngineConfig) -> Result<Self, String> {
         let names = ["pdb24_k8_a.zbin", "pdb24_k8_b.zbin", "pdb24_k8_c.zbin"];
         let mut dbs = Vec::with_capacity(3);
         for n in names {
@@ -833,7 +878,7 @@ impl K8Ctx {
             dbs,
             group_of,
             slot_of,
-            shared: K8SharedCache::new(),
+            shared: K8SharedCache::new(config),
         })
     }
 }
@@ -1773,6 +1818,9 @@ pub struct SearchOpts {
     /// resumes instead of restarting. Parallel driver only — the sequential
     /// driver rejects it.
     pub checkpoint: Option<std::path::PathBuf>,
+    /// Machine scale to tune for. Does not change the tree — see
+    /// [`EngineConfig`].
+    pub config: EngineConfig,
 }
 
 impl Default for SearchOpts {
@@ -1782,6 +1830,7 @@ impl Default for SearchOpts {
             max_bound: u8::MAX,
             budget: u64::MAX,
             checkpoint: None,
+            config: EngineConfig::Large,
         }
     }
 }
@@ -1807,6 +1856,7 @@ where
         max_bound,
         budget,
         checkpoint,
+        config: _config,
     } = opts;
     assert!(
         checkpoint.is_none(),
@@ -1940,9 +1990,13 @@ enum Step {
 /// magnitude and rayon's work-stealing needs slack to balance them. The deleted
 /// recursive driver used the same figure for the same reason.
 ///
-/// Was 4096, which gave ~500 units per worker at the 8-thread scale it was
-/// tuned on but only ~64 at W=64, thin enough that a few oversized subtrees
-/// serialise each threshold's tail. Swept at exhaust-148, W=64 (seconds):
+/// [`EngineConfig::Standard`]: ~500 units per worker at the 8-thread scale this
+/// was tuned on — but only ~64 at W=64, thin enough that a few oversized
+/// subtrees serialise each threshold's tail.
+#[cfg(feature = "parallel")]
+const SPLIT_TARGET_STANDARD: usize = 4096;
+
+/// [`EngineConfig::Large`]. Swept at exhaust-148, W=64 (seconds):
 ///
 /// | 4096 | 16384 | 32768 | 65536 |
 /// |------|-------|-------|-------|
@@ -1953,7 +2007,7 @@ enum Step {
 /// original ~500-units-per-worker ratio at W=64; deeper thresholds have more
 /// subtree-size variance, so the extra slack is the safer end of a flat range.
 #[cfg(feature = "parallel")]
-const SPLIT_TARGET: usize = 32768;
+const SPLIT_TARGET_LARGE: usize = 32768;
 
 /// Probe-cache size for a *worker*, in bits. Same as the sequential
 /// [`CACHE_BITS`], and that is not a coincidence — see below.
@@ -2002,34 +2056,13 @@ const SPLIT_TARGET: usize = 32768;
 /// these caches buy is not cache residency but *not probing the multi-GB
 /// tables*, and an L3-missing cache lookup still beats a random mmap probe.
 ///
-/// Contrast [`K8_SHARED_BITS`], where the same 8-thread reasoning failed
+/// Contrast [`K8_SHARED_BITS_LARGE`], where the same 8-thread reasoning failed
 /// badly: that cache is *shared*, so unique-key pressure scales with W and its
 /// 8-thread sizing left 21% on the table at 64. The rule the two results
 /// suggest: constants guarding per-thread state transfer across machines;
 /// constants guarding shared state must be re-measured per thread count.
 #[cfg(feature = "parallel")]
 const WORKER_CACHE_BITS: u32 = 18;
-
-/// Overridable from the environment so that a sweep costs runs rather than
-/// rebuilds. Gated behind the profile feature, so the default build reads no
-/// environment and keeps the constant.
-#[cfg(feature = "parallel-profile")]
-fn env_usize(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
-
-#[cfg(feature = "parallel-profile")]
-fn split_target() -> usize {
-    env_usize("FLAT_SPLIT_TARGET", SPLIT_TARGET)
-}
-
-#[cfg(all(feature = "parallel", not(feature = "parallel-profile")))]
-fn split_target() -> usize {
-    SPLIT_TARGET
-}
 
 /// One subtree-root work unit: enough to reseed a worker's arena, plus the
 /// move-prefix that reaches it so a worker finding the goal can return a full
@@ -2294,6 +2327,7 @@ where
         max_bound,
         budget,
         checkpoint,
+        config,
     } = opts;
     assert_eq!(
         budget,
@@ -2384,7 +2418,7 @@ where
         let mut min_f = u8::MAX;
         let mut found: Option<Vec<Move>> = None;
 
-        while frontier.len() < split_target() {
+        while frontier.len() < config.split_target() {
             let Some(u) = frontier.pop_front() else { break };
             stats.nodes += 1; // counted here because it is expanded, not searched
             if u.h > bound {
@@ -2617,6 +2651,20 @@ where
             if restored > 0 {
                 eprintln!(
                     "checkpoint: threshold {bound}: {restored}/{} units restored",
+                    units.len()
+                );
+            } else if store.units.keys().any(|(b, _)| *b == bound) {
+                // Records exist for this threshold but not one matched. The
+                // fingerprint guard makes that safe — no record is ever applied
+                // to a different subtree — but every banked unit is about to be
+                // re-searched, so say so rather than quietly redoing the work.
+                // The usual cause is a different `--config`: the split count is
+                // not part of the run id, so the records load and then fail to
+                // line up index by index.
+                eprintln!(
+                    "checkpoint: threshold {bound}: 0/{} units restored — records exist but \
+                     none match this split; re-searching (is --config the same as the run \
+                     that wrote them?)",
                     units.len()
                 );
             }
@@ -4295,7 +4343,8 @@ mod tests {
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
         let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
-        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        let ctx =
+            K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Large).expect("zpdbs");
         for (i, db) in ctx.dbs.iter().enumerate() {
             let tiles: Vec<u8> = db.pattern().iter().collect();
             eprintln!("group {}: tiles {:?}", (b'a' + i as u8) as char, tiles);
@@ -4455,7 +4504,8 @@ mod tests {
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
         let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
-        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        let ctx =
+            K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Large).expect("zpdbs");
         let text = std::fs::read_to_string("data/survivors_146.txt").expect("survivor sample");
 
         let (mut nb, mut ck, mut cl, mut both, mut konly, mut lonly, mut neither) =
@@ -4569,7 +4619,8 @@ mod tests {
         let cwd = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")).expect("cwd_mm.bin");
         let backing = cwd.backing().unwrap();
         let mm = super::load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")).expect("lm mm");
-        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("zpdbs");
+        let ctx =
+            K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Large).expect("zpdbs");
         let text = std::fs::read_to_string("data/survivors_148.txt").expect("survivor sample");
         let goal = crate::puzzle24::search::cwd::goal_key();
 
@@ -4949,7 +5000,8 @@ mod tests {
         use crate::puzzle24::symmetry;
         let path = std::env::var("AUTOPSY_FILE").expect("set AUTOPSY_FILE");
         let text = std::fs::read_to_string(&path).expect("read dump");
-        let ctx = K8Ctx::load_mmap(std::path::Path::new("data")).expect("k8 tables");
+        let ctx =
+            K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Large).expect("k8 tables");
         let nums = |seg: &str| -> Vec<i64> {
             seg.chars()
                 .map(|c| {
@@ -5390,7 +5442,7 @@ mod tests {
             eprintln!("cwd_lm1l_mm.bin absent — skipping the assertion gate");
             return;
         };
-        let Ok(k8) = K8Ctx::load_mmap(std::path::Path::new("data")) else {
+        let Ok(k8) = K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Large) else {
             eprintln!("k8 zPDBs absent — skipping the assertion gate");
             return;
         };
