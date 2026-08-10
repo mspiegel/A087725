@@ -1758,7 +1758,8 @@ impl Tiers<'_> {
 #[derive(Clone)]
 pub struct SearchOpts {
     /// σ-orbit split at the root; only sound on a σ-fixed board (the caller
-    /// owns that precondition, and it is debug-asserted).
+    /// owns that precondition, and both drivers `assert!` it — in release too,
+    /// since an unsound split would silently discard subtrees).
     pub orbit_split: bool,
     /// Deepest threshold to exhaust; `u8::MAX` = search to the optimum.
     pub max_bound: u8,
@@ -5354,6 +5355,84 @@ mod tests {
         assert!(
             exhausts >= 100,
             "expected ~117 exhausted-threshold cases, got {exhausts}"
+        );
+    }
+
+    /// **The assertion gate.** Exhausts threshold 144 on R with the full cascade
+    /// (the `--clm2 --zpdb8 --parallel` configuration a proof runs) and pins the
+    /// node count.
+    ///
+    /// A proof only ever runs `--release`, where every `debug_assert!` compiles
+    /// out — so the engine's carried-state invariants (the XOR-maintained k8
+    /// keys, front-cache transparency, `D ≥ WD`, a work unit's carried `h`, the
+    /// ladder's strict increase) are only ever *executed* by a run like this
+    /// one. Run it in the **default (debug) profile**: `--release` still checks
+    /// the node count, but skips the assertions, which are the part worth the
+    /// wall clock.
+    ///
+    /// 115,436,814 is the count `runs/ckpt156/main.ckpt` records for threshold
+    /// 144, so this doubles as a full-scale node-identity canary — the frozen
+    /// oracle above covers only small boards.
+    ///
+    ///   cargo test flat_cascade_assertions_hold_at_144 -- --ignored --nocapture
+    #[cfg(feature = "parallel")]
+    #[test]
+    #[ignore = "needs data/cwd_mm.bin, data/cwd_lm_mm.bin, data/cwd_lm1l_mm.bin and the three \
+                k8 zPDBs (~49 GB total); ~4 min in the debug profile (~30 s release); run with \
+                `cargo test flat_cascade_assertions_hold_at_144 -- --ignored --nocapture`"]
+    fn flat_cascade_assertions_hold_at_144() {
+        let Ok(cwd) = Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")) else {
+            eprintln!("cwd_mm.bin absent — skipping the assertion gate");
+            return;
+        };
+        // Not a no-op: enabling the prune fills each merged cell's neighbour-WD,
+        // and the node count below is only reproducible with it on.
+        let cwd = cwd.with_neighbor_prune(true);
+        let Ok(lm2) = load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")) else {
+            eprintln!("cwd_lm_mm.bin absent — skipping the assertion gate");
+            return;
+        };
+        let Ok(t1l) =
+            super::super::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new("data/cwd_lm1l_mm.bin"))
+        else {
+            eprintln!("cwd_lm1l_mm.bin absent — skipping the assertion gate");
+            return;
+        };
+        let Ok(k8) = K8Ctx::load_mmap(std::path::Path::new("data")) else {
+            eprintln!("k8 zPDBs absent — skipping the assertion gate");
+            return;
+        };
+        let dfa = MoveDfa::build_default();
+        let r = State([
+            0, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2,
+            1,
+        ]);
+        assert!(symmetry::is_symmetric(&r), "board R must be σ-symmetric");
+
+        let (out, stats) = flat_bounded_parallel(
+            &r,
+            &cwd,
+            &dfa,
+            Tiers {
+                k8: Some(&k8),
+                lm: None,
+                lm2: Some(&lm2),
+                lm1l: Some(&t1l),
+            },
+            SearchOpts {
+                orbit_split: true,
+                max_bound: 144,
+                ..SearchOpts::default()
+            },
+            |_, _, _| {},
+        );
+        assert!(
+            matches!(out, BoundedOutcome::ProvedAtLeast(146)),
+            "exhausting threshold 144 proves depth >= 146, got {out:?}"
+        );
+        assert_eq!(
+            stats.nodes, 115_436_814,
+            "threshold-144 node count drifted from runs/ckpt156/main.ckpt"
         );
     }
 
