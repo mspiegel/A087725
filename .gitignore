@@ -9,8 +9,15 @@
 powermetrics.txt
 data/pairs_*.txt
 
-# Phase-2 hunt run logs/artifacts (regenerable; TSVs added explicitly when wanted)
-runs/
+# Phase-2 hunt run logs/artifacts (regenerable; TSVs added explicitly when wanted).
+# `runs/*` rather than `runs/` so the negation below can re-include a subtree —
+# git cannot re-include anything under an excluded *directory*.
+runs/*
+# The R=156 proof record: per-threshold node counts (main.ckpt) plus the
+# per-unit trace that lets a verifier re-run a single subtree and check its
+# node count, instead of redoing the whole search. ~11 MB of ASCII, ~3 MB
+# packed. Not regenerable — this is the evidence.
+!runs/ckpt156/
 
 # macOS Finder metadata
 .DS_Store
