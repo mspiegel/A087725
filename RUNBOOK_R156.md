@@ -256,22 +256,30 @@ Goal: *good enough to exploit the parallelism*, not perfect. All experiments
 at exhaust-148 (`--prove-at-least 149`) with the cascade — deep enough to see
 contention, cheap enough to iterate at ~10 min per run.
 
-### E1 — thread scaling curve — **DONE**
+### E1 — thread scaling curve — **DONE** (re-measured at final constants)
 
-Node count identical at every W (114,245,221,757), which re-confirms the
-driver's node-identity across thread counts:
+Node count identical at every W (114,245,221,757), re-confirming node-identity
+across thread counts. Measured twice: first at the original constants
+(SPLIT_TARGET 4096, K8_SHARED_BITS 21), then again at the final ones
+(32768, 27) after E2 and E7:
 
-| W | wall | Mn/s | per-core | efficiency vs W=16 |
-|---:|---:|---:|---:|---:|
-| 16 | 1929.4 s | 59.21 | 3.70 | 100% |
-| 32 | 1045.8 s | 109.24 | 3.41 | 92% |
-| 48 | 743.6 s | 153.63 | 3.20 | 87% |
-| **64** | **592.8 s** | **192.71** | 3.01 | 81% |
+| W | wall | Mn/s | per core | efficiency | (original wall) |
+|---:|---:|---:|---:|---:|---:|
+| 16 | 1486.64 s | 76.85 | 4.803 | 100% | 1929.41 s |
+| 32 | 812.45 s | 140.62 | 4.394 | 91.5% | 1045.82 s |
+| 48 | 570.95 s | 200.10 | 4.169 | 86.8% | 743.62 s |
+| **64** | **444.73 s** | **256.88** | 4.014 | **83.6%** | 592.83 s |
 
-Sub-linear but healthy: 4× the threads gives 3.26× the throughput, and W=64
-still buys 25% over W=48. **Run proofs at W=64** (rayon's default here, so no
-`RAYON_NUM_THREADS` needed). No hard memory-bandwidth plateau, which is what
-retires E4.
+**Run proofs at W=64** — rayon's default here, so no `RAYON_NUM_THREADS`
+needed. The tuning work cut exhaust-148 by 25.0% (592.83 -> 444.73 s).
+
+Two things this settles. There is no memory-bandwidth cliff — the curve
+declines smoothly rather than flattening — which is what retires E4/E9's
+size bump. And the ~16% parallel loss at W=64 is **not** explained by the
+shared-cache pressure fixed in E7: efficiency moved only 81.4% -> 83.6%,
+because the larger cache lifted every thread count nearly equally (+29.8% at
+W=16, +33.3% at W=64). The loss is a separate, still-unidentified mechanism;
+see E8.
 
 ### E2 — SPLIT_TARGET — **DONE** (4096 → 32768)
 
