@@ -42,13 +42,6 @@ matter.
 - **1 bit per PDB entry**, not 8 — distances reconstructed differentially.
 - **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
   to prune.
-- **Compile-time tier selection**, so an unused tier is absent from the emitted
-  loop rather than a well-predicted branch.
-- **Incremental keys** — cWD, tracked lines and PDB keys are updated, never
-  recomputed; cost-0 slides are skipped entirely.
-- **A front cache in front of every table**, direct-mapped and per-worker.
-- **Tables mapped, not parsed**, with `--hugepages` to cut the TLB footprint.
-- **Node-identical parallel tree-splitting** across rayon workers.
 
 Expanding on the ones that matter most:
 
