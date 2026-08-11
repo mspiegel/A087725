@@ -32,7 +32,7 @@ This project contributes three variations on the Walking Distance heuristic
   by single-demanded-line escape constraints and priced *jointly*, which is
   stronger than taking the maximum of the two separately.
 
-`WD.md` derives all three from scratch with worked examples.
+[`WD.md`](WD.md) derives all three from scratch with worked examples.
 
 This project also adopts the following optimizations. If a citation below is
 missing, please open a GitHub issue and it will be added.
@@ -148,9 +148,10 @@ target/release/solve24 --config large --position "$R" \
 ```
 
 Tables are built locally (~49 GB) and SHA-256 pinned; they are not in the repo.
-`RUNBOOK_R156.md` has the build procedure, measured timings, the pinned hashes
-and the machine requirements. `CLAUDE.md` has the gates any change must pass —
-chief among them node identity, since nothing may alter the search tree.
+[`RUNBOOK_R156.md`](RUNBOOK_R156.md) has the build procedure, measured timings,
+the pinned hashes and the machine requirements. [`CLAUDE.md`](CLAUDE.md) has the
+gates any change must pass — chief among them node identity, since nothing may
+alter the search tree.
 
 ---
 
@@ -193,8 +194,8 @@ identifies its depth-`d` neighbours with no search at all, and boards missed
 that way — strict local maxima — are recovered by a Bellman membership test over
 2–4 neighbours. IDA\* is a fallback for the residue only, never the descent.
 
-`ENUMERATION.md` has the algorithm in full. Note its status section predates the
-current data, which reaches depth 76.
+[`ENUMERATION.md`](ENUMERATION.md) has the algorithm in full. Note its status
+section predates the current data, which reaches depth 76.
 
 ---
 
@@ -217,8 +218,8 @@ learned solver's cost minus a fixed admissible baseline's, which targets boards
 where the learned solver underperforms rather than boards that are merely hard.
 
 Implementation is `src/puzzle24/ml/` on `candle` (Metal backend, CPU fallback);
-`TRAINING.md` documents the design and the 15-puzzle proof of concept that
-validated it, where exact ground truth exists.
+[`TRAINING.md`](TRAINING.md) documents the design and the 15-puzzle proof of
+concept that validated it, where exact ground truth exists.
 
 ### Results
 
@@ -226,14 +227,14 @@ validated it, where exact ground truth exists.
 never seen `R` or any state on its solution path. The literature's 156 was
 hand-constructed from R's rotational symmetry; this one was discovered by
 generic learned search. Replay-verified in `data/r156_ours_solution.txt`.
-See `FINDINGS_R.md`.
+See [`FINDINGS_R.md`](FINDINGS_R.md).
 
 **A catalog of certified-deep boards.** A construct → score → bound → re-seed
 loop produced **542 instances**, each bracketed by a proven lower bound
 (bounded IDA\* exhaust) and a replay-verified learned upper bound: 504 with
 LB ≥ 132, 204 at ≥ 138, 106 at ≥ 140, 19 at ≥ 142. Across 2,713 evidence rows,
 **zero LB > UB inversions** — the two independent solvers never contradicted
-each other. The registry is `data/catalog24.tsv`; see `FINDINGS_HUNT.md`.
+each other. The registry is `data/catalog24.tsv`; see [`FINDINGS_HUNT.md`](FINDINGS_HUNT.md).
 
 The bracket is what makes an entry scientific rather than suggestive: a board at
 `[138, 160]` is a certified-deep instance whose optimum is pinned to a 22-wide
@@ -255,10 +256,11 @@ src/puzzle24/ml/                  value net, policy net, DAVI, BWAS (§3)
 src/puzzle8/                      the 8-puzzle warmup: full ground truth
 ```
 
-`DESIGN.md` explains the 8-puzzle-first approach and the compression question
-the project started from. `WD.md` documents the walking-distance family the
-prover's heuristic is built on. `records/` holds the measurement ledgers — grep
-`records/r_flat_k8_lazy.txt` before calling any optimization idea untried.
+[`DESIGN.md`](DESIGN.md) explains the 8-puzzle-first approach and the
+compression question the project started from. [`WD.md`](WD.md) documents the
+walking-distance family the prover's heuristic is built on. `records/` holds the
+measurement ledgers — grep `records/r_flat_k8_lazy.txt` before calling any
+optimization idea untried.
 
 ---
 
