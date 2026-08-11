@@ -20,9 +20,22 @@ cargo test
 
 ### Optimizations
 
-The tree is fixed — none of this changes a pruning decision. Each item either
-makes the same nodes cheaper or avoids generating nodes that provably cannot
-matter.
+This project contributes three variations on the Walking Distance heuristic
+(Takahashi, 2001), all admissible, all used by the prover:
+
+- **cWD** — escape-constrained Walking Distance. WD sharpened by the moves a
+  blank must spend leaving a line it is obliged to cross.
+- **Last-moves Walking Distance** (`--lm`, `--lm2`) — WD refined by the forced
+  final move or two of any solution. The last-moves idea is not itself novel
+  (Korf & Taylor, 1996); pricing it against a WD abstraction is.
+- **cLM2** (`--clm2`) — the two combined, with the last-two-move branches lifted
+  by single-demanded-line escape constraints and priced *jointly*, which is
+  stronger than taking the maximum of the two separately.
+
+`WD.md` derives all three from scratch with worked examples.
+
+This project also adopts the following optimizations. If a citation below is
+missing, please open a GitHub issue and it will be added.
 
 - **Iterative, not recursive.** Search state lives in a depth-indexed arena
   allocated once; there is no call frame to spill across.
@@ -30,19 +43,17 @@ matter.
   built once per worker and reused across work units and thresholds.
 - **One axis copied per move, the other shared** with an ancestor for the cost
   of a one-byte index.
-- **Move-pruning DFA.** Taylor–Korf duplicate elimination (Taylor & Korf, 1993) compiled to a
-  41,396-state automaton (687 KiB), folded into the candidate mask.
+- **Move-pruning DFA.** Taylor–Korf duplicate elimination
+  (Taylor & Korf, 1993), compiled to a 41,396-state automaton (687 KiB) and
+  folded into the candidate mask.
 - **Child pre-prune from the parent's neighbour-WD** — over-bound children are
   skipped before being built, with no table probe.
-- **σ-orbit split at the root** (Culberson & Schaeffer, 1994), halving the tree on a σ-symmetric board.
-- **cWD**: Walking Distance (Takahashi, 2001) sharpened by escape demands.
-- **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
-  endgame crossings on top of cWD — the last-move idea is (Korf & Taylor, 1996), the cWD-based
-  tiers are this project's.
-- **Three additive (Korf & Felner, 2002) 8-tile zero-aware
-  (Clausecker & Reinefeld, 2019) PDBs**, each queried in both
-  σ-views.
-- **1 bit per PDB entry** (Clausecker & Reinefeld, 2019), not 8 — distances reconstructed differentially.
+- **σ-orbit split at the root** (Culberson & Schaeffer, 1994), halving the tree
+  on a σ-symmetric board.
+- **Three additive (Korf & Felner, 2002) 8-tile zero-aware PDBs**
+  (Clausecker & Reinefeld, 2019), each queried in both σ-views.
+- **1 bit per PDB entry** (Clausecker & Reinefeld, 2019), not 8 — distances
+  reconstructed differentially.
 - **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
   to prune.
 
@@ -71,8 +82,7 @@ solvable and the two add. cWD sharpens that with escape demands — the moves a
 blank must spend leaving a line it is obliged to cross. The last-move tiers go
 further: `--lm` tracks one type-3 tile's forced 3→4 crossing, `--lm2` prices all
 four last-two-move endgame branches, and `--clm2` lifts those branches with
-single-demanded-line escape constraints, priced jointly. `WD.md` is a full
-intuition-level account with worked examples.
+single-demanded-line escape constraints, priced jointly.
 
 **The k8 tables are 1 bit per entry.** The 24 tiles partition into three
 disjoint 8-tile patterns whose distances sum admissibly (Korf–Felner).
