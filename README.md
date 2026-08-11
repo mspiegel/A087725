@@ -18,7 +18,7 @@ cargo test
 
 ## 1. A 24-puzzle solver specialized for deep boards
 
-### What makes it fast
+### Optimizations
 
 The tree is fixed — none of this changes a pruning decision. Each item either
 makes the same nodes cheaper or avoids generating nodes that provably cannot
