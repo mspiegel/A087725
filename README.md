@@ -7,7 +7,7 @@ solves hard 24-puzzle instances.
 
 All depths are **single-tile moves (STM)**. The 15-puzzle diameter is 80
 (Korf & Schultze, 2005); the 24-puzzle diameter is known only to lie in
-[152, 205].
+[152, 205] (Hannanov & Rokicki, 2011; Whitmore, 2018).
 
 ```sh
 cargo build --release --features sha
@@ -35,7 +35,7 @@ matter.
 - **Child pre-prune from the parent's neighbour-WD** — over-bound children are
   skipped before being built, with no table probe.
 - **σ-orbit split at the root** (Culberson & Schaeffer, 1994), halving the tree on a σ-symmetric board.
-- **cWD**: Walking Distance (Takahashi, n.d.) sharpened by escape demands.
+- **cWD**: Walking Distance (Takahashi, 2001) sharpened by escape demands.
 - **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
   endgame crossings on top of cWD — the last-move idea is (Korf & Taylor, 1996), the cWD-based
   tiers are this project's.
@@ -99,7 +99,8 @@ on a specific hard board by exhausting IDA\* thresholds. Every heuristic in it
 is consistent, so an exhausted threshold `b` is a theorem: `optimal(board) > b`.
 
 The target is `R`, the canonical hard instance (blank at cell 0, tile 25−i at
-cell i), for which the literature records `optimal(R) ∈ [152, 156]`.
+cell i), for which the literature records `optimal(R) ∈ [152, 156]`
+(Hannanov & Rokicki, 2011).
 
 **Status.** Thresholds 144, 146, 148 and 150 are exhausted — **2,405,729,385,972
 nodes**, proving `optimal(R) ≥ 152`. The per-threshold record is committed in
@@ -275,6 +276,16 @@ which the root split used here is the special case — none phrases it as
 root-specific. Taking the maximum of a PDB and its reflection is a separate
 technique from the same papers (§4.3 in the 1998 version).
 
+Hannanov, B., and Rokicki, T. 2011. *Twenty-Four puzzle, some observations.*
+Domain of the Cube Forum, node 238, `forum.cubeman.org/?q=node/view/238`,
+linked from OEIS A087725. The published `optimal(R) ∈ [152, 156]`. The forum
+403s ordinary fetchers; use a browser User-Agent.
+
+Korf, R. E., and Taylor, L. A. 1996. *Finding Optimal Solutions to the
+Twenty-Four Puzzle.* AAAI 1996, pp. 1202–1207. Introduces the last-moves
+heuristic ("the last two are introduced here for the first time"); the
+linear-conflict heuristic it also uses is Hansson, Mayer & Yung 1992.
+
 Korf, R. E., and Felner, A. 2002. *Disjoint Pattern Database Heuristics.*
 Artificial Intelligence 134(1–2).
 
@@ -282,20 +293,29 @@ Korf, R. E., and Schultze, P. 2005. *Large-Scale Parallel Breadth-First
 Search.* AAAI 2005. The complete 15-puzzle depth distribution, which
 `data/pdb15_depth_histogram.txt` reproduces and §2 gates each layer against.
 
-Korf, R. E., and Taylor, L. A. 1996. *Finding Optimal Solutions to the
-Twenty-Four Puzzle.* AAAI 1996, pp. 1202–1207. Introduces the last-moves
-heuristic ("the last two are introduced here for the first time"); the
-linear-conflict heuristic it also uses is Hansson, Mayer & Yung 1992.
+stannic. 2017. *Pattern databases for the 5x5 sliding puzzle.* Domain of the
+Cube Forum, node 555, `forum.cubeman.org/?q=node/view/555`. Dates Takahashi's
+heuristics to 2001/2002 and raises the Prieditis X-Y connection; its
+"Nodecounts" comment (2017-04-24) is the source of the 17 depth-80 antipodes in
+`data/pdb15_antipodes.txt`, which §2 seeds the enumeration from.
 
-Takahashi, K. n.d. *How to Make an Automatic 15 Puzzle Answering Program.*
-`ic-net.or.jp/home/takaken/nt/slide/solve15.html`, English companion at
-`.../takaken/e/15pz/index.html`. Walking Distance has no formal publication —
-the primary source is the author's own site, now offline, with an Internet
-Archive snapshot from 2024-04-22. For a peer-reviewed work that formally cites
-that page, see Hasan, D. O.; Aladdin, A. M.; Talabani, H. S.; Rashid, T. A.;
-and Mirjalili, S. 2023. *The Fifteen Puzzle — A New Approach through
-Hybridizing Three Heuristics Methods.* Computers 12(1):11.
+Takahashi, K. ("takaken") 2001. *１５パズル自動解答プログラムの作り方*
+[How to build an automatic 15-puzzle solver], describing the Walking Distance
+and Invert Distance heuristics.
+`ic-net.or.jp/home/takaken/nt/slide/solve15.html`, now offline; earliest
+Internet Archive capture 2001-06-25. His *15puzzle Optimal solver* reached
+v1.2 in May 2002. Walking Distance has no formal publication — the 2001 date is
+the earliest archived capture of the page, corroborated by stannic (2017),
+which also notes that WD may be a rediscovery of the X-Y heuristic (Prieditis,
+1993). For a peer-reviewed work that formally cites the page, see Hasan, D. O.;
+Aladdin, A. M.; Talabani, H. S.; Rashid, T. A.; and Mirjalili, S. 2023. *The
+Fifteen Puzzle — A New Approach through Hybridizing Three Heuristics Methods.*
+Computers 12(1):11.
 
 Taylor, L. A., and Korf, R. E. 1993. *Pruning Duplicate Nodes in Depth-First
 Search.* AAAI 1993, pp. 756–761. Introduces the finite-state machine that
 enforces the pruning rules.
+
+Whitmore, B. 2018. *5x5 sliding puzzle can be solved in 205 moves.* Domain of
+the Cube Forum, node 559, `forum.cubeman.org/?q=node/view/559`. The 24-puzzle
+diameter upper bound.
