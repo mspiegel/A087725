@@ -57,60 +57,21 @@ missing, please open a GitHub issue and it will be added.
 - **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
   to prune.
 
-Expanding on the ones that matter most:
-
-**The arena is the reason the engine exists.** The recursive engine it replaced
-carried a 384-byte frame doing 85 stack spill/reload instructions per node; a
-flat loop removes the call boundary those spills exist to cross. The arena also
-exploits a structural fact — a move changes only the row or the column
-abstraction, never both — by indexing per-axis state with `row_at[d]`/`col_at[d]`
-instead of depth. The untouched axis is shared with an ancestor and costs one
-byte, against the 20-byte undo record the recursive engine wrote per node.
-
-**The DFA prunes more than loops.** A continuation is *dominated* if it reaches
-a board also reachable by a shorter — or equal-length, lexicographically smaller
-— sequence. Skipping it removes duplicate work without ever removing a board, so
-an exhausted threshold stays a sound lower bound. That predicate is regular in
-the move string, so it compiles (Aho–Corasick collapse, then Myhill–Nerode
-minimization) to a table that fits in L2. Per node the check is one
-array-indexed transition — no hashing, no main-memory traffic, unlike a
-transposition table.
-
-**The heuristics are all admissible, and stack lazily.** Walking Distance
-abstracts tiles into per-row and per-column bags, so each half is exactly
-solvable and the two add. cWD sharpens that with escape demands — the moves a
-blank must spend leaving a line it is obliged to cross. The last-move tiers go
-further: `--lm` tracks one type-3 tile's forced 3→4 crossing, `--lm2` prices all
-four last-two-move endgame branches, and `--clm2` lifts those branches with
-single-demanded-line escape constraints, priced jointly.
-
-**The k8 tables are 1 bit per entry.** The 24 tiles partition into three
-disjoint 8-tile patterns whose distances sum admissibly (Korf–Felner).
-*Zero-aware* means the blank belongs to the pattern; the 1-bit encoding
-(Clausecker–Reinefeld) stores only whether a neighbour's distance rises or
-falls, reconstructed differentially from a known start. That is what fits
-30.5 GB where a byte per entry would need eight times as much. Because the
-encoding is differential, the search must carry a running distance — which the
-incremental machinery does anyway, by one XOR per moved tile, skipping the four
-group-views a move leaves untouched.
-
-**Caching is what makes the cascade affordable.** Every table sits behind a
-direct-mapped front cache: the cWD cache runs at 99.665% hits sequentially, and
-the k8 cache — keyed on packed tile positions, so a hit costs neither the rank
-walk nor the mmap — measured 3.3× throughput (20.2 → 67.3 Mn/s at exhaust-144).
-No cache is load-bearing for correctness; a hit must equal what the table would
-have returned.
-
 ### What it proves
 
-`solve24` is not a general solver — it cannot return a solution path for an
-arbitrary board in reasonable time. It does one thing: **prove a lower bound**
-on a specific hard board by exhausting IDA\* thresholds. Every heuristic in it
-is consistent, so an exhausted threshold `b` is a theorem: `optimal(board) > b`.
+The target is `R`, the canonical hard instance — the goal rotated 180°, which
+the literature calls the "turned 180-degree" configuration. It records
+`optimal(R) ∈ [152, 156]` (Hannanov & Rokicki, 2011).
 
-The target is `R`, the canonical hard instance (blank at cell 0, tile 25−i at
-cell i), for which the literature records `optimal(R) ∈ [152, 156]`
-(Hannanov & Rokicki, 2011).
+```text
+      goal                    R
+
+    1  2  3  4  5         · 24 23 22 21
+    6  7  8  9 10        20 19 18 17 16
+   11 12 13 14 15        15 14 13 12 11
+   16 17 18 19 20        10  9  8  7  6
+   21 22 23 24  ·         5  4  3  2  1
+```
 
 **Status.** Thresholds 144, 146, 148 and 150 are exhausted — **2,405,729,385,972
 nodes**, proving `optimal(R) ≥ 152`. The per-threshold record is committed in
