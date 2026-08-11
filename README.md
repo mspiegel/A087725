@@ -276,10 +276,22 @@ which the root split used here is the special case — none phrases it as
 root-specific. Taking the maximum of a PDB and its reflection is a separate
 technique from the same papers (§4.3 in the 1998 version).
 
-Hannanov, B., and Rokicki, T. 2011. *Twenty-Four puzzle, some observations.*
-Domain of the Cube Forum, node 238, `forum.cubeman.org/?q=node/view/238`,
-linked from OEIS A087725. The published `optimal(R) ∈ [152, 156]`. The forum
-403s ordinary fetchers; use a browser User-Agent.
+Hannanov, B. ("stannic"), and Rokicki, T. 2011. *Twenty-Four puzzle, some
+observations.* Domain of the Cube Forum, node 238,
+`forum.cubeman.org/?q=node/view/238`, linked from OEIS A087725. The thread that
+produced both published bounds on `R`: Hannanov opens it by proving ≥ 140 STM
+"using good heuristic developed by Ken'ichiro Takahashi (takaken)", and Rokicki
+then reports 12,225 distinct length-156 solutions (2011-08-09) and a completed
+ply-150 search with no solution, giving ≥ 152 by parity (2011-08-18). H.
+Kociemba also contributes. The forum 403s ordinary fetchers; use a browser
+User-Agent.
+
+Hannanov, B. ("stannic") 2017. *Pattern databases for the 5x5 sliding puzzle.*
+Domain of the Cube Forum, node 555, `forum.cubeman.org/?q=node/view/555`. Dates
+Takahashi's heuristics to 2001/2002 and raises the Prieditis X-Y connection;
+lists `R` as "rotate_180" and "a particularly bad case for disjoint pattern
+databases". Its "Nodecounts" comment (2017-04-24) is the source of the 17
+depth-80 antipodes in `data/pdb15_antipodes.txt`, which §2 seeds from.
 
 Korf, R. E., and Taylor, L. A. 1996. *Finding Optimal Solutions to the
 Twenty-Four Puzzle.* AAAI 1996, pp. 1202–1207. Introduces the last-moves
@@ -293,19 +305,13 @@ Korf, R. E., and Schultze, P. 2005. *Large-Scale Parallel Breadth-First
 Search.* AAAI 2005. The complete 15-puzzle depth distribution, which
 `data/pdb15_depth_histogram.txt` reproduces and §2 gates each layer against.
 
-stannic. 2017. *Pattern databases for the 5x5 sliding puzzle.* Domain of the
-Cube Forum, node 555, `forum.cubeman.org/?q=node/view/555`. Dates Takahashi's
-heuristics to 2001/2002 and raises the Prieditis X-Y connection; its
-"Nodecounts" comment (2017-04-24) is the source of the 17 depth-80 antipodes in
-`data/pdb15_antipodes.txt`, which §2 seeds the enumeration from.
-
 Takahashi, K. ("takaken") 2001. *１５パズル自動解答プログラムの作り方*
 [How to build an automatic 15-puzzle solver], describing the Walking Distance
 and Invert Distance heuristics.
 `ic-net.or.jp/home/takaken/nt/slide/solve15.html`, now offline; earliest
 Internet Archive capture 2001-06-25. His *15puzzle Optimal solver* reached
 v1.2 in May 2002. Walking Distance has no formal publication — the 2001 date is
-the earliest archived capture of the page, corroborated by stannic (2017),
+the earliest archived capture of the page, corroborated by Hannanov (2017),
 which also notes that WD may be a rediscovery of the X-Y heuristic (Prieditis,
 1993). For a peer-reviewed work that formally cites the page, see Hasan, D. O.;
 Aladdin, A. M.; Talabani, H. S.; Rashid, T. A.; and Mirjalili, S. 2023. *The
