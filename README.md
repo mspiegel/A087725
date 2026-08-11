@@ -1,13 +1,59 @@
-# A087725
+# Sliding-Tile Puzzle
 
-Sliding-tile puzzle research, in Rust. Three things live here: an exact
-24-puzzle lower-bound prover, an exact 15-puzzle solver with a complete
-enumeration of its deepest boards, and a learned system that constructs and
-solves hard 24-puzzle instances.
+Exact bounds and learned search for the 15- and 24-puzzle, in Rust.
 
-All depths are **single-tile moves (STM)**. The 15-puzzle diameter is 80
-(Korf & Schultze, 2005); the 24-puzzle diameter is known only to lie in
-[152, 205] (Hannanov & Rokicki, 2011; Whitmore, 2018).
+A sliding-tile puzzle is a grid of numbered tiles with one square left empty. A
+move slides a tile into the empty square. From a scrambled start, put the tiles
+back in order — in as few moves as possible.
+
+![An 8-puzzle solved and scrambled, with a smiley face split across the tiles](docs/eight-puzzle.svg)
+
+Easy to state, and easy to solve badly. Half of all tile arrangements cannot be
+reached at all: every move flips a parity invariant, so the arrangements split
+into two classes and only one of them contains the goal (Johnson & Story, 1879).
+And while *some* solution can always be found quickly, finding a **shortest** one
+is NP-hard in general (Ratner & Warmuth, 1990). Brute force runs out early —
+181,440 reachable arrangements for the 8-puzzle, but 1.05 × 10¹³ for the
+15-puzzle and 7.76 × 10²⁴ for the 24-puzzle.
+
+The puzzle is popularly credited to Sam Loyd, wrongly. It was devised by Noyes
+Palmer Chapman, a postmaster in Canastota, New York, who is said to have shown a
+version to friends around 1874, and it became an international craze in 1880 —
+the year Chapman's patent application was rejected as too close to prior art.
+Loyd first wrote about it in 1886, seven years into the craze, and only claimed
+to have invented it in 1891, a claim he repeated until his death in 1911. He
+also offered $1,000 to anyone who could solve the puzzle from a position with
+tiles 14 and 15 swapped: safe money, since Johnson and Story had proved that
+position unreachable a decade earlier. Slocum and Sonneveld (2006) reconstructed
+the record from newspaper archives.
+
+How many moves the *hardest* position needs, as a function of board size, is
+[OEIS A087725](https://oeis.org/A087725) — the sequence this repository is named
+after:
+
+| board | reachable arrangements | hardest position needs |
+|---|---:|---|
+| 2×2 — 3-puzzle | 12 | 6 moves |
+| 3×3 — 8-puzzle | 181,440 | 31 moves |
+| 4×4 — 15-puzzle | 1.05 × 10¹³ | 80 moves |
+| 5×5 — 24-puzzle | 7.76 × 10²⁴ | **152 to 205 — open** |
+
+The first three are settled: 31 (Reinefeld, 1993) and 80, first proved by
+Brüngger et al. (1999) and independently confirmed by Korf and Schultze (2005),
+whose exhaustive breadth-first search also produced the full depth distribution
+and the 17 positions that attain 80. The 24-puzzle is not settled: its floor of
+152 and ceiling of 205 are both community results (Hannanov & Rokicki, 2011;
+Whitmore, 2018), and the gap between them is wide. Random 24-puzzle positions
+average about 102 moves (Korf & Taylor, 1996), so the hard ones have to be
+constructed rather than sampled — which is most of what this repository does.
+
+Three things live here: an exact 24-puzzle lower-bound prover, an exact
+15-puzzle solver with a complete enumeration of its deepest boards, and a
+learned system that constructs and solves hard 24-puzzle instances. All depths
+are **single-tile moves (STM)**. Further reading:
+[Wikipedia's 15 puzzle](https://en.wikipedia.org/wiki/15_puzzle) for the history
+and the solvability proof; [OEIS A087725](https://oeis.org/A087725) for the
+current bounds and onward links to their sources.
 
 ```sh
 cargo build --release --features sha
@@ -245,6 +291,10 @@ optimization idea untried.
 
 ## References
 
+Brüngger, A.; Marzetta, A.; Fukuda, K.; and Nievergelt, J. 1999. *The parallel
+search bench ZRAM and its applications.* Annals of Operations Research
+90:45–63. First proof that the 15-puzzle diameter is 80.
+
 Clausecker, R., and Reinefeld, A. 2019. *Zero-Aware Pattern Databases with
 1-Bit Compression for Sliding Tile Puzzles.* SOCS 2019, pp. 35–43. Improves on
 the 1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
@@ -284,6 +334,12 @@ lists `R` as "rotate_180" and "a particularly bad case for disjoint pattern
 databases". Its "Nodecounts" comment (2017-04-24) is the source of the 17
 depth-80 antipodes in `data/pdb15_antipodes.txt`, which §2 seeds from.
 
+Johnson, W. W., and Story, W. E. 1879. *Notes on the "15" Puzzle.* American
+Journal of Mathematics 2(4):397–404. The parity argument: every move preserves
+an invariant that splits the arrangements into two classes, so half are
+unreachable from the goal. The repo's `rank.rs` and `state.rs` cite this as
+"Johnson 1879".
+
 Korf, R. E., and Taylor, L. A. 1996. *Finding Optimal Solutions to the
 Twenty-Four Puzzle.* AAAI 1996, pp. 1202–1207. Introduces the last-moves
 heuristic ("the last two are introduced here for the first time"); the
@@ -295,6 +351,19 @@ Artificial Intelligence 134(1–2).
 Korf, R. E., and Schultze, P. 2005. *Large-Scale Parallel Breadth-First
 Search.* AAAI 2005. The complete 15-puzzle depth distribution, which
 `data/pdb15_depth_histogram.txt` reproduces and §2 gates each layer against.
+
+Ratner, D., and Warmuth, M. K. 1990. *Finding a shortest solution for the
+(N × N)-extension of the 15-puzzle is intractable.* Journal of Symbolic
+Computation 10:111–137. First presented at AAAI-86. Finding *some* solution is
+polynomial; finding a shortest one is NP-hard.
+
+Reinefeld, A. 1993. *Complete Solution of the Eight-Puzzle and the Benefit of
+Node Ordering in IDA\*.* IJCAI-93. Source of `DIAMETER = 31` and the two
+antipodes in `src/puzzle8/`.
+
+Slocum, J., and Sonneveld, D. 2006. *The 15 Puzzle: How It Drove the World
+Crazy.* Slocum Puzzle Foundation. ISBN 1-890980-15-3. Establishes Chapman as
+the originator and documents Loyd's claim as false.
 
 Takahashi, K. ("takaken") 2001. *１５パズル自動解答プログラムの作り方*
 [How to build an automatic 15-puzzle solver], describing the Walking Distance
