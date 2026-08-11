@@ -34,7 +34,7 @@ matter.
   41,396-state automaton (687 KiB), folded into the candidate mask.
 - **Child pre-prune from the parent's neighbour-WD** — over-bound children are
   skipped before being built, with no table probe.
-- **σ-orbit split at the root** (Culberson & Schaeffer, 1998), halving the tree on a σ-symmetric board.
+- **σ-orbit split at the root** (Culberson & Schaeffer, 1994), halving the tree on a σ-symmetric board.
 - **cWD**: Walking Distance (Takahashi, n.d.) sharpened by escape demands.
 - **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
   endgame crossings on top of cWD — the last-move idea is (Korf & Taylor, 1996), the cWD-based
@@ -259,14 +259,21 @@ the 1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
 Clausecker, *Notes on the Construction of Pattern Databases*, ZIB Report 17-59,
 2017; see `docs/zpdb-codec-spec.md`.
 
-Culberson, J. C., and Schaeffer, J. 1998. *Pattern Databases.* Computational
-Intelligence 14(3):318–334. Earlier as *Searching with Pattern Databases*,
-CSCSI 1996, LNAI 1081, pp. 402–416. §4.1 proves that diagonal reflection is an
-automorphism of the puzzle, inducing exactly the Up↔Left / Down↔Right move
-relabelling used here, and §4.4 applies it to prune the search tree — "the
-effective search space for sliding-tile puzzles is half the size previously
-thought". Taking the maximum of a PDB and its reflection is §4.3 of the same
-paper: the same symmetry, a different use.
+Culberson, J. C., and Schaeffer, J. 1994. *Efficiently Searching the
+15-Puzzle.* Technical Report TR 94-08, Department of Computing Science,
+University of Alberta. §2.1, "Mirror Positions", gives the argument in the form
+used here: reflecting a path across the main diagonal is the move replacement
+l↔u, r↔d, and Lemma 2.1 says a bound on a position applies to its mirror. A
+closing footnote proposes normalising the board so mirror positions never enter
+the search at all. Published as *Searching with Pattern Databases*, CSCSI 1996,
+LNAI 1081, pp. 402–416, and *Pattern Databases*, Computational Intelligence
+14(3), 1998, pp. 318–334, where it becomes Lemma 2 with the automorphism proof
+spelled out and the claim that "the effective search space for sliding-tile
+puzzles is half the size previously thought"; Korf & Schultze (2005) cite the
+1998 version for the factor of two. All three state the node-level result, of
+which the root split used here is the special case — none phrases it as
+root-specific. Taking the maximum of a PDB and its reflection is a separate
+technique from the same papers (§4.3 in the 1998 version).
 
 Korf, R. E., and Felner, A. 2002. *Disjoint Pattern Database Heuristics.*
 Artificial Intelligence 134(1–2).
