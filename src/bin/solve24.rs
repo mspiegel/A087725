@@ -298,23 +298,8 @@ fn print_solution(start: &State, sol: &[Move], elapsed: std::time::Duration) {
     assert_eq!(cur, GOAL, "solution must reach GOAL");
 }
 
-// dyld's ASLR slide for the main executable. Sampling tools report raw runtime
-// PCs, and deriving the slide by searching for the value that best fits the
-// symbol table is unreliable at low sample counts — it produced a profile
-// attributing 14% of time to a once-per-threshold callback. Printing it makes
-// symbolisation exact. macOS-only (dyld); Linux profilers get the slide from
-// /proc/self/maps.
-#[cfg(target_os = "macos")]
-extern "C" {
-    fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
-}
-
 fn main() -> ExitCode {
     let t0 = Instant::now();
-    #[cfg(target_os = "macos")]
-    eprintln!("image slide: {:#x}", unsafe {
-        _dyld_get_image_vmaddr_slide(0)
-    });
     let args = Args::parse();
     let engine_config: EngineConfig = args.config.into();
     // `--prove-at-least T` caps at threshold `T-1`: the deepest to exhaust.

@@ -46,10 +46,11 @@ machine: ≥ 96 GB RAM (hard floor 64 GB — below that the cascade pages and
 (the `caffeinate` habit is macOS-only). `numactl` is **not** needed on a
 single-socket box.
 
-Portability: the codebase is developed on ARM64 macOS; the one macOS-only
-symbol (`_dyld_get_image_vmaddr_slide` in `solve24`) is cfg-gated to macOS,
-so the default-feature build links cleanly on Linux. Do **not** enable the
-`pmu-counters` feature on Linux (Apple kperf only).
+Portability: the codebase is developed on ARM64 macOS but contains no
+platform-specific code — the last macOS-only symbol
+(`_dyld_get_image_vmaddr_slide` in `solve24`) and the Apple-kperf
+`pmu-counters` feature are both deleted, so every build target links cleanly
+on Linux.
 
 Cross-architecture reproducibility is **verified**: every table artifact
 rebuilt on x86-64 Linux matches its ARM64-macOS SHA-256 pin, and all four
