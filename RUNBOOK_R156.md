@@ -1,11 +1,15 @@
 # RUNBOOK — proving optimal(R) = 156 on a 64-core machine
 
-> **Status 2026-08-10.** Steps 1–8 have been executed on Azure VM `r156`
-> (Standard_F64ams_v6, New Zealand North). Tables built and all ten SHA-256
-> pins verified; all four node-identity canaries exact; E1/E2/E3 measured.
-> Outstanding: E5 (checkpoint rehearsal), step 9 (exhaust-150 calibration),
-> two new A/Bs added below (E6 huge pages, E7 k8 cache size), then step 10.
-> Measured numbers replace the projections throughout.
+> **Status 2026-08-11.** Steps 1–9 executed on Azure VM `r156`
+> (Standard_F64ams_v6, New Zealand North, since migrated to a spot instance).
+> Tables built and all ten SHA-256 pins verified; all four node-identity
+> canaries exact; E1/E2/E3/E6/E7 measured. **Step 9 is done: threshold 150 is
+> exhausted at 2,287,004,968,051 nodes, proving `dist(R) ≥ 152`.** Threshold
+> 152 is running now.
+>
+> The growth ratio is **not** the flat ×26 this runbook first assumed — three
+> measured transitions show it decaying, which cuts the projected cost of the
+> whole proof by roughly 4×. Table and cost below are refit accordingly.
 
 The goal: prove `dist(R) ≥ 156` by exhaustive IDA\* search. The upper bound 156
 is already published and replay-verified (`FINDINGS_R.md` §1), so `≥ 156`
@@ -22,21 +26,41 @@ cWD → cLM2 → k8). On the 32 GB dev machine the cascade lost to `--lm2` at 14
 tables). With 503 GB that toll is gone, confirmed: the cascade exhausted 148
 in 592.8 s here.
 
-Rungs — measured through 148, extrapolated beyond:
+Rungs — measured through 150, fitted beyond:
 
 | threshold | nodes | growth | wall @ W=64 |
 |---|---:|---:|---:|
 | 144 | 115,436,814 | — | 1.16 s |
-| 146 | 4,363,759,350 | ×37.8 | 19.95 s |
-| 148 | 114,245,221,757 | ×26.2 | 592.8 s |
-| 150 | ~3 × 10¹² | ×~26 | ~4.3 h |
-| 152 | ~8 × 10¹³ | ×~26 | ~4.7 days |
-| 154 | ~2 × 10¹⁵ | ×~26 | **~4 months** |
+| 146 | 4,363,759,350 | ×37.80 | 19.95 s |
+| 148 | 114,245,221,757 | ×26.18 | 592.8 s |
+| 150 | 2,287,004,968,051 | ×20.02 | ~3.5 h |
+| 152 | ~3.7 × 10¹³ | ×~16 | ~2.4 days |
+| 154 | ~4.9 × 10¹⁴ | ×~13 | **~4–5 weeks** |
 
-**Exhaust-154 is 96% of the total cost**, so the growth ratio — currently one
-measured transition — dominates every other variable. Step 9 gives it a
-second point before any real money is committed. At $0.719/h that projects
-**~$2,100** for the proof.
+Rows through 150 are measured node counts. The 150 wall is derived, not timed:
+that threshold completed across a restart, so the driver reported it restored
+from checkpoint rather than searched.
+
+**The growth ratio decays, and that is the single most important number here.**
+The three measured transitions are ×37.80, ×26.18, ×20.02 — each about 0.70–0.77
+of the one before, with the decay itself slowing. Extrapolating the *ratio*
+rather than holding it flat gives ×16 and ×13 for the last two rungs. The
+original flat-×26 assumption put threshold 154 at ~1.6 × 10¹⁵ nodes and ~99
+days; the refit puts it near 4.9 × 10¹⁴ and ~31 days. Everything downstream —
+schedule, budget, whether this is worth doing at all — turns on that.
+
+Treat the last two rows as a fit from three points, not a measurement.
+**Threshold 152 lands a fourth ratio; refit this table when it does** and the
+154 estimate firms up considerably.
+
+**Exhaust-154 is still ~93% of the total cost.** At the on-demand $0.719/h that
+is roughly **$540** for 154 plus ~$40 for the rest, against the ~$2,100 the flat
+ratio projected. The proof now runs on a spot instance (§11), so the realised
+figure is lower again.
+
+Throughput is **~180 Mn/s** sustained at W=64, measured over the threshold-152
+run on spot. Use that, not the 192.71 Mn/s E7 baseline, which predates the final
+constants.
 
 Machine (measured, `r156`): **x86-64 AMD EPYC 9V74 (Genoa), 64 physical cores,
 1 thread/core (no SMT), 503 GiB RAM, single NUMA node, 4 KiB pages, THP =
@@ -74,7 +98,7 @@ rustc --version    # stable; repo is edition 2021, no nightly features
 ```sh
 git clone https://github.com/mspiegel/A087725.git   # or git@github.com:mspiegel/A087725.git
 cd A087725
-git checkout flat-parallel   # or wherever the cascade + Linux-gate work lives when you run this
+# the proof runs from main
 ```
 
 The table binaries are gitignored; only the SHA-256 sidecars (`data/*.sha256`)
@@ -442,25 +466,43 @@ residency.
 Run E6 and E7 **before** step 9, so the calibration measures the final
 configuration.
 
-## 9. Calibration gate — before committing to 152/154
+## 9. Calibration gate — DONE, and it went the other way
 
-Everything downstream rests on the per-+2 growth ratio, which currently has
-**one** measured value. Run exhaust-150 on the final configuration (after E6
-and E7 decide `--hugepages` and `K8_SHARED_BITS`), with `--checkpoint` so E5
-folds in, and record nodes and wall.
+Threshold 150 has been exhausted on the final configuration:
+**2,287,004,968,051 nodes, ×20.02 over 148**, proving `dist(R) ≥ 152`.
 
-Current model, from measured 148 (114,245,221,757 nodes / 592.8 s at W=64):
+That gives three measured transitions, and they settle the question in the
+*opposite* direction from the one this runbook and `FINDINGS_R.md:328` worried
+about:
+
+| transition | ratio |
+|---|---:|
+| 144 → 146 | ×37.80 |
+| 146 → 148 | ×26.18 |
+| 148 → 150 | ×20.02 |
+
+**The ratio falls with depth. It does not climb.** Each is ~0.70–0.77 of the one
+before, with the decay itself slowing.
+
+The mechanism is already in the ledger: the cascade's cut ratio *rises* with
+depth — 1.57× → 2.03× → 2.99× measured (`records/r_flat_k8_lazy.txt:94`,
+`FINDINGS_R.md:1525`) — so each deeper threshold prunes proportionally harder
+than the last. The tree grows and the heuristic grows into it, and the second
+effect is winning. The old fear was that the per-+2 ratio would "climb back
+toward the raw branching factor"; the cut ratio outran it.
+
+The sensitivity table the go/no-go was originally made against, kept for the
+record:
 
 | ratio | 154 nodes | wall | cost @ $0.719/h |
 |---:|---:|---:|---:|
 | 20 | 7.3 × 10¹⁴ | 1.5 months | ~$780 |
-| **26.2 (measured 146→148)** | **2.0 × 10¹⁵** | **~4 months** | **~$2,100** |
+| 26.2 (then-measured 146→148) | 2.0 × 10¹⁵ | ~4 months | ~$2,100 |
 | 33 | 4.1 × 10¹⁵ | 8.2 months | ~$4,300 |
 
-The ratio enters *cubed* from 148, so it swings the total by more than every
-hardware decision available — Hetzner vs Azure, buying vs renting, and every
-alternative architecture all live inside a 2× band. This one measurement,
-which costs about **$3**, is worth more than all of them.
+The realised path beats the best row of it. The ratio still enters *cubed* from
+148, so it remains the highest-leverage number in the project — but the risk is
+now that the decay stalls, not that the ratio climbs.
 
 Decision points:
 
@@ -561,10 +603,12 @@ capacity (real pressure at 64-way — see E3/E7).
 
 Still open:
 
-1. **Growth-ratio drift** — ×26.2 is measured only at 146→148. FINDINGS
-   expects it to climb with depth; if it reaches 33 the proof doubles in
-   cost. Step 9 is the gate, and it is the single highest-leverage number
-   remaining.
+1. **Growth-ratio drift** — *resolved, favourably.* Three transitions are now
+   measured (×37.80, ×26.18, ×20.02) and the ratio **falls**, against the
+   expectation in `FINDINGS_R.md:328` that it would climb. See §9. What is
+   still open is whether the decay holds: the 152 and 154 rows in the rung
+   table are a fit from three points. Threshold 152 lands a fourth ratio —
+   refit then.
 2. **Huge pages** — quantified motivation exists (step 7) but no A/B yet.
    E6 settles it; potentially the largest single throughput lever left.
 3. **Bare metal vs virtualized** — every TLB miss inside a VM pays a
