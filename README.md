@@ -20,87 +20,82 @@ cargo test
 
 ### What makes it fast
 
-The tree is fixed — nothing here changes a pruning decision. These only make
-the same nodes cheaper, or avoid generating nodes that provably cannot matter.
-
-**Search loop**
+The tree is fixed — none of this changes a pruning decision. Each item either
+makes the same nodes cheaper or avoids generating nodes that provably cannot
+matter.
 
 - **Iterative, not recursive.** Search state lives in a depth-indexed arena
-  allocated once, so there is no call frame to spill across. The recursive
-  engine this replaced carried a 384-byte frame doing 85 stack spill/reload
-  instructions per node.
-- **No allocation on the per-node path.** `build_child`, `child_lb`, the tier
-  consults — none allocate. The arena and every front cache are built once per
-  worker and reused across work units and thresholds. The only allocations in a
-  search are the solution path (never taken in an exhaust, where the goal is
-  never found) and one lazy cache init.
-- **One axis copied, one shared.** A move changes only the row or the column
-  abstraction, so the per-axis state is indexed by `row_at[d]`/`col_at[d]`
-  rather than by depth. The untouched axis costs one byte — the index — instead
-  of the 20-byte undo record the recursive engine wrote.
-- **Move-pruning DFA.** Taylor–Korf duplicate elimination, compiled to an
-  automaton. A continuation is *dominated* if it reaches a board also reachable
-  by a shorter — or equal-length, lexicographically smaller — sequence; skipping
-  it removes duplicate work without ever removing a board, so an exhausted
-  threshold stays sound. That predicate is regular in the move string, so it
-  compiles (Aho–Corasick collapse, then Myhill–Nerode minimization) to 41,396
-  states in 687 KiB. Per node it costs one array-indexed transition, folded into
-  the candidate mask — L2-resident, no hashing, no main-memory traffic, unlike a
-  transposition table.
-- **Child pre-prune from the parent's neighbour-WD.** Before a child is built,
-  an admissible bound on its `h` is read out of the parent's cached
-  neighbour-WD. Over-bound children are skipped with no table probe and no node
-  counted. (Children only, not grandchildren.)
-- **σ-orbit split at the root.** On a σ-symmetric board the root's children fall
-  into σ-orbits; searching one representative per orbit halves the tree. This is
-  soundness-critical rather than merely fast, so it is `assert!`ed — in release
-  too — and `--no-root-orbit-split` reruns a proof without it as an end-to-end
-  check on the symmetry argument.
+  allocated once; there is no call frame to spill across.
+- **No allocation on the per-node path.** The arena and every front cache are
+  built once per worker and reused across work units and thresholds.
+- **One axis copied per move, the other shared** with an ancestor for the cost
+  of a one-byte index.
+- **Move-pruning DFA.** Taylor–Korf duplicate elimination compiled to a
+  41,396-state automaton (687 KiB), folded into the candidate mask.
+- **Child pre-prune from the parent's neighbour-WD** — over-bound children are
+  skipped before being built, with no table probe.
+- **σ-orbit split at the root**, halving the tree on a σ-symmetric board.
+- **cWD**: Walking Distance sharpened by escape demands.
+- **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
+  endgame crossings on top of cWD.
+- **Three additive 8-tile zero-aware PDBs**, each queried in both σ-views.
+- **1 bit per PDB entry**, not 8 — distances reconstructed differentially.
+- **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
+  to prune.
+- **Compile-time tier selection**, so an unused tier is absent from the emitted
+  loop rather than a well-predicted branch.
+- **Incremental keys** — cWD, tracked lines and PDB keys are updated, never
+  recomputed; cost-0 slides are skipped entirely.
+- **A front cache in front of every table**, direct-mapped and per-worker.
+- **Tables mapped, not parsed**, with `--hugepages` to cut the TLB footprint.
+- **Node-identical parallel tree-splitting** across rayon workers.
 
-**Heuristics**
+Expanding on the ones that matter most:
 
-- **The cWD family.** Walking Distance abstracts tiles into per-row and
-  per-column bags, so both halves are exactly solvable and admissibly additive.
-  **cWD** sharpens it with escape demands — the moves a blank must spend leaving
-  a line it is obliged to cross. On top sit the last-move refinements: `--lm`
-  tracks one type-3 tile's forced 3→4 crossing, `--lm2` prices all four
-  last-two-move endgame branches, and `--clm2` lifts those branches with
-  single-demanded-line escape constraints, priced jointly. `WD.md` is a full
-  intuition-level account with worked examples.
-- **Three additive 8-tile zero-aware PDBs.** The 24 tiles partition into three
-  disjoint 8-tile patterns whose distances sum admissibly (Korf–Felner), each
-  queried in both σ-views and maxed. Zero-aware means the blank is part of the
-  pattern, and the tables are **1 bit per entry**, not 8: each entry stores only
-  whether a neighbour's distance goes up or down, reconstructed differentially
-  from a known start (Clausecker–Reinefeld). That is what fits 30.5 GB where a
-  byte-per-entry table would need eight times as much.
-- **Lazy cascade.** Tiers run in increasing cost order — cWD → cLM2 → k8 — and
-  each is consulted only at nodes the cheaper ones failed to prune. The tier set
-  is a compile-time marker, so an unused tier is not a branch that predicts well;
-  it is absent from the emitted loop.
-- **Everything incremental.** The cWD keys, the tracked last-move lines, and the
-  k8 pattern keys are all maintained by small updates and never recomputed —
-  a k8 key moves by one XOR per moved tile. By the projected-edge law a cost-0
-  slide leaves a pattern's index and distance untouched, so only 2 of the 6
-  group-views are advanced per move. `debug_assert!`s check each incremental
-  value against a from-scratch recomputation.
+**The arena is the reason the engine exists.** The recursive engine it replaced
+carried a 384-byte frame doing 85 stack spill/reload instructions per node; a
+flat loop removes the call boundary those spills exist to cross. The arena also
+exploits a structural fact — a move changes only the row or the column
+abstraction, never both — by indexing per-axis state with `row_at[d]`/`col_at[d]`
+instead of depth. The untouched axis is shared with an ancestor and costs one
+byte, against the 20-byte undo record the recursive engine wrote per node.
 
-**Memory**
+**The DFA prunes more than loops.** A continuation is *dominated* if it reaches
+a board also reachable by a shorter — or equal-length, lexicographically smaller
+— sequence. Skipping it removes duplicate work without ever removing a board, so
+an exhausted threshold stays a sound lower bound. That predicate is regular in
+the move string, so it compiles (Aho–Corasick collapse, then Myhill–Nerode
+minimization) to a table that fits in L2. Per node the check is one
+array-indexed transition — no hashing, no main-memory traffic, unlike a
+transposition table.
 
-- **A front cache in front of every table.** Direct-mapped per-worker caches
-  absorb the probe stream: the cWD cache runs at 99.665% hits sequentially, and
-  the k8 cache — keyed on packed tile positions, so a hit costs neither the rank
-  walk nor the mmap — measured 3.3× throughput (20.2 → 67.3 Mn/s at exhaust-144).
-  Correctness never depends on any of them; a hit must equal what the table
-  would have returned, which is `debug_assert!`ed.
-- **Tables are mapped, not parsed.** Startup is a page-table operation.
-  `--hugepages` copies them into anonymous `MADV_HUGEPAGE` memory instead,
-  trading resident memory for ~512× fewer TLB entries across a probe stream that
-  is random over 49 GB.
-- **Node-identical parallelism and checkpointing.** Each threshold splits into
-  subtree work units across rayon workers, producing exactly the sequential node
-  count; workers append completed units to per-thread files with no
-  synchronisation, so a multi-day run resumes instead of restarting.
+**The heuristics are all admissible, and stack lazily.** Walking Distance
+abstracts tiles into per-row and per-column bags, so each half is exactly
+solvable and the two add. cWD sharpens that with escape demands — the moves a
+blank must spend leaving a line it is obliged to cross. The last-move tiers go
+further: `--lm` tracks one type-3 tile's forced 3→4 crossing, `--lm2` prices all
+four last-two-move endgame branches, and `--clm2` lifts those branches with
+single-demanded-line escape constraints, priced jointly. `WD.md` is a full
+intuition-level account with worked examples.
+
+**The k8 tables are 1 bit per entry.** The 24 tiles partition into three
+disjoint 8-tile patterns whose distances sum admissibly (Korf–Felner).
+*Zero-aware* means the blank belongs to the pattern; the 1-bit encoding
+(Clausecker–Reinefeld) stores only whether a neighbour's distance rises or
+falls, reconstructed differentially from a known start. That is what fits
+30.5 GB where a byte per entry would need eight times as much. Because the
+encoding is differential, the search must carry a running distance — which the
+incremental machinery does anyway, by one XOR per moved tile, skipping the four
+group-views a move leaves untouched.
+
+**Caching is what makes the cascade affordable.** Every table sits behind a
+direct-mapped front cache: the cWD cache runs at 99.665% hits sequentially, and
+the k8 cache — keyed on packed tile positions, so a hit costs neither the rank
+walk nor the mmap — measured 3.3× throughput (20.2 → 67.3 Mn/s at exhaust-144).
+No cache is load-bearing for correctness; a hit must equal what the table would
+have returned.
+
+### What it proves
 
 `solve24` is not a general solver — it cannot return a solution path for an
 arbitrary board in reasonable time. It does one thing: **prove a lower bound**
@@ -122,17 +117,11 @@ upper bound of 156, close the problem: `optimal(R) = 156`.
 | 148 | 114,245,221,757 |
 | 150 | 2,287,004,968,051 |
 
-### How it works
+### Running it
 
-The engine (`src/puzzle24/search/engine.rs`) is a flat, iterative IDA\* — no
-recursion, no undo. Search state lives in a depth-indexed arena allocated once,
-which removes the call frame the recursive engine spent 85 stack spill/reload
-instructions per node maintaining. The per-axis cWD state is indexed by
-`row_at[d]`/`col_at[d]` rather than by depth, so a move copies one axis and
-shares the other with an ancestor at a cost of one byte.
-
-Above the base cWD heuristic sit optional tiers, consulted only at nodes the
-cheaper ones fail to prune:
+The engine is `src/puzzle24/search/engine.rs`. The base stack is always
+cWD + move-DFA + child pre-prune + root σ-orbit split; the tiers above it are
+opt-in, and consulted only at nodes the cheaper ones fail to prune:
 
 | flag | tier | artifact |
 |---|---|---|
