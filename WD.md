@@ -8,7 +8,8 @@ which is the whole trick: the letters make visible exactly what each heuristic
 is allowed to forget.
 
 **Admissible** is the word that governs everything below. A heuristic guesses
-how many moves a position still needs, and it is *admissible* if the guess is
+how many moves a position still needs, and it is
+[admissible](https://en.wikipedia.org/wiki/A*_search_algorithm) if the guess is
 never too high — `h(s) ≤ dist(s)` for every position `s`. That one-sided
 guarantee is what lets a search **prove** something rather than merely fail to
 find it: if every position on the frontier has `g + h` above the threshold, and
