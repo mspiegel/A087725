@@ -18,6 +18,90 @@ cargo test
 
 ## 1. A 24-puzzle solver specialized for deep boards
 
+### What makes it fast
+
+The tree is fixed — nothing here changes a pruning decision. These only make
+the same nodes cheaper, or avoid generating nodes that provably cannot matter.
+
+**Search loop**
+
+- **Iterative, not recursive.** Search state lives in a depth-indexed arena
+  allocated once, so there is no call frame to spill across. The recursive
+  engine this replaced carried a 384-byte frame doing 85 stack spill/reload
+  instructions per node.
+- **No allocation on the per-node path.** `build_child`, `child_lb`, the tier
+  consults — none allocate. The arena and every front cache are built once per
+  worker and reused across work units and thresholds. The only allocations in a
+  search are the solution path (never taken in an exhaust, where the goal is
+  never found) and one lazy cache init.
+- **One axis copied, one shared.** A move changes only the row or the column
+  abstraction, so the per-axis state is indexed by `row_at[d]`/`col_at[d]`
+  rather than by depth. The untouched axis costs one byte — the index — instead
+  of the 20-byte undo record the recursive engine wrote.
+- **Move-pruning DFA.** Taylor–Korf duplicate elimination, compiled to an
+  automaton. A continuation is *dominated* if it reaches a board also reachable
+  by a shorter — or equal-length, lexicographically smaller — sequence; skipping
+  it removes duplicate work without ever removing a board, so an exhausted
+  threshold stays sound. That predicate is regular in the move string, so it
+  compiles (Aho–Corasick collapse, then Myhill–Nerode minimization) to 41,396
+  states in 687 KiB. Per node it costs one array-indexed transition, folded into
+  the candidate mask — L2-resident, no hashing, no main-memory traffic, unlike a
+  transposition table.
+- **Child pre-prune from the parent's neighbour-WD.** Before a child is built,
+  an admissible bound on its `h` is read out of the parent's cached
+  neighbour-WD. Over-bound children are skipped with no table probe and no node
+  counted. (Children only, not grandchildren.)
+- **σ-orbit split at the root.** On a σ-symmetric board the root's children fall
+  into σ-orbits; searching one representative per orbit halves the tree. This is
+  soundness-critical rather than merely fast, so it is `assert!`ed — in release
+  too — and `--no-root-orbit-split` reruns a proof without it as an end-to-end
+  check on the symmetry argument.
+
+**Heuristics**
+
+- **The cWD family.** Walking Distance abstracts tiles into per-row and
+  per-column bags, so both halves are exactly solvable and admissibly additive.
+  **cWD** sharpens it with escape demands — the moves a blank must spend leaving
+  a line it is obliged to cross. On top sit the last-move refinements: `--lm`
+  tracks one type-3 tile's forced 3→4 crossing, `--lm2` prices all four
+  last-two-move endgame branches, and `--clm2` lifts those branches with
+  single-demanded-line escape constraints, priced jointly. `WD.md` is a full
+  intuition-level account with worked examples.
+- **Three additive 8-tile zero-aware PDBs.** The 24 tiles partition into three
+  disjoint 8-tile patterns whose distances sum admissibly (Korf–Felner), each
+  queried in both σ-views and maxed. Zero-aware means the blank is part of the
+  pattern, and the tables are **1 bit per entry**, not 8: each entry stores only
+  whether a neighbour's distance goes up or down, reconstructed differentially
+  from a known start (Clausecker–Reinefeld). That is what fits 30.5 GB where a
+  byte-per-entry table would need eight times as much.
+- **Lazy cascade.** Tiers run in increasing cost order — cWD → cLM2 → k8 — and
+  each is consulted only at nodes the cheaper ones failed to prune. The tier set
+  is a compile-time marker, so an unused tier is not a branch that predicts well;
+  it is absent from the emitted loop.
+- **Everything incremental.** The cWD keys, the tracked last-move lines, and the
+  k8 pattern keys are all maintained by small updates and never recomputed —
+  a k8 key moves by one XOR per moved tile. By the projected-edge law a cost-0
+  slide leaves a pattern's index and distance untouched, so only 2 of the 6
+  group-views are advanced per move. `debug_assert!`s check each incremental
+  value against a from-scratch recomputation.
+
+**Memory**
+
+- **A front cache in front of every table.** Direct-mapped per-worker caches
+  absorb the probe stream: the cWD cache runs at 99.665% hits sequentially, and
+  the k8 cache — keyed on packed tile positions, so a hit costs neither the rank
+  walk nor the mmap — measured 3.3× throughput (20.2 → 67.3 Mn/s at exhaust-144).
+  Correctness never depends on any of them; a hit must equal what the table
+  would have returned, which is `debug_assert!`ed.
+- **Tables are mapped, not parsed.** Startup is a page-table operation.
+  `--hugepages` copies them into anonymous `MADV_HUGEPAGE` memory instead,
+  trading resident memory for ~512× fewer TLB entries across a probe stream that
+  is random over 49 GB.
+- **Node-identical parallelism and checkpointing.** Each threshold splits into
+  subtree work units across rayon workers, producing exactly the sequential node
+  count; workers append completed units to per-thread files with no
+  synchronisation, so a multi-day run resumes instead of restarting.
+
 `solve24` is not a general solver — it cannot return a solution path for an
 arbitrary board in reasonable time. It does one thing: **prove a lower bound**
 on a specific hard board by exhausting IDA\* thresholds. Every heuristic in it
