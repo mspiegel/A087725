@@ -87,32 +87,30 @@ upper bound of 156, close the problem: `optimal(R) = 156`.
 
 ### Running it
 
-The engine is `src/puzzle24/search/engine.rs`. The base stack is always
-cWD + move-DFA + child pre-prune + root σ-orbit split; the tiers above it are
-opt-in, and consulted only at nodes the cheaper ones fail to prune:
-
-| flag | tier | artifact |
-|---|---|---|
-| `--clm2` | constrained last-two-moves, jointly priced | 13.5 GB |
-| `--zpdb8` | three additive 8-tile zero-aware PDBs, both σ-views | 30.5 GB |
-
-The production stack is the cascade `--clm2 --zpdb8` (consult order
-cWD → cLM2 → k8). `--parallel` splits each threshold into subtree work units
-across rayon workers and is **node-identical** to the sequential driver;
-`--checkpoint` makes a multi-day run resumable, each worker appending only to
-its own file.
-
 ```sh
-R="0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
-target/release/solve24 --config large --position "$R" \
-  --prove-at-least 145 --clm2 --zpdb8 --parallel    # → 115,436,814 nodes
-```
+cargo build --release --features sha
 
-Tables are built locally (~49 GB) and SHA-256 pinned; they are not in the repo.
-[`RUNBOOK_R156.md`](RUNBOOK_R156.md) has the build procedure, measured timings,
-the pinned hashes and the machine requirements. [`CLAUDE.md`](CLAUDE.md) has the
-gates any change must pass — chief among them node identity, since nothing may
-alter the search tree.
+# Tables: ~49 GB, several hours. Timings, SHA-256 pins and machine
+# requirements are in RUNBOOK_R156.md.
+target/release/build_wd24 --out data/wd24.bin --verify-sha data/wd24.bin.sha256
+target/release/build_cwd_table          # -> data/cwd_single.bin
+target/release/build_cwd_artifacts all  # -> cwd_mm, cwd_lm, cwd_lm2, cwd_lm_mm, cwd_lm1l_mm
+
+target/release/build_pdb24 --zero-aware --tiles 1,2,3,4,6,7,8,9 \
+    --out data/pdb24_k8_a.zbin --verify-sha data/pdb24_k8_a.sha256
+target/release/build_pdb24 --zero-aware --tiles 5,10,14,15,19,20,23,24 \
+    --out data/pdb24_k8_b.zbin --verify-sha data/pdb24_k8_b.sha256
+target/release/build_pdb24 --zero-aware --tiles 11,12,13,16,17,18,21,22 \
+    --out data/pdb24_k8_c.zbin --verify-sha data/pdb24_k8_c.sha256
+
+# Prove a lower bound on R with the full cascade, in parallel.
+# --prove-at-least 145 exhausts threshold 144 and should report exactly
+# 115,436,814 nodes. --prove-at-least 156 is the full proof: it caps the
+# ladder at 155, which by parity means exhausting through 154.
+R="0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
+target/release/solve24 --config standard --position "$R" \
+    --prove-at-least 145 --clm2 --zpdb8 --parallel
+```
 
 ---
 
