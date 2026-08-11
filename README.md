@@ -145,10 +145,9 @@ and a per-layer correctness gate. All five match exactly. Output is
 `data/enum15/depthNN.ranks`, full symmetry orbits.
 
 The format is headerless: the file is consecutive 6-byte little-endian unsigned
-integers, sorted ascending, so the board count is the file size over 6. Each
-value indexes a *solvable* state in `[0, 16!/2)` — not a plain permutation rank
-— through `rank()`/`unrank()` in `src/puzzle15/rank.rs`. Six bytes because
-16!/2 ≈ 1.05 × 10¹³ fits in 48 bits.
+integers, sorted ascending, so the board count is (file size) / 6. Each value
+indexes a *solvable* state in `[0, 16!/2)`. Six bytes because 16!/2 ≈ 1.05 ×
+10¹³ fits in 48 bits.
 
 `enum_expand15` decodes a file, and re-verifies it on the way through:
 
