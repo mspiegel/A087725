@@ -6,7 +6,7 @@ enumeration of its deepest boards, and a learned system that constructs and
 solves hard 24-puzzle instances.
 
 All depths are **single-tile moves (STM)**. The 15-puzzle diameter is 80
-(Korf & Schultze 2005); the 24-puzzle diameter is known only to lie in
+(Korf & Schultze, 2005); the 24-puzzle diameter is known only to lie in
 [152, 205].
 
 ```sh
@@ -30,18 +30,19 @@ matter.
   built once per worker and reused across work units and thresholds.
 - **One axis copied per move, the other shared** with an ancestor for the cost
   of a one-byte index.
-- **Move-pruning DFA.** Taylor–Korf duplicate elimination [1] compiled to a
+- **Move-pruning DFA.** Taylor–Korf duplicate elimination (Taylor & Korf, 1993) compiled to a
   41,396-state automaton (687 KiB), folded into the candidate mask.
 - **Child pre-prune from the parent's neighbour-WD** — over-bound children are
   skipped before being built, with no table probe.
-- **σ-orbit split at the root** [2], halving the tree on a σ-symmetric board.
-- **cWD**: Walking Distance [3] sharpened by escape demands.
+- **σ-orbit split at the root** (Culberson & Schaeffer, 1998), halving the tree on a σ-symmetric board.
+- **cWD**: Walking Distance (Takahashi, n.d.) sharpened by escape demands.
 - **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
-  endgame crossings on top of cWD — the last-move idea is [4], the cWD-based
+  endgame crossings on top of cWD — the last-move idea is (Korf & Taylor, 1996), the cWD-based
   tiers are this project's.
-- **Three additive [5] 8-tile zero-aware [6] PDBs**, each queried in both
+- **Three additive (Korf & Felner, 2002) 8-tile zero-aware
+  (Clausecker & Reinefeld, 2019) PDBs**, each queried in both
   σ-views.
-- **1 bit per PDB entry** [6], not 8 — distances reconstructed differentially.
+- **1 bit per PDB entry** (Clausecker & Reinefeld, 2019), not 8 — distances reconstructed differentially.
 - **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
   to prune.
 
@@ -139,40 +140,6 @@ Tables are built locally (~49 GB) and SHA-256 pinned; they are not in the repo.
 `RUNBOOK_R156.md` has the build procedure, measured timings, the pinned hashes
 and the machine requirements. `CLAUDE.md` has the gates any change must pass —
 chief among them node identity, since nothing may alter the search tree.
-
-### References
-
-1. L. A. Taylor and R. E. Korf, *Pruning Duplicate Nodes in Depth-First
-   Search*, AAAI 1993, pp. 756–761. Introduces the finite-state machine that
-   enforces the pruning rules.
-2. J. C. Culberson and J. Schaeffer, *Pattern Databases*, Computational
-   Intelligence 14(3), 1998, pp. 318–334 (earlier as *Searching with Pattern
-   Databases*, CSCSI 1996, LNAI 1081, pp. 402–416). §4.1 proves that diagonal
-   reflection is an automorphism of the puzzle, inducing exactly the
-   Up↔Left / Down↔Right move relabelling used here, and §4.4 applies it to
-   prune the search tree — "the effective search space for sliding-tile puzzles
-   is half the size previously thought". Taking the maximum of a PDB and its
-   reflection is §4.3 of the same paper: the same symmetry, a different use.
-3. Ken'ichiro Takahashi ("takaken"), *How to Make an Automatic 15 Puzzle
-   Answering Program*, `ic-net.or.jp/home/takaken/nt/slide/solve15.html`
-   (English companion at `.../takaken/e/15pz/index.html`). Walking Distance has
-   no formal publication — the primary source is the author's own site, now
-   offline, with an Internet Archive snapshot from 2024-04-22. For a
-   peer-reviewed work that formally cites that page, see D. O. Hasan, A. M.
-   Aladdin, H. S. Talabani, T. A. Rashid and S. Mirjalili, *The Fifteen
-   Puzzle — A New Approach through Hybridizing Three Heuristics Methods*,
-   Computers 12(1):11, 2023.
-4. R. E. Korf and L. A. Taylor, *Finding Optimal Solutions to the Twenty-Four
-   Puzzle*, AAAI 1996, pp. 1202–1207. Introduces the last-moves heuristic
-   ("the last two are introduced here for the first time"); the linear-conflict
-   heuristic it also uses is Hansson, Mayer & Yung 1992.
-5. R. E. Korf and A. Felner, *Disjoint Pattern Database Heuristics*, Artificial
-   Intelligence 134(1–2), 2002.
-6. R. Clausecker and A. Reinefeld, *Zero-Aware Pattern Databases with 1-Bit
-   Compression for Sliding Tile Puzzles*, SOCS 2019, pp. 35–43. Improves on the
-   1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
-   Clausecker, *Notes on the Construction of Pattern Databases*, ZIB Report
-   17-59, 2017; see `docs/zpdb-codec-spec.md`.
 
 ---
 
@@ -281,3 +248,47 @@ src/puzzle8/                      the 8-puzzle warmup: full ground truth
 the project started from. `WD.md` documents the walking-distance family the
 prover's heuristic is built on. `records/` holds the measurement ledgers — grep
 `records/r_flat_k8_lazy.txt` before calling any optimization idea untried.
+
+---
+
+## References
+
+Clausecker, R., and Reinefeld, A. 2019. *Zero-Aware Pattern Databases with
+1-Bit Compression for Sliding Tile Puzzles.* SOCS 2019, pp. 35–43. Improves on
+the 1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
+Clausecker, *Notes on the Construction of Pattern Databases*, ZIB Report 17-59,
+2017; see `docs/zpdb-codec-spec.md`.
+
+Culberson, J. C., and Schaeffer, J. 1998. *Pattern Databases.* Computational
+Intelligence 14(3):318–334. Earlier as *Searching with Pattern Databases*,
+CSCSI 1996, LNAI 1081, pp. 402–416. §4.1 proves that diagonal reflection is an
+automorphism of the puzzle, inducing exactly the Up↔Left / Down↔Right move
+relabelling used here, and §4.4 applies it to prune the search tree — "the
+effective search space for sliding-tile puzzles is half the size previously
+thought". Taking the maximum of a PDB and its reflection is §4.3 of the same
+paper: the same symmetry, a different use.
+
+Korf, R. E., and Felner, A. 2002. *Disjoint Pattern Database Heuristics.*
+Artificial Intelligence 134(1–2).
+
+Korf, R. E., and Schultze, P. 2005. *Large-Scale Parallel Breadth-First
+Search.* AAAI 2005. The complete 15-puzzle depth distribution, which
+`data/pdb15_depth_histogram.txt` reproduces and §2 gates each layer against.
+
+Korf, R. E., and Taylor, L. A. 1996. *Finding Optimal Solutions to the
+Twenty-Four Puzzle.* AAAI 1996, pp. 1202–1207. Introduces the last-moves
+heuristic ("the last two are introduced here for the first time"); the
+linear-conflict heuristic it also uses is Hansson, Mayer & Yung 1992.
+
+Takahashi, K. n.d. *How to Make an Automatic 15 Puzzle Answering Program.*
+`ic-net.or.jp/home/takaken/nt/slide/solve15.html`, English companion at
+`.../takaken/e/15pz/index.html`. Walking Distance has no formal publication —
+the primary source is the author's own site, now offline, with an Internet
+Archive snapshot from 2024-04-22. For a peer-reviewed work that formally cites
+that page, see Hasan, D. O.; Aladdin, A. M.; Talabani, H. S.; Rashid, T. A.;
+and Mirjalili, S. 2023. *The Fifteen Puzzle — A New Approach through
+Hybridizing Three Heuristics Methods.* Computers 12(1):11.
+
+Taylor, L. A., and Korf, R. E. 1993. *Pruning Duplicate Nodes in Depth-First
+Search.* AAAI 1993, pp. 756–761. Introduces the finite-state machine that
+enforces the pruning rules.
