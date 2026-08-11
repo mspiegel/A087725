@@ -1,4 +1,4 @@
-# Walking Distance, explained
+# Walking Distance
 
 An intuition-level account of the **Walking Distance** heuristic for the
 24-puzzle, of **cWD** — this project's escape-constrained sharpening of it —
