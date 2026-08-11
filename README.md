@@ -30,16 +30,18 @@ matter.
   built once per worker and reused across work units and thresholds.
 - **One axis copied per move, the other shared** with an ancestor for the cost
   of a one-byte index.
-- **Move-pruning DFA.** Taylor–Korf duplicate elimination compiled to a
+- **Move-pruning DFA.** Taylor–Korf duplicate elimination [3] compiled to a
   41,396-state automaton (687 KiB), folded into the candidate mask.
 - **Child pre-prune from the parent's neighbour-WD** — over-bound children are
   skipped before being built, with no table probe.
 - **σ-orbit split at the root**, halving the tree on a σ-symmetric board.
-- **cWD**: Walking Distance sharpened by escape demands.
+- **cWD**: Walking Distance [1] sharpened by escape demands.
 - **Last-move refinements** `--lm` / `--lm2` / `--clm2`, pricing the forced
-  endgame crossings on top of cWD.
-- **Three additive 8-tile zero-aware PDBs**, each queried in both σ-views.
-- **1 bit per PDB entry**, not 8 — distances reconstructed differentially.
+  endgame crossings on top of cWD — the last-move idea is [4], the cWD-based
+  tiers are this project's.
+- **Three additive [2] 8-tile zero-aware [5] PDBs**, each queried in both
+  σ-views.
+- **1 bit per PDB entry** [5], not 8 — distances reconstructed differentially.
 - **Lazy cascade**: each tier is consulted only at nodes the cheaper ones failed
   to prune.
 
@@ -137,6 +139,25 @@ Tables are built locally (~49 GB) and SHA-256 pinned; they are not in the repo.
 `RUNBOOK_R156.md` has the build procedure, measured timings, the pinned hashes
 and the machine requirements. `CLAUDE.md` has the gates any change must pass —
 chief among them node identity, since nothing may alter the search tree.
+
+### References
+
+1. Ken'ichiro Takahashi, *Walking Distance*. Published on the author's own
+   pages rather than in a venue; there is no paper to cite.
+2. R. E. Korf and A. Felner, *Disjoint Pattern Database Heuristics*, Artificial
+   Intelligence 134(1–2), 2002.
+3. L. A. Taylor and R. E. Korf, *Pruning Duplicate Nodes in Depth-First
+   Search*, AAAI 1993.
+4. R. E. Korf and L. A. Taylor, *Finding Optimal Solutions to the Twenty-Four
+   Puzzle*, AAAI 1996.
+5. R. Clausecker and A. Reinefeld, *Zero-Aware Pattern Databases with 1-Bit
+   Compression for Sliding Tile Puzzles*, SOCS 2019, pp. 35–43. Improves on the
+   1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
+   Clausecker, *Notes on the Construction of Pattern Databases*, ZIB Report
+   17-59, 2017; see `docs/zpdb-codec-spec.md`.
+
+The σ-orbit split is not cited: it is a symmetry-reduction argument derived
+from first principles for this board class in `src/puzzle24/symmetry.rs`.
 
 ---
 
