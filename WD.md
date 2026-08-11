@@ -1,12 +1,32 @@
 # Walking Distance, explained
 
-An intuition-level account of the Walking Distance heuristic (Ken'ichiro
-Takahashi) for the 24-puzzle — and of **cWD**, this project's escape-constrained
-sharpening of it — using Greek and Latin letters instead of tile numbers.
-The document ends with the last-move refinements (`--lm`, `--lm2`, `--clm2`)
-built on top of cWD. Implementations live in
-`src/puzzle24/search/walking_distance.rs`, `src/puzzle24/search/cwd.rs`,
-`src/puzzle24/search/cwd_lm.rs`, and `src/puzzle24/search/cwd_lm1l.rs`.
+An intuition-level account of the **Walking Distance** heuristic for the
+24-puzzle, of **cWD** — this project's escape-constrained sharpening of it —
+and of the last-move refinements (`--lm`, `--lm2`, `--clm2`) built on top of
+cWD. It explains them with Greek and Latin letters in place of tile numbers,
+which is the whole trick: the letters make visible exactly what each heuristic
+is allowed to forget.
+
+**Admissible** is the word that governs everything below. A heuristic guesses
+how many moves a position still needs, and it is *admissible* if the guess is
+never too high — `h(s) ≤ dist(s)` for every position `s`. That one-sided
+guarantee is what lets a search **prove** something rather than merely fail to
+find it: if every position on the frontier has `g + h` above the threshold, and
+`h` never overestimates, then no solution that short exists anywhere in the
+tree. So the game is to push `h` as high as possible without ever crossing
+`dist`. Manhattan distance is admissible and weak, because it lets tiles pass
+through one another for free; every heuristic here is a way of charging for
+something Manhattan gives away, while staying under `dist`.
+
+Walking Distance is Ken'ichiro Takahashi's ("takaken"), and has no formal
+publication — the primary source is his own site, now offline, with an Internet
+Archive capture from 2001; his *15puzzle Optimal solver* reached v1.2 in May
+2002. [`README.md`](README.md)'s references carry the full citation. cWD and
+the three last-move tiers are this project's own.
+
+Implementations live in `src/puzzle24/search/walking_distance.rs`,
+`src/puzzle24/search/cwd.rs`, `src/puzzle24/search/cwd_lm.rs`, and
+`src/puzzle24/search/cwd_lm1l.rs`.
 
 ## Contents
 
