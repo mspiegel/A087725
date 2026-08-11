@@ -142,8 +142,29 @@ every board whose optimal solution length is exactly `D`, not a sample.
 Each layer is checked against `N(d)` from the Korf–Schultze distribution
 (`data/pdb15_depth_histogram.txt`), which serves as both the termination oracle
 and a per-layer correctness gate. All five match exactly. Output is
-`data/enum15/depthNN.ranks`, one 6-byte little-endian rank per board, full
-symmetry orbits; `enum_expand15` renders a file to readable rows and re-verifies.
+`data/enum15/depthNN.ranks`, full symmetry orbits.
+
+The format is headerless: the file is consecutive 6-byte little-endian unsigned
+integers, sorted ascending, so the board count is the file size over 6. Each
+value indexes a *solvable* state in `[0, 16!/2)` — not a plain permutation rank
+— through `rank()`/`unrank()` in `src/puzzle15/rank.rs`. Six bytes because
+16!/2 ≈ 1.05 × 10¹³ fits in 48 bits.
+
+`enum_expand15` decodes a file, and re-verifies it on the way through:
+
+```text
+$ enum_expand15 --file data/enum15/depth80.ranks --limit 3 --print
+data/enum15/depth80.ranks: 17 boards
+round-trip + solvability: OK (17 ranks)
+_ 11 9 13 12 15 10 14 3 7 6 2 4 8 5 1
+_ 12 9 13 15 8 10 14 11 7 6 2 4 3 5 1
+_ 12 9 13 15 11 10 14 3 7 2 5 4 8 6 1
+```
+
+Row-major, `_` for the blank. Those are three of the 17 depth-80 antipodes —
+the canonical published set, not a product of this repository. Adding
+`--verify --depth 80 --pdb-dir data` re-solves a sample with `korf-plus` and
+asserts every optimal length is exactly 80.
 
 The method avoids searching the 10.46-trillion-state space by never leaving the
 top layers, and is mostly **solve-free**. Two structural facts do the work:
