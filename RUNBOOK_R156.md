@@ -1,15 +1,15 @@
 # RUNBOOK — proving optimal(R) = 156 on a 64-core machine
 
-> **Status 2026-08-11.** Steps 1–9 executed on Azure VM `r156`
-> (Standard_F64ams_v6, New Zealand North, since migrated to a spot instance).
-> Tables built and all ten SHA-256 pins verified; all four node-identity
-> canaries exact; E1/E2/E3/E6/E7 measured. **Step 9 is done: threshold 150 is
-> exhausted at 2,287,004,968,051 nodes, proving `dist(R) ≥ 152`.** Threshold
-> 152 is running now.
+> **Status 2026-08-13.** Steps 1–10 executed on Azure VM `r156`
+> (Standard_F64ams_v6, New Zealand North, running as a spot instance).
+> **Threshold 152 is exhausted at 38,348,405,978,400 nodes, proving
+> `dist(R) ≥ 154`** — 40,754,135,364,372 nodes cumulative. The record is
+> committed in `runs/ckpt156/`. Only threshold 154 remains.
 >
-> The growth ratio is **not** the flat ×26 this runbook first assumed — three
-> measured transitions show it decaying, which cuts the projected cost of the
-> whole proof by roughly 4×. Table and cost below are refit accordingly.
+> Four growth ratios are now measured and the ratio **decays**: 37.80, 26.18,
+> 20.02, 16.77. The runbook's original flat ×26 would have put 152 at
+> 5.9 × 10¹³; it came in at 3.83 × 10¹³. Together with spot pricing that cuts
+> the projected cost of the remaining proof from ~$2,100 to **~$135**.
 
 The goal: prove `dist(R) ≥ 156` by exhaustive IDA\* search. The upper bound 156
 is already published and replay-verified (`FINDINGS_R.md` §1), so `≥ 156`
@@ -26,41 +26,56 @@ cWD → cLM2 → k8). On the 32 GB dev machine the cascade lost to `--lm2` at 14
 tables). With 503 GB that toll is gone, confirmed: the cascade exhausted 148
 in 592.8 s here.
 
-Rungs — measured through 150, fitted beyond:
+Rungs — measured through 152, fitted beyond:
 
 | threshold | nodes | growth | wall @ W=64 |
 |---|---:|---:|---:|
 | 144 | 115,436,814 | — | 1.16 s |
 | 146 | 4,363,759,350 | ×37.80 | 19.95 s |
 | 148 | 114,245,221,757 | ×26.18 | 592.8 s |
-| 150 | 2,287,004,968,051 | ×20.02 | ~3.5 h |
-| 152 | ~3.7 × 10¹³ | ×~16 | ~2.4 days |
-| 154 | ~4.9 × 10¹⁴ | ×~13 | **~4–5 weeks** |
+| 150 | 2,287,004,968,051 | ×20.02 | ~3.3 h |
+| 152 | 38,348,405,978,400 | ×16.77 | ~2.3 days |
+| 154 | ~5.4 × 10¹⁴ | ×~14.1 | **~32 days** |
 
-Rows through 150 are measured node counts. The 150 wall is derived, not timed:
-that threshold completed across a restart, so the driver reported it restored
-from checkpoint rather than searched.
+Rows through 152 are measured node counts. The 150 and 152 walls are derived
+from the node count at the measured 195 Mn/s, not timed: both thresholds
+completed across restarts, so the driver reported them restored from checkpoint
+rather than searched. Elapsed wall for 152 was longer than 2.3 days because of
+four spot evictions and their cold page caches.
 
 **The growth ratio decays, and that is the single most important number here.**
-The three measured transitions are ×37.80, ×26.18, ×20.02 — each about 0.70–0.77
-of the one before, with the decay itself slowing. Extrapolating the *ratio*
-rather than holding it flat gives ×16 and ×13 for the last two rungs. The
-original flat-×26 assumption put threshold 154 at ~1.6 × 10¹⁵ nodes and ~99
-days; the refit puts it near 4.9 × 10¹⁴ and ~31 days. Everything downstream —
-schedule, budget, whether this is worth doing at all — turns on that.
+Four measured transitions: ×37.80, ×26.18, ×20.02, ×16.77. Each is 0.69, 0.77,
+0.84 of the one before — the ratio falls, and the decay itself is slowing toward
+1. Extrapolating the *ratio* rather than holding it flat gives ×14.1 for the
+last rung.
 
-Treat the last two rows as a fit from three points, not a measurement.
-**Threshold 152 lands a fourth ratio; refit this table when it does** and the
-154 estimate firms up considerably.
+The fit has now been tested once against reality. Before 152 ran, the
+three-point fit predicted 3.66 × 10¹³ for it; the measured value was
+3.835 × 10¹³, so the fit was **4.6% low**. The original flat-×26 assumption
+predicted 5.9 × 10¹³ — **54% high**. That is the only out-of-sample check
+available, and it is why the 154 row is worth believing to within tens of
+percent rather than a factor of three.
 
-**Exhaust-154 is still ~93% of the total cost.** At the on-demand $0.719/h that
-is roughly **$540** for 154 plus ~$40 for the rest, against the ~$2,100 the flat
-ratio projected. The proof now runs on a spot instance (§11), so the realised
-figure is lower again.
+154 remains a fit from four points. Sensitivity to the one free parameter, the
+next decay factor:
 
-Throughput is **~180 Mn/s** sustained at W=64, measured over the threshold-152
-run on spot. Use that, not the 192.71 Mn/s E7 baseline, which predates the final
-constants.
+| next decay | ratio | 154 nodes | days @195 Mn/s | spot compute |
+|---:|---:|---:|---:|---:|
+| 0.838 (last observed) | ×14.05 | 5.39 × 10¹⁴ | 32.0 | $102 |
+| 0.86 | ×14.42 | 5.53 × 10¹⁴ | 32.8 | $105 |
+| 0.88 | ×14.76 | 5.66 × 10¹⁴ | 33.6 | $107 |
+
+**Cost of the remaining proof: ~$135.** Spot is **$0.1329/h** against the
+on-demand $0.7190 — verified live from the Azure retail prices API, an 81.5%
+discount. So ~$102 of compute plus ~$33 of disk and static IP, which accrue on
+calendar time rather than compute time and are now a quarter of the bill.
+Evictions cost schedule, not money: a deallocated VM bills no compute.
+
+Throughput is **~195 Mn/s** sustained at W=64, measured across the whole
+threshold-152 run including four evictions and their cold page caches. Use that
+rather than the 192.71 Mn/s E7 baseline, which predates the final constants, or
+the 180 Mn/s this runbook previously quoted, which under-counted by treating
+pre-banked units as work done in the measurement window.
 
 Machine (measured, `r156`): **x86-64 AMD EPYC 9V74 (Genoa), 64 physical cores,
 1 thread/core (no SMT), 503 GiB RAM, single NUMA node, 4 KiB pages, THP =
@@ -471,15 +486,17 @@ configuration.
 Threshold 150 has been exhausted on the final configuration:
 **2,287,004,968,051 nodes, ×20.02 over 148**, proving `dist(R) ≥ 152`.
 
-That gives three measured transitions, and they settle the question in the
-*opposite* direction from the one this runbook and `FINDINGS_R.md:328` worried
-about:
+Threshold 152 has since exhausted too, at **38,348,405,978,400 nodes, ×16.77
+over 150**, proving `dist(R) ≥ 154`. That gives four measured transitions, and
+they settle the question in the *opposite* direction from the one this runbook
+and `FINDINGS_R.md:328` worried about:
 
 | transition | ratio |
 |---|---:|
 | 144 → 146 | ×37.80 |
 | 146 → 148 | ×26.18 |
 | 148 → 150 | ×20.02 |
+| 150 → 152 | ×16.77 |
 
 **The ratio falls with depth. It does not climb.** Each is ~0.70–0.77 of the one
 before, with the decay itself slowing.
@@ -603,12 +620,13 @@ capacity (real pressure at 64-way — see E3/E7).
 
 Still open:
 
-1. **Growth-ratio drift** — *resolved, favourably.* Three transitions are now
-   measured (×37.80, ×26.18, ×20.02) and the ratio **falls**, against the
-   expectation in `FINDINGS_R.md:328` that it would climb. See §9. What is
-   still open is whether the decay holds: the 152 and 154 rows in the rung
-   table are a fit from three points. Threshold 152 lands a fourth ratio —
-   refit then.
+1. **Growth-ratio drift** — *resolved, favourably, and now tested out of
+   sample.* Four transitions are measured (×37.80, ×26.18, ×20.02, ×16.77) and
+   the ratio **falls**, against the expectation in `FINDINGS_R.md:328` that it
+   would climb. See §9. The three-point fit predicted 152 to within 4.6%, so
+   the method is validated rather than merely plausible. What remains open is
+   only the last decay factor: 154 rests on extrapolating one more step, worth
+   roughly ±5% on the estimate.
 2. **Huge pages** — quantified motivation exists (step 7) but no A/B yet.
    E6 settles it; potentially the largest single throughput lever left.
 3. **Bare metal vs virtualized** — every TLB miss inside a VM pays a
