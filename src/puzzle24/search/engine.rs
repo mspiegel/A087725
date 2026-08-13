@@ -1996,18 +1996,49 @@ enum Step {
 #[cfg(feature = "parallel")]
 const SPLIT_TARGET_STANDARD: usize = 4096;
 
-/// [`EngineConfig::Large`]. Swept at exhaust-148, W=64 (seconds):
+/// [`EngineConfig::Large`]. Raised 32768 → 262144 on 2026-08-13. The driver is
+/// **not** chosen for throughput here — it is chosen to bound what a spot
+/// eviction destroys.
 ///
-/// | 4096 | 16384 | 32768 | 65536 |
-/// |------|-------|-------|-------|
-/// | 595.1 | 576.6 | 580.1 | 577.5 |
+/// An eviction discards whatever all 64 workers hold in flight. At the observed
+/// rate (4 evictions in 55 h during exhaust-152, ~55 expected over a 31-day
+/// exhaust-154) the expected loss is ~55 × mean_unit_time/2:
 ///
-/// Everything at or above 16 K sits on one plateau within 0.6% — i.e. tied —
-/// while 4096 costs ~3%. 32768 is the middle of that plateau and restores the
-/// original ~500-units-per-worker ratio at W=64; deeper thresholds have more
-/// subtree-size variance, so the extra slack is the safer end of a flat range.
+/// | split | mean unit | worst unit | lost/evict | total lost | % of rung |
+/// |------:|----------:|-----------:|-----------:|-----------:|----------:|
+/// | 32768 | 1.47 h | 42.7 h | 44 min | 40.5 h | 5.4% |
+/// | 262144 | 0.18 h | 5.3 h | 6 min | 5.1 h | 0.7% |
+///
+/// (worst-unit scales the 29× max/mean ratio measured over the 32,768 units of
+/// exhaust-152; see `records/r_split_unit_sizes.txt`.)
+///
+/// Measured 2026-08-13 on the 64-core box, node-identical at every value —
+/// exhaust-144 = 115,436,814 and the 144→148 ladder = 118,724,417,921 exactly:
+///
+/// | split | canary-144 | ladder-148 |
+/// |------:|-----------:|-----------:|
+/// | 32768 | 9.49 s | 495.10 s |
+/// | 65536 | 17.37 s | 510.43 s |
+/// | 262144 | 68.05 s | 623.23 s |
+///
+/// Read raw, 262144 looks 25.9% worse. It is not. The frontier expansion is
+/// **sequential and paid once per threshold**, costing a measured ~8 s per extra
+/// 32768 units (7.88 and 8.37 s/32K across the two arms). The ladder pays that
+/// three times against only ~500 s of work, which manufactures the regression;
+/// subtracting 3× the split overhead leaves the steady-state search *faster*
+/// (447.6 s vs 495.1 s, −9.6%, one run, treat as directional). At exhaust-154
+/// the same ~60 s of split is **0.002% of a 32-day rung** — three orders of
+/// magnitude below the eviction loss it removes.
+///
+/// The earlier sweep this replaces (4096/16384/32768/65536 = 595.1/576.6/580.1/
+/// 577.5 s at exhaust-148) predates `K8_SHARED_BITS = 27` and measured only
+/// total wall, so it could not separate split cost from search throughput.
+///
+/// **Not part of [`ckpt_run_id`].** Changing this mid-rung silently invalidates
+/// every banked unit record — the fingerprint guard makes that safe but not
+/// free. Fix it before a rung starts and leave it alone.
 #[cfg(feature = "parallel")]
-const SPLIT_TARGET_LARGE: usize = 32768;
+const SPLIT_TARGET_LARGE: usize = 262144;
 
 /// Probe-cache size for a *worker*, in bits. Same as the sequential
 /// [`CACHE_BITS`], and that is not a coincidence — see below.
