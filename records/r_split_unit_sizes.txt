@@ -1,0 +1,135 @@
+Parallel split — what makes a work unit expensive
+=================================================
+
+Measured 2026-08-12 on the exhaust-152 rung (Azure r156, 64 cores, --config
+large so SPLIT_TARGET = 32768, cascade --clm2 --zpdb8). Companion to
+r_flat_parallel_efficiency.txt, which measured granularity cost at +0.00s and
+is NOT contradicted here: the split is fine-grained enough that an ideal
+scheduler could not beat it. This record is about a different cost — what a
+restart throws away — and about a signal the split ignores.
+
+Occasion: threshold 152 finished 32,767 of 32,768 units and then ran for ~40
+min on a single unit while 63 cores idled, and a spot eviction landed during
+that window and discarded it.
+
+
+Unit sizes span ten orders of magnitude
+---------------------------------------
+Node counts over 32,767 completed units at bound 152:
+
+    min                1
+    median       679,381,196
+    p90        2,750,602,991
+    p99        7,733,939,437
+    p99.9     14,919,818,318
+    max       33,808,570,978        = 50x the median, 29x the mean
+
+The split cuts by BFS position, not by work. It pops from the front of a queue
+and pushes children on the back until the frontier holds SPLIT_TARGET nodes
+(engine.rs, `while frontier.len() < config.split_target()`). Nothing consults
+how much work sits under a frontier node.
+
+
+Slack predicts cost, and the split already has it
+-------------------------------------------------
+Every Unit carries `g` and `h`. With f = g + h and slack = bound - f, the
+completed units sort cleanly (11,831 units, bound 152):
+
+    slack   units   median nodes      mean nodes
+        8    7312   1,170,303,781   1,666,700,703
+        6    3299     259,569,791     395,380,851
+        4    1014      70,568,776     130,446,543
+        2     178      17,571,594      29,040,975
+        0      28       4,733,385       5,055,548
+
+About 4x per 2 plies of slack, 250x median across the range. A slack-0 unit is
+nearly dead on arrival; a slack-8 unit has eight plies to burn.
+
+The frontier is dominated by the expensive kind:
+
+    f=144  slack=8   21232 units
+    f=146  slack=6    8465 units
+    f=148  slack=4    2539 units
+    f=150  slack=2     451 units
+    f=152  slack=0      81 units
+
+All five largest completed units are g=13 h=131 (slack 8). The straggler that
+held the machine at the end was g=14 h=130 — also slack 8, one ply deeper.
+
+
+The straggler, reconstructed
+----------------------------
+The checkpoint stores `u <run_id> <bound> <idx> <fp> <nodes> <res>` — no board.
+But the split is deterministic, so replaying it regenerates the identical
+frontier, and ckpt_unit_fp hashes (board, g, dfa, last), which verifies the
+reconstruction rather than merely indexing it.
+
+Validation: 11,831 of 11,831 reconstructed fingerprints matched the recorded
+ones exactly (100%).
+
+    idx 31013   fp c8252a54d2243469   g=14  h=130  last=Right
+
+      20 24 23 22 21
+      10 15 19 17 16
+       9 14 18 13 11
+       8  .  7 12  6
+       5  4  3  2  1
+
+For comparison, the largest completed unit (33.8e9 nodes):
+
+    idx 11706   g=13  h=131  last=Down
+
+      20 14 24 23 21
+      19  9 18 22 16
+      15  . 13 17 11
+      10  8  7 12  6
+       5  4  3  2  1
+
+Same family: bottom row solved, blank mid-board, the 20s scattered along the
+top. The top three by node count are near-variants of each other.
+
+
+Why this matters for the 154 rung
+---------------------------------
+Not throughput — eviction exposure. A spot eviction discards whatever all 64
+workers have in flight. Observed eviction rate on this machine was 4 in 55 h
+(~1 per 11 h, ~55 expected over a 31-day rung), so with mean unit time t the
+expected loss is ~55 * t/2:
+
+    SPLIT_TARGET   mean unit   worst unit   lost/evict   total   % of rung
+          32768       1.47 h      42.7 h       44 min    40.5 h      5.4%
+          65536       0.74 h      21.3 h       22 min    20.2 h      2.7%
+         262144       0.18 h       5.3 h        6 min     5.1 h      0.7%
+         524288       0.09 h       2.7 h        3 min     2.5 h      0.3%
+
+(worst unit scales the 29x max/mean ratio measured at 152.)
+
+At today's 32768 a single unit at 154 would be a ~43-hour single-threaded
+subtree — near-certain to be evicted and restarted from zero, repeatedly.
+
+Two options, untested:
+  1. Raise SPLIT_TARGET. Measured sweep at 148 had 4096=595.1s 16384=576.6s
+     32768=580.1s 65536=577.5s, i.e. 16K-65K tied within 0.6%. Nothing above
+     65536 is measured. 262144 is 4x beyond the tested range.
+  2. Split on slack instead of count: keep expanding frontier nodes with large
+     slack, stop early on tight ones, producing units of comparable COST rather
+     than comparable count. The signal is free — `h` is already in the Unit.
+
+Both are changes to a soundness-critical path and must hold node identity
+(115,436,814 at exhaust-144). SPLIT_TARGET is NOT part of ckpt_run_id, so
+whatever is chosen must stay fixed for a whole rung or a resume silently
+re-searches everything.
+
+Also observed: every eviction costs a cold page cache on top of the lost units
+— 49 GB of tables must fault back in before the machine returns to full rate.
+Not quantified here. Argues for --hugepages on the next rung.
+
+
+Reproducing
+-----------
+No tooling was kept. The frontier was dumped by temporarily patching
+bounded_parallel to write every unit after `let units: Vec<Unit> = ...` and
+exit — deliberately in the production code path rather than a reimplementation,
+so the split could not diverge. Run with --checkpoint against a COPY of
+runs/ckpt156 and --prove-at-least 153, which restores 144-150 and then splits
+at 152. The fingerprint match is what proves the dump is faithful.
