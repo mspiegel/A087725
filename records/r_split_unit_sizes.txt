@@ -125,6 +125,61 @@ Also observed: every eviction costs a cold page cache on top of the lost units
 Not quantified here. Argues for --hugepages on the next rung.
 
 
+Which tier prunes the expensive units
+-------------------------------------
+Measured 2026-08-13 on the dev Mac (8 threads, --features search-census), to
+answer the question the section above raises: the expensive units are the ones
+the cascade fails to rule out, so WHICH tier goes blind on them?
+
+Design. Two groups of 20 units drawn from the 32,768 of threshold 152, both
+restricted to slack 8 so g+h is identical and any difference is attributable to
+the board region rather than to search room:
+
+    top 20      by node count, 16.2e9 .. 33.8e9 nodes on the real rung
+    control 20  the median band of slack-8 units, ~1.13e9 nodes
+
+Each re-searched at reduced slack 4 (--prove-at-least h+5), a complete exhaust
+rather than a truncated sample, and ~16x cheaper than the real thing. The rates
+are what matter; the absolute size does not.
+
+Results (median, with min/max across the 20):
+
+    metric                       top 20                control 20        ratio
+    nodes                85,477,848 (59.1-145.8M)  3,909,612 (2.8-6.6M)  21.9x
+    k8 consulted %nodes       70.00 (65.4-80.4)       68.65 (60.0-77.0)   1.02x
+    k8 raised h %consults     24.25 (18.4-28.7)       14.70 ( 8.5-23.1)   1.65x
+    k8 PRUNED %nodes          12.72 ( 9.8-15.7)        8.14 ( 4.5-10.6)   1.56x
+    lm2 PRUNED %nodes          8.47 ( 1.3-13.4)        8.66 ( 1.6-20.0)   0.98x
+    lm1l PRUNED %consults      9.68 ( 1.0-14.8)        8.12 ( 2.1-14.9)   1.19x
+
+    k8 share of all pruning, k8/(k8+lm2):   top 59.4%   control 47.0%
+
+**k8 carries the tail.** Its share of pruning rises from 47% to 59%, it raises
+h on 1.65x as many consults, and it prunes 1.56x as much of the tree. lm2 is
+flat to within 2%.
+
+**But no tier goes blind, which was the hypothesis and it is wrong.** The
+expensive units are not expensive because the cascade fails on them — k8 is
+MORE effective there, not less. The 21.9x cost gap survives at matched slack,
+so these boards are intrinsically large, and the cascade is working harder on
+them and still losing ground.
+
+That sharpens rather than answers the question. k8 is consulted on ~70% of
+nodes in BOTH groups, so the same fraction survives cWD and reaches it. The
+extra 22x therefore originates upstream of the tiers — in how many nodes cWD
+lets through, or in the branching structure of that region — not in a tier
+failing to fire. Untested.
+
+Read-through for 154: nothing here argues for changing the cascade or its
+consult order before the final run. k8 is doing the heavy lifting exactly where
+it is needed.
+
+Limits. Measured at slack 4, not the slack 8 these units actually ran at.
+Medians over 20 units per group — enough to establish direction, not to fit a
+model. Run on the dev Mac, where 49 GB of tables page against 34 GB of RAM, so
+absolute throughput is not comparable with the VM; only the within-run rates
+are used.
+
 Reproducing
 -----------
 No tooling was kept. The frontier was dumped by temporarily patching
