@@ -25,9 +25,11 @@ Archive capture from 2001; his *15puzzle Optimal solver* reached v1.2 in May
 2002. [`README.md`](README.md)'s references carry the full citation. cWD and
 the three last-move tiers are this project's own.
 
-Implementations live in `src/puzzle24/search/walking_distance.rs`,
-`src/puzzle24/search/cwd.rs`, `src/puzzle24/search/cwd_lm.rs`, and
-`src/puzzle24/search/cwd_lm1l.rs`.
+Implementations live in
+[`src/puzzle24/search/walking_distance.rs`](src/puzzle24/search/walking_distance.rs),
+[`src/puzzle24/search/cwd.rs`](src/puzzle24/search/cwd.rs),
+[`src/puzzle24/search/cwd_lm.rs`](src/puzzle24/search/cwd_lm.rs), and
+[`src/puzzle24/search/cwd_lm1l.rs`](src/puzzle24/search/cwd_lm1l.rs).
 
 ## Contents
 
@@ -111,7 +113,8 @@ puzzle — five bags, one blank, letters hopping between neighbours.
 
 That collapse is the whole trick. Merely *relabeling* the board `α β α α α / …`
 leaves ~3×10¹⁵ boards. Turning each row into a bag leaves **65,650,495**, which
-is BFS-able — that's `FULL_WD_ENTRIES` at `walking_distance.rs:232`. The bag is
+is BFS-able — that's `FULL_WD_ENTRIES` at
+[`walking_distance.rs:232`](src/puzzle24/search/walking_distance.rs#L232). The bag is
 exactly `M[r][g]` = how many of letter `g` sit in bag `r`.
 
 The Latin puzzle is the same thing rotated 90°: five column-bags of Latin
@@ -123,7 +126,8 @@ Manhattan distance sums each tile's `|row gap| + |col gap|`. The Greek puzzle
 bounds only the `|row gap|` half — but it bounds it *properly*, because it knows
 about the blank.
 
-`WD = Greek + Latin` (`walking_distance.rs:678`) is admissible because the two
+`WD = Greek + Latin`
+([`walking_distance.rs:522`](src/puzzle24/search/walking_distance.rs#L522)) is admissible because the two
 puzzles bill **disjoint moves**: Greek charges only for vertical moves, Latin
 only for horizontal. Any real solution with `V` vertical and `H` horizontal
 moves projects to a legal Greek solution costing `V` (its horizontal moves
@@ -135,7 +139,8 @@ databases use.
 
 Because the 5×5 goal is symmetric under transposition, the Greek and Latin
 bag-puzzles are literally the same puzzle: both lookups hit one shared table,
-with the projection transposed before the query (`walking_distance.rs:6`).
+with the projection transposed before the query
+([`walking_distance.rs:6`](src/puzzle24/search/walking_distance.rs#L6)).
 
 ## Worked example 1 — near-solved, where WD crushes Manhattan
 
@@ -222,7 +227,8 @@ M_row (blank in row 4)
 
 Row sums are `5 5 5 5 4` — four in the blank's row. Column sums are `5 5 5 5 4`
 too, since there are five of each Greek letter but only four `ε`. Those margins
-are what `pack()` exploits at `walking_distance.rs:99`: the last column of each
+are what `pack()` exploits at
+[`walking_distance.rs:99`](src/puzzle24/search/walking_distance.rs#L99): the last column of each
 row is derivable, so only 20 of the 25 counts need storing (20 cells × 3 bits +
 3-bit blank index = 63 bits, fits a `u64`).
 
@@ -282,12 +288,12 @@ puzzle for it.
 
 | What | Where |
 |---|---|
-| State shape (`M[r][g]` + blank axis index) | `walking_distance.rs:31` |
-| `u64` key packing, last-column-derivable trick | `walking_distance.rs:99` |
-| Reachable state count (65,650,495) | `walking_distance.rs:232` |
-| Shared row/col table by transposition symmetry | `walking_distance.rs:6` |
-| `h = h_row + h_col` | `walking_distance.rs:678` |
-| Table build / persist tool | `src/bin/build_wd24.rs` |
+| State shape (`M[r][g]` + blank axis index) | [`walking_distance.rs:4`](src/puzzle24/search/walking_distance.rs#L4) |
+| `u64` key packing, last-column-derivable trick | [`walking_distance.rs:99`](src/puzzle24/search/walking_distance.rs#L99) |
+| Reachable state count (65,650,495) | [`walking_distance.rs:232`](src/puzzle24/search/walking_distance.rs#L232) |
+| Shared row/col table by transposition symmetry | [`walking_distance.rs:6`](src/puzzle24/search/walking_distance.rs#L6) |
+| `h = h_row + h_col` | [`walking_distance.rs:522`](src/puzzle24/search/walking_distance.rs#L522) |
+| Table build / persist tool | [`src/bin/build_wd24.rs`](src/bin/build_wd24.rs) |
 
 ## What the bags forget
 
@@ -337,7 +343,7 @@ x_g = residents of g − LIS(goal-cross order)
 For the row above: the residents' goal columns read `1 2 0 3 4`, the LIS is
 `1 2 3 4` (length 4), so `x_α = 5 − 4 = 1` — **at least one α must escape
 row 0** in any real solution. (This bound is machine-checked in Lean 4:
-`proofs/puzzle15-wd`.)
+[`proofs/puzzle15-wd`](proofs/puzzle15-wd).)
 
 ## Escapes constrain the bag puzzle — they don't add
 
@@ -487,7 +493,7 @@ marginal anyway: the gap is zero at the root, the single-line max retains
 **98%** of the node-weighted joint gain tree-wide, and wiring in the pairwise
 joint value (memoized, essentially free per node) still bought only ~2.6%
 fewer nodes in an exhaustive A/B — the extra tightness barely prunes. The
-compact table is the right trade. See `FINDINGS_R.md` §8 for those
+compact table is the right trade. See [`FINDINGS_R.md`](FINDINGS_R.md) §8 for those
 measurements.
 
 ## How much cWD actually buys
@@ -505,11 +511,11 @@ structured region WD alone under-charges.
 
 | What | Where |
 |---|---|
-| Projection + per-line escape demands `x_g` | `cwd.rs:370` |
-| Surcharge curves, largest-single-line lookup | `cwd.rs:200` |
-| Surcharge table builder | `src/bin/build_cwd_single.rs` |
-| Escape-bound soundness proof (Lean 4) | `proofs/puzzle15-wd` |
-| Joint vs single-line-max gap measurements | `FINDINGS_R.md` §8 |
+| Projection + per-line escape demands `x_g` | [`cwd.rs:429`](src/puzzle24/search/cwd.rs#L429) |
+| Surcharge curves, largest-single-line lookup | [`cwd.rs:259`](src/puzzle24/search/cwd.rs#L259) |
+| Surcharge table builder | [`src/bin/build_cwd_single.rs`](src/bin/build_cwd_single.rs) |
+| Escape-bound soundness proof (Lean 4) | [`proofs/puzzle15-wd`](proofs/puzzle15-wd) |
+| Joint vs single-line-max gap measurements | [`FINDINGS_R.md`](FINDINGS_R.md) §8 |
 
 ## The last move — naming one letter (`--lm`)
 
@@ -774,7 +780,7 @@ demand vector.
 **The measurement that opened the door.** Cross-tabbing those 780 joint
 prunes: restricting the demands to **one line at a time** — the same
 retreat cWD itself made — retains **778 of 780**
-(`data/lm2j1l_survivors148.txt`). One line `g`, one demand `d ≤ 4`, one
+([`data/lm2j1l_survivors148.txt`](data/lm2j1l_survivors148.txt)). One line `g`, one demand `d ≤ 4`, one
 tracked placement *is* enumerable: 5 lines × 4 demands × 19 variants
 (4 single-A lines, 3 single-B lines, 12 pairs) + 3 zero-demand single-B
 slots = **383 values per bag state**.
@@ -810,7 +816,7 @@ over all 65,650,495 bag states. Three implementation choices carry it:
   its type-3 partner is home — that no other table stores.
 
 The A\* did not die: it survives as the **reference oracle**
-(`cwd_lm_joint.rs`), demoted from the engine to the build gates — the table
+([`cwd_lm_joint.rs`](src/puzzle24/search/cwd_lm_joint.rs)), demoted from the engine to the build gates — the table
 builder's validation cross-checks probe values against fresh exact searches.
 The engine itself only ever probes.
 
@@ -823,18 +829,18 @@ this project runs.
 
 | What | Where |
 |---|---|
-| Single-tracked refined table `D(key, line)` | `cwd_lm.rs:37` |
-| Backward BFS over (key × line × crossed) | `cwd_lm.rs:104` |
-| Pair table `D2(key, la, lb)` | `cwd_lm.rs:224` |
-| Pair builder over (key × la × ca × lb × cb) | `cwd_lm.rs:308` |
-| Combined mmap artifact (`data/cwd_lm_mm.bin`) | `cwd_lm.rs:513` |
-| Two-branch evaluation (`--lm`) | `flat.rs:1212` |
-| Four-branch evaluation (`--lm2`) | `flat.rs:1496` |
-| Tracked-line maintenance per move | `flat.rs:1192`, `flat.rs:1466` |
-| Joint constrained A\* (reference oracle) | `cwd_lm_joint.rs:66` |
-| Layered `D_r` build (seed + dial relax) | `cwd_lm1l.rs:593` |
-| 2-bit field layout, payload probe | `cwd_lm1l.rs:67`, `cwd_lm1l.rs:818` |
-| cLM2 consult (floor + delta lift) | `flat.rs:1631` |
-| Table builder + oracle validation gate | `cwd_lm1l.rs:878`, `cwd_lm1l.rs:1029` |
-| Builder CLI (all five cWD artifacts) | `src/bin/build_cwd_artifacts.rs` |
-| Single-line-retention measurement | `data/lm2j1l_survivors148.txt` |
+| Single-tracked refined table `D(key, line)` | [`cwd_lm.rs:37`](src/puzzle24/search/cwd_lm.rs#L37) |
+| Backward BFS over (key × line × crossed) | [`cwd_lm.rs:104`](src/puzzle24/search/cwd_lm.rs#L104) |
+| Pair table `D2(key, la, lb)` | [`cwd_lm.rs:224`](src/puzzle24/search/cwd_lm.rs#L224) |
+| Pair builder over (key × la × ca × lb × cb) | [`cwd_lm.rs:319`](src/puzzle24/search/cwd_lm.rs#L319) |
+| Combined mmap artifact (`data/cwd_lm_mm.bin`) | [`cwd_lm.rs:621`](src/puzzle24/search/cwd_lm.rs#L621) |
+| Two-branch evaluation (`--lm`) | [`engine.rs:1160`](src/puzzle24/search/engine.rs#L1160) |
+| Four-branch evaluation (`--lm2`) | [`engine.rs:1471`](src/puzzle24/search/engine.rs#L1471) |
+| Tracked-line maintenance per move | [`engine.rs:1167`](src/puzzle24/search/engine.rs#L1167), [`engine.rs:1478`](src/puzzle24/search/engine.rs#L1478) |
+| Joint constrained A\* (reference oracle) | [`cwd_lm_joint.rs:66`](src/puzzle24/search/cwd_lm_joint.rs#L66) |
+| Layered `D_r` build (seed + dial relax) | [`cwd_lm1l.rs:574`](src/puzzle24/search/cwd_lm1l.rs#L574), [`cwd_lm1l.rs:603`](src/puzzle24/search/cwd_lm1l.rs#L603) |
+| 2-bit field layout, payload probe | [`cwd_lm1l.rs:67`](src/puzzle24/search/cwd_lm1l.rs#L67), [`cwd_lm1l.rs:856`](src/puzzle24/search/cwd_lm1l.rs#L856) |
+| cLM2 consult (floor + delta lift) | [`engine.rs:1630`](src/puzzle24/search/engine.rs#L1630) |
+| Table builder + oracle validation gate | [`cwd_lm1l.rs:886`](src/puzzle24/search/cwd_lm1l.rs#L886), [`cwd_lm1l.rs:1056`](src/puzzle24/search/cwd_lm1l.rs#L1056) |
+| Builder CLI (all five cWD artifacts) | [`src/bin/build_cwd_artifacts.rs`](src/bin/build_cwd_artifacts.rs) |
+| Single-line-retention measurement | [`data/lm2j1l_survivors148.txt`](data/lm2j1l_survivors148.txt) |
