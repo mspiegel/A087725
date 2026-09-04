@@ -96,7 +96,7 @@ missing, please open a GitHub issue and it will be added.
   skipped before being built, with no table probe.
 - **σ-orbit split at the root** (Culberson & Schaeffer, 1994), halving the tree
   on a σ-symmetric board.
-- **Three additive (Korf & Felner, 2002) 8-tile zero-aware PDBs**
+- **Additive (Korf & Felner, 2002) 8-tile zero-aware PDBs**
   (Clausecker & Reinefeld, 2019), each queried in both σ-views.
 - **1 bit per PDB entry** (Clausecker & Reinefeld, 2019), not 8 — distances
   reconstructed differentially.
