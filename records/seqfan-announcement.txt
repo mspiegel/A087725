@@ -1,0 +1,78 @@
+Subject: A087725
+
+Hello,
+
+I believe I am two weeks away from finishing the computation of 156 as a
+lower bound of the 5x5 sliding tile puzzle. I am working on a proof that
+the "turned 180-degree" puzzle configuration requires 156 single-tile
+moves.
+
+The search is an exhaustive IDA* ladder. I have written a solver that
+uses three novel variations of Takahashi's Walking Distance heuristic.
+The variations are:
+
+- cWD, escape-constrained Walking Distance. Two tiles in the same row
+  cannot pass each other while both stay in it -- one has to step out and
+  come back. Those exits are vertical moves, but WD treats a row as an
+  unordered bag and so charges nothing for them. cWD counts how many tiles
+  each line is obliged to eject, then asks WD for its cheapest plan that
+  also makes those exits: the count constrains WD's own move budget
+  instead of being added on top of it.
+
+- Last-moves Walking Distance. The blank's final one or two steps into its
+  home corner admit only two endings, or four corridors, each obliging a
+  named tile to cross a line and return; WD is refined by tracking those
+  tiles by identity, which its anonymous row and column bags cannot
+  express. The last-moves idea is Korf & Taylor's (1996) -- pricing it
+  against a WD abstraction is what is new.
+
+- cLM2, the two combined. Taking the maximum of cWD and the last-two-move
+  bound never prices their conjunction, so cLM2 evaluates escape demands
+  and corridor obligations jointly. Restricting that to one demanded line
+  at a time keeps it a table lookup rather than a search at every node.
+
+These three are where the work is new, and they are what I would most like
+scrutinized: the rest of the solver is established technique, but if any one
+of these variations is not in fact admissible, the lower bound is wrong.
+I would love any feedback, critical reviews, identification of mistakes I
+have made, etc. More information about the Walking Distance variations is
+at https://github.com/mspiegel/A087725/blob/main/WD.md
+
+My solver uses the following optimizations:
+
+- Iterative, not recursive. Search state lives in a depth-indexed arena
+  allocated once; there is no call frame to spill across.
+- No allocation on the per-node path. The arena and every front cache are
+  built once per worker and reused across work units and thresholds.
+- One axis copied per move, the other shared with an ancestor for the
+  cost of a one-byte index.
+- Move-pruning DFA. Taylor-Korf duplicate elimination (Taylor & Korf,
+  1993), compiled to a 41,396-state automaton (687 KiB) and folded into
+  the candidate mask.
+- Child pre-prune from the parent's neighbour-WD -- over-bound children
+  are skipped before being built, with no table probe.
+- sigma-orbit split at the root (Culberson & Schaeffer, 1994), halving
+  the tree on a sigma-symmetric board.
+- Additive (Korf & Felner, 2002) 8-tile zero-aware PDBs (Clausecker
+  & Reinefeld, 2019), each queried in both sigma-views.
+- 1 bit per PDB entry (Clausecker & Reinefeld, 2019), not 8 -- distances
+  reconstructed differentially.
+- Lazy cascade: each tier is consulted only at nodes the cheaper ones
+  failed to prune.
+
+I am using approximately 53,000 core hours on AMD EPYC 9V74 (Genoa) cores
+to complete the proof. The computation is expected to complete in two weeks.
+
+More information about the solver, including the source code, is at
+https://github.com/mspiegel/A087725
+
+Thank you,
+--Michael
+
+Turned 180-degree Puzzle Configuration
+
+ . 24 23 22 21
+20 19 18 17 16
+15 14 13 12 11
+10  9  8  7  6
+ 5  4  3  2  1
