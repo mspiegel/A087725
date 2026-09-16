@@ -1,0 +1,97 @@
+eta24 — sphere-walk yield and rejection cost (2026-09-16)
+========================================================
+
+Machine: M2 Pro, 12 threads (rayon default), on AC, NOT idle (Chrome, Defender,
+load average ~6 before runs). Times are thread-time sums, so contention inflates
+them; they are for choosing between levers that differ by several-fold, not for
+percent-level A/Bs.
+
+The instrument
+--------------
+`eta24 yield` (src/bin/eta24.rs) walks k steps from GOAL under the walker rule
+(src/puzzle24/eta/walker.rs: legal moves minus reversal minus the MoveDfa W=11
+prune mask, optionally with moribund pruning) and accepts the end board iff no
+solution of length <= k-2 exists (src/puzzle24/eta/sphere.rs, reject_shorter).
+
+  yield              accepted / attempts
+  nodes, us/attempt  verification search cost, including rejected walks
+  ms/accepted        thread time per accepted sample = us/attempt / yield
+
+Clausecker's yields (ZIB Report 20-17, App. B) used an FSM matching segments up
+to n = 22 (n = 24 at k = 63, 64) with moribund tracking.
+
+Result 1 — yield and cost by depth, no checkpoints, verifier zpdb k6
+--------------------------------------------------------------------
+10,000 attempts per row, seed 1, commit ef40fb1. 4 m 57 s wall for both modes.
+
+   k   yield(mb off)  yield(mb on)  thesis   nodes/att(on)  us/att(on)  ms/accepted(on)
+  10      0.9929        1.0000    1.0000     0.2        9.05        0.0
+  12      0.9822        1.0000    1.0000     0.6       10.58        0.0
+  14      0.9608        0.9957    1.0000     1.7       13.20        0.0
+  16      0.9442        0.9811    1.0000     3.9       14.70        0.0
+  18      0.9041        0.9515    1.0000     7.9       18.51        0.0
+  20      0.8680        0.9250    1.0000    14.7       21.25        0.0
+  22      0.8161        0.8716    1.0000    25.8       24.45        0.0
+  24      0.7622        0.8239    0.9981    47.8       29.84        0.0
+  26      0.6988        0.7703    0.9808    72.9       36.19        0.0
+  28      0.6439        0.7051    0.9483   128.4       46.00        0.1
+  30      0.5705        0.6444    0.9034   196.2       59.84        0.1
+  32      0.5100        0.5735    0.8480   337.2       80.91        0.1
+  34      0.4384        0.5113    0.7835   506.7      109.71        0.2
+  36      0.3743        0.4457    0.7117   800.0      154.35        0.3
+  38      0.3285        0.3738    0.6349  1292.9      228.88        0.6
+  40      0.2745        0.3187    0.5553  2041.4      343.01        1.1
+  42      0.2270        0.2620    0.4757  3187.0      515.22        2.0
+  44      0.1678        0.2042    0.3982  5615.3      872.46        4.3
+  46      0.1354        0.1647    0.3254  8405.2     1279.28        7.8
+  48      0.0982        0.1238    0.2591 12005.3     1816.32       14.7
+  50      0.0783        0.0919    0.2003 18641.6     2801.74       30.5
+  52      0.0541        0.0637    0.1502 28122.7     4157.94       65.3
+  54      0.0387        0.0476    0.1090 43155.0     6023.15      126.5
+  56      0.0242        0.0324    0.0763 66836.6     9230.58      284.9
+  58      0.0136        0.0226    0.0514 93280.8    12922.36      571.8
+  60      0.0099        0.0147    0.0333 109638.8   15179.46     1032.6
+  62      0.0060        0.0088    0.0207 177783.2   24641.17     2800.1
+  64      0.0038        0.0036    0.0147 225668.2   31132.56     8647.9
+
+Dead-end rate with moribund off rises from 0.7% (k=10) to 28.5% (k=64); with
+moribund on it is 0 at every depth. The walker table has 39,033 nodes, 81 of
+them doomed. Moribund pruning raises yield by 10-50% relative, less than the
+thesis's "up to 58%" over plain FSM pruning, and at k = 64 the two are within
+noise. The W = 11 DFA yields 0.4-0.5x the thesis's n = 22-24 FSM from k = 40 on.
+
+Result 2 — verifier choice, k = 64, moribund on, 2,000 attempts
+---------------------------------------------------------------
+                           nodes/attempt   ms/attempt
+  zpdb k6 (6-6-6-6 + refl)       223,638        33.4
+  zpdb k7 (7-7-7-3 + refl)       671,405       110.4
+  cwd (engine::bounded)        4,911,080       198.7
+
+Identical seeds give identical yields in all three (the verdicts agree). The
+larger k7 partition expands 3x more nodes than k6 on these boards. The engine
+over plain cWD expands 22x more and also pays ~0.8 ms per call of fixed setup
+(visible at k = 16: 792 us/attempt for 3.9 nodes).
+
+Result 3 — prefix checkpoints, moribund on, zpdb k6
+---------------------------------------------------
+A walk whose j-step prefix is already closer than j can never be accepted, so
+testing prefixes every c steps back from k rejects early without changing any
+verdict (test: sphere::tests::checkpoints_do_not_change_outcomes).
+
+  4,000 attempts:
+    c    k=40 us/att   k=52 us/att   k=64 us/att
+    0       324.4        4300.6       31449.5
+    2       540.7        2766.8        9013.8
+    4       386.1        1728.2        6198.5
+    8       308.6        2017.6        5362.0
+
+  10,000 attempts:
+    c    k=52 us/att   k=64 us/att
+    4      1926.7        7306.7
+    6      1998.1        5544.6
+    8      1999.0        5816.3
+   12      2063.0        9057.6
+
+Spacing 6-8 is the flat optimum: 5.4x cheaper per attempt at k = 64 and 2.1x at
+k = 52 than no checkpoints. With yield 0.36% at k = 64 that is ~1.5 s of thread
+time per accepted sample, down from 8.6 s.

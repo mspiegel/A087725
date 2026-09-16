@@ -44,6 +44,17 @@ struct Node {
     doom: u8,
 }
 
+/// How a [`Walker::walk_with`] walk ended.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WalkEnd {
+    /// All `k` steps taken: end board and the path's probability.
+    Done(State, f64),
+    /// No allowed move before step `k`.
+    DeadEnd,
+    /// The stop callback ended the walk.
+    Stopped,
+}
+
 /// The compiled walker rule over the reachable `(dfa, blank, last)` states.
 pub struct Walker {
     nodes: Vec<Node>,
@@ -195,6 +206,24 @@ impl Walker {
     /// first). Returns the end board and the walk's probability `Π 1/|N′ᵢ|`, or
     /// `None` if the walk dead-ends.
     pub fn walk(&self, k: u32, rng: &mut Rng, path: &mut Vec<Move>) -> Option<(State, f64)> {
+        match self.walk_with(k, rng, path, |_, _| false) {
+            WalkEnd::Done(s, p) => Some((s, p)),
+            WalkEnd::DeadEnd => None,
+            WalkEnd::Stopped => unreachable!("stop callback never fires"),
+        }
+    }
+
+    /// [`walk`](Self::walk), calling `stop(board, steps_taken)` after each of the
+    /// first `k − 1` steps; the walk ends early with [`WalkEnd::Stopped`] when
+    /// it returns `true`. The random draws are identical to [`walk`](Self::walk)
+    /// up to the stopping point.
+    pub fn walk_with(
+        &self,
+        k: u32,
+        rng: &mut Rng,
+        path: &mut Vec<Move>,
+        mut stop: impl FnMut(&State, u32) -> bool,
+    ) -> WalkEnd {
         path.clear();
         let mut node = self.root();
         let mut s = GOAL;
@@ -204,7 +233,7 @@ impl Walker {
             let mask = self.allowed(node, k - step);
             let count = mask.len();
             if count == 0 {
-                return None;
+                return WalkEnd::DeadEnd;
             }
             let pick = rng.below(count as u64) as usize;
             let m = mask.iter().nth(pick).expect("pick < count");
@@ -212,8 +241,11 @@ impl Walker {
             (s, blank) = s.apply_at(m, blank);
             node = self.next(node, m);
             path.push(m);
+            if step + 1 < k && stop(&s, step + 1) {
+                return WalkEnd::Stopped;
+            }
         }
-        Some((s, prob))
+        WalkEnd::Done(s, prob)
     }
 
     /// Probability that a `moves.len()`-step walk takes exactly `moves`; zero if

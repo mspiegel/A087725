@@ -112,6 +112,9 @@ enum Cmd {
         /// Moribund pruning in the walk rule.
         #[arg(long, value_enum, default_value_t = MoribundArg::Both)]
         moribund: MoribundArg,
+        /// Prefix checkpoint spacings to compare (0 = final board only).
+        #[arg(long, value_delimiter = ',', default_value = "0")]
+        check_every: Vec<u32>,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
@@ -197,6 +200,7 @@ struct YieldRun {
     attempts: u64,
     seed: u64,
     moribund: MoribundArg,
+    check_every: Vec<u32>,
 }
 
 fn run_yield(run: YieldRun, verifier: &Verifier) {
@@ -207,12 +211,16 @@ fn run_yield(run: YieldRun, verifier: &Verifier) {
         MoribundArg::Both => &[false, true],
     };
     println!(
-        "moribund\tk\tattempts\tdead_end_rate\tyield\tyield_ci95\tnodes_per_attempt\tus_per_attempt\tus_per_accepted"
+        "moribund\tcheck_every\tk\tattempts\tdead_end_rate\tyield\tyield_ci95\tnodes_per_attempt\tus_per_attempt\tus_per_accepted"
     );
-    for &mb in modes {
+    let settings: Vec<(bool, u32)> = modes
+        .iter()
+        .flat_map(|&mb| run.check_every.iter().map(move |&c| (mb, c)))
+        .collect();
+    for (mb, check_every) in settings {
         let walker = Walker::new(&dfa, mb);
         eprintln!(
-            "walker moribund={mb}: {} nodes, {} doomed",
+            "walker moribund={mb}: {} nodes, {} doomed; check_every={check_every}",
             walker.node_count(),
             walker.doomed_nodes()
         );
@@ -233,8 +241,14 @@ fn run_yield(run: YieldRun, verifier: &Verifier) {
                     };
                     verifier.with_reject(|reject| {
                         for _ in 0..n {
-                            let (a, nodes) =
-                                attempt_with(&walker, k, &mut rng, &mut path, &mut *reject);
+                            let (a, nodes) = attempt_with(
+                                &walker,
+                                k,
+                                check_every,
+                                &mut rng,
+                                &mut path,
+                                &mut *reject,
+                            );
                             t.nodes += nodes;
                             match a {
                                 Attempt::DeadEnd => t.dead += 1,
@@ -251,7 +265,7 @@ fn run_yield(run: YieldRun, verifier: &Verifier) {
             let y = tally.accepted as f64 / n;
             let us = tally.nanos as f64 / 1e3;
             println!(
-                "{}\t{k}\t{}\t{:.5}\t{:.5}\t{:.5}\t{:.1}\t{:.2}\t{:.2}",
+                "{}\t{check_every}\t{k}\t{}\t{:.5}\t{:.5}\t{:.5}\t{:.1}\t{:.2}\t{:.2}",
                 if mb { "on" } else { "off" },
                 tally.attempts,
                 tally.dead as f64 / n,
@@ -284,6 +298,7 @@ fn main() -> ExitCode {
             attempts,
             seed,
             moribund,
+            check_every,
             verifier,
         } => Verifier::load(&verifier).map(|v| {
             run_yield(
@@ -294,6 +309,7 @@ fn main() -> ExitCode {
                     attempts,
                     seed,
                     moribund,
+                    check_every,
                 },
                 &v,
             )

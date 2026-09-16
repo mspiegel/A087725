@@ -6,9 +6,16 @@
 //! exists, which one bounded IDA\* run with threshold cap `k − 2` decides
 //! ([`reject_shorter`]). Rejected walks dominate at large `k`, and this search
 //! is roughly `b²` cheaper than a full threshold-`k` iteration.
+//!
+//! **Checkpoints.** Every prefix of a shortest path is itself a shortest path,
+//! so a walk whose first `j` steps already reach a board closer than `j` can
+//! never be accepted. Testing prefixes at depths `k − c, k − 2c, …` rejects most
+//! doomed walks at a fraction of the depth-`k` search cost. Which walks are
+//! accepted, and with what probability, is unchanged: a checkpoint only stops
+//! walks the final test would reject.
 
 use crate::puzzle24::eta::rng::Rng;
-use crate::puzzle24::eta::walker::Walker;
+use crate::puzzle24::eta::walker::{WalkEnd, Walker};
 use crate::puzzle24::search::{idastar_inc_bounded_with_stats, BoundedOutcome, IncHeuristic};
 use crate::puzzle24::state::{Move, State};
 
@@ -43,24 +50,29 @@ pub fn reject_shorter<E: IncHeuristic>(v: &State, k: u32, e: &E) -> (bool, u64) 
 }
 
 /// Walk `k` steps with `rng` and classify the end board with [`reject_shorter`]
-/// under heuristic `e`. `path` receives the walk's moves. Returns the attempt
-/// and the verification node count.
+/// under heuristic `e`, checking prefixes every `check_every` steps back from
+/// `k` (0 = final board only). `path` receives the walk's moves. Returns the
+/// attempt and the total verification node count.
 pub fn attempt<E: IncHeuristic>(
     walker: &Walker,
     k: u32,
+    check_every: u32,
     rng: &mut Rng,
     e: &E,
     path: &mut Vec<Move>,
 ) -> (Attempt, u64) {
-    attempt_with(walker, k, rng, path, |v, k| reject_shorter(v, k, e))
+    attempt_with(walker, k, check_every, rng, path, |v, j| {
+        reject_shorter(v, j, e)
+    })
 }
 
-/// [`attempt`] with a caller-supplied rejection test `reject(v, k) ->
-/// (has a solution shorter than k, nodes)`, for verifiers outside the
+/// [`attempt`] with a caller-supplied rejection test `reject(board, j) ->
+/// (has a solution shorter than j, nodes)`, for verifiers outside the
 /// [`IncHeuristic`] family.
 pub fn attempt_with<F>(
     walker: &Walker,
     k: u32,
+    check_every: u32,
     rng: &mut Rng,
     path: &mut Vec<Move>,
     mut reject: F,
@@ -68,14 +80,27 @@ pub fn attempt_with<F>(
 where
     F: FnMut(&State, u32) -> (bool, u64),
 {
-    let Some((board, walk_prob)) = walker.walk(k, rng, path) else {
-        return (Attempt::DeadEnd, 0);
-    };
-    let (shorter, nodes) = reject(&board, k);
-    if shorter {
-        (Attempt::Rejected, nodes)
-    } else {
-        (Attempt::Accepted { board, walk_prob }, nodes)
+    let mut nodes = 0u64;
+    let end = walker.walk_with(k, rng, path, |s, j| {
+        if check_every == 0 || (k - j) % check_every != 0 {
+            return false;
+        }
+        let (shorter, n) = reject(s, j);
+        nodes += n;
+        shorter
+    });
+    match end {
+        WalkEnd::DeadEnd => (Attempt::DeadEnd, nodes),
+        WalkEnd::Stopped => (Attempt::Rejected, nodes),
+        WalkEnd::Done(board, walk_prob) => {
+            let (shorter, n) = reject(&board, k);
+            nodes += n;
+            if shorter {
+                (Attempt::Rejected, nodes)
+            } else {
+                (Attempt::Accepted { board, walk_prob }, nodes)
+            }
+        }
     }
 }
 
@@ -98,7 +123,7 @@ mod tests {
         for k in [2, 5, 8, 11, K] {
             let mut rng = Rng::stream(9, k as u64, 0);
             for _ in 0..300 {
-                let (a, _) = attempt(&walker, k, &mut rng, &IncManhattan, &mut path);
+                let (a, _) = attempt(&walker, k, 0, &mut rng, &IncManhattan, &mut path);
                 let end = path.iter().fold(GOAL, |s, &m| s.apply(m));
                 match a {
                     Attempt::DeadEnd => panic!("moribund walker dead-ended"),
@@ -111,6 +136,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Checkpoints change cost, not outcomes: with a fresh RNG stream per
+    /// attempt, every checkpoint spacing accepts the same boards with the same
+    /// probabilities, and rejects (or dead-ends) the rest.
+    #[test]
+    fn checkpoints_do_not_change_outcomes() {
+        let dfa = MoveDfa::build_default();
+        let mut rejected = 0;
+        for moribund in [false, true] {
+            let walker = Walker::new(&dfa, moribund);
+            let mut path = Vec::new();
+            for k in [20, 26] {
+                for i in 0..150 {
+                    let run = |every: u32, path: &mut Vec<Move>| {
+                        let mut rng = Rng::stream(13, k as u64, i);
+                        attempt(&walker, k, every, &mut rng, &IncManhattan, path).0
+                    };
+                    let base = run(0, &mut path);
+                    for every in [1, 3, 7] {
+                        let got = run(every, &mut path);
+                        match base {
+                            Attempt::Accepted { .. } => assert_eq!(got, base),
+                            Attempt::Rejected => assert_eq!(got, Attempt::Rejected),
+                            Attempt::DeadEnd => {
+                                assert!(matches!(got, Attempt::DeadEnd | Attempt::Rejected))
+                            }
+                        }
+                    }
+                    if base == Attempt::Rejected {
+                        rejected += 1;
+                    }
+                }
+            }
+        }
+        assert!(rejected > 0, "no rejections exercised");
     }
 
     /// The DFA walker almost never overshoots at these depths, so rejection is
