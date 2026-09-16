@@ -82,6 +82,9 @@ pub struct Walker {
     /// Weight multiplier for a move that raises Manhattan distance by one
     /// (`b^−λ`); a move that lowers it gets the reciprocal. `None` = no tilt.
     md_tilt: Option<f64>,
+    /// Apply the tilt only while at most this many steps remain (this one
+    /// included); `None` = the whole walk.
+    md_tilt_last: Option<u32>,
 }
 
 /// Manhattan distance of tile `tile` at cell `cell` from its goal cell.
@@ -155,6 +158,7 @@ impl Walker {
             moribund,
             choice: Choice::Uniform,
             md_tilt: None,
+            md_tilt_last: None,
         };
         walker.resolve_doom();
         walker
@@ -230,13 +234,30 @@ impl Walker {
         self
     }
 
+    /// Restrict the Manhattan-distance tilt to the last `steps` steps of a
+    /// walk (`0` = the whole walk). Tilting early turns walks back toward GOAL,
+    /// where they end short of `k` and are rejected (records/eta24_probe.txt,
+    /// Result 5); a late tilt still shapes the end board's Manhattan distance.
+    pub fn with_md_tilt_last(mut self, steps: u32) -> Walker {
+        self.md_tilt_last = (steps > 0).then_some(steps);
+        self
+    }
+
+    /// Whether a walk tilts toward low Manhattan distance anywhere.
+    pub fn is_tilted(&self) -> bool {
+        self.md_tilt.is_some()
+    }
+
     /// Probability of each move at `node` with `remaining` steps left (this one
     /// included), on `board` with the blank at `blank`, indexed by move code;
     /// zero for moves not allowed. All zero at a dead end.
     pub fn move_probs(&self, node: u32, remaining: u32, board: &State, blank: u8) -> [f64; 4] {
         let weights = self.move_weights(node, remaining);
         let mut p = [0.0f64; 4];
-        match self.md_tilt {
+        let tilt = self
+            .md_tilt
+            .filter(|_| self.md_tilt_last.is_none_or(|last| remaining <= last));
+        match tilt {
             None => {
                 let total: u32 = weights.iter().sum();
                 if total > 0 {
@@ -518,16 +539,18 @@ mod tests {
     fn every_board_at_distance_k_is_reachable_by_a_k_step_walk() {
         const K: u32 = 13;
         let dist = bfs_distances(K as u8);
-        for (moribund, choice, tilt) in [
-            (false, Choice::Uniform, 0.0),
-            (true, Choice::Uniform, 0.0),
-            (false, Choice::Lookahead, 0.0),
-            (true, Choice::Lookahead, 0.0),
-            (true, Choice::Lookahead, 1.0),
+        for (moribund, choice, tilt, last) in [
+            (false, Choice::Uniform, 0.0, 0),
+            (true, Choice::Uniform, 0.0, 0),
+            (false, Choice::Lookahead, 0.0, 0),
+            (true, Choice::Lookahead, 0.0, 0),
+            (true, Choice::Lookahead, 1.0, 0),
+            (true, Choice::Lookahead, 1.0, 5),
         ] {
             let w = Walker::new(dfa(), moribund)
                 .with_choice(choice)
-                .with_md_tilt(tilt);
+                .with_md_tilt(tilt)
+                .with_md_tilt_last(last);
             for k in [6, 9, 12, K] {
                 let (ends, dead) = enumerate(&w, k);
                 let at_k = ends
@@ -536,7 +559,7 @@ mod tests {
                     .count();
                 assert_eq!(
                     at_k as u64, A090031[k as usize],
-                    "moribund={moribund} choice={choice:?} tilt={tilt} k={k}"
+                    "moribund={moribund} choice={choice:?} tilt={tilt} last={last} k={k}"
                 );
                 let total: f64 = ends.values().sum::<f64>() + dead;
                 assert!((total - 1.0).abs() < 1e-12, "probability mass {total}");

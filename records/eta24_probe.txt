@@ -227,3 +227,38 @@ Reading
 3. Tilting also degrades |V_k|, as expected for weights aimed at b^-MD.
 4. Accepted tilted boards cost more to weigh: 1.4-6.6x the backward-search
    nodes per accepted board.
+
+Result 6 — tilting only the last steps; run-to-run spread
+---------------------------------------------------------
+Walker::with_md_tilt_last(N) applies the Manhattan tilt only while at most N
+steps remain. `probe --choice lookahead --md-tilt λ --md-tilt-last N
+--attempts 40000`. The tests include a late-tilted walker (last 4-6 steps).
+
+Seed 1:
+                       k = 45                              k = 56
+  λ    last     yield    eta ± (ESS)   |V_k| SE     yield    eta ± (ESS)    |V_k| SE
+  0     -      0.2047   ±37.0% (28)    -0.9        0.0356   ±69.7% (8)     +0.7
+  0.5   8      0.1653   ±42.6% (21)    +0.5        0.0264   ±58.3% (11)    +0.6
+  0.5   16     0.1246   ±23.1% (72)    +1.7        0.0175   ±30.8% (40)    +0.8
+  1.0   8      0.1340   ±30.3% (42)    -0.6        0.0193   ±44.0% (20)    -2.4
+  1.0   16     0.0718   ±27.3% (52)    +1.6        0.0087   ±77.9% (6)     -6.4
+
+Second seed for the baseline and the best setting, and k = 64:
+                                  k = 56                              k = 64
+  λ    last  seed     yield    eta (ESS)       |V_k| SE     yield    eta (ESS)        |V_k| SE
+  0     -     1      0.0356   2.99e-21 (8)     +0.7        0.0056   1.33e-21 (3)     +1.3
+  0     -     2      0.0353   2.26e-21 (22)    +0.2        0.0045   8.60e-22 (6)     -0.6
+  0.5   16    1      0.0175   2.26e-21 (40)    +0.8        0.0019   6.68e-22 (4)     +0.7
+  0.5   16    2      0.0184   5.29e-21 (7)     -0.1        0.0020   6.68e-22 (9)     -2.2
+
+Reading
+-------
+1. The late tilt is not a reliable improvement. The seed-1 gain at k = 56
+   (ESS 40 against 8) reverses on seed 2 (7 against 22): at a few tens of
+   effective samples the ESS itself varies several-fold between runs.
+2. At k = 64 every configuration has ESS 3-9 for eta_k, and the tilt halves
+   the yield (0.0045-0.0056 -> 0.0019-0.0020).
+3. Single-run intervals are not trustworthy here: the λ = 1, last-16 run puts
+   |V_56| 6.4 SE below the thesis value.
+4. The low-MD tail of eta_k at k >= 56 is not fixed by any walk tilt tried
+   (whole-walk λ = 0.25, 0.5, 1; last 8 or 16 steps, λ = 0.5, 1).

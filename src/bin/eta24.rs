@@ -193,6 +193,10 @@ enum Cmd {
         /// b^-λ, one lowering it b^λ (0 = no tilt).
         #[arg(long, value_name = "λ", default_value_t = 0.0)]
         md_tilt: f64,
+        /// Apply the Manhattan-distance tilt only in the last N steps of each
+        /// walk (0 = the whole walk).
+        #[arg(long, value_name = "N", default_value_t = 0)]
+        md_tilt_last: u32,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
@@ -446,6 +450,7 @@ struct ProbeRun {
     diagnose: bool,
     choice: Choice,
     md_tilt: f64,
+    md_tilt_last: u32,
 }
 
 fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
@@ -457,13 +462,15 @@ fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
     let t_build = Instant::now();
     let walker = walker_for(run.window, run.moribund)
         .with_choice(run.choice)
-        .with_md_tilt(run.md_tilt);
+        .with_md_tilt(run.md_tilt)
+        .with_md_tilt_last(run.md_tilt_last);
     eprintln!(
-        "walker window={} moribund={} choice={:?} md_tilt={}: {} nodes, built in {:.1}s",
+        "walker window={} moribund={} choice={:?} md_tilt={} last={}: {} nodes, built in {:.1}s",
         run.window,
         run.moribund,
         run.choice,
         run.md_tilt,
+        run.md_tilt_last,
         walker.node_count(),
         t_build.elapsed().as_secs_f64()
     );
@@ -473,12 +480,13 @@ fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
         .map(|&w| (w, blank_weights(w)))
         .collect();
     println!(
-        "# probe: window {} (covers {} moves), moribund {}, choice {:?}, md_tilt {}, check_every {}, {} attempts per depth, seed {}, b = {b:.9}",
+        "# probe: window {} (covers {} moves), moribund {}, choice {:?}, md_tilt {} (last {} steps; 0 = all), check_every {}, {} attempts per depth, seed {}, b = {b:.9}",
         run.window,
         run.window + 1,
         run.moribund,
         run.choice,
         run.md_tilt,
+        run.md_tilt_last,
         run.check_every,
         run.attempts,
         run.seed
@@ -903,6 +911,7 @@ fn main() -> ExitCode {
             diagnose,
             choice,
             md_tilt,
+            md_tilt_last,
             verifier,
         } => {
             let moribund = match moribund {
@@ -924,6 +933,7 @@ fn main() -> ExitCode {
                             diagnose,
                             choice: choice.into(),
                             md_tilt,
+                            md_tilt_last,
                         },
                         &v,
                     )

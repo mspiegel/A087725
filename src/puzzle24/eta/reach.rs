@@ -177,16 +177,18 @@ mod tests {
     fn reach_probability_matches_exhaustive_walk_enumeration() {
         const K: u32 = 11;
         let dist = bfs_distances(K as u8);
-        for (moribund, choice, tilt) in [
-            (false, Choice::Uniform, 0.0),
-            (true, Choice::Uniform, 0.0),
-            (false, Choice::Lookahead, 0.0),
-            (true, Choice::Lookahead, 0.0),
-            (true, Choice::Lookahead, 1.0),
+        for (moribund, choice, tilt, last) in [
+            (false, Choice::Uniform, 0.0, 0),
+            (true, Choice::Uniform, 0.0, 0),
+            (false, Choice::Lookahead, 0.0, 0),
+            (true, Choice::Lookahead, 0.0, 0),
+            (true, Choice::Lookahead, 1.0, 0),
+            (true, Choice::Lookahead, 1.0, 4),
         ] {
             let walker = Walker::new(dfa(), moribund)
                 .with_choice(choice)
-                .with_md_tilt(tilt);
+                .with_md_tilt(tilt)
+                .with_md_tilt_last(last);
             for k in [7, 9, K] {
                 let (ends, _) = enumerate(&walker, k);
                 let mut checked = 0;
@@ -198,7 +200,7 @@ mod tests {
                     let rel = (r.prob - p_enum).abs() / p_enum;
                     assert!(
                         rel < 1e-12,
-                        "moribund={moribund} choice={choice:?} tilt={tilt} k={k}: {} vs {p_enum}",
+                        "moribund={moribund} choice={choice:?} tilt={tilt} last={last} k={k}: {} vs {p_enum}",
                         r.prob
                     );
                     assert!(r.interval > k as usize, "interval smaller than a path");
@@ -226,14 +228,16 @@ mod tests {
                     .sum();
             }
         });
-        for (choice, tilt) in [
-            (Choice::Uniform, 0.0),
-            (Choice::Lookahead, 0.0),
-            (Choice::Lookahead, 1.0),
+        for (choice, tilt, last) in [
+            (Choice::Uniform, 0.0, 0),
+            (Choice::Lookahead, 0.0, 0),
+            (Choice::Lookahead, 1.0, 0),
+            (Choice::Lookahead, 1.0, 6),
         ] {
             let walker = Walker::new(dfa(), true)
                 .with_choice(choice)
-                .with_md_tilt(tilt);
+                .with_md_tilt(tilt)
+                .with_md_tilt_last(last);
             let mut rng = Rng::stream(21, K as u64, 0);
             let mut path = Vec::new();
             let (mut size, mut md) = (Accum::default(), Accum::default());
@@ -255,12 +259,12 @@ mod tests {
             let z_md = (md.mean() - exact_md) / md.std_error();
             assert!(
                 z_size.abs() < 4.0,
-                "{choice:?} tilt {tilt}: size {} vs {exact_size} (z = {z_size:.2})",
+                "{choice:?} tilt {tilt} last {last}: size {} vs {exact_size} (z = {z_size:.2})",
                 size.mean()
             );
             assert!(
                 z_md.abs() < 4.0,
-                "{choice:?} tilt {tilt}: MD sum {} vs {exact_md} (z = {z_md:.2})",
+                "{choice:?} tilt {tilt} last {last}: MD sum {} vs {exact_md} (z = {z_md:.2})",
                 md.mean()
             );
         }
