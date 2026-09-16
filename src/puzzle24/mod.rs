@@ -9,6 +9,7 @@
 //! Unlike the even-width 15-puzzle, the 24-puzzle is **odd-width**, so it shares
 //! the 8-puzzle's blank-independent solvability rule.
 
+pub mod eta;
 pub mod frame;
 pub mod hugemap;
 pub mod pdb;
