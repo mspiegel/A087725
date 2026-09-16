@@ -95,3 +95,76 @@ verdict (test: sphere::tests::checkpoints_do_not_change_outcomes).
 Spacing 6-8 is the flat optimum: 5.4x cheaper per attempt at k = 64 and 2.1x at
 k = 52 than no checkpoints. With yield 0.36% at k = 64 that is ~1.5 s of thread
 time per accepted sample, down from 8.6 s.
+
+Result 4 — how long a move-pruning rule must be to prevent rejected walks
+-------------------------------------------------------------------------
+Question: would a longer MoveDfa window raise yield, and does the gain grow
+smoothly with window length or in steps?
+
+Instrument (a scratch program linked against the crate at commit 2adb010; not
+committed). Walks come from the W = 11 walker with moribund pruning, seed 77;
+a walk is rejected by reject_shorter with zpdb k6. For each rejected walk with
+boards S_0..S_k, L_min is the smallest L such that some stretch [i, i+L] has
+d(S_i, S_{i+L}) <= L - 2. d is found by IDA* with Manhattan distance to the
+target board; L grows from 2 and stops at the first hit. A rule covering move
+sequences up to length L_min removes the walk: a strictly non-shortest stretch
+contains a dominated sequence ending within it. That coverage is a lower bound,
+since a longer rule also removes equal-length duplicates.
+
+Checks: no rejected walk has L_min <= 12 (the W = 11 rule covers sequences up
+to 12 moves), and every shortest stretch saves exactly 2 moves.
+
+Cumulative % of rejected walks with L_min <= R (R = longest sequence a rule
+covers; window W covers R = W + 1):
+
+   k  attempts rejected  R=13  R=14  R=15  R=16  R=17  R=19  R=21  R=22  R=23  R=25
+  16     79872     1502  28.7  35.5  97.3 100.0 100.0 100.0 100.0 100.0 100.0 100.0
+  20     24576     2003  12.3  15.7  55.0  57.9  83.0  99.0 100.0 100.0 100.0 100.0
+  24     12288     2118   7.4  10.2  39.2  42.0  61.8  78.0  90.7  93.0  99.2 100.0
+  28      6144     1746   4.1   6.1  29.9  32.4  49.3  64.5  77.9  80.2  88.3  95.9
+  32      6144     2610   4.3   6.0  25.8  27.7  42.3  56.7  68.4  70.5  78.4  86.3
+  40      6144     4259   3.0   4.3  22.0  23.6  35.9  47.5  58.3  60.5  66.9  73.3
+  48      6144     5396   3.2   4.9  22.2  23.9  35.2  47.1  56.9  58.8  64.7  71.0
+  56      6144     5933   3.3   5.0  23.8  25.5  37.6  49.1  58.4  60.1  66.1  72.3
+
+Per-length share at k = 56 (% of rejected walks): L=13 3.3, 14 1.7, 15 18.9,
+16 1.6, 17 12.1, 18 1.6, 19 9.9, 20 1.6, 21 7.8, 22 1.7, 23 6.0, 24 1.9, 25 4.3,
+then decaying to 0.1-0.3 per length out to L = 56.
+
+1. The gain comes in steps by parity. Each odd R adds a step (+19, +12, +10,
+   +8, +6, +4 points at k = 56 for R = 15..25); each even R adds 1-2. The first
+   large step is R = 15 (W = 14). Windows W = 11, 12, 13 cover R = 12, 13, 14,
+   which reach only the two small steps (+3.3, +1.7), so comparing them
+   understates what W >= 14 buys.
+2. There is no single dominant relation family. Within the shortest stretch,
+   the blank's bounding box is mostly 3x5 or 4x5 (5x5 from L = 21 at k = 28),
+   not a compact 2x2 or 2x3 cycle.
+3. The distribution stabilises from k ~ 40: coverage at k = 40, 48 and 56 agrees
+   within ~2 points at every R.
+
+Model check against the thesis. If removed walks' probability redistributes in
+proportion over the remaining walks, the yield becomes y' = y / (1 - f(1 - y)),
+with f = coverage at R. Using the thesis's R = 22 FSM and Result 1's
+moribund-on yields:
+
+   k      y     f(22)  predicted  thesis
+  24  0.8239  0.930    0.9853   0.9981
+  28  0.7051  0.802    0.9235   0.9483
+  32  0.5735  0.705    0.8201   0.8480
+  40  0.3187  0.605    0.5422   0.5553
+  48  0.1238  0.588    0.2554   0.2591
+  56  0.0324  0.601    0.0774   0.0763
+
+The prediction is within 3 points everywhere and within 1.1% relative at
+k >= 40. It sits slightly low at small k, as expected from coverage being a
+lower bound.
+
+Predicted yield multiplier y'/y by rule length:
+
+   k    R=15   R=17   R=21   R=25
+  40   1.18x  1.32x  1.66x  2.00x
+  48   1.24x  1.45x  1.99x  2.65x
+  56   1.30x  1.57x  2.30x  3.33x
+
+These are yield gains. Their effect on time per accepted sample with prefix
+checkpoints (Result 3) is smaller and not yet measured.
