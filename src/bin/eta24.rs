@@ -164,6 +164,10 @@ enum Cmd {
         /// projected attempt count.
         #[arg(long, default_value_t = 0.05)]
         target_rel: f64,
+        /// Report where the 1/P(v) weight dispersion comes from instead of
+        /// the estimates.
+        #[arg(long)]
+        diagnose: bool,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
@@ -383,6 +387,8 @@ struct Sample {
     stage_b_ns: u64,
     md: u8,
     blank: u8,
+    /// Steps of the accepted walk by number of allowed moves (index 1..=3).
+    steps: [u16; 4],
 }
 
 #[derive(Default)]
@@ -411,6 +417,8 @@ struct ProbeRun {
     window: u8,
     moribund: bool,
     target_rel: f64,
+    /// Report the weight-dispersion diagnosis instead of the estimates.
+    diagnose: bool,
 }
 
 fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
@@ -444,51 +452,284 @@ fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
     );
     for &k in &run.k {
         let t0 = Instant::now();
-        let chunks = run.attempts.div_ceil(CHUNK);
-        let tally = (0..chunks)
-            .into_par_iter()
-            .map(|c| {
-                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-                let mut rng = Rng::stream(run.seed, k as u64, c);
-                let mut path = Vec::with_capacity(k as usize);
-                let n = CHUNK.min(run.attempts - c * CHUNK);
-                let mut t = ProbeTally {
-                    attempts: n,
-                    ..Default::default()
-                };
-                for _ in 0..n {
-                    let ta = Instant::now();
-                    let (a, nodes) =
-                        attempt(&walker, k, run.check_every, &mut rng, &inc, &mut path);
-                    t.stage_a_ns += ta.elapsed().as_nanos();
-                    t.stage_a_nodes += nodes;
-                    if let Attempt::Accepted { board, walk_prob } = a {
-                        let tb = Instant::now();
-                        let r = reach_probability(&walker, &board, k, &inc);
-                        let stage_b_ns = tb.elapsed().as_nanos() as u64;
-                        assert!(
-                            r.prob >= walk_prob * (1.0 - 1e-9),
-                            "P(v) {} below the walk's own probability {walk_prob}",
-                            r.prob
-                        );
-                        t.samples.push(Sample {
-                            prob: r.prob,
-                            walk_prob,
-                            interval: r.interval,
-                            layer_states: r.max_layer_states,
-                            back_nodes: r.nodes,
-                            stage_b_ns,
-                            md: ManhattanHeuristic.h(&board),
-                            blank: board.blank_pos(),
-                        });
-                    }
-                }
-                t
-            })
-            .reduce(ProbeTally::default, ProbeTally::merge);
-        report_probe(k, &tally, b, &weights, run.target_rel, t0.elapsed());
+        let tally = sample_depth(&walker, dbs, k, &run);
+        if run.diagnose {
+            report_diagnosis(k, &tally, b, t0.elapsed());
+        } else {
+            report_probe(k, &tally, b, &weights, run.target_rel, t0.elapsed());
+        }
     }
     Ok(())
+}
+
+/// Run `run.attempts` walks at depth `k` in parallel and compute the reach
+/// probability of every accepted board.
+fn sample_depth(walker: &Walker, dbs: &[ZPatternDb], k: u32, run: &ProbeRun) -> ProbeTally {
+    let chunks = run.attempts.div_ceil(CHUNK);
+    (0..chunks)
+        .into_par_iter()
+        .map(|c| {
+            let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+            let mut rng = Rng::stream(run.seed, k as u64, c);
+            let mut path = Vec::with_capacity(k as usize);
+            let n = CHUNK.min(run.attempts - c * CHUNK);
+            let mut t = ProbeTally {
+                attempts: n,
+                ..Default::default()
+            };
+            for _ in 0..n {
+                let ta = Instant::now();
+                let (a, nodes) = attempt(walker, k, run.check_every, &mut rng, &inc, &mut path);
+                t.stage_a_ns += ta.elapsed().as_nanos();
+                t.stage_a_nodes += nodes;
+                if let Attempt::Accepted { board, walk_prob } = a {
+                    let tb = Instant::now();
+                    let r = reach_probability(walker, &board, k, &inc);
+                    let stage_b_ns = tb.elapsed().as_nanos() as u64;
+                    assert!(
+                        r.prob >= walk_prob * (1.0 - 1e-9),
+                        "P(v) {} below the walk's own probability {walk_prob}",
+                        r.prob
+                    );
+                    let mut steps = [0u16; 4];
+                    let mut node = walker.root();
+                    for (i, &m) in path.iter().enumerate() {
+                        steps[walker.allowed(node, k - i as u32).len() as usize] += 1;
+                        node = walker.next(node, m);
+                    }
+                    t.samples.push(Sample {
+                        prob: r.prob,
+                        walk_prob,
+                        interval: r.interval,
+                        layer_states: r.max_layer_states,
+                        back_nodes: r.nodes,
+                        stage_b_ns,
+                        md: ManhattanHeuristic.h(&board),
+                        blank: board.blank_pos(),
+                        steps,
+                    });
+                }
+            }
+            t
+        })
+        .reduce(ProbeTally::default, ProbeTally::merge)
+}
+
+/// Kish effective sample size of positive terms.
+fn ess(xs: impl Iterator<Item = f64>) -> f64 {
+    let (s, s2) = xs.fold((0.0, 0.0), |(s, s2), x| (s + x, s2 + x * x));
+    if s2 == 0.0 {
+        0.0
+    } else {
+        s * s / s2
+    }
+}
+
+/// Mean, standard deviation and Pearson correlation helpers over samples.
+fn mean_sd(xs: &[f64]) -> (f64, f64) {
+    let n = xs.len() as f64;
+    let m = xs.iter().sum::<f64>() / n;
+    let v = xs.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+    (m, v.sqrt())
+}
+
+fn correlation(xs: &[f64], ys: &[f64]) -> f64 {
+    let (mx, sx) = mean_sd(xs);
+    let (my, sy) = mean_sd(ys);
+    let n = xs.len() as f64;
+    let cov = xs
+        .iter()
+        .zip(ys)
+        .map(|(x, y)| (x - mx) * (y - my))
+        .sum::<f64>()
+        / (n - 1.0).max(1.0);
+    cov / (sx * sy)
+}
+
+/// Symmetry class of a blank cell on the 5×5 board.
+fn blank_class(cell: u8) -> &'static str {
+    let (r, c) = (cell / 5, cell % 5);
+    let (a, b) = (r.min(4 - r), c.min(4 - c));
+    match (a.min(b), a.max(b)) {
+        (0, 0) => "corner",
+        (0, 1) => "edge-near-corner",
+        (0, 2) => "edge-middle",
+        (1, 1) => "inner-corner",
+        (1, 2) => "inner-edge",
+        _ => "centre",
+    }
+}
+
+/// Where the 1/P(v) weight dispersion comes from.
+fn report_diagnosis(k: u32, t: &ProbeTally, b: f64, wall: std::time::Duration) {
+    let acc = t.samples.len();
+    println!(
+        "== k = {k}: {acc} accepted of {} attempts, wall {:.1} s",
+        t.attempts,
+        wall.as_secs_f64()
+    );
+    if acc < 10 {
+        println!("  too few accepted samples");
+        return;
+    }
+    let w: Vec<f64> = t.samples.iter().map(|s| 1.0 / s.prob).collect();
+    let inv_walk: Vec<f64> = t.samples.iter().map(|s| 1.0 / s.walk_prob).collect();
+    let mult: Vec<f64> = t.samples.iter().map(|s| s.prob / s.walk_prob).collect();
+    let total: f64 = w.iter().sum();
+
+    let mut sorted = w.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = |p: f64| sorted[((acc - 1) as f64 * p) as usize];
+    let median = q(0.5);
+    let top1: f64 = sorted[acc - acc.div_ceil(100)..].iter().sum();
+    let top10: f64 = sorted[acc.saturating_sub(10)..].iter().sum();
+    println!(
+        "  weight W = 1/P: W/median at p10 {:.2}, p90 {:.1}, p99 {:.1}, max {:.0}; top 1% of samples carry {:.1}% of sum W, top 10 carry {:.1}%",
+        q(0.1) / median,
+        q(0.9) / median,
+        q(0.99) / median,
+        sorted[acc - 1] / median,
+        100.0 * top1 / total,
+        100.0 * top10 / total
+    );
+
+    let lw: Vec<f64> = w.iter().map(|x| x.log10()).collect();
+    let lwalk: Vec<f64> = inv_walk.iter().map(|x| x.log10()).collect();
+    let lmult: Vec<f64> = mult.iter().map(|x| x.log10()).collect();
+    println!(
+        "  log10 spread (sd): W {:.2}; choice product 1/walk {:.2}; multiplicity M {:.2}; corr(log 1/walk, log M) {:+.2}",
+        mean_sd(&lw).1,
+        mean_sd(&lwalk).1,
+        mean_sd(&lmult).1,
+        correlation(&lwalk, &lmult)
+    );
+    let mean_mult = mult.iter().sum::<f64>() / acc as f64;
+    println!(
+        "  ESS: W {:.0}; if only the choice product varied (M fixed at its mean) {:.0}; if only M varied (walk prob fixed) {:.0}; of {acc}",
+        ess(w.iter().copied()),
+        ess(inv_walk.iter().map(|x| x / mean_mult)),
+        ess(mult.iter().map(|m| 1.0 / m))
+    );
+
+    let three: Vec<f64> = t.samples.iter().map(|s| s.steps[3] as f64).collect();
+    let (two_m, _) = mean_sd(
+        &t.samples
+            .iter()
+            .map(|s| s.steps[2] as f64)
+            .collect::<Vec<_>>(),
+    );
+    let (one_m, _) = mean_sd(
+        &t.samples
+            .iter()
+            .map(|s| s.steps[1] as f64)
+            .collect::<Vec<_>>(),
+    );
+    let (three_m, three_sd) = mean_sd(&three);
+    println!(
+        "  steps per walk: 1-way {one_m:.1}, 2-way {two_m:.1}, 3-way {three_m:.1} (sd {three_sd:.1}); corr(#3-way, log W) {:+.2}, corr(#3-way, log M) {:+.2}",
+        correlation(&three, &lw),
+        correlation(&three, &lmult)
+    );
+
+    println!("  by end-blank class:            samples   share of sum W   median W/median");
+    for class in [
+        "corner",
+        "edge-near-corner",
+        "edge-middle",
+        "inner-corner",
+        "inner-edge",
+        "centre",
+    ] {
+        let mut ws: Vec<f64> = t
+            .samples
+            .iter()
+            .zip(&w)
+            .filter(|(s, _)| blank_class(s.blank) == class)
+            .map(|(_, &x)| x)
+            .collect();
+        if ws.is_empty() {
+            continue;
+        }
+        ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "    {class:<18} {:>8.1}%   {:>12.1}%   {:>12.2}",
+            100.0 * ws.len() as f64 / acc as f64,
+            100.0 * ws.iter().sum::<f64>() / total,
+            ws[ws.len() / 2] / median
+        );
+    }
+
+    let md: Vec<f64> = t.samples.iter().map(|s| s.md as f64).collect();
+    let (md_mean, md_sd) = mean_sd(&md);
+    let eta_terms: Vec<f64> = t
+        .samples
+        .iter()
+        .map(|s| b.powi(-(s.md as i32)) / s.prob)
+        .collect();
+    let eta_total: f64 = eta_terms.iter().sum();
+    println!(
+        "  MD of accepted: mean {md_mean:.1}, sd {md_sd:.1}; corr(MD, log W) {:+.2}; ESS of eta terms {:.0}",
+        correlation(&md, &lw),
+        ess(eta_terms.iter().copied())
+    );
+    println!("  by MD relative to mean:        samples   share of sum W   share of sum eta terms");
+    for (lo, hi, label) in [
+        (f64::NEG_INFINITY, -2.0, "< mean-2sd"),
+        (-2.0, -1.0, "mean-2sd..-1sd"),
+        (-1.0, 0.0, "mean-1sd..mean"),
+        (0.0, 1.0, "mean..+1sd"),
+        (1.0, f64::INFINITY, "> mean+1sd"),
+    ] {
+        let idx: Vec<usize> = (0..acc)
+            .filter(|&i| {
+                let z = (md[i] - md_mean) / md_sd;
+                z >= lo && z < hi
+            })
+            .collect();
+        println!(
+            "    {label:<18} {:>8.1}%   {:>12.1}%   {:>12.1}%",
+            100.0 * idx.len() as f64 / acc as f64,
+            100.0 * idx.iter().map(|&i| w[i]).sum::<f64>() / total,
+            100.0 * idx.iter().map(|&i| eta_terms[i]).sum::<f64>() / eta_total
+        );
+    }
+
+    let mut order: Vec<usize> = (0..acc).collect();
+    order.sort_by(|&a, &b| w[b].partial_cmp(&w[a]).unwrap());
+    println!(
+        "  heaviest samples: W/median  log2(1/walk)  M      3-way  blank class        MD  interval"
+    );
+    for &i in order.iter().take(5) {
+        let s = &t.samples[i];
+        println!(
+            "    {:>10.0}  {:>12.1}  {:>6.2}  {:>5}  {:<18} {:>3}  {:>8}",
+            w[i] / median,
+            -s.walk_prob.log2(),
+            mult[i],
+            s.steps[3],
+            blank_class(s.blank),
+            s.md,
+            s.interval
+        );
+    }
+    println!(
+        "  for comparison, median sample: log2(1/walk) {:.1}, M {:.2}, 3-way {:.0}",
+        {
+            let mut v = lwalk.clone();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[acc / 2] / 2f64.log10()
+        },
+        {
+            let mut v = mult.clone();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[acc / 2]
+        },
+        {
+            let mut v = three.clone();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[acc / 2]
+        }
+    );
 }
 
 fn report_probe(
@@ -626,6 +867,7 @@ fn main() -> ExitCode {
             window,
             moribund,
             target_rel,
+            diagnose,
             verifier,
         } => {
             let moribund = match moribund {
@@ -644,6 +886,7 @@ fn main() -> ExitCode {
                             window,
                             moribund,
                             target_rel,
+                            diagnose,
                         },
                         &v,
                     )
