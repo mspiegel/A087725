@@ -219,3 +219,63 @@ more walks survive to the expensive late checkpoints: cost per attempt rises
 between the last checkpoint and k, which is small (1.28x at 56 -> 1.39x at 64).
 Longer rules (17, 19 moves; Result 4 predicts 1.6x and ~2x yield at k = 56)
 should be expected to buy proportionally little time by the same mechanism.
+
+Result 6 — LongMoveDfa build memory and time
+--------------------------------------------
+Where the committed builder (3d63d1d) spends memory, and what the rewrite in
+move_dfa_long.rs saves. Variants were measured in a scratch copy of the builder
+(not committed), each window in its own process, M2 Pro, one thread unless
+noted. Peak = max RSS / physical footprint. All variants were checked
+equivalent to LongMoveDfa::build (product walk) through window 15, with equal
+state counts through window 19.
+
+Committed builder, window 15 (covers 16 moves), 1.57 GiB peak, 14.5 s:
+  search phase     2.32M-board hash set (largest start blank) 68 MiB, frontier
+                   lists 120 MiB, dominated + prefix hash sets 108 MiB; the
+                   phase peaked at 1.08 GiB, ~750 MiB of it in no live structure
+                   (freed-and-retained allocations across the 25 start blanks)
+  raw automaton    5.60M states: id map 200 MiB, histories 128, transitions 128
+  minimization     925,358 states
+
+Minimal dominated sequences (no dominated proper suffix): 2,269,262 -> 301,401
+at window 15, and the raw automaton 5.60M -> 1.11M states. The raw automaton's
+states are always the minimal words' distinct proper prefixes + 25 roots.
+
+Peak memory (build time), single thread:
+
+  covers   committed        reuse buffers    + minimal words  + layers j,j-2,   + Aho-Corasick
+                                                              replayed boards   trie
+    14     241 MiB (2.3 s)  186 MiB (1.8 s)   68 MiB (0.8 s)   61 MiB (1.4 s)   41 MiB (1.1 s)
+    15     574 MiB (5.3 s)  414 MiB (4.6 s)  184 MiB (1.5 s)  101 MiB (3.1 s)   90 MiB (2.7 s)
+    16    1570 MiB (14.5 s) 842 MiB (13.2 s) 317 MiB (4.5 s)  232 MiB (8.4 s)  226 MiB (6.9 s)
+    17                                       843 MiB (9.1 s)  442 MiB (18.4 s) 439 MiB (15.9 s)
+    18                                      1374 MiB (30.5 s) 810 MiB (52.7 s) 906 MiB (42.3 s)
+    19                                                                        1.46 GiB (106 s)
+    20                                                                        3.15 GiB (316 s)
+
+The trie replaces the raw-automaton phase (window 17: 8.1 s -> 0.3 s) but not
+the peak: from covers 18 up, minimization's signature hash map sets it (window
+19: +360 MiB, 40 s of 316 s). The DFA reaches 6,715,664 states at covers 19
+and 20,063,009 at covers 20.
+
+Parallel search across start blanks (scratch only). Blanks are admitted
+largest-first under a budget in centre-blank equivalents; the 25 blanks sum
+to ~17.5 (the corner is 0.44-0.48 of the centre):
+
+  covers 18   budget 3: 18.9 s, 1.90 GiB   budget 6: 13.1 s, 3.23 GiB
+              budget 12: 12.7 s, 4.23 GiB  (search 34.1 -> 12.3 / 6.5 / 6.1 s)
+  covers 20   budget 4: 112 s, 11.5 GiB    (single thread 316 s, 3.15 GiB)
+
+The summed per-blank search time rises with concurrency (covers 18: 43 s at
+budget 3, 64 s at 12). Minimization, single-threaded, is then the largest
+phase.
+
+Committed rewrite (collect_blank + minimal_words + build_trie + minimize,
+single thread, still holding every dominated sequence for the soundness
+assert), examples/move_dfa_long_build.rs:
+
+  window  covers  build+verify  peak RSS
+    11      12       0.21 s       8 MiB
+    14      15       2.50 s      96 MiB
+    15      16       6.40 s     237 MiB
+    16      17      14.85 s     436 MiB
