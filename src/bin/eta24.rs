@@ -39,6 +39,7 @@ use std::time::Instant;
 use clap::{Parser, Subcommand, ValueEnum};
 use puzzle8::puzzle24::eta::reach::reach_probability;
 use puzzle8::puzzle24::eta::sphere::{attempt, attempt_with, reject_shorter, Attempt};
+use puzzle8::puzzle24::eta::walker::Choice;
 use puzzle8::puzzle24::eta::{
     blank_weights, branching_factor, Accum, Rng, Walker, Weighting, A090031, Z95,
 };
@@ -81,6 +82,23 @@ enum MoribundArg {
     On,
     Off,
     Both,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ChoiceArg {
+    /// Every allowed move equally likely.
+    Uniform,
+    /// Moves weighted by the number of moves allowed after them.
+    Lookahead,
+}
+
+impl From<ChoiceArg> for Choice {
+    fn from(c: ChoiceArg) -> Choice {
+        match c {
+            ChoiceArg::Uniform => Choice::Uniform,
+            ChoiceArg::Lookahead => Choice::Lookahead,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -168,6 +186,9 @@ enum Cmd {
         /// the estimates.
         #[arg(long)]
         diagnose: bool,
+        /// How a walk chooses among allowed moves.
+        #[arg(long, value_enum, default_value_t = ChoiceArg::Uniform)]
+        choice: ChoiceArg,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
@@ -419,6 +440,7 @@ struct ProbeRun {
     target_rel: f64,
     /// Report the weight-dispersion diagnosis instead of the estimates.
     diagnose: bool,
+    choice: Choice,
 }
 
 fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
@@ -428,11 +450,12 @@ fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
         );
     };
     let t_build = Instant::now();
-    let walker = walker_for(run.window, run.moribund);
+    let walker = walker_for(run.window, run.moribund).with_choice(run.choice);
     eprintln!(
-        "walker window={} moribund={}: {} nodes, built in {:.1}s",
+        "walker window={} moribund={} choice={:?}: {} nodes, built in {:.1}s",
         run.window,
         run.moribund,
+        run.choice,
         walker.node_count(),
         t_build.elapsed().as_secs_f64()
     );
@@ -442,10 +465,11 @@ fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
         .map(|&w| (w, blank_weights(w)))
         .collect();
     println!(
-        "# probe: window {} (covers {} moves), moribund {}, check_every {}, {} attempts per depth, seed {}, b = {b:.9}",
+        "# probe: window {} (covers {} moves), moribund {}, choice {:?}, check_every {}, {} attempts per depth, seed {}, b = {b:.9}",
         run.window,
         run.window + 1,
         run.moribund,
+        run.choice,
         run.check_every,
         run.attempts,
         run.seed
@@ -868,6 +892,7 @@ fn main() -> ExitCode {
             moribund,
             target_rel,
             diagnose,
+            choice,
             verifier,
         } => {
             let moribund = match moribund {
@@ -887,6 +912,7 @@ fn main() -> ExitCode {
                             moribund,
                             target_rel,
                             diagnose,
+                            choice: choice.into(),
                         },
                         &v,
                     )

@@ -131,3 +131,58 @@ Reading
 3. eta_k has a separate, larger tail: the 2-4% of accepted boards with the
    lowest Manhattan distance carry 57-80% of the eta terms while holding about
    1% of the weight. Fixing the choice-product dispersion leaves this tail.
+
+Result 4 — one-step lookahead move choice
+-----------------------------------------
+Walker Choice::Lookahead (src/puzzle24/eta/walker.rs): each allowed move is
+taken with probability proportional to the number of moves allowed after it
+(with one fewer step left). Reach probabilities use the same weights. Tests:
+every board at distance k <= 13 stays reachable, P(v) matches exhaustive
+enumeration (k = 7, 9, 11), and Horvitz-Thompson recovers the exact V_12 size
+and MD sum under both choices. Same seed and attempts as Results 2-3. Load
+average 3.4-5.9 during these runs (higher than for Results 2-3), so compare
+node counts rather than milliseconds.
+
+Diagnosis (`probe --diagnose --choice lookahead`), against uniform:
+
+                                  k = 30             k = 45            k = 56
+  ESS of W, uniform -> lookahead   1667 -> 13147      62 -> 2211        9 -> 176
+    as share of accepted           5.9% -> 47%        0.7% -> 27%       0.6% -> 12%
+  max W / median                   1384 -> 22         10276 -> 71       8773 -> 130
+  top 10 share of sum W            4.6% -> 0.5%       25% -> 2.7%       50% -> 18%
+  sd log10 (1/walk probability)    0.79 -> 0.42       0.96 -> 0.50      1.03 -> 0.54
+  sd log10 M                       0.21 -> 0.22       0.38 -> 0.39      0.49 -> 0.48
+  ESS if only M varied             25851 -> 24897     6578 -> 5509      949 -> 736
+  3-way steps per walk (mean)      11.7 -> 14.2       17.8 -> 21.2      22.1 -> 26.2
+  ESS of eta terms                 8 -> 59            40 -> 28          4 -> 8
+  lowest-MD 2-5% share of eta      80.5% -> 84.8%     57.4% -> 77.9%    78.3% -> 70.5%
+
+Estimates (`probe --choice lookahead --k 30,45,56,64 --attempts 40000`):
+
+   k   yield (uniform)    |V_k| (uniform -> lookahead)        reference          ESS size
+  30   0.7026 (0.7098)    ±4.70% -> ±1.40%   +0.02% (0.0 SE)  A090031 exact    13147/28102
+  45   0.2047 (0.2228)    ±24.9% -> ±4.05%   -1.84% (-0.9 SE) thesis           2211/8189
+  56   0.0356 (0.0399)    ±64.7% -> ±14.7%   +5.61% (+0.7 SE) thesis            176/1424
+  64   0.0056 (0.0060)    ±45.4% -> ±29.3%   +23.7% (+1.3 SE) thesis             45/222
+
+   k   stage A nodes/attempt      backward nodes/accepted     eta_k MD uniform, lookahead
+  30        204 -> 257                 520 -> 683             9.26e-23 ± 25.4%, ESS 59
+  45      4,662 -> 7,497            16,903 -> 27,743           1.63e-21 ± 37.0%, ESS 28
+  56     25,078 -> 45,559          272,197 -> 489,062          2.99e-21 ± 69.7%, ESS 8
+  64     56,666 -> 98,181        1,707,965 -> 4,424,211        1.33e-21 ± 109%,  ESS 3
+
+Reading
+-------
+1. Lookahead removes most of the choice-product dispersion: its log10 spread
+   halves, and the effective sample size of |V_k| rises 8x (k = 30) to 36x
+   (k = 45). |V_30| now matches A090031 to 0.02% at ±1.4%.
+2. The walks pass more 3-way branch points (+2.5 to +4 per walk), which end in
+   boards that are more expensive to verify: 1.3-1.7x the rejection-search nodes
+   per attempt and 1.3-2.6x the backward-search nodes per accepted board.
+   Precision per node still improves: relative variance falls 11x at k = 56
+   and 38x at k = 45, against at most 1.8x more nodes. At k = 64 the gain is
+   small (ESS 45 of 222).
+3. Multiplicity M now limits the size weights about as much as the choice
+   product at k = 56 (ESS if only M varied 736, if only 1/walk varied 491).
+4. The eta_k tail is unchanged: the lowest-MD 2-5% of accepted boards carry
+   70-85% of the eta terms, and ESS of eta terms stays 3-59.

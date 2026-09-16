@@ -59,10 +59,25 @@ pub enum WalkEnd {
     Stopped,
 }
 
+/// How a walk chooses among the allowed moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// Every allowed move equally likely.
+    Uniform,
+    /// Each allowed move weighted by the number of moves allowed after it
+    /// (with one fewer step remaining). Walks entering branch-rich stretches
+    /// are otherwise undersampled per path (records/eta24_probe.txt,
+    /// Result 3). A move with no allowed continuation gets weight 0; such a
+    /// path cannot complete, so every completable path keeps positive
+    /// probability.
+    Lookahead,
+}
+
 /// The compiled walker rule over the reachable `(dfa, blank, last)` states.
 pub struct Walker {
     nodes: Vec<Node>,
     moribund: bool,
+    choice: Choice,
 }
 
 fn blank_after(blank: u8, m: Move) -> u8 {
@@ -115,7 +130,11 @@ impl Walker {
                 doom: DOOM_NEVER,
             });
         }
-        let mut walker = Walker { nodes, moribund };
+        let mut walker = Walker {
+            nodes,
+            moribund,
+            choice: Choice::Uniform,
+        };
         walker.resolve_doom();
         walker
     }
@@ -167,6 +186,32 @@ impl Walker {
 
     pub fn moribund(&self) -> bool {
         self.moribund
+    }
+
+    /// Use `choice` to pick among allowed moves.
+    pub fn with_choice(mut self, choice: Choice) -> Walker {
+        self.choice = choice;
+        self
+    }
+
+    pub fn choice(&self) -> Choice {
+        self.choice
+    }
+
+    /// Integer weight of each move at `node` with `remaining` steps left (this
+    /// one included), indexed by move code; zero for moves not allowed. A move
+    /// is taken with probability `weight / sum of weights`.
+    #[inline]
+    pub fn move_weights(&self, node: u32, remaining: u32) -> [u32; 4] {
+        let mut w = [0u32; 4];
+        for m in self.allowed(node, remaining).iter() {
+            w[m as usize] = match self.choice {
+                Choice::Uniform => 1,
+                Choice::Lookahead if remaining <= 1 => 1,
+                Choice::Lookahead => self.allowed(self.next(node, m), remaining - 1).len(),
+            };
+        }
+        w
     }
 
     /// Nodes whose every continuation eventually dead-ends.
@@ -240,14 +285,26 @@ impl Walker {
         let mut blank = GOAL.blank_pos();
         let mut prob = 1.0f64;
         for step in 0..k {
-            let mask = self.allowed(node, k - step);
-            let count = mask.len();
-            if count == 0 {
+            let weights = self.move_weights(node, k - step);
+            let total: u32 = weights.iter().sum();
+            if total == 0 {
                 return WalkEnd::DeadEnd;
             }
-            let pick = rng.below(count as u64) as usize;
-            let m = mask.iter().nth(pick).expect("pick < count");
-            prob /= count as f64;
+            // With uniform weights this is one draw below the allowed count,
+            // then the pick-th allowed move in code order.
+            let mut pick = rng.below(total as u64) as u32;
+            let mc = (0..4)
+                .find(|&i| {
+                    if pick < weights[i] {
+                        true
+                    } else {
+                        pick -= weights[i];
+                        false
+                    }
+                })
+                .expect("pick < total");
+            let m = Move::ALL[mc];
+            prob *= weights[mc] as f64 / total as f64;
             (s, blank) = s.apply_at(m, blank);
             node = self.next(node, m);
             path.push(m);
@@ -265,11 +322,11 @@ impl Walker {
         let mut node = self.root();
         let mut prob = 1.0f64;
         for (step, &m) in moves.iter().enumerate() {
-            let mask = self.allowed(node, k - step as u32);
-            if !mask.contains(m) {
+            let weights = self.move_weights(node, k - step as u32);
+            if weights[m as usize] == 0 {
                 return 0.0;
             }
-            prob /= mask.len() as f64;
+            prob *= weights[m as usize] as f64 / weights.iter().sum::<u32>() as f64;
             node = self.next(node, m);
         }
         prob
@@ -280,7 +337,7 @@ impl Walker {
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::Walker;
-    use crate::puzzle24::state::{State, GOAL, N_CELLS};
+    use crate::puzzle24::state::{Move, State, GOAL, N_CELLS};
     use std::collections::HashMap;
 
     /// Every allowed walk of `k` steps: endpoint → total probability of the
@@ -302,13 +359,17 @@ pub(crate) mod test_support {
                 *out.entry(s.0).or_insert(0.0) += prob;
                 return;
             }
-            let mask = w.allowed(node, k - step);
-            if mask.is_empty() {
+            let weights = w.move_weights(node, k - step);
+            let total: u32 = weights.iter().sum();
+            if total == 0 {
                 *dead += prob;
                 return;
             }
-            let p = prob / mask.len() as f64;
-            for m in mask.iter() {
+            for m in Move::ALL {
+                if weights[m as usize] == 0 {
+                    continue;
+                }
+                let p = prob * weights[m as usize] as f64 / total as f64;
                 let (ns, nb) = s.apply_at(m, blank);
                 rec(w, k, step + 1, w.next(node, m), ns, nb, p, out, dead);
             }
@@ -349,8 +410,13 @@ mod tests {
     fn every_board_at_distance_k_is_reachable_by_a_k_step_walk() {
         const K: u32 = 13;
         let dist = bfs_distances(K as u8);
-        for moribund in [false, true] {
-            let w = Walker::new(dfa(), moribund);
+        for (moribund, choice) in [
+            (false, Choice::Uniform),
+            (true, Choice::Uniform),
+            (false, Choice::Lookahead),
+            (true, Choice::Lookahead),
+        ] {
+            let w = Walker::new(dfa(), moribund).with_choice(choice);
             for k in [6, 9, 12, K] {
                 let (ends, dead) = enumerate(&w, k);
                 let at_k = ends
@@ -359,7 +425,7 @@ mod tests {
                     .count();
                 assert_eq!(
                     at_k as u64, A090031[k as usize],
-                    "moribund={moribund} k={k}"
+                    "moribund={moribund} choice={choice:?} k={k}"
                 );
                 let total: f64 = ends.values().sum::<f64>() + dead;
                 assert!((total - 1.0).abs() < 1e-12, "probability mass {total}");
