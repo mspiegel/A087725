@@ -22,11 +22,12 @@ pub mod estimate;
 pub mod layers;
 pub mod reach;
 pub mod rng;
+pub mod samples;
 pub mod sphere;
 pub mod walker;
 pub mod weights;
 
-pub use estimate::{Accum, PairAccum, Z95};
+pub use estimate::{batch_means, Accum, PairAccum, Z95};
 pub use layers::{for_each_layer, pack, unpack, A090031};
 pub use rng::Rng;
 pub use walker::Walker;

@@ -19,6 +19,10 @@ runs/*
 # packed. Not regenerable — this is the evidence.
 !runs/ckpt156/
 
+# eta24 sampling campaigns (stored sphere samples; regenerable from the seeds
+# and settings in each stratum's .meta file).
+/data/eta24_*/
+
 # macOS Finder metadata
 .DS_Store
 

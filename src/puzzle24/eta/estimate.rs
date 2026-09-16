@@ -138,10 +138,66 @@ impl PairAccum {
     }
 }
 
+/// Batch-means estimate from per-chunk totals `(attempts, sum of X)`.
+///
+/// Chunks are dealt round-robin into `batches` groups; each group gives an
+/// independent per-attempt mean, and the standard error is the spread of the
+/// group means over `√batches`. Unlike [`Accum::std_error`], this does not
+/// lean on the sample variance of a heavy-tailed `X`, which understates the
+/// error when a few terms dominate. Returns `(mean, standard error)`; the
+/// error is NaN with fewer than two non-empty batches.
+pub fn batch_means(per_chunk: &[(u64, f64)], batches: usize) -> (f64, f64) {
+    let batches = batches.max(1);
+    let mut att = vec![0u64; batches];
+    let mut sum = vec![0.0f64; batches];
+    for (i, &(a, s)) in per_chunk.iter().enumerate() {
+        att[i % batches] += a;
+        sum[i % batches] += s;
+    }
+    let total_att: u64 = att.iter().sum();
+    let mean = if total_att == 0 {
+        0.0
+    } else {
+        sum.iter().sum::<f64>() / total_att as f64
+    };
+    let means: Vec<f64> = att
+        .iter()
+        .zip(&sum)
+        .filter(|(&a, _)| a > 0)
+        .map(|(&a, &s)| s / a as f64)
+        .collect();
+    if means.len() < 2 {
+        return (mean, f64::NAN);
+    }
+    let m = means.iter().sum::<f64>() / means.len() as f64;
+    let var = means.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (means.len() - 1) as f64;
+    (mean, (var / means.len() as f64).sqrt())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::puzzle24::eta::rng::Rng;
+
+    #[test]
+    fn batch_means_matches_direct_mean_and_scales_error() {
+        // 400 chunks of 100 attempts; X = 1 with probability 0.1, else 0.
+        let mut rng = Rng::stream(8, 0, 0);
+        let per_chunk: Vec<(u64, f64)> = (0..400)
+            .map(|_| {
+                let hits = (0..100).filter(|_| rng.below(10) == 0).count();
+                (100, hits as f64)
+            })
+            .collect();
+        let (mean, se) = batch_means(&per_chunk, 20);
+        let direct: f64 = per_chunk.iter().map(|c| c.1).sum::<f64>() / 40_000.0;
+        assert!((mean - direct).abs() < 1e-15);
+        // Binomial standard error of the mean: sqrt(0.09 / 40000) = 0.0015.
+        assert!(se > 0.0008 && se < 0.0025, "se {se}");
+        assert!((mean - 0.1).abs() < 5.0 * 0.0015);
+        let (_, se1) = batch_means(&per_chunk, 1);
+        assert!(se1.is_nan());
+    }
 
     #[test]
     fn accum_moments() {

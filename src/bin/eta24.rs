@@ -200,7 +200,86 @@ enum Cmd {
         #[command(flatten)]
         verifier: VerifierOpts,
     },
+    /// A stratified sampling campaign: exact layers, stored samples, scoring.
+    #[command(subcommand)]
+    Campaign(Campaign),
 }
+
+#[derive(Subcommand)]
+enum Campaign {
+    /// Exact |V_k| and exact MD eta_k for k <= max-k, from breadth-first layers.
+    Layers {
+        #[arg(long, default_value_t = 22)]
+        max_k: usize,
+        /// Campaign directory; writes exact_layers.tsv there.
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+    },
+    /// Draw sphere samples for k-min..=k-max into DIR, extending what is there.
+    Sample {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 23)]
+        k_min: u32,
+        #[arg(long, default_value_t = 64)]
+        k_max: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Target thread-seconds for stratum k-min (including samples already
+        /// on disk).
+        #[arg(long, default_value_t = 60.0)]
+        thread_seconds: f64,
+        /// Budget growth per stratum: k gets thread_seconds × growth^(k − k_min).
+        #[arg(long, default_value_t = 1.0)]
+        growth: f64,
+        /// Cap on any stratum's thread-second budget.
+        #[arg(long, default_value_t = f64::INFINITY)]
+        max_thread_seconds: f64,
+        /// Move-DFA window.
+        #[arg(long, default_value_t = 14)]
+        window: u8,
+        /// Prefix checkpoint spacing (does not change the sample distribution).
+        #[arg(long, default_value_t = 8)]
+        check_every: u32,
+        #[arg(long, value_enum, default_value_t = ChoiceArg::Lookahead)]
+        choice: ChoiceArg,
+        #[command(flatten)]
+        verifier: VerifierOpts,
+    },
+    /// Score the campaign in DIR for Manhattan distance.
+    Score {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+        /// Batches for batch-means standard errors.
+        #[arg(long, default_value_t = 20)]
+        batches: usize,
+        /// Published per-stratum eta_k to compare with (TSV: k, plotted value,
+        /// value used; e.g. records/eta24_fig53_digitized.tsv).
+        #[arg(long, value_name = "PATH")]
+        published_histogram: Option<PathBuf>,
+    },
+}
+
+/// Chunks per parallel round in `sample`.
+const SAMPLE_ROUND_CHUNKS: u64 = 96;
+
+/// Version of the walk rule recorded in stratum meta files. Bump it when the
+/// walker's move probabilities change for the same settings.
+const WALKER_VERSION: &str = "1";
+
+/// Exact Manhattan-distance quality of the whole 24-puzzle at the branching
+/// factor `weights::branching_factor()` = 2.367604543724, per weighting
+/// (uniform, tree, degree): (perm(M) + det(M′)) / 2 / |V| over the 25×25 matrix
+/// of b^−md(tile, cell) with the blank row holding w(cell), computed outside
+/// the repo and checked against brute force on the 8-puzzle
+/// (records/eta24_md.txt).
+const EXACT_MD_ETA: [f64; 3] = [1.0009629701e-19, 9.7305423082e-20, 9.7565321490e-20];
+
+/// Clausecker's published Manhattan-distance figures (ZIB Report 20-17,
+/// Table 5.1 and Fig. 5.3).
+const PUBLISHED_MD_ETA: f64 = 9.926e-20;
+const PUBLISHED_MD_ETA_HALF95: f64 = 9.013e-21;
+const PUBLISHED_MD_ETA_GE65: f64 = 2.364e-20;
 
 /// Sphere sizes estimated by Clausecker (ZIB Report 20-17, App. B) for
 /// `k = 31..=64`, where A090031 has no exact terms.
@@ -872,6 +951,391 @@ fn report_probe(
     }
 }
 
+const EXACT_LAYERS_FILE: &str = "exact_layers.tsv";
+
+/// `campaign layers`: exact |V_k| and Σ w·b^−MD / |V| per weighting for k ≤ max_k.
+fn run_layers(max_k: usize, dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let n_states = N_STATES as f64;
+    let path = dir.join(EXACT_LAYERS_FILE);
+    let mut out = String::from("# k\tsize\teta_uniform\teta_tree\teta_degree\n");
+    let t0 = Instant::now();
+    puzzle8::puzzle24::eta::for_each_layer(max_k, |k, layer| {
+        let sums = layer
+            .par_iter()
+            .map(|&key| {
+                let s = puzzle8::puzzle24::eta::unpack(key);
+                let base = b.powi(-(ManhattanHeuristic.h(&s) as i32));
+                let blank = s.blank_pos() as usize;
+                [
+                    weights[0][blank] * base,
+                    weights[1][blank] * base,
+                    weights[2][blank] * base,
+                ]
+            })
+            .reduce(|| [0.0; 3], |a, c| [a[0] + c[0], a[1] + c[1], a[2] + c[2]]);
+        out.push_str(&format!(
+            "{k}\t{}\t{:.12e}\t{:.12e}\t{:.12e}\n",
+            layer.len(),
+            sums[0] / n_states,
+            sums[1] / n_states,
+            sums[2] / n_states
+        ));
+        eprintln!(
+            "layer {k}: {} boards ({:.1}s)",
+            layer.len(),
+            t0.elapsed().as_secs_f64()
+        );
+    });
+    std::fs::write(&path, out).map_err(|e| format!("{}: {e}", path.display()))?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+struct SampleCampaign {
+    dir: PathBuf,
+    k_min: u32,
+    k_max: u32,
+    seed: u64,
+    thread_seconds: f64,
+    growth: f64,
+    max_thread_seconds: f64,
+    window: u8,
+    check_every: u32,
+    choice: Choice,
+}
+
+/// `campaign sample`: extend each stratum until its thread-time budget is met.
+fn run_sample(c: SampleCampaign, verifier: &Verifier) -> Result<(), String> {
+    use puzzle8::puzzle24::eta::layers::pack;
+    use puzzle8::puzzle24::eta::samples::{
+        append_chunks, append_samples, chunks_path, meta_path, read_chunks, samples_path,
+        write_or_check_meta, ChunkRecord, SampleRecord,
+    };
+    let Verifier::Zpdb(dbs) = verifier else {
+        return Err("campaign sample needs --verifier zpdb".into());
+    };
+    std::fs::create_dir_all(&c.dir).map_err(|e| e.to_string())?;
+    let walker = walker_for(c.window, true).with_choice(c.choice);
+    eprintln!(
+        "walker window={} choice={:?}: {} nodes",
+        c.window,
+        c.choice,
+        walker.node_count()
+    );
+    for k in c.k_min..=c.k_max {
+        let settings: std::collections::BTreeMap<String, String> = [
+            ("k", k.to_string()),
+            ("window", c.window.to_string()),
+            ("moribund", "true".to_string()),
+            ("choice", format!("{:?}", c.choice)),
+            ("md_tilt", "0".to_string()),
+            ("walker_version", WALKER_VERSION.to_string()),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b))
+        .collect();
+        write_or_check_meta(&meta_path(&c.dir, k), &settings).map_err(|e| e.to_string())?;
+        let existing = read_chunks(&chunks_path(&c.dir, k)).map_err(|e| e.to_string())?;
+        let mut next_chunk = existing.iter().map(|r| r.chunk + 1).max().unwrap_or(0);
+        let mut spent_ns: u128 = existing.iter().map(|r| r.thread_ns as u128).sum();
+        let budget_ns = (c.thread_seconds * c.growth.powi((k - c.k_min) as i32))
+            .min(c.max_thread_seconds)
+            * 1e9;
+        let t0 = Instant::now();
+        let (mut attempts, mut accepted) = (0u64, 0u64);
+        while (spent_ns as f64) < budget_ns {
+            let round: Vec<(ChunkRecord, Vec<SampleRecord>)> = (next_chunk
+                ..next_chunk + SAMPLE_ROUND_CHUNKS)
+                .into_par_iter()
+                .map(|chunk| {
+                    let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                    let mut rng = Rng::stream(c.seed, k as u64, chunk);
+                    let mut path = Vec::with_capacity(k as usize);
+                    let start = Instant::now();
+                    let mut samples = Vec::new();
+                    for _ in 0..CHUNK {
+                        let (a, _) = attempt(&walker, k, c.check_every, &mut rng, &inc, &mut path);
+                        if let Attempt::Accepted { board, walk_prob } = a {
+                            let r = reach_probability(&walker, &board, k, &inc);
+                            assert!(r.prob >= walk_prob * (1.0 - 1e-9));
+                            samples.push(SampleRecord {
+                                board: pack(&board),
+                                prob: r.prob,
+                                chunk: u32::try_from(chunk).expect("chunk index fits u32"),
+                            });
+                        }
+                    }
+                    let rec = ChunkRecord {
+                        seed: c.seed,
+                        chunk,
+                        attempts: CHUNK,
+                        accepted: samples.len() as u64,
+                        thread_ns: start.elapsed().as_nanos() as u64,
+                    };
+                    (rec, samples)
+                })
+                .collect();
+            let all: Vec<SampleRecord> =
+                round.iter().flat_map(|(_, s)| s.iter().copied()).collect();
+            append_samples(&samples_path(&c.dir, k), &all).map_err(|e| e.to_string())?;
+            let recs: Vec<ChunkRecord> = round.iter().map(|(r, _)| *r).collect();
+            append_chunks(&chunks_path(&c.dir, k), &recs).map_err(|e| e.to_string())?;
+            spent_ns += recs.iter().map(|r| r.thread_ns as u128).sum::<u128>();
+            attempts += recs.iter().map(|r| r.attempts).sum::<u64>();
+            accepted += all.len() as u64;
+            next_chunk += SAMPLE_ROUND_CHUNKS;
+        }
+        eprintln!(
+            "k={k}: +{attempts} attempts, +{accepted} accepted this run; {:.0} of {:.0} thread-s; wall {:.0}s",
+            spent_ns as f64 / 1e9,
+            budget_ns / 1e9,
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    Ok(())
+}
+
+/// Stratum estimate: (mean, batch standard error) per quantity.
+struct StratumScore {
+    k: u32,
+    attempts: u64,
+    accepted: u64,
+    size: (f64, f64),
+    size_ess: f64,
+    eta: [(f64, f64); 3],
+    eta_ess: [f64; 3],
+    eta_max_share: f64,
+    exact: bool,
+}
+
+/// `campaign score`: combine exact layers and sampled strata for Manhattan distance.
+fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(), String> {
+    use puzzle8::puzzle24::eta::samples::{chunks_path, read_chunks, read_samples, samples_path};
+    use puzzle8::puzzle24::eta::{batch_means, unpack};
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let n_states = N_STATES as f64;
+
+    let mut strata: Vec<StratumScore> = Vec::new();
+    let exact_path = dir.join(EXACT_LAYERS_FILE);
+    let exact_text = std::fs::read_to_string(&exact_path).map_err(|e| {
+        format!(
+            "{}: {e} (run `campaign layers` first)",
+            exact_path.display()
+        )
+    })?;
+    for line in exact_text.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = line.split('\t').collect();
+        let k: u32 = f[0].parse().map_err(|e| format!("{line}: {e}"))?;
+        let size: f64 = f[1].parse().map_err(|e| format!("{line}: {e}"))?;
+        let eta: Vec<f64> = f[2..5].iter().map(|x| x.parse().unwrap()).collect();
+        strata.push(StratumScore {
+            k,
+            attempts: 0,
+            accepted: 0,
+            size: (size, 0.0),
+            size_ess: f64::NAN,
+            eta: [(eta[0], 0.0), (eta[1], 0.0), (eta[2], 0.0)],
+            eta_ess: [f64::NAN; 3],
+            eta_max_share: f64::NAN,
+            exact: true,
+        });
+    }
+    let exact_max = strata.iter().map(|s| s.k).max().unwrap_or(0);
+
+    for k in exact_max + 1..=200 {
+        let chunks = read_chunks(&chunks_path(dir, k)).map_err(|e| e.to_string())?;
+        if chunks.is_empty() {
+            if k > exact_max + 1 && strata.last().is_some_and(|s| s.k < k - 1) {
+                break;
+            }
+            continue;
+        }
+        let mut per_chunk: std::collections::BTreeMap<u64, (u64, [f64; 4])> = chunks
+            .iter()
+            .map(|r| (r.chunk, (r.attempts, [0.0; 4])))
+            .collect();
+        let (mut size_acc, mut eta_acc) = (Accum::default(), [Accum::default(); 3]);
+        let mut accepted = 0u64;
+        for s in read_samples(&samples_path(dir, k)).map_err(|e| e.to_string())? {
+            let Some(entry) = per_chunk.get_mut(&(s.chunk as u64)) else {
+                continue;
+            };
+            accepted += 1;
+            let board = unpack(s.board);
+            let base = b.powi(-(ManhattanHeuristic.h(&board) as i32)) / s.prob;
+            let blank = board.blank_pos() as usize;
+            entry.1[0] += 1.0 / s.prob;
+            size_acc.add(1.0 / s.prob);
+            for w in 0..3 {
+                let x = weights[w][blank] * base;
+                entry.1[w + 1] += x;
+                eta_acc[w].add(x);
+            }
+        }
+        let attempts: u64 = per_chunk.values().map(|v| v.0).sum();
+        let column =
+            |i: usize| -> Vec<(u64, f64)> { per_chunk.values().map(|v| (v.0, v.1[i])).collect() };
+        let size = batch_means(&column(0), batches);
+        let eta = [1, 2, 3].map(|i| {
+            let (m, se) = batch_means(&column(i), batches);
+            (m / n_states, se / n_states)
+        });
+        strata.push(StratumScore {
+            k,
+            attempts,
+            accepted,
+            size,
+            size_ess: size_acc.effective_n(),
+            eta,
+            eta_ess: [0, 1, 2].map(|w| eta_acc[w].effective_n()),
+            eta_max_share: eta_acc[0].max_share(),
+            exact: false,
+        });
+    }
+
+    println!("# Manhattan distance, campaign {}; b = {b:.12}; errors are 95% batch-means intervals ({batches} batches)", dir.display());
+    println!("#  k  source    attempts  accepted   |V_k|                     vs reference              eta_k uniform              (ESS, top term)   eta_k tree    eta_k degree");
+    for s in &strata {
+        let reference = reference_sphere_size(s.k).map_or(String::from("-"), |(r, src)| {
+            if s.exact {
+                format!("{:+.0e} ({src})", s.size.0 - r)
+            } else {
+                format!(
+                    "{:+.2}% = {:+.1} SE ({src})",
+                    100.0 * (s.size.0 - r) / r,
+                    (s.size.0 - r) / s.size.1
+                )
+            }
+        });
+        let pm = |(m, se): (f64, f64)| {
+            if s.exact {
+                format!("{m:.4e} exact")
+            } else {
+                format!("{m:.4e} ± {:.1}%", 100.0 * Z95 * se / m)
+            }
+        };
+        println!(
+            "  {:>2}  {:<7} {:>10} {:>9}   {:<24} {:<25} {:<26} ({:>6.0}, {:>5.1}%)  {:<22} {}",
+            s.k,
+            if s.exact { "layers" } else { "sampled" },
+            s.attempts,
+            s.accepted,
+            if s.exact {
+                pm(s.size)
+            } else {
+                format!("{} ESS {:.0}", pm(s.size), s.size_ess)
+            },
+            reference,
+            pm(s.eta[0]),
+            s.eta_ess[0],
+            100.0 * s.eta_max_share,
+            pm(s.eta[1]),
+            pm(s.eta[2])
+        );
+    }
+
+    let k_max = strata.iter().map(|s| s.k).max().unwrap_or(0);
+    let contiguous = strata.iter().enumerate().all(|(i, s)| s.k as usize == i);
+    println!();
+    println!(
+        "# strata 0..={k_max} present{}",
+        if contiguous {
+            ""
+        } else {
+            " WITH GAPS — sums below are incomplete"
+        }
+    );
+    for (w, name) in ["uniform", "tree", "degree"].iter().enumerate() {
+        let sum: f64 = strata.iter().map(|s| s.eta[w].0).sum();
+        let se = strata
+            .iter()
+            .map(|s| s.eta[w].1.powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let tail = EXACT_MD_ETA[w] - sum;
+        println!(
+            "  {name:<7}: sum eta_0..{k_max} = {sum:.4e} ± {:.2e} ({:.1}%); exact total {:.4e}; tail eta_>={} = {tail:.4e} ± {:.2e}",
+            Z95 * se,
+            100.0 * Z95 * se / sum,
+            EXACT_MD_ETA[w],
+            k_max + 1,
+            Z95 * se
+        );
+    }
+    println!(
+        "# published (thesis Table 5.1, Fig. 5.3): eta = {PUBLISHED_MD_ETA:.3e} ± {PUBLISHED_MD_ETA_HALF95:.3e}; eta_>=65 = {PUBLISHED_MD_ETA_GE65:.3e}"
+    );
+
+    if let Some(path) = published {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let paper: std::collections::BTreeMap<u32, f64> = text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|l| {
+                let f: Vec<&str> = l.split('\t').collect();
+                (f[0].parse().unwrap(), f[2].parse().unwrap())
+            })
+            .collect();
+        println!();
+        println!(
+            "# per-stratum eta_k (uniform) against {}; SE = batch standard error",
+            path.display()
+        );
+        println!("#  k   ours          ± 95%       paper        ours/paper   (ours - paper)/SE");
+        for s in strata.iter().filter(|s| paper.contains_key(&s.k)) {
+            let p = paper[&s.k];
+            let (m, se) = s.eta[0];
+            let z = if s.exact || se == 0.0 {
+                String::from("exact")
+            } else {
+                format!("{:+.1}", (m - p) / se)
+            };
+            println!(
+                "  {:>2}   {m:.4e}   {:>6}   {p:.4e}   {:>6.3}       {z}",
+                s.k,
+                if s.exact {
+                    String::from("exact")
+                } else {
+                    format!("{:.1}%", 100.0 * Z95 * se / m)
+                },
+                if p > 0.0 { m / p } else { f64::NAN }
+            );
+        }
+        println!("#  band      ours                 paper        ours/paper   (ours - paper)/SE");
+        for (lo, hi) in [
+            (0, 29),
+            (30, 39),
+            (40, 49),
+            (50, 54),
+            (55, 59),
+            (60, 64),
+            (0, 64),
+        ] {
+            let band: Vec<&StratumScore> = strata
+                .iter()
+                .filter(|s| (lo..=hi).contains(&s.k) && paper.contains_key(&s.k))
+                .collect();
+            if band.is_empty() {
+                continue;
+            }
+            let ours: f64 = band.iter().map(|s| s.eta[0].0).sum();
+            let se = band.iter().map(|s| s.eta[0].1.powi(2)).sum::<f64>().sqrt();
+            let theirs: f64 = band.iter().map(|s| paper[&s.k]).sum();
+            println!(
+                "  {lo:>2}..{hi:<2}   {ours:.4e} ± {:>5.1}%   {theirs:.4e}   {:>6.3}       {:+.1}",
+                100.0 * Z95 * se / ours,
+                ours / theirs,
+                (ours - theirs) / se
+            );
+        }
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
     let result = match args.cmd {
@@ -940,6 +1404,41 @@ fn main() -> ExitCode {
                 })
             })
         }
+        Cmd::Campaign(Campaign::Layers { max_k, dir }) => run_layers(max_k, &dir),
+        Cmd::Campaign(Campaign::Sample {
+            dir,
+            k_min,
+            k_max,
+            seed,
+            thread_seconds,
+            growth,
+            max_thread_seconds,
+            window,
+            check_every,
+            choice,
+            verifier,
+        }) => Verifier::load(&verifier).and_then(|v| {
+            run_sample(
+                SampleCampaign {
+                    dir,
+                    k_min,
+                    k_max,
+                    seed,
+                    thread_seconds,
+                    growth,
+                    max_thread_seconds,
+                    window,
+                    check_every,
+                    choice: choice.into(),
+                },
+                &v,
+            )
+        }),
+        Cmd::Campaign(Campaign::Score {
+            dir,
+            batches,
+            published_histogram,
+        }) => run_score(&dir, batches, published_histogram.as_deref()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
