@@ -186,3 +186,44 @@ Reading
    product at k = 56 (ESS if only M varied 736, if only 1/walk varied 491).
 4. The eta_k tail is unchanged: the lowest-MD 2-5% of accepted boards carry
    70-85% of the eta terms, and ESS of eta terms stays 3-59.
+
+Result 5 — tilting walks toward low Manhattan distance
+------------------------------------------------------
+Walker::with_md_tilt(λ): on top of the lookahead weight, a move that raises
+Manhattan distance is weighted b^-λ and one that lowers it b^λ. Each move
+changes MD by exactly ±1 (tested), so along any path from GOAL the tilt
+factors multiply to b^(-λ MD(end)) times a per-step normalisation. Reach
+probabilities use the same probabilities; the enumeration, completeness and
+Horvitz-Thompson tests include λ = 1. `probe --choice lookahead --md-tilt λ
+--k 30,45,56 --attempts 40000`, seed 1. Load average 5.7-6.6 from the
+back-to-back runs: compare yields, node counts and ESS, not milliseconds.
+
+                 yield                     eta_k MD uniform: ± (ESS)                    |V_k| ± (ESS)
+  λ       k=30    k=45    k=56      k=30          k=45          k=56          k=30        k=45        k=56
+  0      0.703   0.205   0.0356    ±25.4% (59)   ±37.0% (28)   ±69.7% (8)    ±1.4% (13147) ±4.1% (2211) ±14.7% (176)
+  0.25   0.613   0.121   0.0129    ±12.6% (242)  ±24.9% (62)   ±61.4% (10)   ±2.0% (7650)  ±12.5% (246) ±29.4% (44)
+  0.5    0.514   0.068   0.0041    ±9.4% (431)   ±19.5% (101)  ±70.5% (8)    ±3.5% (2980)  ±25.3% (60)  ±76.6% (7)
+  1.0    0.346   0.019   0.0004    ±12.3% (251)  ±50.4% (15)   ±169% (1)     ±17.3% (128)  ±105% (3)    ±163% (1)
+
+  (λ = 0 row: Result 4.)
+
+                 stage A nodes / attempt        backward nodes / accepted
+  λ       k=30     k=45     k=56             k=30     k=45      k=56
+  0        257    7,497   45,559              683   27,743   489,062
+  0.25     394    8,763   36,430              953   41,847   683,871
+  0.5      531    9,164   23,941            1,275   62,686   867,380
+  1.0      799    6,939   12,293            2,047   99,517  3,236,074
+
+Reading
+-------
+1. The tilt reaches the eta tail at moderate depth: at k = 30, ESS of eta terms
+   rises 59 -> 431 (λ = 0.5) and the interval narrows 25% -> 9%; at k = 45,
+   28 -> 101 and 37% -> 20%.
+2. It costs yield, increasingly with depth. Moves that lower Manhattan distance
+   tend to lead back toward GOAL, so tilted walks end closer than k more often:
+   at λ = 0.5 yield falls 27% at k = 30, 67% at k = 45 and 88% at k = 56. At
+   k = 56 the lost samples cancel the gain (ESS 8-10 at every λ ≤ 0.5), and
+   λ = 1 collapses (16 accepted of 40,000).
+3. Tilting also degrades |V_k|, as expected for weights aimed at b^-MD.
+4. Accepted tilted boards cost more to weigh: 1.4-6.6x the backward-search
+   nodes per accepted board.

@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 
 use crate::puzzle24::eta::rng::Rng;
+use crate::puzzle24::eta::weights::branching_factor;
 use crate::puzzle24::search::move_dfa::MovePruner;
 use crate::puzzle24::state::{Move, MoveSet, State, GOAL, W};
 
@@ -78,6 +79,25 @@ pub struct Walker {
     nodes: Vec<Node>,
     moribund: bool,
     choice: Choice,
+    /// Weight multiplier for a move that raises Manhattan distance by one
+    /// (`b^−λ`); a move that lowers it gets the reciprocal. `None` = no tilt.
+    md_tilt: Option<f64>,
+}
+
+/// Manhattan distance of tile `tile` at cell `cell` from its goal cell.
+fn tile_md(tile: u8, cell: u8) -> i32 {
+    let (g, w) = (tile as i32 - 1, W as i32);
+    let c = cell as i32;
+    (c / w - g / w).abs() + (c % w - g % w).abs()
+}
+
+/// Change in Manhattan distance when the blank at `blank` takes move `m`
+/// on `board`: the tile beside the blank slides into the blank's cell. Always
+/// `+1` or `−1`.
+fn md_delta(board: &State, blank: u8, m: Move) -> i32 {
+    let nb = blank_after(blank, m);
+    let tile = board.0[nb as usize];
+    tile_md(tile, blank) - tile_md(tile, nb)
 }
 
 fn blank_after(blank: u8, m: Move) -> u8 {
@@ -134,6 +154,7 @@ impl Walker {
             nodes,
             moribund,
             choice: Choice::Uniform,
+            md_tilt: None,
         };
         walker.resolve_doom();
         walker
@@ -196,6 +217,55 @@ impl Walker {
 
     pub fn choice(&self) -> Choice {
         self.choice
+    }
+
+    /// Tilt move choice toward low Manhattan distance: on top of the
+    /// [`Choice`] weight, a move that raises Manhattan distance is weighted
+    /// `b^−λ` and one that lowers it `b^λ`, with `b` the branching factor.
+    /// Along any path from GOAL the increments sum to the end board's
+    /// Manhattan distance, so the tilt concentrates walks on boards where
+    /// `b^−MD` is large. `λ = 0` removes the tilt.
+    pub fn with_md_tilt(mut self, lambda: f64) -> Walker {
+        self.md_tilt = (lambda != 0.0).then(|| branching_factor().powf(-lambda));
+        self
+    }
+
+    /// Probability of each move at `node` with `remaining` steps left (this one
+    /// included), on `board` with the blank at `blank`, indexed by move code;
+    /// zero for moves not allowed. All zero at a dead end.
+    pub fn move_probs(&self, node: u32, remaining: u32, board: &State, blank: u8) -> [f64; 4] {
+        let weights = self.move_weights(node, remaining);
+        let mut p = [0.0f64; 4];
+        match self.md_tilt {
+            None => {
+                let total: u32 = weights.iter().sum();
+                if total > 0 {
+                    for (pi, &w) in p.iter_mut().zip(&weights) {
+                        *pi = w as f64 / total as f64;
+                    }
+                }
+            }
+            Some(up) => {
+                for m in Move::ALL {
+                    let w = weights[m as usize];
+                    if w > 0 {
+                        let f = if md_delta(board, blank, m) > 0 {
+                            up
+                        } else {
+                            1.0 / up
+                        };
+                        p[m as usize] = w as f64 * f;
+                    }
+                }
+                let total: f64 = p.iter().sum();
+                if total > 0.0 {
+                    for x in &mut p {
+                        *x /= total;
+                    }
+                }
+            }
+        }
+        p
     }
 
     /// Integer weight of each move at `node` with `remaining` steps left (this
@@ -285,26 +355,47 @@ impl Walker {
         let mut blank = GOAL.blank_pos();
         let mut prob = 1.0f64;
         for step in 0..k {
-            let weights = self.move_weights(node, k - step);
-            let total: u32 = weights.iter().sum();
-            if total == 0 {
-                return WalkEnd::DeadEnd;
-            }
-            // With uniform weights this is one draw below the allowed count,
-            // then the pick-th allowed move in code order.
-            let mut pick = rng.below(total as u64) as u32;
-            let mc = (0..4)
-                .find(|&i| {
-                    if pick < weights[i] {
-                        true
-                    } else {
-                        pick -= weights[i];
-                        false
-                    }
-                })
-                .expect("pick < total");
+            let mc = if self.md_tilt.is_none() {
+                let weights = self.move_weights(node, k - step);
+                let total: u32 = weights.iter().sum();
+                if total == 0 {
+                    return WalkEnd::DeadEnd;
+                }
+                // With uniform weights this is one draw below the allowed
+                // count, then the pick-th allowed move in code order.
+                let mut pick = rng.below(total as u64) as u32;
+                let mc = (0..4)
+                    .find(|&i| {
+                        if pick < weights[i] {
+                            true
+                        } else {
+                            pick -= weights[i];
+                            false
+                        }
+                    })
+                    .expect("pick < total");
+                prob *= weights[mc] as f64 / total as f64;
+                mc
+            } else {
+                let probs = self.move_probs(node, k - step, &s, blank);
+                if probs.iter().all(|&x| x == 0.0) {
+                    return WalkEnd::DeadEnd;
+                }
+                // Uniform in [0, 1) from the top 53 bits; the last move with
+                // positive probability absorbs rounding.
+                let u = (rng.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
+                let mut acc = 0.0;
+                let last = (0..4).rev().find(|&i| probs[i] > 0.0).expect("a move");
+                let mc = (0..4)
+                    .find(|&i| {
+                        acc += probs[i];
+                        probs[i] > 0.0 && (u < acc || i == last)
+                    })
+                    .expect("u < 1");
+                prob *= probs[mc];
+                mc
+            };
             let m = Move::ALL[mc];
-            prob *= weights[mc] as f64 / total as f64;
             (s, blank) = s.apply_at(m, blank);
             node = self.next(node, m);
             path.push(m);
@@ -320,14 +411,16 @@ impl Walker {
     pub fn path_probability(&self, moves: &[Move]) -> f64 {
         let k = moves.len() as u32;
         let mut node = self.root();
+        let (mut s, mut blank) = (GOAL, GOAL.blank_pos());
         let mut prob = 1.0f64;
         for (step, &m) in moves.iter().enumerate() {
-            let weights = self.move_weights(node, k - step as u32);
-            if weights[m as usize] == 0 {
+            let probs = self.move_probs(node, k - step as u32, &s, blank);
+            if probs[m as usize] == 0.0 {
                 return 0.0;
             }
-            prob *= weights[m as usize] as f64 / weights.iter().sum::<u32>() as f64;
+            prob *= probs[m as usize];
             node = self.next(node, m);
+            (s, blank) = s.apply_at(m, blank);
         }
         prob
     }
@@ -359,17 +452,16 @@ pub(crate) mod test_support {
                 *out.entry(s.0).or_insert(0.0) += prob;
                 return;
             }
-            let weights = w.move_weights(node, k - step);
-            let total: u32 = weights.iter().sum();
-            if total == 0 {
+            let probs = w.move_probs(node, k - step, &s, blank);
+            if probs.iter().all(|&x| x == 0.0) {
                 *dead += prob;
                 return;
             }
             for m in Move::ALL {
-                if weights[m as usize] == 0 {
+                if probs[m as usize] == 0.0 {
                     continue;
                 }
-                let p = prob * weights[m as usize] as f64 / total as f64;
+                let p = prob * probs[m as usize];
                 let (ns, nb) = s.apply_at(m, blank);
                 rec(w, k, step + 1, w.next(node, m), ns, nb, p, out, dead);
             }
@@ -396,6 +488,22 @@ mod tests {
     }
 
     #[test]
+    fn md_delta_matches_manhattan_difference() {
+        use crate::puzzle24::search::{Heuristic, ManhattanHeuristic};
+        let mut rng = Rng::stream(3, 1, 4);
+        let (mut s, mut blank) = (GOAL, GOAL.blank_pos());
+        for _ in 0..500 {
+            let moves: Vec<Move> = State::legal_moves_at(blank).iter().collect();
+            let m = moves[rng.below(moves.len() as u64) as usize];
+            let (child, cb) = s.apply_at(m, blank);
+            let want = ManhattanHeuristic.h(&child) as i32 - ManhattanHeuristic.h(&s) as i32;
+            assert_eq!(md_delta(&s, blank, m), want);
+            assert_eq!(want.abs(), 1);
+            (s, blank) = (child, cb);
+        }
+    }
+
+    #[test]
     fn dfa_state_determines_the_blank() {
         let w = Walker::new(dfa(), false);
         let mut blank_of: HashMap<u32, u8> = HashMap::new();
@@ -410,13 +518,16 @@ mod tests {
     fn every_board_at_distance_k_is_reachable_by_a_k_step_walk() {
         const K: u32 = 13;
         let dist = bfs_distances(K as u8);
-        for (moribund, choice) in [
-            (false, Choice::Uniform),
-            (true, Choice::Uniform),
-            (false, Choice::Lookahead),
-            (true, Choice::Lookahead),
+        for (moribund, choice, tilt) in [
+            (false, Choice::Uniform, 0.0),
+            (true, Choice::Uniform, 0.0),
+            (false, Choice::Lookahead, 0.0),
+            (true, Choice::Lookahead, 0.0),
+            (true, Choice::Lookahead, 1.0),
         ] {
-            let w = Walker::new(dfa(), moribund).with_choice(choice);
+            let w = Walker::new(dfa(), moribund)
+                .with_choice(choice)
+                .with_md_tilt(tilt);
             for k in [6, 9, 12, K] {
                 let (ends, dead) = enumerate(&w, k);
                 let at_k = ends
@@ -425,7 +536,7 @@ mod tests {
                     .count();
                 assert_eq!(
                     at_k as u64, A090031[k as usize],
-                    "moribund={moribund} choice={choice:?} k={k}"
+                    "moribund={moribund} choice={choice:?} tilt={tilt} k={k}"
                 );
                 let total: f64 = ends.values().sum::<f64>() + dead;
                 assert!((total - 1.0).abs() < 1e-12, "probability mass {total}");
