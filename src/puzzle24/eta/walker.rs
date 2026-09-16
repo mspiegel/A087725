@@ -276,32 +276,16 @@ impl Walker {
     }
 }
 
+/// Exhaustive walk enumeration, shared by the walker and reach-probability tests.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::puzzle24::eta::layers::A090031;
-    use crate::puzzle24::search::tests_util::bfs_distances;
-    use crate::puzzle24::search::MoveDfa;
-    use crate::puzzle24::state::N_CELLS;
+pub(crate) mod test_support {
+    use super::Walker;
+    use crate::puzzle24::state::{State, GOAL, N_CELLS};
+    use std::collections::HashMap;
 
-    fn dfa() -> &'static MoveDfa {
-        static DFA: std::sync::OnceLock<MoveDfa> = std::sync::OnceLock::new();
-        DFA.get_or_init(MoveDfa::build_default)
-    }
-
-    #[test]
-    fn dfa_state_determines_the_blank() {
-        let w = Walker::new(dfa(), false);
-        let mut blank_of: HashMap<u32, u8> = HashMap::new();
-        for id in 0..w.node_count() as u32 {
-            let (st, blank) = (w.dfa_state(id), w.blank(id));
-            let b = *blank_of.entry(st).or_insert(blank);
-            assert_eq!(b, blank, "DFA state {st} seen with blanks {b} and {blank}");
-        }
-    }
-
-    /// Enumerate every allowed walk of `k` steps: endpoint → total probability.
-    fn enumerate(w: &Walker, k: u32) -> (HashMap<[u8; N_CELLS], f64>, f64) {
+    /// Every allowed walk of `k` steps: endpoint → total probability of the
+    /// walks ending there, and the probability of dead-ending.
+    pub(crate) fn enumerate(w: &Walker, k: u32) -> (HashMap<[u8; N_CELLS], f64>, f64) {
         #[allow(clippy::too_many_arguments)]
         fn rec(
             w: &Walker,
@@ -331,18 +315,34 @@ mod tests {
         }
         let mut out = HashMap::new();
         let mut dead = 0.0;
-        rec(
-            w,
-            k,
-            0,
-            w.root(),
-            GOAL,
-            GOAL.blank_pos(),
-            1.0,
-            &mut out,
-            &mut dead,
-        );
+        let (root, blank) = (w.root(), GOAL.blank_pos());
+        rec(w, k, 0, root, GOAL, blank, 1.0, &mut out, &mut dead);
         (out, dead)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::enumerate;
+    use super::*;
+    use crate::puzzle24::eta::layers::A090031;
+    use crate::puzzle24::search::tests_util::bfs_distances;
+    use crate::puzzle24::search::MoveDfa;
+
+    fn dfa() -> &'static MoveDfa {
+        static DFA: std::sync::OnceLock<MoveDfa> = std::sync::OnceLock::new();
+        DFA.get_or_init(MoveDfa::build_default)
+    }
+
+    #[test]
+    fn dfa_state_determines_the_blank() {
+        let w = Walker::new(dfa(), false);
+        let mut blank_of: HashMap<u32, u8> = HashMap::new();
+        for id in 0..w.node_count() as u32 {
+            let (st, blank) = (w.dfa_state(id), w.blank(id));
+            let b = *blank_of.entry(st).or_insert(blank);
+            assert_eq!(b, blank, "DFA state {st} seen with blanks {b} and {blank}");
+        }
     }
 
     #[test]

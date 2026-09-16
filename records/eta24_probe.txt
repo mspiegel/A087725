@@ -1,0 +1,84 @@
+eta24 probe — reach probabilities and estimator dispersion (2026-09-16)
+=====================================================================
+
+Machine: M2 Pro, 12 threads, on AC, not idle (load average 2.6-3.8). Times are
+thread-time sums except "wall".
+
+The instrument
+--------------
+`eta24 probe` (src/bin/eta24.rs) walks k steps from GOAL (LongMoveDfa window 14,
+moribund on, prefix checkpoints every 8), accepts boards proven at distance k
+(zpdb k6), and for each accepted board v computes the reach probability P(v)
+(src/puzzle24/eta/reach.rs): a backward search from v bounded at k marks the
+interval of boards on length-k paths, and a forward pass over (board, walker
+node) pushes probability from GOAL through it. Per depth it reports:
+
+  stage A           walk + rejection search, per attempt
+  stage B           reach probability, per accepted board
+  interval          boards on some length-k path between GOAL and v
+  P(v)/walk         reach probability over the probability of the walk taken
+                    (1 when only one allowed path reaches v)
+  |V_k|, eta_k      Horvitz-Thompson: mean over attempts of 1/P(v) and of
+                    w(blank) b^-MD(v) / P(v) (zero for rejected attempts),
+                    eta_k divided by 25!/2; 95% intervals from the per-attempt
+                    sample variance
+  ESS, largest      Kish effective sample size of the nonzero terms, and the
+                    largest single term's share of the sum
+
+Correctness checks behind it (unit tests, src/puzzle24/eta/reach.rs):
+- P(v) equals the summed probability of exhaustively enumerated walks for
+  every board at k = 7, 9, 11, moribund on and off (relative error < 1e-12).
+- Horvitz-Thompson over 6,000 sampled walks recovers |V_12| = 24,098 and the
+  exact sum of b^-MD over V_12 (from BFS layers) within four standard errors.
+
+Result 1 — k = 12, 20, 30 (4,000 attempts)
+------------------------------------------
+   k   yield   |V_k| estimate           vs A090031        eta_k MD (uniform)     ESS eta / accepted
+  12   1.000   2.4037e4 ± 3.6%         -0.25% (-0.1 SE)   5.60e-25 ± 19.5%          98 / 4000
+  20   0.959   1.4299e7 ± 5.9%         -1.56% (-0.5 SE)   8.55e-24 ± 40.7%          23 / 3835
+  30   0.713   3.1526e10 ± 23.5%       +12.3% (+0.9 SE)   1.10e-22 ± 66.7%           9 / 2851
+
+Result 2 — k = 30, 45, 56, 64 (40,000 attempts each, 1 m 42 s wall)
+--------------------------------------------------------------------
+   k   accepted  stage A     stage B mean (max)   backward nodes    interval    P(v)/walk mean, median, max
+  30     28393   0.097 ms      0.13 ms (4.8)             520 (27.5k)   49 (708)       1.59, 1.00, 129
+  45      8913   0.806 ms      3.21 ms (257)          16,903 (1.3M)   139 (2061)     4.26, 2.00, 480
+  56      1595   3.881 ms     53.8 ms (1895)         272,197 (8.8M)   333 (2521)    10.3,  3.58, 490
+  64       239   8.568 ms      355 ms (6827)       1,707,965 (31.7M) 560 (3444)    16.8,  5.17, 375
+
+   k   |V_k| estimate         reference                      ESS size   largest weight
+  30   2.8385e10 ± 4.70%      2.8071e10 A090031   +1.1% (+0.5 SE)   1667/28393    1.1%
+  45   9.5897e14 ± 24.9%      8.0513e14 thesis    +19%  (+1.3 SE)     62/8913    10.6%
+  56   6.2572e17 ± 64.7%      5.6396e17 thesis    +11%  (+0.3 SE)      9/1595    32.0%
+  64   2.0081e19 ± 45.4%      3.0484e19 thesis    -34%  (-2.2 SE)     19/239     15.5%
+
+   k   eta_k MD uniform        ESS   largest term   projected for ±5%
+  30   1.5464e-22 ± 67.8%        8       29.5%      7.3e6 attempts, 0.38 thread-hours
+  45   1.0687e-21 ± 30.8%       40        8.4%      1.5e6 attempts, 0.64 thread-hours
+  56   1.8329e-21 ± 101%         4       49.6%      1.6e7 attempts, 27 thread-hours
+  64   1.5555e-22 ± 48.1%       17       12.3%      3.7e6 attempts, 11 thread-hours
+
+Tree and degree weightings give eta_k within the same intervals at every depth.
+
+Reading
+-------
+1. The estimators are consistent where references are exact or tight: |V_k|
+   within 1 SE of A090031 at k = 12, 20, 30 and of the thesis at 45, 56.
+2. The 1/P(v) weights are heavy-tailed. The effective sample size of |V_k| is
+   6% of accepted boards at k = 30, 0.7% at 45, 0.6% at 56; single boards
+   carry 10-32% of the sum from k = 45 up. P(v) varies through the number of
+   allowed paths to v (median 5, up to ~500 at k = 64) and through the product
+   of per-step choice counts along them.
+3. eta_k adds a second heavy tail: within a sphere, the few boards with low
+   Manhattan distance dominate b^-MD. ESS of eta_k is at most 98 of 4,000 even
+   at k = 12, where every P(v)/walk ratio is 1.
+4. With ESS in single digits the normal intervals and the projected attempt
+   counts understate the error. A heavy right tail makes typical sample means
+   fall below the true mean. The k = 64 estimates (|V_64| 2.2 SE below the
+   thesis; eta_64 an order of magnitude below the ~2.5e-21 per-sphere average
+   implied by the exact total of ~1e-19 spread over spheres 30-64) look like
+   that.
+5. Stage B is ~20% of thread time per accepted board at k = 64 (355 ms against
+   ~1.4 s of stage A per accepted board). Its cost is the backward search
+   (1.7M nodes mean, 32M max) proving which boards lie on length-k paths; the
+   interval itself is small (560 boards mean).

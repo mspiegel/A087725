@@ -20,6 +20,7 @@
 
 pub mod estimate;
 pub mod layers;
+pub mod reach;
 pub mod rng;
 pub mod sphere;
 pub mod walker;
