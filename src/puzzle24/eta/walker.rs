@@ -1,8 +1,9 @@
 //! The random walk's allowed-move rule `N′` for sphere sampling.
 //!
 //! A walk starts at [`GOAL`] and at each step picks uniformly among the moves
-//! that are legal, do not undo the previous move, and are not pruned by the
-//! Taylor–Korf [`MoveDfa`]. The DFA prunes a move when some recent suffix of the
+//! that are legal, do not undo the previous move, and are not pruned by a
+//! Taylor–Korf move DFA ([`MoveDfa`], or [`LongMoveDfa`] for windows above 13).
+//! The DFA prunes a move when some recent suffix of the
 //! walk reaches the same board as a shorter or equal-length lexicographically
 //! smaller sequence. The lexicographically smallest shortest path to any board
 //! contains no such suffix, so every board at distance `k` stays reachable by a
@@ -18,11 +19,14 @@
 //!
 //! The walker state is `(dfa state, blank cell, last move)`, interned into a
 //! dense node table built once by breadth-first search from the root.
+//!
+//! [`MoveDfa`]: crate::puzzle24::search::MoveDfa
+//! [`LongMoveDfa`]: crate::puzzle24::search::LongMoveDfa
 
 use std::collections::HashMap;
 
 use crate::puzzle24::eta::rng::Rng;
-use crate::puzzle24::search::move_dfa::{MoveDfa, MovePruner};
+use crate::puzzle24::search::move_dfa::MovePruner;
 use crate::puzzle24::state::{Move, MoveSet, State, GOAL, W};
 
 /// `last` value of the root node, which has no previous move.
@@ -72,8 +76,9 @@ fn blank_after(blank: u8, m: Move) -> u8 {
 }
 
 impl Walker {
-    /// Build the node table from `dfa`, rooted at [`GOAL`].
-    pub fn new(dfa: &MoveDfa, moribund: bool) -> Walker {
+    /// Build the node table from a move-pruning DFA ([`MoveDfa`] or
+    /// [`LongMoveDfa`]), rooted at [`GOAL`].
+    pub fn new<P: MovePruner<St = u32>>(dfa: &P, moribund: bool) -> Walker {
         let root_blank = GOAL.blank_pos();
         let root_key = (dfa.root_state(root_blank), root_blank, NO_LAST);
         let mut index: HashMap<(u32, u8, u8), u32> = HashMap::new();
@@ -84,7 +89,12 @@ impl Walker {
         while head < keys.len() {
             let (st, blank, last) = keys[head];
             head += 1;
-            let mut base = MoveSet(State::legal_moves_at(blank).0 & !dfa.prune_mask(st));
+            let mut base = State::legal_moves_at(blank);
+            for m in Move::ALL {
+                if dfa.is_pruned(st, m) {
+                    base.0 &= !(1u8 << m as u8);
+                }
+            }
             if last != NO_LAST {
                 base.0 &= !(1u8 << Move::ALL[last as usize].inverse() as u8);
             }
@@ -170,7 +180,7 @@ impl Walker {
         self.nodes[node as usize].blank
     }
 
-    /// [`MoveDfa`] state at `node`.
+    /// Move-DFA state at `node`.
     pub fn dfa_state(&self, node: u32) -> u32 {
         self.nodes[node as usize].dfa
     }
@@ -271,6 +281,7 @@ mod tests {
     use super::*;
     use crate::puzzle24::eta::layers::A090031;
     use crate::puzzle24::search::tests_util::bfs_distances;
+    use crate::puzzle24::search::MoveDfa;
     use crate::puzzle24::state::N_CELLS;
 
     fn dfa() -> &'static MoveDfa {
@@ -363,6 +374,28 @@ mod tests {
                     assert!(ends[&s.0] >= p * (1.0 - 1e-12));
                 }
             }
+        }
+    }
+
+    /// The same completeness check under the 15-move rule, through the depths
+    /// where its longer dominated sequences (13–15 moves) first apply.
+    #[test]
+    #[ignore = "builds LongMoveDfa W=14 and BFS to depth 15; ~5 s in release (0.9 GB peak), minutes in debug; run with --release -- --ignored"]
+    fn long_window_walker_reaches_every_board_at_distance_k() {
+        const K: u32 = 15;
+        let dfa = crate::puzzle24::search::LongMoveDfa::build(14);
+        let dist = bfs_distances(K as u8);
+        let w = Walker::new(&dfa, true);
+        for k in [12, 13, 14, K] {
+            let (ends, dead) = enumerate(&w, k);
+            let at_k = ends
+                .keys()
+                .filter(|b| dist.get(*b) == Some(&(k as u8)))
+                .count();
+            assert_eq!(at_k as u64, A090031[k as usize], "k={k}");
+            let total: f64 = ends.values().sum::<f64>() + dead;
+            assert!((total - 1.0).abs() < 1e-12, "probability mass {total}");
+            assert_eq!(dead, 0.0, "moribund walker dead-ended at k={k}");
         }
     }
 }

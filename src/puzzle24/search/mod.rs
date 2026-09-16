@@ -9,6 +9,7 @@ pub mod engine;
 pub mod heuristic;
 pub mod linear_conflict;
 pub mod move_dfa;
+pub mod move_dfa_long;
 #[cfg(all(test, feature = "cwd-table-tests"))]
 mod oracle;
 pub mod outcome;
@@ -19,6 +20,7 @@ pub use cwd::{load_cwd_overlay, Cwd, CwdOverlay, CwdScratch};
 pub use heuristic::{Heuristic, IncManhattan, ManhattanHeuristic, MaxInc};
 pub use linear_conflict::{LcCtx, LinearConflictHeuristic, LinearConflictInc};
 pub use move_dfa::{MoveDfa, MovePruner, NullPruner};
+pub use move_dfa_long::LongMoveDfa;
 pub use outcome::{BoundedOutcome, SearchStats};
 pub use recursive::{
     idastar, idastar_inc, idastar_inc_bounded_telemetry, idastar_inc_bounded_with_stats,

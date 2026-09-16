@@ -30,7 +30,7 @@ cargo build --all-targets                    # 0 warnings
 cargo build --all-targets --all-features     # 0 warnings
 cargo clippy --all-targets                   # 0 warnings
 cargo fmt --check
-cargo test                                   # 506 pass, 33 ignored
+cargo test                                   # 508 pass, 34 ignored
 ```
 
 `cargo build --all-targets --no-default-features` is **known-broken** and

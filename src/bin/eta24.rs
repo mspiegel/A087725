@@ -29,7 +29,8 @@ use puzzle8::puzzle24::eta::{Rng, Walker, Z95};
 use puzzle8::puzzle24::pdb::{ZPatternDb, ZpdbInc};
 use puzzle8::puzzle24::search::cwd::Cwd;
 use puzzle8::puzzle24::search::engine;
-use puzzle8::puzzle24::search::{BoundedOutcome, MoveDfa};
+use puzzle8::puzzle24::search::move_dfa::DEFAULT_WINDOW;
+use puzzle8::puzzle24::search::{BoundedOutcome, LongMoveDfa, MoveDfa};
 use puzzle8::puzzle24::state::State;
 use rayon::prelude::*;
 
@@ -115,9 +116,23 @@ enum Cmd {
         /// Prefix checkpoint spacings to compare (0 = final board only).
         #[arg(long, value_delimiter = ',', default_value = "0")]
         check_every: Vec<u32>,
+        /// Move-DFA windows to compare; the rule covers sequences of up to
+        /// window + 1 moves. 11 uses MoveDfa, anything else LongMoveDfa.
+        #[arg(long, value_delimiter = ',', default_value = "11")]
+        window: Vec<u8>,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
+}
+
+/// Walker over the move DFA for `window`: the engine's [`MoveDfa`] at its
+/// default window, [`LongMoveDfa`] otherwise.
+fn walker_for(window: u8, moribund: bool) -> Walker {
+    if window == DEFAULT_WINDOW {
+        Walker::new(&MoveDfa::build_default(), moribund)
+    } else {
+        Walker::new(&LongMoveDfa::build(window), moribund)
+    }
 }
 
 /// Loaded verifier resources, shared read-only across worker threads.
@@ -201,28 +216,34 @@ struct YieldRun {
     seed: u64,
     moribund: MoribundArg,
     check_every: Vec<u32>,
+    window: Vec<u8>,
 }
 
 fn run_yield(run: YieldRun, verifier: &Verifier) {
-    let dfa = MoveDfa::build_default();
     let modes: &[bool] = match run.moribund {
         MoribundArg::On => &[true],
         MoribundArg::Off => &[false],
         MoribundArg::Both => &[false, true],
     };
     println!(
-        "moribund\tcheck_every\tk\tattempts\tdead_end_rate\tyield\tyield_ci95\tnodes_per_attempt\tus_per_attempt\tus_per_accepted"
+        "window\tmoribund\tcheck_every\tk\tattempts\tdead_end_rate\tyield\tyield_ci95\tnodes_per_attempt\tus_per_attempt\tus_per_accepted"
     );
-    let settings: Vec<(bool, u32)> = modes
-        .iter()
-        .flat_map(|&mb| run.check_every.iter().map(move |&c| (mb, c)))
-        .collect();
-    for (mb, check_every) in settings {
-        let walker = Walker::new(&dfa, mb);
+    let mut settings: Vec<(u8, bool, u32)> = Vec::new();
+    for &w in &run.window {
+        for &mb in modes {
+            for &c in &run.check_every {
+                settings.push((w, mb, c));
+            }
+        }
+    }
+    for (window, mb, check_every) in settings {
+        let t_build = Instant::now();
+        let walker = walker_for(window, mb);
         eprintln!(
-            "walker moribund={mb}: {} nodes, {} doomed; check_every={check_every}",
+            "walker window={window} moribund={mb}: {} nodes, {} doomed, built in {:.1}s; check_every={check_every}",
             walker.node_count(),
-            walker.doomed_nodes()
+            walker.doomed_nodes(),
+            t_build.elapsed().as_secs_f64()
         );
         let mut k = run.k_min;
         while k <= run.k_max {
@@ -265,7 +286,7 @@ fn run_yield(run: YieldRun, verifier: &Verifier) {
             let y = tally.accepted as f64 / n;
             let us = tally.nanos as f64 / 1e3;
             println!(
-                "{}\t{check_every}\t{k}\t{}\t{:.5}\t{:.5}\t{:.5}\t{:.1}\t{:.2}\t{:.2}",
+                "{window}\t{}\t{check_every}\t{k}\t{}\t{:.5}\t{:.5}\t{:.5}\t{:.1}\t{:.2}\t{:.2}",
                 if mb { "on" } else { "off" },
                 tally.attempts,
                 tally.dead as f64 / n,
@@ -299,6 +320,7 @@ fn main() -> ExitCode {
             seed,
             moribund,
             check_every,
+            window,
             verifier,
         } => Verifier::load(&verifier).map(|v| {
             run_yield(
@@ -310,6 +332,7 @@ fn main() -> ExitCode {
                     seed,
                     moribund,
                     check_every,
+                    window,
                 },
                 &v,
             )
