@@ -134,3 +134,84 @@ Reading
 5. The weighting cannot be identified from the published numbers: uniform,
    tree and degree totals differ by 2.8%, inside every published and measured
    interval. Fig. 5.2 (eta_perfect) matches the unweighted sphere sizes.
+
+6. The tail measured directly, and the sphere sum (2026-09-17)
+-------------------------------------------------------------
+Section 6 measures eta_>=65 instead of taking it by subtraction. It revises
+readings 3 and 4 of section 5 (see "Reading, revised" below).
+
+(a) Uniform tail. `campaign tail --min-distance 65`: 710,934,528 uniform
+solvable draws, 15,027 thread-s. Sampled tail 1.6514e-20 ± 44.1%; sum
+(section 5) + tail = 9.1219e-20, -8.87% (-1.8 SE) against exact. The estimate
+rests on a handful of boards: one accepted board with MD 31 is 21% of it, and
+the 1,258 with MD <= 40 are 80%. All 46 with MD <= 36 were re-proven >= 65 by
+the ZPDB search, and the three lowest (MD 31, 33, 33) by solve24's cWD engine
+(`--prove-at-least 65`).
+
+(b) Where eta_MD lies. eta::md_levels counts the placements N_m with Manhattan
+distance m exactly (subset DP; 10.2 GiB at m <= 40, 2.5 s), and
+eta_MD = Σ_m N_m b^-m / 25!. Levels m <= 40 hold 9.65e-20 (96%) on 2.7e-6 of
+states; m <= 30 hold 6.23e-20 (62%) on 1.8e-9 of states, which a uniform draw
+reaches about once per 5e8.
+
+(c) Level sampler. Placements are drawn uniformly within level m (unsolvable
+ones count as zero) and weighted by N_m/|V|. Checks against exact values:
+  - eta_MD over all distances (`campaign total --heuristic md --md-max 40
+    --level-draws 10000000 --uniform-draws 2000000000`, 8 min):
+    1.0008e-19 ± 0.04% against 1.0010e-19, -0.013% (-0.7 SE); tree -0.6 SE,
+    degree -0.7 SE. Its uniform part above MD 40, 3.5798e-21 ± 1.0%, against
+    exact 3.5847e-21.
+  - eta over distances 0..24 (`campaign total --md-max 24 --distance-max 24`,
+    1e5 draws per level): 8.8634e-23 ± 1.6% against exact layers 8.8791e-23;
+    tree 8.9962e-23 (8.9991e-23), degree 8.9263e-23 (8.9370e-23).
+  - d >= 25 within MD <= 24 (`campaign tail-md --min-distance 25 --md-max 24`):
+    2.6726e-20 ± 0.1% against Σ_{m<=24} N_m b^-m/25! - eta_0..24 = 2.6724e-20.
+
+(d) Tail d >= 65 (`campaign tail-md --min-distance 65 --md-max 40`, stopped at
+24,950 thread-s of an 86,400 budget; 63,576 draws). Levels m <= 40 by the level
+sampler; m > 40 from the uniform run of (a), its stored boards with MD <= 40
+subtracted chunk by chunk.
+
+  weighting   levels MD <= 40       uniform draws MD > 40    tail eta_>=65
+  uniform     1.2604e-20 ± 2.6%     3.2346e-21 ± 1.3%        1.5838e-20 ± 2.1%
+  tree        1.1897e-20 ± 2.7%     3.1425e-21 ± 1.4%        1.5039e-20 ± 2.1%
+  degree      1.1971e-20 ± 2.6%     3.1668e-21 ± 1.4%        1.5138e-20 ± 2.1%
+
+  P(d >= 65 | MD = m, solvable): no hit in 6,756 solvable draws at m <= 22;
+  m = 23: 0.002, 25: 0.008, 27: 0.029, 29: 0.068, 31: 0.126, 33: 0.232,
+  35: 0.364, 37: 0.546, 39: 0.684, 40: 0.721. Levels 34..38 contribute 9-11%
+  of the level part each.
+
+(e) The sphere sum against exact values by distance band (uniform weighting,
+± 95%). Band 25..40 by `campaign total --md-max 40 --distance-min 25
+--distance-max 40` (16,384 draws per level; states within 40 moves have
+MD <= 40, so the levels cover the band). Band 41..64 = exact total - eta_0..24 -
+band 25..40 - tail; 0..64 = exact total - tail.
+
+  band      spheres (section 5)     exact or by levels         spheres/levels   z
+  0..24     8.8791e-23 exact        8.8791e-23 exact           1.000
+  25..40    4.5772e-21 ± 7.5%       4.9758e-21 ± 1.4%          0.920            -2.2
+  41..64    7.0039e-20 ± 9.3%       7.9194e-20 ± 0.4%          0.884            -2.7
+  0..64     7.4705e-20 ± 8.7%       8.4258e-20 ± 0.4%          0.887            -2.9
+  >= 65     -                       1.5838e-20 ± 2.1%
+
+  The digitized Fig. 5.3 sums over k = 0..64 to 8.4231e-20: 0.9997 of
+  exact - tail.
+
+Reading, revised
+----------------
+1. The published total is reproduced exactly (unchanged).
+2. Our sphere sum over 0..64 is 11.3% low, outside its batch-means interval
+   (-2.9 SE), and the shortfall grows with depth: -8% at 25..40, -12% at
+   41..64. The reach weights are heavy-tailed at depth (eta24_probe.txt,
+   Results 2-3), so batch means under-cover. This replaces reading 4 of
+   section 5: the figure-versus-table offset is not the figure's.
+3. Fig. 5.3 agrees with exact - tail to 0.03% over 0..64.
+4. The published eta_>=65 = 2.364e-20 is 1.49 times the level estimate
+   1.584e-20 ± 2.1%. With the figure's 8.42e-20 it would give a total 7.8%
+   above exact; Table 5.1's total is within 1% of exact. Section 5's tail by
+   subtraction (2.54e-20 ± 26%) inherited the sphere-sum shortfall; that is
+   why it matched the published tail (replaces reading 3).
+5. For eta_MD, uniform tail draws are the weak part of the thesis's method:
+   their estimate is set by the few MD ~ 30 boards drawn. Stratifying by
+   Manhattan level measures the tail to ±2.1% in 7 thread-hours.

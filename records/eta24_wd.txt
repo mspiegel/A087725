@@ -1,0 +1,150 @@
+Walking-distance heuristic quality eta on the 24-puzzle (2026-09-17)
+===================================================================
+
+Heuristic: vanilla walking distance, row WD + column WD
+(WalkingDistanceHeuristic, data/wd24.bin). The papers do not report it.
+eta = |V|^-1 Σ_v w(v) b^-h(v), with b = 2.367604543724 and the three blank
+weightings of records/eta24_md.txt. Campaign data in data/eta24_md
+(git-ignored): the MD campaign's stored sphere samples and tail draws, scored
+for WD.
+
+1. Result
+---------
+  weighting   eta_WD total          eta_>=65 (tail)       eta_0..64 = total - tail
+  uniform     1.8581e-20 ± 0.09%    2.3976e-21 ± 3.3%     1.6183e-20 ± 0.5%
+  tree        1.9012e-20 ± 0.10%    2.4130e-21 ± 3.4%     1.6599e-20 ± 0.5%
+  degree      1.8951e-20 ± 0.10%    2.4174e-21 ± 3.4%     1.6534e-20 ± 0.5%
+  (± 95%)
+
+  eta_MD / eta_WD (exact MD totals): uniform 5.387, tree 5.118, degree 5.148.
+  The tail is 12.9% of eta_WD (uniform); for MD it is 15.8%.
+
+2. Method
+---------
+Total. `eta24 campaign total --heuristic wd --md-max 40 --level-draws 10000000
+--uniform-draws 2000000000` (9 min wall, seed 1). Placements are drawn
+uniformly within each Manhattan level m <= 40 and weighted by the level's exact
+count (eta::md_levels); states above MD 40 come from uniform solvable draws.
+No distance is searched: the estimator needs only WD on sampled states.
+  levels MD <= 40      1.7534e-20 ± 0.03%
+  uniform MD > 40      1.0470e-21 ± 1.6%
+The same command for MD reproduces the exact MD total to -0.013% (-0.7 SE;
+records/eta24_md.txt section 6c).
+
+Tail d >= 65. The level-stratified tail draws of records/eta24_md.txt section
+6d, scored for WD (`campaign score --heuristic wd`): levels m <= 40 with states
+proven >= 65 by the zero-aware PDB search, plus the uniform tail run's draws
+above MD 40.
+  weighting   levels MD <= 40       uniform draws MD > 40    tail
+  uniform     1.5396e-21 ± 4.9%     8.5801e-22 ± 2.9%        2.3976e-21 ± 3.3%
+  tree        1.5452e-21 ± 5.1%     8.6783e-22 ± 2.7%        2.4130e-21 ± 3.4%
+  degree      1.5482e-21 ± 5.1%     8.6919e-22 ± 2.8%        2.4174e-21 ± 3.4%
+The uniform tail run alone gave 2.3389e-21 ± 27.5%. Within the levels, 35..40
+carry 11-15% of the level part each and m <= 30 carry 3.8% together.
+
+Per sphere. k <= 24: exact breadth-first layers (`campaign layers --heuristic
+wd --max-k 24`, 20 s). k = 25..64: the MD campaign's 3,311,788 stored boards
+and reach probabilities rescored with WD (`campaign score --heuristic wd`).
+
+3. Sphere sum against the level estimates (uniform weighting, ± 95%)
+--------------------------------------------------------------------
+Band 25..40 by `campaign total --heuristic wd --md-max 40 --distance-min 25
+--distance-max 40` (16,384 draws per level). Band 41..64 = total - eta_0..24 -
+band 25..40 - tail.
+
+  band      spheres                 by levels               spheres/levels   z
+  0..24     2.7146e-23 exact        -
+  25..40    1.1048e-21 ± 14.6%      1.1156e-21 ± 3.0%       0.990            -0.1
+  41..64    1.4557e-20 ± 9.8%       1.5041e-20 ± 0.6%       0.968            -0.7
+  0..64     1.5689e-20 ± 9.2%       1.6183e-20 ± 0.5%       0.969            -0.7
+
+Spheres + level tail = 1.8086e-20 ± 8.0%, 2.7% below the level total. The same
+stored samples are 11.3% low (-2.9 SE) for MD (records/eta24_md.txt section 6e).
+
+4. Per-sphere eta_k
+-------------------
+± 95% batch-means intervals (20 batches); ESS of the uniform-weighted terms;
+WD/MD is the ratio of uniform eta_k on the same samples. Sampled strata carry
+the caveat of section 3: summed over 0..64 they are 3% low for WD.
+
+   k   eta_k uniform  ± 95%     ESS    eta_k tree   eta_k degree   WD/MD
+   0   1.2894e-25  exact         -   8.0572e-26  8.0587e-26    1.000
+   1   1.0892e-25  exact         -   9.4945e-26  1.0211e-25    1.000
+   2   9.2008e-26  exact         -   1.0007e-25  1.0063e-25    1.000
+   3   9.7153e-26  exact         -   1.1188e-25  1.0930e-25    1.000
+   4   1.0669e-25  exact         -   1.2003e-25  1.1541e-25    1.000
+   5   1.1092e-25  exact         -   1.2256e-25  1.2132e-25    1.000
+   6   1.1639e-25  exact         -   1.2228e-25  1.2079e-25    0.896
+   7   1.1316e-25  exact         -   1.1884e-25  1.1962e-25    0.832
+   8   1.1497e-25  exact         -   1.1776e-25  1.1561e-25    0.618
+   9   1.1061e-25  exact         -   1.1883e-25  1.1871e-25    0.526
+  10   1.2053e-25  exact         -   1.2798e-25  1.2535e-25    0.354
+  11   1.3205e-25  exact         -   1.4422e-25  1.4330e-25    0.314
+  12   1.6377e-25  exact         -   1.7629e-25  1.7242e-25    0.252
+  13   2.0861e-25  exact         -   2.2931e-25  2.2737e-25    0.265
+  14   3.0863e-25  exact         -   3.3433e-25  3.2632e-25    0.253
+  15   4.5491e-25  exact         -   5.0308e-25  4.9784e-25    0.314
+  16   6.9906e-25  exact         -   7.6308e-25  7.4694e-25    0.314
+  17   9.8652e-25  exact         -   1.0893e-24  1.0785e-24    0.369
+  18   1.3905e-24  exact         -   1.4994e-24  1.4657e-24    0.336
+  19   1.7870e-24  exact         -   1.9523e-24  1.9396e-24    0.359
+  20   2.3642e-24  exact         -   2.5252e-24  2.4742e-24    0.315
+  21   2.9157e-24  exact         -   3.1744e-24  3.1573e-24    0.328
+  22   3.7881e-24  exact         -   4.0409e-24  3.9598e-24    0.285
+  23   4.6489e-24  exact         -   5.0586e-24  5.0323e-24    0.297
+  24   6.0776e-24  exact         -   6.4780e-24  6.3488e-24    0.262
+  25   8.1281e-24  ± 25.0%     53   8.4806e-24  8.5547e-24    0.263
+  26   1.3937e-23  ± 66.0%     10   1.5525e-23  1.5477e-23    0.321
+  27   1.1755e-23  ± 8.0%     369   1.2661e-23  1.2638e-23    0.275
+  28   1.7072e-23  ± 27.4%     54   1.9294e-23  1.8308e-23    0.237
+  29   2.0148e-23  ± 9.1%     420   2.1508e-23  2.1532e-23    0.168
+  30   2.3570e-23  ± 9.0%     520   2.4523e-23  2.4040e-23    0.211
+  31   3.2008e-23  ± 18.1%    125   3.4941e-23  3.4723e-23    0.252
+  32   4.7428e-23  ± 31.8%     46   4.9296e-23  4.8762e-23    0.282
+  33   4.4315e-23  ± 9.4%     369   4.7136e-23  4.7244e-23    0.196
+  34   5.6046e-23  ± 11.9%    250   6.0117e-23  5.9177e-23    0.211
+  35   7.1426e-23  ± 9.8%     245   7.5664e-23  7.5939e-23    0.207
+  36   1.2262e-22  ± 41.8%     20   1.2426e-22  1.2127e-22    0.282
+  37   1.1068e-22  ± 11.1%    224   1.1743e-22  1.1780e-22    0.240
+  38   1.4260e-22  ± 17.6%     93   1.5372e-22  1.5093e-22    0.241
+  39   2.1625e-22  ± 68.3%      9   2.1877e-22  2.2301e-22    0.334
+  40   1.6680e-22  ± 7.4%     579   1.7280e-22  1.6986e-22    0.187
+  41   2.3053e-22  ± 16.2%    107   2.5273e-22  2.5081e-22    0.230
+  42   2.7716e-22  ± 13.7%    162   2.8323e-22  2.7858e-22    0.211
+  43   3.3292e-22  ± 14.6%    138   3.6584e-22  3.6277e-22    0.211
+  44   4.7850e-22  ± 44.2%     20   5.0837e-22  5.0857e-22    0.280
+  45   3.8938e-22  ± 13.1%    167   4.1800e-22  4.1768e-22    0.246
+  46   3.8911e-22  ± 12.3%    357   3.9702e-22  3.8951e-22    0.141
+  47   4.3729e-22  ± 12.4%    243   4.5935e-22  4.6232e-22    0.239
+  48   5.5285e-22  ± 16.0%    191   5.5616e-22  5.4918e-22    0.176
+  49   6.0146e-22  ± 12.2%    267   6.3561e-22  6.3843e-22    0.204
+  50   5.3413e-22  ± 12.2%    209   5.4909e-22  5.3327e-22    0.188
+  51   1.1094e-21  ± 44.5%     19   1.1290e-21  1.1485e-21    0.254
+  52   6.3203e-22  ± 16.8%    129   6.1885e-22  6.1102e-22    0.171
+  53   7.2410e-22  ± 22.3%     68   7.5508e-22  7.6183e-22    0.249
+  54   7.8402e-22  ± 20.3%    101   8.2994e-22  8.0470e-22    0.163
+  55   7.7166e-22  ± 26.3%     70   8.2414e-22  8.2490e-22    0.214
+  56   7.0147e-22  ± 13.6%    288   6.9875e-22  6.8422e-22    0.160
+  57   6.5818e-22  ± 14.2%    102   6.7818e-22  6.8700e-22    0.217
+  58   7.5287e-22  ± 25.5%     52   7.5007e-22  7.4704e-22    0.237
+  59   6.2178e-22  ± 22.1%    108   6.4576e-22  6.5242e-22    0.179
+  60   6.7571e-22  ± 24.3%     66   6.6565e-22  6.6188e-22    0.142
+  61   6.0684e-22  ± 64.1%     15   5.7988e-22  6.0300e-22    0.273
+  62   7.2993e-22  ± 79.3%      6   7.5992e-22  7.6010e-22    0.274
+  63   5.8069e-22  ± 90.5%      5   6.8273e-22  6.6266e-22    0.294
+  64   9.8487e-22  ± 88.7%      5   8.7295e-22  8.6393e-22    0.229
+
+5. Reading
+----------
+1. eta_WD = 1.858e-20 ± 0.09% (uniform), 5.39 times smaller than eta_MD. In
+   the thesis's reading of eta ratios, IDA* with walking distance expands
+   about 5.4 times fewer nodes than with Manhattan distance on hard instances
+   (5.1 under the tree and degree weightings).
+2. WD and MD give equal eta_k for k <= 5. WD's eta_k is 0.25-0.37 of MD's on
+   the exact spheres k = 12..24 and 0.14-0.33 on the sampled spheres 25..64.
+3. Per-sphere eta_WD lies between 5.8e-22 and 9.8e-22 for k = 53..64, with no
+   rise beyond the intervals. 12.9% of eta_WD lies at d >= 65.
+4. For WD the sphere samples are 3% low over 0..64 (-0.7 SE, within their
+   interval); for MD the same samples are 11% low (-2.9 SE). The level totals
+   do not depend on the sphere samples, so the totals in section 1 carry
+   neither shortfall.
