@@ -13,13 +13,17 @@
 //!   ([`walker`]), accepted when the end board is proven to lie at distance
 //!   exactly `k`, reweighted by the probability of reaching it;
 //! - the remainder `d ≥ L`: uniform random states proven to lie at least `L`
-//!   away.
+//!   away ([`tail`]), and, for the states with small Manhattan distance that
+//!   carry most of a Manhattan-like heuristic's tail but that uniform draws
+//!   almost never reach, uniform draws within each Manhattan level weighted by
+//!   its exact size ([`md_levels`]).
 //!
 //! [`estimate`] holds the Horvitz–Thompson estimators, [`weights`] the branching
 //! factor and the equilibrium weightings `w`.
 
 pub mod estimate;
 pub mod layers;
+pub mod md_levels;
 pub mod reach;
 pub mod rng;
 pub mod samples;

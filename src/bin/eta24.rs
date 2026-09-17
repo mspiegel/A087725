@@ -32,6 +32,7 @@
 //! non-idle Mac): k6 224k nodes / 33 ms per attempt, k7 671k / 110 ms, cwd
 //! 4.9M / 199 ms. All three classify identically; k6 is the default.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -261,6 +262,28 @@ enum Campaign {
         seed: u64,
         /// Target thread-seconds for the tail (including draws already on disk).
         #[arg(long, default_value_t = 600.0)]
+        thread_seconds: f64,
+        #[command(flatten)]
+        verifier: VerifierOpts,
+    },
+    /// Sample the tail V_>=min-distance stratified by Manhattan distance
+    /// m <= md-max: uniform placements within each level, weighted by the
+    /// level's exact size (eta::md_levels). Scoring takes m > md-max from
+    /// `campaign tail`. Extends what is in DIR.
+    TailMd {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+        /// Count a state when it is proven at least this far from GOAL.
+        #[arg(long, default_value_t = 65)]
+        min_distance: u8,
+        /// Highest Manhattan distance sampled by level. The level table takes
+        /// 8·(2^25 − 1)·(md-max + 1) bytes: 10.2 GiB at 40.
+        #[arg(long, default_value_t = 40)]
+        md_max: u8,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Target thread-seconds (including draws already on disk).
+        #[arg(long, default_value_t = 3600.0)]
         thread_seconds: f64,
         #[command(flatten)]
         verifier: VerifierOpts,
@@ -1397,6 +1420,476 @@ fn read_tail(
     }))
 }
 
+/// Version of the level sampler recorded in `tail_md_ge{L}.meta`. Bump it when
+/// the draws for the same seed and chunk change.
+const TAIL_MD_VERSION: &str = "1";
+
+/// Draws per Manhattan level before draws are allocated by estimated error.
+const TAIL_MD_PILOT_DRAWS: u64 = 96;
+
+/// Target thread time of one level chunk, and the cap on its draws.
+const TAIL_MD_CHUNK_NS: f64 = 20e9;
+const TAIL_MD_MAX_CHUNK_DRAWS: u64 = 1 << 14;
+
+fn tail_md_path(dir: &Path, min_distance: u8, ext: &str) -> PathBuf {
+    dir.join(format!("tail_md_ge{min_distance}.{ext}"))
+}
+
+/// Draws at one Manhattan level. `sums` and `squares` hold Σx and Σx² of
+/// x = 1[solvable, d ≥ L]·w(blank)·b^−h over all draws (unsolvable draws are
+/// zeros), per [`TAIL_HEURISTICS`] × weighting. `count` is the level's
+/// placement count, so the level contributes count/|V| · mean x to eta.
+#[derive(Clone, Default)]
+struct LevelTally {
+    count: f64,
+    chunks: u64,
+    draws: u64,
+    solvable: u64,
+    hits: u64,
+    thread_ns: u64,
+    sums: [[f64; 3]; 2],
+    squares: [[f64; 3]; 2],
+}
+
+impl LevelTally {
+    fn merge(&mut self, o: &LevelTally) {
+        self.chunks += o.chunks;
+        self.draws += o.draws;
+        self.solvable += o.solvable;
+        self.hits += o.hits;
+        self.thread_ns += o.thread_ns;
+        for hi in 0..2 {
+            for w in 0..3 {
+                self.sums[hi][w] += o.sums[hi][w];
+                self.squares[hi][w] += o.squares[hi][w];
+            }
+        }
+    }
+
+    /// (contribution to eta, standard error) for heuristic column `hi` and
+    /// weighting `w`.
+    fn eta(&self, hi: usize, w: usize) -> (f64, f64) {
+        if self.draws == 0 {
+            return (0.0, 0.0);
+        }
+        let n = self.draws as f64;
+        let scale = self.count / N_STATES as f64;
+        let mean = self.sums[hi][w] / n;
+        let var = if self.draws > 1 {
+            (self.squares[hi][w] / n - mean * mean).max(0.0) * n / (n - 1.0)
+        } else {
+            0.0
+        };
+        (scale * mean, scale * (var / n).sqrt())
+    }
+}
+
+fn read_tail_md_chunks(path: &Path) -> Result<BTreeMap<u8, LevelTally>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut out: BTreeMap<u8, LevelTally> = BTreeMap::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() != 20 {
+            break;
+        }
+        let ints: Result<Vec<u64>, _> = f[1..7].iter().map(|x| x.parse::<u64>()).collect();
+        let floats: Result<Vec<f64>, _> = f[7..20].iter().map(|x| x.parse::<f64>()).collect();
+        let (Ok(ints), Ok(floats)) = (ints, floats) else {
+            break;
+        };
+        let m = u8::try_from(ints[0]).map_err(|e| format!("{line}: {e}"))?;
+        let chunk = LevelTally {
+            count: floats[0],
+            chunks: 1,
+            draws: ints[2],
+            solvable: ints[3],
+            hits: ints[4],
+            thread_ns: ints[5],
+            sums: [
+                [floats[1], floats[2], floats[3]],
+                [floats[4], floats[5], floats[6]],
+            ],
+            squares: [
+                [floats[7], floats[8], floats[9]],
+                [floats[10], floats[11], floats[12]],
+            ],
+        };
+        let level = out.entry(m).or_default();
+        level.count = chunk.count;
+        level.merge(&chunk);
+    }
+    Ok(out)
+}
+
+/// Next round's chunks as (level, draws). Levels below their pilot draws come
+/// first. After that, draws go toward the Neyman allocation n_m ∝ σ_m/√c_m
+/// (c_m thread ns per draw) for the thread time spent after this round, where
+/// σ_m² sums the level's per-draw variance relative to the current tail total
+/// over Manhattan and walking distance. A level's σ is at least that of one
+/// hit in its next draw, so levels without hits keep being sampled.
+fn allocate_tail_md(levels: &BTreeMap<u8, LevelTally>, b: f64) -> Vec<(u8, u64)> {
+    let round = SAMPLE_ROUND_CHUNKS as usize;
+    let mut out: Vec<(u8, u64)> = levels
+        .iter()
+        .filter(|(_, t)| t.count > 0.0 && t.draws < TAIL_MD_PILOT_DRAWS)
+        .map(|(&m, t)| (m, TAIL_MD_PILOT_DRAWS - t.draws))
+        .take(round)
+        .collect();
+    if !out.is_empty() {
+        return out;
+    }
+    let totals = [0, 1].map(|hi| levels.values().map(|t| t.eta(hi, 0).0).sum::<f64>());
+    // (level, σ, thread ns per draw, draws so far)
+    let stats: Vec<(u8, f64, f64, u64)> = levels
+        .iter()
+        .filter(|(_, t)| t.count > 0.0)
+        .map(|(&m, t)| {
+            let n = t.draws as f64;
+            let one_hit = t.count / N_STATES as f64 * b.powi(-(m as i32)) / (n + 1.0).sqrt();
+            let var: f64 = [0, 1]
+                .iter()
+                .filter(|&&hi| totals[hi] > 0.0)
+                .map(|&hi| ((t.eta(hi, 0).1 * n.sqrt()).max(one_hit) / totals[hi]).powi(2))
+                .sum();
+            (m, var.sqrt(), t.thread_ns as f64 / n, t.draws)
+        })
+        .collect();
+    let spent: f64 = levels.values().map(|t| t.thread_ns as f64).sum();
+    let budget = spent + round as f64 * TAIL_MD_CHUNK_NS;
+    let norm: f64 = stats.iter().map(|s| s.1 * s.2.sqrt()).sum();
+    // (level, thread ns short of its target, thread ns per draw)
+    let deficits: Vec<(u8, f64, f64)> = stats
+        .iter()
+        .map(|&(m, sd, cost, draws)| {
+            let target = if norm > 0.0 {
+                budget * sd / (cost.sqrt() * norm)
+            } else {
+                0.0
+            };
+            (m, (target - draws as f64).max(0.0) * cost, cost)
+        })
+        .collect();
+    let total: f64 = deficits.iter().map(|d| d.1).sum();
+    for &(m, deficit, cost) in &deficits {
+        if deficit <= 0.0 {
+            continue;
+        }
+        let chunks = (round as f64 * deficit / total).round() as usize;
+        let draws = ((TAIL_MD_CHUNK_NS / cost).round() as u64)
+            .clamp(1, TAIL_MD_MAX_CHUNK_DRAWS)
+            .min(((deficit / cost).ceil() as u64).max(1));
+        out.extend(std::iter::repeat_n((m, draws), chunks));
+    }
+    if out.is_empty() {
+        let &(m, _, cost) = deficits
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .expect("at least one level");
+        let draws = ((TAIL_MD_CHUNK_NS / cost).round() as u64).clamp(1, TAIL_MD_MAX_CHUNK_DRAWS);
+        out.push((m, draws));
+    }
+    out
+}
+
+struct TailMdCampaign {
+    dir: PathBuf,
+    min_distance: u8,
+    md_max: u8,
+    seed: u64,
+    thread_seconds: f64,
+}
+
+/// `campaign tail-md`: level-stratified tail draws until the budget is met.
+fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
+    use puzzle8::puzzle24::eta::layers::pack;
+    use puzzle8::puzzle24::eta::md_levels::MdLevels;
+    use puzzle8::puzzle24::eta::samples::{append_samples, write_or_check_meta, SampleRecord};
+    use std::io::Write;
+    let Verifier::Zpdb(dbs) = verifier else {
+        return Err("campaign tail-md needs --verifier zpdb".into());
+    };
+    let (dir, l) = (c.dir.as_path(), c.min_distance);
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let settings: BTreeMap<String, String> = [
+        ("min_distance", l.to_string()),
+        ("md_max", c.md_max.to_string()),
+        ("seed", c.seed.to_string()),
+        ("levels", TAIL_MD_VERSION.to_string()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
+    write_or_check_meta(&tail_md_path(dir, l, "meta"), &settings).map_err(|e| e.to_string())?;
+    for h in TAIL_HEURISTICS {
+        h.prepare();
+    }
+    let t_build = Instant::now();
+    let table = MdLevels::build(c.md_max);
+    eprintln!(
+        "level table: cap {}, {:.1} GiB in {:.1?}",
+        c.md_max,
+        table.table_bytes() as f64 / (1u64 << 30) as f64,
+        t_build.elapsed()
+    );
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let chunks_file = tail_md_path(dir, l, "tsv");
+    let mut levels = read_tail_md_chunks(&chunks_file)?;
+    for m in 0..=c.md_max {
+        let count = table.count(m);
+        let level = levels.entry(m).or_default();
+        if level.draws > 0 && (level.count - count).abs() > 1e-12 * count {
+            return Err(format!(
+                "level {m}: count {} on disk, {count} from the table",
+                level.count
+            ));
+        }
+        level.count = count;
+    }
+    let budget_ns = c.thread_seconds * 1e9;
+    let t0 = Instant::now();
+    loop {
+        let spent: f64 = levels.values().map(|t| t.thread_ns as f64).sum();
+        if spent >= budget_ns {
+            break;
+        }
+        let mut next_chunk: BTreeMap<u8, u64> =
+            levels.iter().map(|(&m, t)| (m, t.chunks)).collect();
+        let jobs: Vec<(u8, u64, u64)> = allocate_tail_md(&levels, b)
+            .into_iter()
+            .map(|(m, draws)| {
+                let chunk = next_chunk.get_mut(&m).expect("allocated level exists");
+                *chunk += 1;
+                (m, *chunk - 1, draws)
+            })
+            .collect();
+        let results: Vec<(u8, u64, LevelTally, Vec<SampleRecord>)> = jobs
+            .into_par_iter()
+            .map(|(m, chunk, draws)| {
+                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                let stream = (1 << 20) | (l as u64) << 8 | m as u64;
+                let mut rng = Rng::stream(c.seed, stream, chunk);
+                let start = Instant::now();
+                let mut t = LevelTally {
+                    count: table.count(m),
+                    chunks: 1,
+                    draws,
+                    ..LevelTally::default()
+                };
+                let mut hits = Vec::new();
+                for _ in 0..draws {
+                    let s = table.sample(m, &mut rng);
+                    if !s.is_solvable() {
+                        continue;
+                    }
+                    t.solvable += 1;
+                    let hs = TAIL_HEURISTICS.map(|h| h.h(&s));
+                    let far = hs.iter().copied().max().unwrap() >= l || at_least(&s, l, &inc);
+                    if !far {
+                        continue;
+                    }
+                    t.hits += 1;
+                    let blank = s.blank_pos() as usize;
+                    for (hi, &h) in hs.iter().enumerate() {
+                        let base = b.powi(-(h as i32));
+                        for w in 0..3 {
+                            let x = weights[w][blank] * base;
+                            t.sums[hi][w] += x;
+                            t.squares[hi][w] += x * x;
+                        }
+                    }
+                    hits.push(SampleRecord {
+                        board: pack(&s),
+                        prob: 1.0,
+                        chunk: u32::try_from(chunk).expect("chunk index fits u32"),
+                    });
+                }
+                t.thread_ns = start.elapsed().as_nanos() as u64;
+                (m, chunk, t, hits)
+            })
+            .collect();
+        let hits: Vec<SampleRecord> = results.iter().flat_map(|r| r.3.iter().copied()).collect();
+        append_samples(&tail_md_path(dir, l, "hits"), &hits).map_err(|e| e.to_string())?;
+        let fresh = !chunks_file.exists();
+        let mut text = String::new();
+        if fresh {
+            text.push_str("# seed\tm\tchunk\tdraws\tsolvable\thits\tthread_ns\tcount");
+            for kind in ["sum", "sq"] {
+                for h in TAIL_HEURISTICS {
+                    for w in Weighting::ALL {
+                        text.push_str(&format!("\t{kind}_{}_{}", h.name(), w.name()));
+                    }
+                }
+            }
+            text.push('\n');
+        }
+        for (m, chunk, t, _) in &results {
+            text.push_str(&format!(
+                "{}\t{m}\t{chunk}\t{}\t{}\t{}\t{}\t{:.17e}",
+                c.seed, t.draws, t.solvable, t.hits, t.thread_ns, t.count
+            ));
+            for table in [&t.sums, &t.squares] {
+                for row in table {
+                    for x in row {
+                        text.push_str(&format!("\t{x:.17e}"));
+                    }
+                }
+            }
+            text.push('\n');
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&chunks_file)
+            .and_then(|mut f| f.write_all(text.as_bytes()))
+            .map_err(|e| format!("{}: {e}", chunks_file.display()))?;
+        for (m, _, t, _) in &results {
+            levels.get_mut(m).expect("level exists").merge(t);
+        }
+        let spent: f64 = levels.values().map(|t| t.thread_ns as f64).sum();
+        let summary = [0, 1].map(|hi| {
+            let (sum, var) = levels.values().fold((0.0, 0.0), |(s, v), t| {
+                let (e, se) = t.eta(hi, 0);
+                (s + e, v + se * se)
+            });
+            format!(
+                "{} {sum:.4e} ± {:.1}%",
+                TAIL_HEURISTICS[hi].name(),
+                100.0 * Z95 * var.sqrt() / sum
+            )
+        });
+        eprintln!(
+            "tail-md >= {l}: {} chunks, {} hits this round; levels 0..={} {}, {}; {:.0} of {:.0} thread-s; wall {:.0}s",
+            results.len(),
+            hits.len(),
+            c.md_max,
+            summary[0],
+            summary[1],
+            spent / 1e9,
+            budget_ns / 1e9,
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    Ok(())
+}
+
+/// Level-stratified tail for one heuristic: the levels m ≤ md_max, and the
+/// uniform tail restricted to m > md_max.
+struct TailMdEstimate {
+    md_max: u8,
+    /// The heuristic's column in [`TAIL_HEURISTICS`].
+    column: usize,
+    levels: BTreeMap<u8, LevelTally>,
+    /// (mean, batch SE) per weighting of the uniform tail's draws with Manhattan
+    /// distance above md_max, when a uniform tail is present.
+    rest: Option<[(f64, f64); 3]>,
+}
+
+fn read_tail_md(
+    dir: &Path,
+    min_distance: u32,
+    heuristic: HeuristicArg,
+    batches: usize,
+) -> Result<Option<TailMdEstimate>, String> {
+    use puzzle8::puzzle24::eta::samples::{for_each_sample, read_meta};
+    use puzzle8::puzzle24::eta::{batch_means, unpack};
+    let Ok(l) = u8::try_from(min_distance) else {
+        return Ok(None);
+    };
+    let levels = read_tail_md_chunks(&tail_md_path(dir, l, "tsv"))?;
+    if levels.is_empty() {
+        return Ok(None);
+    }
+    let meta_path = tail_md_path(dir, l, "meta");
+    let meta = read_meta(&meta_path).map_err(|e| format!("{}: {e}", meta_path.display()))?;
+    let md_max: u8 = meta
+        .get("md_max")
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| format!("{}: no md_max", meta_path.display()))?;
+    let hi = TAIL_HEURISTICS
+        .iter()
+        .position(|&h| h == heuristic)
+        .ok_or_else(|| format!("tail was not scored for {}", heuristic.name()))?;
+    let uniform = read_tail_chunks(&tail_chunks_path(dir, l))?;
+    let rest = if uniform.is_empty() {
+        None
+    } else {
+        if md_max > TAIL_STORE_MAX_MD {
+            return Err(format!(
+                "md_max {md_max} is above the uniform tail's stored boards (MD <= {TAIL_STORE_MAX_MD})"
+            ));
+        }
+        let b = branching_factor();
+        let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+        let mut per_chunk: BTreeMap<u64, (u64, [f64; 3])> = uniform
+            .iter()
+            .map(|c| (c.chunk, (c.attempts, c.sums[hi])))
+            .collect();
+        let path = tail_samples_path(dir, l);
+        for_each_sample(&path, |r| {
+            let s = unpack(r.board);
+            if ManhattanHeuristic.h(&s) > md_max {
+                return;
+            }
+            let Some(entry) = per_chunk.get_mut(&(r.chunk as u64)) else {
+                return;
+            };
+            let base = b.powi(-(heuristic.h(&s) as i32));
+            let blank = s.blank_pos() as usize;
+            for w in 0..3 {
+                entry.1[w] -= weights[w][blank] * base;
+            }
+        })
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+        Some([0, 1, 2].map(|w| {
+            let per: Vec<(u64, f64)> = per_chunk.values().map(|v| (v.0, v.1[w])).collect();
+            batch_means(&per, batches)
+        }))
+    };
+    Ok(Some(TailMdEstimate {
+        md_max,
+        column: hi,
+        levels,
+        rest,
+    }))
+}
+
+fn report_tail_md_levels(t: &TailMdEstimate, min_distance: u32) {
+    let total: f64 = t.levels.values().map(|x| x.eta(t.column, 0).0).sum();
+    let draws: u64 = t.levels.values().map(|x| x.draws).sum();
+    let thread_s: f64 = t.levels.values().map(|x| x.thread_ns as f64).sum::<f64>() / 1e9;
+    println!(
+        "# level-stratified tail d >= {min_distance}, Manhattan levels 0..={}: {draws} draws, {thread_s:.0} thread-s",
+        t.md_max
+    );
+    println!("#  m   count/|V|    draws  solvable     hits  hit rate  thread-s   eta_m uniform ± 95%     share");
+    for (m, x) in &t.levels {
+        let (e, se) = x.eta(t.column, 0);
+        println!(
+            "  {m:>2}  {:.4e} {:>8} {:>9} {:>8}  {:>8.4} {:>9.0}   {e:.4e} ± {:>6}  {:>5.1}%",
+            x.count / N_STATES as f64,
+            x.draws,
+            x.solvable,
+            x.hits,
+            x.hits as f64 / x.solvable.max(1) as f64,
+            x.thread_ns as f64 / 1e9,
+            if e > 0.0 {
+                format!("{:.1}%", 100.0 * Z95 * se / e)
+            } else {
+                String::from("-")
+            },
+            100.0 * e / total
+        );
+    }
+}
+
 /// Stratum estimate: (mean, batch standard error) per quantity.
 struct StratumScore {
     k: u32,
@@ -1574,6 +2067,10 @@ fn run_score(
             t.thread_s
         );
     }
+    let tail_md = read_tail_md(dir, k_max + 1, heuristic, batches)?;
+    if let Some(t) = &tail_md {
+        report_tail_md_levels(t, k_max + 1);
+    }
     for (w, name) in ["uniform", "tree", "degree"].iter().enumerate() {
         let sum: f64 = strata.iter().map(|s| s.eta[w].0).sum();
         let se = strata
@@ -1615,6 +2112,42 @@ fn run_score(
             }
         }
         println!("{line}");
+        if let Some(t) = &tail_md {
+            let (lm, lvar) = t.levels.values().fold((0.0, 0.0), |(s, v), level| {
+                let (e, e_se) = level.eta(t.column, w);
+                (s + e, v + e_se * e_se)
+            });
+            let mut line = format!(
+                "  {name:<7}: levels MD <= {} = {lm:.4e} ± {:.2e} ({:.1}%)",
+                t.md_max,
+                Z95 * lvar.sqrt(),
+                100.0 * Z95 * lvar.sqrt() / lm
+            );
+            if let Some(rest) = &t.rest {
+                let (rm, rse) = rest[w];
+                let tail_m = lm + rm;
+                let tail_se = (lvar + rse * rse).sqrt();
+                let total = sum + tail_m;
+                let total_se = (se * se + tail_se * tail_se).sqrt();
+                line += &format!(
+                    "; uniform draws MD > {} = {rm:.4e} ± {:.2e}; tail = {tail_m:.4e} ± {:.2e} ({:.1}%); total = sum + tail = {total:.4e} ± {:.2e} ({:.1}%)",
+                    t.md_max,
+                    Z95 * rse,
+                    Z95 * tail_se,
+                    100.0 * Z95 * tail_se / tail_m,
+                    Z95 * total_se,
+                    100.0 * Z95 * total_se / total
+                );
+                if let Some(exact) = heuristic.exact_total() {
+                    line += &format!(
+                        " vs exact {:+.2}% = {:+.1} SE",
+                        100.0 * (total - exact[w]) / exact[w],
+                        (total - exact[w]) / total_se
+                    );
+                }
+            }
+            println!("{line}");
+        }
     }
     if heuristic == HeuristicArg::Md {
         println!(
@@ -1769,6 +2302,25 @@ fn main() -> ExitCode {
             verifier,
         }) => Verifier::load(&verifier)
             .and_then(|v| run_tail(&dir, min_distance, seed, thread_seconds, &v)),
+        Cmd::Campaign(Campaign::TailMd {
+            dir,
+            min_distance,
+            md_max,
+            seed,
+            thread_seconds,
+            verifier,
+        }) => Verifier::load(&verifier).and_then(|v| {
+            run_tail_md(
+                TailMdCampaign {
+                    dir,
+                    min_distance,
+                    md_max,
+                    seed,
+                    thread_seconds,
+                },
+                &v,
+            )
+        }),
         Cmd::Campaign(Campaign::Sample {
             dir,
             k_min,

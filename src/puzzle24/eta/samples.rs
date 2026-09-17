@@ -82,14 +82,37 @@ pub fn read_samples(path: &Path) -> io::Result<Vec<SampleRecord>> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e),
     }
-    Ok(bytes
-        .chunks_exact(RECORD_BYTES)
-        .map(|b| SampleRecord {
-            board: u128::from_le_bytes(b[0..16].try_into().unwrap()),
-            prob: f64::from_le_bytes(b[16..24].try_into().unwrap()),
-            chunk: u32::from_le_bytes(b[24..28].try_into().unwrap()),
-        })
-        .collect())
+    Ok(bytes.chunks_exact(RECORD_BYTES).map(decode).collect())
+}
+
+fn decode(b: &[u8]) -> SampleRecord {
+    SampleRecord {
+        board: u128::from_le_bytes(b[0..16].try_into().unwrap()),
+        prob: f64::from_le_bytes(b[16..24].try_into().unwrap()),
+        chunk: u32::from_le_bytes(b[24..28].try_into().unwrap()),
+    }
+}
+
+/// Call `f` on each sample record in file order without holding the file in
+/// memory; a missing file has none. A trailing partial record is ignored.
+pub fn for_each_sample(path: &Path, mut f: impl FnMut(SampleRecord)) -> io::Result<()> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let mut r = BufReader::with_capacity(RECORD_BYTES << 16, file);
+    let mut buf = [0u8; RECORD_BYTES];
+    loop {
+        let mut filled = 0;
+        while filled < RECORD_BYTES {
+            match r.read(&mut buf[filled..])? {
+                0 => return Ok(()),
+                n => filled += n,
+            }
+        }
+        f(decode(&buf));
+    }
 }
 
 /// Append chunk records, writing a header line if the file is new.
@@ -217,6 +240,10 @@ mod tests {
         f.write_all(&[1, 2, 3]).unwrap();
         assert_eq!(read_samples(&path).unwrap(), a.to_vec());
         assert!(read_samples(&dir.join("missing")).unwrap().is_empty());
+        let mut streamed = Vec::new();
+        for_each_sample(&path, |r| streamed.push(r)).unwrap();
+        assert_eq!(streamed, a.to_vec());
+        for_each_sample(&dir.join("missing"), |_| panic!("no records")).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
