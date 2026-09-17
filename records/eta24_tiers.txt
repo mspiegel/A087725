@@ -1,0 +1,192 @@
+Heuristic quality eta of the solver's walking-distance tiers: cWD, LM2, cLM2 (2026-09-17)
+======================================================================================
+
+Heuristics, as the solver prunes with them (src/puzzle24/search/engine.rs):
+  cWD    escape-constrained walking distance (data/cwd_mm.bin)
+  LM2    `--lm2`: max(cWD, min of the four last-two-moves endgame branches)
+         (adds data/cwd_lm_mm.bin)
+  cLM2   `--clm2`: max(LM2, the single-demanded-line joint value)
+         (adds data/cwd_lm1l_mm.bin)
+eta = |V|^-1 Σ_v w(v) b^-h(v), b = 2.367604543724, weightings as in
+records/eta24_md.txt. Campaign data in data/eta24_md (git-ignored).
+
+1. Result
+---------
+  heuristic  weighting   eta total              eta_>=65 (tail)       tail share
+  cWD        uniform     2.7110e-21 ± 0.10%     2.0647e-22 ± 4.4%     7.6%
+             tree        2.7370e-21 ± 0.10%     2.0291e-22 ± 4.6%
+             degree      2.7342e-21 ± 0.10%     2.0363e-22 ± 4.5%
+  LM2        uniform     2.3430e-21 ± 0.10%     1.7377e-22 ± 4.2%     7.4%
+             tree        2.3745e-21 ± 0.10%     1.7131e-22 ± 4.5%
+             degree      2.3719e-21 ± 0.10%     1.7181e-22 ± 4.4%
+  cLM2       uniform     1.6406e-21 ± 0.12%     1.0457e-22 ± 5.8%     6.4%
+             tree        1.6629e-21 ± 0.13%     1.0226e-22 ± 6.2%
+             degree      1.6609e-21 ± 0.13%     1.0276e-22 ± 6.1%
+  (± 95%)
+
+Ratios of eta (uniform; tree and degree in brackets):
+  WD / cWD     6.854  (6.946, 6.931)
+  cWD / LM2    1.157  (1.153, 1.153)
+  LM2 / cLM2   1.428  (1.428, 1.428)
+  cWD / cLM2   1.652  (1.646, 1.646)
+  MD / cLM2    61.0 (exact MD total); WD / cLM2 11.33
+(WD: records/eta24_wd.txt; MD: records/eta24_md.txt.)
+
+2. Evaluating the tiers on single boards
+----------------------------------------
+engine::TierEval lays a board down as the engine's depth-0 frame, lets depth
+1 share its axis slots and tracked tile lines, and calls the engine's own
+lm2_child and lm1l_child under the same conditions as run_iteration; the
+search loop is untouched. The goal board is 0 under every tier (the search
+never consults a tier there).
+
+Checks:
+  - engine::tests::tier_eval_matches_cwd_is_ordered_and_admissible
+    (feature cwd-table-tests; passes in release and in debug, where the
+    engine's tracked-line drift assertion runs): cWD from the mmap artifact
+    equals Cwd::eval on the merged map; cWD <= LM2 <= cLM2; cLM2 <= true
+    distance on all 18,174 boards within 11 moves and the 63 solved oracle
+    cases; on 20,000 200-step walks LM2 > cWD on 1,537 boards and cLM2 > LM2
+    on 3,713.
+  - Node-count canary unchanged: `solve24 --config large --position R
+    --prove-at-least 145 --clm2 --zpdb8 --parallel` -> 115,436,814 nodes.
+  - Consistency (scratch, 2,000,000 random-walk boards, 6,700,761 neighbour
+    pairs):
+      |h(s) - h(s')| > 1:  cWD 0, LM2 3,967 (largest 3), cLM2 0
+      h parity different from the blank-cell parity: 0 for all three
+    LM2 is not consistent: 0.06% of neighbour pairs differ by 3. eta's
+    reading as an IDA* node-count factor assumes a consistent heuristic, so
+    for LM2 it is an approximation; cWD and cLM2 showed no violation.
+
+3. Method and cost
+------------------
+Per heuristic h, in sequence (`data/eta24_md/tiers_run.log`):
+  campaign layers --max-k 24 --heuristic h     exact eta_k, k <= 24 (40-60 s)
+  campaign score --heuristic h                 spheres 25..64 rescored from the
+                                               MD campaign's 3,311,788 boards;
+                                               tail rescored (below)
+  campaign total --heuristic h --md-max 48 --level-draws 4000000
+                 --uniform-draws 1000000000    total by Manhattan levels (5-8 min)
+  campaign total --heuristic h --md-max 40 --level-draws 16384
+                 --distance-min 25 --distance-max 40    band 25..40 (4 min)
+Wall clock per heuristic 11 min (cWD, LM2) and 14 min (cLM2).
+
+Total. `campaign total` draws every level first and frees the 12.2 GiB level
+table before the heuristic's tables load (cLM2's are 16.5 GB). Levels up to
+MD 48: above MD 40, uniform draws were heavy-tailed for cWD (±49% with 1e7
+draws); above MD 48 the uniform part is 0.4% of the total (±1.9% with 1e8).
+
+Tail d >= 65. Rescored from stored boards: the level-stratified hits of
+records/eta24_md.txt section 6 (every hit is stored) for MD <= 40, and the
+uniform tail run's stored boards (all accepted boards with MD <= 72) above.
+Unstored accepted boards have MD > 72, so for these heuristics (all >= MD)
+they add at most 4.7e-28. Check: `campaign score --heuristic wd
+--rescore-tail` reproduces the recorded WD tail sums to every printed digit.
+
+4. Sphere sums against the level estimates (uniform, ± 95%)
+------------------------------------------------------------
+0..64 = total - tail; 41..64 = total - eta_0..24 - band 25..40 - tail.
+
+  heuristic  band     spheres                 by levels               spheres/levels   z
+  cWD        0..24    1.5258e-23 exact
+             25..40   3.3399e-22 ± 10.0%      3.2634e-22 ± 5.1%       1.023            +0.4
+             41..64   2.1974e-21 ± 9.1%       2.1629e-21 ± 0.9%       1.016            +0.3
+             0..64    2.5466e-21 ± 7.9%       2.5045e-21 ± 0.4%       1.017            +0.4
+  LM2        0..24    1.4180e-23 exact
+             25..40   2.8957e-22 ± 7.0%       2.8890e-22 ± 5.2%       1.002            +0.1
+             41..64   1.8657e-21 ± 8.7%       1.8662e-21 ± 0.9%       1.000            -0.0
+             0..64    2.1695e-21 ± 7.5%       2.1692e-21 ± 0.4%       1.000            +0.0
+  cLM2       0..24    1.2886e-23 exact
+             25..40   2.3322e-22 ± 7.0%       2.3656e-22 ± 5.7%       0.986            -0.3
+             41..64   1.3473e-21 ± 11.7%      1.2866e-21 ± 1.2%       1.047            +0.7
+             0..64    1.5934e-21 ± 10.0%      1.5360e-21 ± 0.4%       1.037            +0.7
+
+5. Per-sphere eta_k (uniform weighting)
+---------------------------------------
+Exact for k <= 24; sampled strata with ± 95% batch-means intervals. WD from
+records/eta24_wd.txt for reference. Tree and degree values are in
+data/eta24_md/score_{cwd,lm2,clm2}.txt.
+
+   k   cWD          ±       LM2          ±       cLM2         ±       WD            cLM2/cWD
+   0   1.2894e-25  exact   1.2894e-25  exact   1.2894e-25  exact   1.2894e-25    1.000
+   1   1.0892e-25  exact   1.0892e-25  exact   1.0892e-25  exact   1.0892e-25    1.000
+   2   9.2008e-26  exact   9.2008e-26  exact   9.2008e-26  exact   9.2008e-26    1.000
+   3   9.7153e-26  exact   9.7153e-26  exact   9.7153e-26  exact   9.7153e-26    1.000
+   4   1.0669e-25  exact   1.0669e-25  exact   1.0669e-25  exact   1.0669e-25    1.000
+   5   1.1092e-25  exact   1.1092e-25  exact   1.1092e-25  exact   1.1092e-25    1.000
+   6   1.1639e-25  exact   1.1639e-25  exact   1.1639e-25  exact   1.1639e-25    1.000
+   7   1.1316e-25  exact   1.1316e-25  exact   1.1316e-25  exact   1.1316e-25    1.000
+   8   1.1497e-25  exact   1.1257e-25  exact   1.1257e-25  exact   1.1497e-25    0.979
+   9   1.1010e-25  exact   1.0908e-25  exact   1.0705e-25  exact   1.1061e-25    0.972
+  10   1.1924e-25  exact   1.1602e-25  exact   1.1495e-25  exact   1.2053e-25    0.964
+  11   1.2904e-25  exact   1.2663e-25  exact   1.2358e-25  exact   1.3205e-25    0.958
+  12   1.5676e-25  exact   1.4944e-25  exact   1.4559e-25  exact   1.6377e-25    0.929
+  13   1.9023e-25  exact   1.8239e-25  exact   1.7401e-25  exact   2.0861e-25    0.915
+  14   2.6038e-25  exact   2.4046e-25  exact   2.2942e-25  exact   3.0863e-25    0.881
+  15   3.5290e-25  exact   3.2246e-25  exact   2.9916e-25  exact   4.5491e-25    0.848
+  16   4.8787e-25  exact   4.4208e-25  exact   4.0301e-25  exact   6.9906e-25    0.826
+  17   6.2648e-25  exact   5.8511e-25  exact   5.2074e-25  exact   9.8652e-25    0.831
+  18   8.1616e-25  exact   7.5288e-25  exact   6.8482e-25  exact   1.3905e-24    0.839
+  19   9.9772e-25  exact   9.3329e-25  exact   8.3774e-25  exact   1.7870e-24    0.840
+  20   1.2699e-24  exact   1.1662e-24  exact   1.0562e-24  exact   2.3642e-24    0.832
+  21   1.5328e-24  exact   1.4284e-24  exact   1.2727e-24  exact   2.9157e-24    0.830
+  22   1.9404e-24  exact   1.7816e-24  exact   1.6046e-24  exact   3.7881e-24    0.827
+  23   2.3254e-24  exact   2.1643e-24  exact   1.9186e-24  exact   4.6489e-24    0.825
+  24   2.9537e-24  exact   2.6931e-24  exact   2.4074e-24  exact   6.0776e-24    0.815
+  25   3.6193e-24  12.7%   3.3120e-24  11.2%   2.8638e-24  9.9%    8.1281e-24    0.791
+  26   4.7392e-24  13.4%   4.1350e-24  9.1%    3.6903e-24  8.4%    1.3937e-23    0.779
+  27   5.3401e-24  10.9%   4.9869e-24  11.3%   4.4125e-24  12.9%   1.1755e-23    0.826
+  28   6.3231e-24  7.4%    5.8188e-24  7.8%    4.9846e-24  5.6%    1.7072e-23    0.788
+  29   8.1261e-24  7.2%    7.5157e-24  7.9%    6.5345e-24  9.5%    2.0148e-23    0.804
+  30   9.4014e-24  9.1%    8.2300e-24  7.8%    7.0904e-24  7.0%    2.3570e-23    0.754
+  31   1.1061e-23  9.4%    1.0081e-23  8.8%    8.4108e-24  8.5%    3.2008e-23    0.760
+  32   2.1484e-23  61.4%   2.0044e-23  65.7%   1.8097e-23  71.9%   4.7428e-23    0.842
+  33   1.5133e-23  9.1%    1.3722e-23  10.1%   1.1620e-23  11.5%   4.4315e-23    0.768
+  34   1.9250e-23  10.6%   1.7622e-23  11.2%   1.4878e-23  13.2%   5.6046e-23    0.773
+  35   2.3384e-23  8.5%    2.1277e-23  9.3%    1.7882e-23  11.7%   7.1426e-23    0.765
+  36   2.9073e-23  10.2%   2.5507e-23  12.5%   1.9607e-23  14.5%   1.2262e-22    0.674
+  37   3.1500e-23  13.6%   2.8942e-23  14.2%   2.1889e-23  9.3%    1.1068e-22    0.695
+  38   4.3761e-23  27.1%   3.8601e-23  30.0%   2.6945e-23  14.6%   1.4260e-22    0.616
+  39   5.4640e-23  49.6%   3.9446e-23  18.3%   3.2735e-23  20.6%   2.1625e-22    0.599
+  40   4.7158e-23  9.1%    4.0332e-23  8.5%    3.1585e-23  9.4%    1.6680e-22    0.670
+  41   5.3191e-23  12.6%   4.8855e-23  10.5%   3.5909e-23  8.7%    2.3053e-22    0.675
+  42   6.3717e-23  10.8%   5.5627e-23  9.8%    4.2212e-23  10.4%   2.7716e-22    0.662
+  43   9.7856e-23  35.9%   9.1272e-23  39.0%   7.4883e-23  47.2%   3.3292e-22    0.765
+  44   7.8142e-23  11.0%   6.8535e-23  12.0%   4.9885e-23  9.7%    4.7850e-22    0.638
+  45   8.2956e-23  12.4%   7.5241e-23  13.6%   5.5900e-23  12.5%   3.8938e-22    0.674
+  46   8.5646e-23  10.1%   7.4220e-23  10.7%   5.6632e-23  10.9%   3.8911e-22    0.661
+  47   8.8529e-23  13.5%   7.7507e-23  16.3%   5.5255e-23  12.8%   4.3729e-22    0.624
+  48   1.0837e-22  14.3%   8.9444e-23  10.0%   6.2391e-23  8.6%    5.5285e-22    0.576
+  49   1.0061e-22  8.4%    8.6681e-23  8.7%    6.2485e-23  8.8%    6.0146e-22    0.621
+  50   1.0240e-22  13.7%   8.3808e-23  11.4%   6.2643e-23  11.2%   5.3413e-22    0.612
+  51   1.1915e-22  13.6%   1.0266e-22  15.3%   6.6344e-23  10.9%   1.1094e-21    0.557
+  52   1.0443e-22  11.1%   8.9269e-23  10.7%   6.1554e-23  11.9%   6.3203e-22    0.589
+  53   1.1064e-22  24.2%   8.7171e-23  19.9%   5.8282e-23  20.9%   7.2410e-22    0.527
+  54   1.1503e-22  17.6%   8.9629e-23  12.3%   6.2453e-23  12.3%   7.8402e-22    0.543
+  55   1.0554e-22  13.9%   8.9695e-23  17.9%   6.1414e-23  19.0%   7.7166e-22    0.582
+  56   9.3518e-23  10.0%   8.0244e-23  10.8%   5.2687e-23  14.4%   7.0147e-22    0.563
+  57   9.9742e-23  23.2%   8.3514e-23  20.1%   5.4515e-23  21.0%   6.5818e-22    0.547
+  58   1.0081e-22  30.7%   8.6769e-23  33.9%   6.6326e-23  42.3%   7.5287e-22    0.658
+  59   7.1220e-23  14.4%   6.4090e-23  15.2%   4.1639e-23  19.4%   6.2178e-22    0.585
+  60   7.1852e-23  18.6%   6.1048e-23  22.2%   3.5048e-23  16.2%   6.7571e-22    0.488
+  61   6.2394e-23  50.1%   5.5254e-23  57.0%   4.4205e-23  71.5%   6.0684e-22    0.708
+  62   1.0754e-22  109.7%  6.0144e-23  68.7%   4.5312e-23  91.4%   7.2993e-22    0.421
+  63   4.4738e-23  41.2%   4.1065e-23  45.5%   2.6325e-23  64.1%   5.8069e-22    0.588
+  64   1.2936e-22  105.4%  1.2398e-22  110.4%  1.1298e-22  121.9%  9.8487e-22    0.873
+
+6. Reading
+----------
+1. eta: cWD 2.711e-21, LM2 2.343e-21, cLM2 1.641e-21 (uniform, ±0.1%). In
+   the thesis's reading of eta ratios, cLM2 expands 1.65 times fewer nodes
+   than cWD and 1.43 times fewer than LM2 on hard instances; cWD expands 6.9
+   times fewer than WD. For LM2 that reading is approximate (not consistent,
+   section 2).
+2. The tiers agree with cWD exactly for k <= 7. The cLM2/cWD ratio of eta_k
+   falls from 0.98 at k = 8 to about 0.83 by k = 16..24 (exact) and is
+   mostly 0.5-0.7 over sampled k = 36..64 (range 0.42-0.87): the tiers gain
+   most on the deep spheres that dominate eta.
+3. Per-sphere eta_k peaks near 1.0-1.2e-22 (cWD) and 6e-23 (cLM2) around
+   k = 48..55, and 6-8% of eta lies at d >= 65.
+4. For all three tiers the stored sphere samples agree with the level
+   estimates within their intervals in every band (|z| <= 0.7), unlike MD,
+   where the same samples are 11% low (records/eta24_md.txt section 6e).
