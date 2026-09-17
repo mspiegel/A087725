@@ -1,0 +1,173 @@
+Heuristic quality eta of k8 and the solver's cascade max(cLM2, k8) (2026-09-17)
+==============================================================================
+
+Heuristics:
+  k8        the solver's k8 tier: max(Σ normal, Σ reflected) over the three
+            8-tile zero-aware PDBs data/pdb24_k8_{a,b,c}.zbin (tiles
+            1-4,6-9 / 5,10,14,15,19,20,23,24 / 11-13,16-18,21,22), 30.5 GB
+  clm2k8    max(cLM2, k8): the value the `--clm2 --zpdb8` cascade prunes with
+            (cLM2: records/eta24_tiers.txt)
+eta = |V|^-1 Σ_v w(v) b^-h(v), b = 2.367604543724, weightings as in
+records/eta24_md.txt. Campaign data in data/eta24_md (git-ignored).
+
+1. Result
+---------
+Best estimates: exact layers k <= 24 + stored sphere samples k = 25..64 +
+tail d >= 65 (± 95%).
+
+  heuristic  weighting   eta total              eta_>=65 (tail)       tail share
+  k8         uniform     2.9194e-23 ± 2.0%      4.6974e-25 ± 11.3%    1.6%
+             tree        2.9752e-23 ± 2.0%      4.6467e-25 ± 13.6%
+             degree      2.9764e-23 ± 2.0%      4.6823e-25 ± 13.0%
+  clm2k8     uniform     2.5886e-23 ± 2.0%      4.4754e-25 ± 11.9%    1.7%
+             tree        2.6491e-23 ± 2.0%      4.4472e-25 ± 14.2%
+             degree      2.6486e-23 ± 2.0%      4.4779e-25 ± 13.5%
+
+Independent check by Manhattan levels (`campaign total`, no sphere samples):
+  k8       2.8925e-23 ± 2.6% (tree 2.9525e-23, degree 2.9516e-23): -0.9%, z -0.6
+  clm2k8   2.5720e-23 ± 2.6% (tree 2.6355e-23, degree 2.6311e-23): -0.6%, z -0.4
+
+Ratios of eta (uniform; tree, degree in brackets):
+  cLM2 / k8        56.2
+  k8 / clm2k8      1.128  (1.123, 1.124)  (same samples; errors are correlated)
+  cLM2 / clm2k8    63.4
+  WD / clm2k8      718;  MD / clm2k8  3867 (exact MD total)
+
+Published scale reference (not the same partition; Fig. 5.1 of the thesis
+checked): Döbbelin et al. 8-8-8 ZPDB with transposition, 6.780e-23 ± 0.33%
+(thesis Table 5.1). Our k8 partition is 2.3 times lower in eta.
+
+2. Evaluation and checks
+------------------------
+engine::K8Ctx::eval computes the value engine::seed_k8 seeds (cold lookups,
+no arena or cache). Ignored test k8_eval_matches_seed_and_is_admissible:
+equals seed_k8 and is >= Manhattan distance on all 18,174 boards within 11
+moves and 2,000 uniform boards, and <= true distance on the former.
+clm2k8 = max(TierEval cLM2, K8Ctx::eval).
+
+Consistency (scratch, 200,000 random-walk boards, 670,605 neighbour pairs):
+|h(s) - h(s')| > 1 never for k8 or clm2k8; h parity always the blank-cell
+parity.
+
+3. Method and cost (data/eta24_md/{k8_run,cascade_run}.log)
+-----------------------------------------------------------
+Pilot (data/eta24_md/pilot_total_k8.*): k8 costs ~5 thread-ms per uniform
+random board (page faults: 30.5 GB of tables in 32 GB of RAM), 0.03-0.3 ms
+per stored sphere board (k = 25..64), 23 µs per board at k = 20. With 2,000
+draws per Manhattan level the level estimate was ±18%: within a level, eta is
+carried by rare low-k8 boards.
+
+  step                                        k8        clm2k8
+  campaign layers --max-k 24                  21 min    22 min
+  campaign score --rescore-full-md 50
+                 --rescore-stride 100         9 min     21 min
+  campaign total --md-max 48
+    --level-draws 160000 --uniform-draws 1e6  10 min    16 min
+  campaign total band 25..40                  4 min     4 min
+
+Tail rescoring: stored uniform-tail boards with MD <= 50 scored in full, those
+above one in 100 and weighted by 100 (boards above MD 50 have k8 > 50). On WD
+the same settings reproduce the recorded tail to 0.01%.
+
+4. Sphere sums against the level estimates (uniform, ± 95%)
+------------------------------------------------------------
+Here the spheres are the precise estimate and the levels the check.
+41..64 = level total - eta_0..24 - band 25..40 - tail; 0..64 = level total - tail.
+
+  heuristic  band     spheres                 by levels               spheres/levels   z
+  k8         0..24    4.2583e-24 exact
+             25..40   1.1908e-23 ± 3.4%       1.1370e-23 ± 15.7%      1.047            +0.6
+             41..64   1.2557e-23 ± 3.5%       1.2827e-23 ± 15.2%      0.979            -0.3
+             0..64    2.8724e-23 ± 2.1%       2.8455e-23 ± 2.7%       1.009            +0.6
+  clm2k8     0..24    3.6882e-24 exact
+             25..40   1.0187e-23 ± 3.2%       9.9584e-24 ± 17.0%      1.023            +0.3
+             41..64   1.1563e-23 ± 3.3%       1.1626e-23 ± 15.6%      0.995            -0.1
+             0..64    2.5439e-23 ± 2.0%       2.5273e-23 ± 2.6%       1.007            +0.4
+
+5. Per-sphere eta_k (uniform weighting)
+---------------------------------------
+Exact for k <= 24; sampled strata with ± 95% batch-means intervals. cLM2 from
+records/eta24_tiers.txt for reference. Tree and degree values are in
+data/eta24_md/score_{k8,clm2k8}.txt.
+
+   k   k8           ±       clm2k8       ±       cLM2          clm2k8/k8
+   0   1.2894e-25  exact   1.2894e-25  exact   1.2894e-25    1.000
+   1   1.0892e-25  exact   1.0892e-25  exact   1.0892e-25    1.000
+   2   9.2008e-26  exact   9.2008e-26  exact   9.2008e-26    1.000
+   3   9.7153e-26  exact   9.7153e-26  exact   9.7153e-26    1.000
+   4   1.0669e-25  exact   1.0669e-25  exact   1.0669e-25    1.000
+   5   1.1092e-25  exact   1.1092e-25  exact   1.1092e-25    1.000
+   6   1.1639e-25  exact   1.1639e-25  exact   1.1639e-25    1.000
+   7   1.1316e-25  exact   1.1316e-25  exact   1.1316e-25    1.000
+   8   1.1257e-25  exact   1.1257e-25  exact   1.1257e-25    1.000
+   9   1.0807e-25  exact   1.0502e-25  exact   1.0705e-25    0.972
+  10   1.1220e-25  exact   1.0701e-25  exact   1.1495e-25    0.954
+  11   1.1303e-25  exact   1.0527e-25  exact   1.2358e-25    0.931
+  12   1.2075e-25  exact   1.0830e-25  exact   1.4559e-25    0.897
+  13   1.2635e-25  exact   1.0692e-25  exact   1.7401e-25    0.846
+  14   1.3976e-25  exact   1.1385e-25  exact   2.2942e-25    0.815
+  15   1.4667e-25  exact   1.1854e-25  exact   2.9916e-25    0.808
+  16   1.6627e-25  exact   1.3232e-25  exact   4.0301e-25    0.796
+  17   1.7930e-25  exact   1.4365e-25  exact   5.2074e-25    0.801
+  18   2.0479e-25  exact   1.6434e-25  exact   6.8482e-25    0.802
+  19   2.2585e-25  exact   1.8111e-25  exact   8.3774e-25    0.802
+  20   2.6004e-25  exact   2.0746e-25  exact   1.0562e-24    0.798
+  21   2.8530e-25  exact   2.2976e-25  exact   1.2727e-24    0.805
+  22   3.2621e-25  exact   2.6322e-25  exact   1.6046e-24    0.807
+  23   3.5572e-25  exact   2.8825e-25  exact   1.9186e-24    0.810
+  24   4.0129e-25  exact   3.2646e-25  exact   2.4074e-24    0.814
+  25   4.4432e-25  7.1%    3.5639e-25  5.8%    2.8638e-24    0.802
+  26   4.8830e-25  8.3%    4.0020e-25  4.8%    3.6903e-24    0.820
+  27   5.0276e-25  4.7%    4.1658e-25  3.2%    4.4125e-24    0.829
+  28   5.6307e-25  7.1%    4.6350e-25  5.4%    4.9846e-24    0.823
+  29   5.9108e-25  4.5%    5.0612e-25  4.6%    6.5345e-24    0.856
+  30   6.3779e-25  9.0%    5.4119e-25  8.3%    7.0904e-24    0.849
+  31   7.0301e-25  7.0%    5.8786e-25  5.5%    8.4108e-24    0.836
+  32   7.1421e-25  6.1%    6.1363e-25  5.7%    1.8097e-23    0.859
+  33   7.6330e-25  11.3%   6.4338e-25  11.9%   1.1620e-23    0.843
+  34   9.9568e-25  19.1%   8.6673e-25  22.5%   1.4878e-23    0.870
+  35   8.7698e-25  11.4%   7.7030e-25  11.6%   1.7882e-23    0.878
+  36   8.6391e-25  18.0%   7.7540e-25  18.0%   1.9607e-23    0.898
+  37   9.5170e-25  8.7%    8.1286e-25  9.1%    2.1889e-23    0.854
+  38   9.3068e-25  12.2%   8.3583e-25  12.5%   2.6945e-23    0.898
+  39   8.5724e-25  8.3%    7.6560e-25  8.6%    3.2735e-23    0.893
+  40   1.0241e-24  20.5%   8.3168e-25  8.4%    3.1585e-23    0.812
+  41   8.8912e-25  11.4%   7.9187e-25  10.5%   3.5909e-23    0.891
+  42   1.0176e-24  12.3%   9.2827e-25  13.5%   4.2212e-23    0.912
+  43   8.1049e-25  6.3%    7.4912e-25  7.2%    7.4883e-23    0.924
+  44   9.3181e-25  16.2%   8.0866e-25  8.6%    4.9885e-23    0.868
+  45   8.1424e-25  8.7%    7.4813e-25  7.0%    5.5900e-23    0.919
+  46   8.3939e-25  11.6%   7.5498e-25  7.1%    5.6632e-23    0.899
+  47   6.6131e-25  6.3%    6.0470e-25  6.2%    5.5255e-23    0.914
+  48   8.1559e-25  16.8%   7.3654e-25  14.9%   6.2391e-23    0.903
+  49   6.6946e-25  4.7%    6.2998e-25  4.9%    6.2485e-23    0.941
+  50   6.1317e-25  14.1%   5.7211e-25  14.4%   6.2643e-23    0.933
+  51   5.5570e-25  10.5%   5.1093e-25  7.9%    6.6344e-23    0.919
+  52   5.3380e-25  9.3%    5.0461e-25  9.4%    6.1554e-23    0.945
+  53   5.0698e-25  16.9%   4.8960e-25  17.5%   5.8282e-23    0.966
+  54   4.2558e-25  8.2%    4.0189e-25  6.1%    6.2453e-23    0.944
+  55   4.7029e-25  30.4%   4.3979e-25  32.3%   6.1414e-23    0.935
+  56   3.7793e-25  9.2%    3.5887e-25  8.7%    5.2687e-23    0.950
+  57   3.2422e-25  20.4%   3.1139e-25  20.6%   5.4515e-23    0.960
+  58   3.4432e-25  63.6%   3.2717e-25  66.7%   6.6326e-23    0.950
+  59   2.3299e-25  12.1%   2.2365e-25  12.8%   4.1639e-23    0.960
+  60   2.1724e-25  13.7%   2.0665e-25  12.7%   3.5048e-23    0.951
+  61   1.7781e-25  32.6%   1.7182e-25  34.0%   4.4205e-23    0.966
+  62   1.4034e-25  34.1%   1.1195e-25  21.5%   4.5312e-23    0.798
+  63   1.0809e-25  35.2%   1.0427e-25  35.9%   2.6325e-23    0.965
+  64   7.9937e-26  36.1%   7.6324e-26  37.6%   1.1298e-22    0.955
+
+6. Reading
+----------
+1. eta: k8 2.919e-23, max(cLM2, k8) 2.589e-23 (uniform, ±2.0%). In the
+   thesis's reading of eta ratios, k8 expands 56 times fewer nodes than cLM2
+   on hard instances, and adding cLM2 to k8 cuts another 1.13 times.
+2. k8's eta_k peaks near 1e-24 around k = 40 and falls to 8e-26 by k = 64;
+   1.6% of eta lies at d >= 65. The WD tiers peak later (k = 48..55) and
+   keep 6-8% beyond 64 (records/eta24_tiers.txt).
+3. cLM2's contribution inside the cascade is largest near the goal:
+   clm2k8/k8 per sphere is 0.80-0.86 for k = 15..32 and mostly 0.92-0.97
+   for k = 49..64.
+4. For k8 the sphere samples are precise (±2%) and the Manhattan-level
+   estimate is the noisy check (±16% per band); both methods agree in every
+   band (|z| <= 0.6).

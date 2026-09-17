@@ -363,6 +363,7 @@ enum HeuristicArg {
     /// three 8-tile zPDBs (data/pdb24_k8_{a,b,c}.zbin, 30.5 GB).
     K8,
     /// The `--clm2 --zpdb8` cascade the solver prunes with, max(cLM2, k8).
+    #[value(name = "clm2k8")]
     Clm2K8,
 }
 
