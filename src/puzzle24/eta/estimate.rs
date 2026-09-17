@@ -92,52 +92,6 @@ impl Accum {
     }
 }
 
-/// Paired moments of `(A, B)` per attempt, for the ratio estimator
-/// `T_B · ΣA / ΣB` when the true total `T_B` (e.g. an exact stratum size) is
-/// known.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PairAccum {
-    pub a: Accum,
-    pub b: Accum,
-    pub sum_ab: f64,
-}
-
-impl PairAccum {
-    #[inline]
-    pub fn add(&mut self, a: f64, b: f64) {
-        self.a.add(a);
-        self.b.add(b);
-        self.sum_ab += a * b;
-    }
-
-    #[inline]
-    pub fn add_zeros(&mut self, count: u64) {
-        self.a.add_zeros(count);
-        self.b.add_zeros(count);
-    }
-
-    pub fn merge(&mut self, other: &PairAccum) {
-        self.a.merge(&other.a);
-        self.b.merge(&other.b);
-        self.sum_ab += other.sum_ab;
-    }
-
-    /// Ratio estimate `T_B · ΣA / ΣB` and its delta-method standard error.
-    pub fn ratio(&self, total_b: f64) -> (f64, f64) {
-        let n = self.a.n as f64;
-        if self.b.sum == 0.0 || n < 2.0 {
-            return (f64::NAN, f64::NAN);
-        }
-        let r = self.a.sum / self.b.sum;
-        // Residuals e_i = A_i − r·B_i have mean 0 by construction.
-        let ss = self.a.sum_sq - 2.0 * r * self.sum_ab + r * r * self.b.sum_sq;
-        let var_e = (ss / (n - 1.0)).max(0.0);
-        let mean_b = self.b.sum / n;
-        let se_r = (var_e / n).sqrt() / mean_b;
-        (total_b * r, total_b * se_r)
-    }
-}
-
 /// Batch-means estimate from per-chunk totals `(attempts, sum of X)`.
 ///
 /// Chunks are dealt round-robin into `batches` groups; each group gives an
@@ -227,7 +181,6 @@ mod tests {
         let f = [7.0, 1.0, 3.0, 0.5];
         let mut size = Accum::default();
         let mut total = Accum::default();
-        let mut pair = PairAccum::default();
         let mut rng = Rng::stream(42, 0, 0);
         for _ in 0..400_000 {
             let u = rng.next_u64() as f64 / 2f64.powi(64);
@@ -244,19 +197,15 @@ mod tests {
                 Some(i) => {
                     size.add(1.0 / p[i]);
                     total.add(f[i] / p[i]);
-                    pair.add(f[i] / p[i], 1.0 / p[i]);
                 }
                 None => {
                     size.add_zeros(1);
                     total.add_zeros(1);
-                    pair.add_zeros(1);
                 }
             }
         }
         let truth: f64 = f.iter().sum();
         assert!((size.mean() - 4.0).abs() < 4.0 * size.std_error() + 1e-12);
         assert!((total.mean() - truth).abs() < 4.0 * total.std_error());
-        let (r, se) = pair.ratio(4.0);
-        assert!((r - truth).abs() < 4.0 * se, "ratio {r} ± {se}");
     }
 }

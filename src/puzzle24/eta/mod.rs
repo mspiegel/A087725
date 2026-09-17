@@ -32,7 +32,7 @@ pub mod tail;
 pub mod walker;
 pub mod weights;
 
-pub use estimate::{batch_means, Accum, PairAccum, Z95};
+pub use estimate::{batch_means, Accum, Z95};
 pub use layers::{for_each_layer, pack, unpack, A090031};
 pub use rng::Rng;
 pub use walker::Walker;

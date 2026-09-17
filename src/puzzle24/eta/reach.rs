@@ -120,7 +120,7 @@ pub fn reach_probability<E: IncHeuristic>(walker: &Walker, v: &State, k: u32, e:
     for j in 0..k {
         let mut next: HashMap<(u128, u32), (State, u8, f64)> = HashMap::new();
         for (&(_, node), &(s, blank, p)) in &layer {
-            let probs = walker.move_probs(node, k - j, &s, blank);
+            let probs = walker.move_probs(node, k - j);
             for m in Move::ALL {
                 if probs[m as usize] == 0.0 {
                     continue;
@@ -161,7 +161,6 @@ mod tests {
     use crate::puzzle24::eta::rng::Rng;
     use crate::puzzle24::eta::sphere::{attempt, Attempt};
     use crate::puzzle24::eta::walker::test_support::enumerate;
-    use crate::puzzle24::eta::walker::Choice;
     use crate::puzzle24::eta::weights::branching_factor;
     use crate::puzzle24::search::tests_util::bfs_distances;
     use crate::puzzle24::search::{Heuristic, IncManhattan, ManhattanHeuristic, MoveDfa};
@@ -177,37 +176,21 @@ mod tests {
     fn reach_probability_matches_exhaustive_walk_enumeration() {
         const K: u32 = 11;
         let dist = bfs_distances(K as u8);
-        for (moribund, choice, tilt, last) in [
-            (false, Choice::Uniform, 0.0, 0),
-            (true, Choice::Uniform, 0.0, 0),
-            (false, Choice::Lookahead, 0.0, 0),
-            (true, Choice::Lookahead, 0.0, 0),
-            (true, Choice::Lookahead, 1.0, 0),
-            (true, Choice::Lookahead, 1.0, 4),
-        ] {
-            let walker = Walker::new(dfa(), moribund)
-                .with_choice(choice)
-                .with_md_tilt(tilt)
-                .with_md_tilt_last(last);
-            for k in [7, 9, K] {
-                let (ends, _) = enumerate(&walker, k);
-                let mut checked = 0;
-                for (board, &p_enum) in &ends {
-                    if dist.get(board) != Some(&(k as u8)) {
-                        continue;
-                    }
-                    let r = reach_probability(&walker, &State(*board), k, &IncManhattan);
-                    let rel = (r.prob - p_enum).abs() / p_enum;
-                    assert!(
-                        rel < 1e-12,
-                        "moribund={moribund} choice={choice:?} tilt={tilt} last={last} k={k}: {} vs {p_enum}",
-                        r.prob
-                    );
-                    assert!(r.interval > k as usize, "interval smaller than a path");
-                    checked += 1;
+        let walker = Walker::new(dfa());
+        for k in [7, 9, K] {
+            let (ends, _) = enumerate(&walker, k);
+            let mut checked = 0;
+            for (board, &p_enum) in &ends {
+                if dist.get(board) != Some(&(k as u8)) {
+                    continue;
                 }
-                assert!(checked > 0);
+                let r = reach_probability(&walker, &State(*board), k, &IncManhattan);
+                let rel = (r.prob - p_enum).abs() / p_enum;
+                assert!(rel < 1e-12, "k={k}: {} vs {p_enum}", r.prob);
+                assert!(r.interval > k as usize, "interval smaller than a path");
+                checked += 1;
             }
+            assert!(checked > 0);
         }
     }
 
@@ -228,45 +211,35 @@ mod tests {
                     .sum();
             }
         });
-        for (choice, tilt, last) in [
-            (Choice::Uniform, 0.0, 0),
-            (Choice::Lookahead, 0.0, 0),
-            (Choice::Lookahead, 1.0, 0),
-            (Choice::Lookahead, 1.0, 6),
-        ] {
-            let walker = Walker::new(dfa(), true)
-                .with_choice(choice)
-                .with_md_tilt(tilt)
-                .with_md_tilt_last(last);
-            let mut rng = Rng::stream(21, K as u64, 0);
-            let mut path = Vec::new();
-            let (mut size, mut md) = (Accum::default(), Accum::default());
-            for _ in 0..6000 {
-                match attempt(&walker, K, 0, &mut rng, &IncManhattan, &mut path).0 {
-                    Attempt::Accepted { board, walk_prob } => {
-                        let r = reach_probability(&walker, &board, K, &IncManhattan);
-                        assert!(r.prob >= walk_prob * (1.0 - 1e-12));
-                        size.add(1.0 / r.prob);
-                        md.add(b.powi(-(ManhattanHeuristic.h(&board) as i32)) / r.prob);
-                    }
-                    _ => {
-                        size.add_zeros(1);
-                        md.add_zeros(1);
-                    }
+        let walker = Walker::new(dfa());
+        let mut rng = Rng::stream(21, K as u64, 0);
+        let mut path = Vec::new();
+        let (mut size, mut md) = (Accum::default(), Accum::default());
+        for _ in 0..6000 {
+            match attempt(&walker, K, 0, &mut rng, &IncManhattan, &mut path).0 {
+                Attempt::Accepted { board, walk_prob } => {
+                    let r = reach_probability(&walker, &board, K, &IncManhattan);
+                    assert!(r.prob >= walk_prob * (1.0 - 1e-12));
+                    size.add(1.0 / r.prob);
+                    md.add(b.powi(-(ManhattanHeuristic.h(&board) as i32)) / r.prob);
+                }
+                _ => {
+                    size.add_zeros(1);
+                    md.add_zeros(1);
                 }
             }
-            let z_size = (size.mean() - exact_size as f64) / size.std_error();
-            let z_md = (md.mean() - exact_md) / md.std_error();
-            assert!(
-                z_size.abs() < 4.0,
-                "{choice:?} tilt {tilt} last {last}: size {} vs {exact_size} (z = {z_size:.2})",
-                size.mean()
-            );
-            assert!(
-                z_md.abs() < 4.0,
-                "{choice:?} tilt {tilt} last {last}: MD sum {} vs {exact_md} (z = {z_md:.2})",
-                md.mean()
-            );
         }
+        let z_size = (size.mean() - exact_size as f64) / size.std_error();
+        let z_md = (md.mean() - exact_md) / md.std_error();
+        assert!(
+            z_size.abs() < 4.0,
+            "size {} vs {exact_size} (z = {z_size:.2})",
+            size.mean()
+        );
+        assert!(
+            z_md.abs() < 4.0,
+            "MD sum {} vs {exact_md} (z = {z_md:.2})",
+            md.mean()
+        );
     }
 }

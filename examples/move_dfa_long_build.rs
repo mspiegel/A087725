@@ -23,7 +23,7 @@ fn main() {
         t0.elapsed().as_secs_f64()
     );
     let t1 = Instant::now();
-    let walker = Walker::new(&dfa, true);
+    let walker = Walker::new(&dfa);
     println!(
         "walker: {} nodes, {} doomed, built in {:.2} s",
         walker.node_count(),

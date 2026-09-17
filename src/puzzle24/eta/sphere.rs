@@ -61,31 +61,12 @@ pub fn attempt<E: IncHeuristic>(
     e: &E,
     path: &mut Vec<Move>,
 ) -> (Attempt, u64) {
-    attempt_with(walker, k, check_every, rng, path, |v, j| {
-        reject_shorter(v, j, e)
-    })
-}
-
-/// [`attempt`] with a caller-supplied rejection test `reject(board, j) ->
-/// (has a solution shorter than j, nodes)`, for verifiers outside the
-/// [`IncHeuristic`] family.
-pub fn attempt_with<F>(
-    walker: &Walker,
-    k: u32,
-    check_every: u32,
-    rng: &mut Rng,
-    path: &mut Vec<Move>,
-    mut reject: F,
-) -> (Attempt, u64)
-where
-    F: FnMut(&State, u32) -> (bool, u64),
-{
     let mut nodes = 0u64;
     let end = walker.walk_with(k, rng, path, |s, j| {
         if check_every == 0 || (k - j) % check_every != 0 {
             return false;
         }
-        let (shorter, n) = reject(s, j);
+        let (shorter, n) = reject_shorter(s, j, e);
         nodes += n;
         shorter
     });
@@ -93,7 +74,7 @@ where
         WalkEnd::DeadEnd => (Attempt::DeadEnd, nodes),
         WalkEnd::Stopped => (Attempt::Rejected, nodes),
         WalkEnd::Done(board, walk_prob) => {
-            let (shorter, n) = reject(&board, k);
+            let (shorter, n) = reject_shorter(&board, k, e);
             nodes += n;
             if shorter {
                 (Attempt::Rejected, nodes)
@@ -118,7 +99,7 @@ mod tests {
     fn walker_attempts_agree_with_true_distances() {
         let dist = bfs_distances(K as u8);
         let dfa = MoveDfa::build_default();
-        let walker = Walker::new(&dfa, true);
+        let walker = Walker::new(&dfa);
         let mut path = Vec::new();
         for k in [2, 5, 8, 11, K] {
             let mut rng = Rng::stream(9, k as u64, 0);
@@ -145,29 +126,27 @@ mod tests {
     fn checkpoints_do_not_change_outcomes() {
         let dfa = MoveDfa::build_default();
         let mut rejected = 0;
-        for moribund in [false, true] {
-            let walker = Walker::new(&dfa, moribund);
-            let mut path = Vec::new();
-            for k in [20, 26] {
-                for i in 0..150 {
-                    let run = |every: u32, path: &mut Vec<Move>| {
-                        let mut rng = Rng::stream(13, k as u64, i);
-                        attempt(&walker, k, every, &mut rng, &IncManhattan, path).0
-                    };
-                    let base = run(0, &mut path);
-                    for every in [1, 3, 7] {
-                        let got = run(every, &mut path);
-                        match base {
-                            Attempt::Accepted { .. } => assert_eq!(got, base),
-                            Attempt::Rejected => assert_eq!(got, Attempt::Rejected),
-                            Attempt::DeadEnd => {
-                                assert!(matches!(got, Attempt::DeadEnd | Attempt::Rejected))
-                            }
+        let walker = Walker::new(&dfa);
+        let mut path = Vec::new();
+        for k in [20, 26] {
+            for i in 0..300 {
+                let run = |every: u32, path: &mut Vec<Move>| {
+                    let mut rng = Rng::stream(13, k as u64, i);
+                    attempt(&walker, k, every, &mut rng, &IncManhattan, path).0
+                };
+                let base = run(0, &mut path);
+                for every in [1, 3, 7] {
+                    let got = run(every, &mut path);
+                    match base {
+                        Attempt::Accepted { .. } => assert_eq!(got, base),
+                        Attempt::Rejected => assert_eq!(got, Attempt::Rejected),
+                        Attempt::DeadEnd => {
+                            assert!(matches!(got, Attempt::DeadEnd | Attempt::Rejected))
                         }
                     }
-                    if base == Attempt::Rejected {
-                        rejected += 1;
-                    }
+                }
+                if base == Attempt::Rejected {
+                    rejected += 1;
                 }
             }
         }

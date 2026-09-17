@@ -1,36 +1,15 @@
-//! Sphere-stratified estimation of heuristic quality η on the 24-puzzle
-//! (Clausecker & Schintke, SoCS 2021). See `puzzle24::eta` for the method.
+//! Stratified estimation of heuristic quality η on the 24-puzzle (Clausecker &
+//! Schintke, SoCS 2021). See `puzzle24::eta` for the method and
+//! records/eta24_*.txt for the campaigns run with it.
 //!
-//! ```text
-//! eta24 yield --k-min 10 --k-max 64 --attempts 10000 --moribund both --verifier zpdb
-//! ```
+//! `campaign layers` gives exact spheres for small `k`, `campaign sample`
+//! stores sphere samples for larger `k`, `campaign tail` and `campaign tail-md`
+//! sample the tail `d ≥ L`, `campaign total` estimates η by Manhattan levels,
+//! and `campaign score` combines everything for one heuristic.
 //!
-//! `yield` measures, per sphere depth `k`, how often a `k`-step walk from GOAL
-//! ends at distance exactly `k`, and what the rejection search costs. Output is
-//! tab-separated on stdout; progress goes to stderr.
-//!
-//! ```text
-//! eta24 probe --k 30,45,64 --attempts 20000 --window 14
-//! ```
-//!
-//! `probe` additionally computes the reach probability `P(v)` of every
-//! accepted board and reports, per depth: stage costs, interval sizes, path
-//! multiplicity `P(v) / walk probability`, Horvitz–Thompson estimates of
-//! `|V_k|` and of the Manhattan-distance stratum quality `η_k` with 95%
-//! intervals and weight dispersion, and the attempts a ±5% interval on `η_k`
-//! would need. `|V_k|` is compared with A090031 (`k ≤ 30`) or Clausecker's
-//! sampled sizes (ZIB Report 20-17, App. B, `k ≤ 64`). Requires `--verifier
-//! zpdb`.
-//!
-//! Verifiers for "is there a solution shorter than k":
-//! - `zpdb`: recursive IDA\* with a zero-aware PDB partition and its diagonal
-//!   reflection, 6-6-6-6 (`--zpdb-set k6`) or 7-7-7-3 (`k7`);
-//! - `cwd`: the flat engine's bounded search over plain cWD
-//!   (`data/cwd_mm.bin`), one `engine::bounded` call per board.
-//!
-//! Measured at k = 64 (moribund walker, 2000 attempts, 12 threads on a
-//! non-idle Mac): k6 224k nodes / 33 ms per attempt, k7 671k / 110 ms, cwd
-//! 4.9M / 199 ms. All three classify identically; k6 is the default.
+//! "Is there a solution shorter than k" is decided by recursive IDA\* with the
+//! 6-6-6-6 zero-aware PDB partition and its diagonal reflection
+//! (records/eta24_yield.txt, Result 2).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,34 +18,25 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use puzzle8::puzzle24::eta::reach::reach_probability;
-use puzzle8::puzzle24::eta::sphere::{attempt, attempt_with, reject_shorter, Attempt};
+use puzzle8::puzzle24::eta::sphere::{attempt, Attempt};
 use puzzle8::puzzle24::eta::tail::{at_least, uniform_solvable};
-use puzzle8::puzzle24::eta::walker::Choice;
 use puzzle8::puzzle24::eta::{
     blank_weights, branching_factor, Accum, Rng, Walker, Weighting, A090031, Z95,
 };
 use puzzle8::puzzle24::pdb::{ZPatternDb, ZpdbInc};
 use puzzle8::puzzle24::search::cwd::Cwd;
 use puzzle8::puzzle24::search::engine;
-use puzzle8::puzzle24::search::move_dfa::DEFAULT_WINDOW;
 use puzzle8::puzzle24::search::{
-    BoundedOutcome, Heuristic, LongMoveDfa, ManhattanHeuristic, MoveDfa, WalkingDistanceHeuristic,
+    Heuristic, LongMoveDfa, ManhattanHeuristic, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle24::state::{State, N_STATES};
 use rayon::prelude::*;
 
-const ZPDB_K6_FILES: [&str; 4] = [
+const ZPDB_FILES: [&str; 4] = [
     "pdb24_a.zbin",
     "pdb24_b.zbin",
     "pdb24_c.zbin",
     "pdb24_d.zbin",
-];
-
-const ZPDB_K7_FILES: [&str; 4] = [
-    "pdb24_k7_a.zbin",
-    "pdb24_k7_b.zbin",
-    "pdb24_k7_c.zbin",
-    "pdb24_k7_d.zbin",
 ];
 
 /// Attempts per parallel work unit; each unit owns one RNG stream.
@@ -79,129 +49,15 @@ struct Args {
     cmd: Cmd,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum MoribundArg {
-    On,
-    Off,
-    Both,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum ChoiceArg {
-    /// Every allowed move equally likely.
-    Uniform,
-    /// Moves weighted by the number of moves allowed after them.
-    Lookahead,
-}
-
-impl From<ChoiceArg> for Choice {
-    fn from(c: ChoiceArg) -> Choice {
-        match c {
-            ChoiceArg::Uniform => Choice::Uniform,
-            ChoiceArg::Lookahead => Choice::Lookahead,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum VerifierArg {
-    Zpdb,
-    Cwd,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum ZpdbSetArg {
-    /// 6-6-6-6, pdb24_{a,b,c,d}.zbin (22.6 MB each).
-    K6,
-    /// 7-7-7-3, pdb24_k7_{a,b,c,d}.zbin (508 MB ×3).
-    K7,
-}
-
 #[derive(clap::Args)]
 struct VerifierOpts {
-    /// Search used to reject walks that end closer than k.
-    #[arg(long, value_enum, default_value_t = VerifierArg::Zpdb)]
-    verifier: VerifierArg,
-    /// Zero-aware PDB partition for `--verifier zpdb`.
-    #[arg(long, value_enum, default_value_t = ZpdbSetArg::K6)]
-    zpdb_set: ZpdbSetArg,
     /// Directory holding the zero-aware PDB files.
     #[arg(long, value_name = "DIR", default_value = "data")]
     pdb_dir: PathBuf,
-    /// Merged cWD artifact for `--verifier cwd`.
-    #[arg(long, value_name = "PATH", default_value = "data/cwd_mm.bin")]
-    cwd_mm: PathBuf,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Walk yield and rejection-search cost per sphere depth.
-    Yield {
-        #[arg(long, default_value_t = 10)]
-        k_min: u32,
-        #[arg(long, default_value_t = 64)]
-        k_max: u32,
-        #[arg(long, default_value_t = 2)]
-        k_step: u32,
-        /// Walks per depth.
-        #[arg(long, default_value_t = 10_000)]
-        attempts: u64,
-        #[arg(long, default_value_t = 1)]
-        seed: u64,
-        /// Moribund pruning in the walk rule.
-        #[arg(long, value_enum, default_value_t = MoribundArg::Both)]
-        moribund: MoribundArg,
-        /// Prefix checkpoint spacings to compare (0 = final board only).
-        #[arg(long, value_delimiter = ',', default_value = "0")]
-        check_every: Vec<u32>,
-        /// Move-DFA windows to compare; the rule covers sequences of up to
-        /// window + 1 moves. 11 uses MoveDfa, anything else LongMoveDfa.
-        #[arg(long, value_delimiter = ',', default_value = "11")]
-        window: Vec<u8>,
-        #[command(flatten)]
-        verifier: VerifierOpts,
-    },
-    /// Reach probabilities, estimator dispersion and projected cost per depth.
-    Probe {
-        /// Sphere depths to probe.
-        #[arg(long, value_delimiter = ',', default_value = "30,45,64")]
-        k: Vec<u32>,
-        /// Walks per depth.
-        #[arg(long, default_value_t = 20_000)]
-        attempts: u64,
-        #[arg(long, default_value_t = 1)]
-        seed: u64,
-        /// Prefix checkpoint spacing (0 = final board only).
-        #[arg(long, default_value_t = 8)]
-        check_every: u32,
-        /// Move-DFA window; the rule covers sequences of up to window + 1 moves.
-        #[arg(long, default_value_t = 14)]
-        window: u8,
-        /// Moribund pruning in the walk rule.
-        #[arg(long, value_enum, default_value_t = MoribundArg::On)]
-        moribund: MoribundArg,
-        /// Target half-width of the 95% interval on η_k, relative, for the
-        /// projected attempt count.
-        #[arg(long, default_value_t = 0.05)]
-        target_rel: f64,
-        /// Report where the 1/P(v) weight dispersion comes from instead of
-        /// the estimates.
-        #[arg(long)]
-        diagnose: bool,
-        /// How a walk chooses among allowed moves.
-        #[arg(long, value_enum, default_value_t = ChoiceArg::Uniform)]
-        choice: ChoiceArg,
-        /// Tilt toward low Manhattan distance: a move raising it is weighted
-        /// b^-λ, one lowering it b^λ (0 = no tilt).
-        #[arg(long, value_name = "λ", default_value_t = 0.0)]
-        md_tilt: f64,
-        /// Apply the Manhattan-distance tilt only in the last N steps of each
-        /// walk (0 = the whole walk).
-        #[arg(long, value_name = "N", default_value_t = 0)]
-        md_tilt_last: u32,
-        #[command(flatten)]
-        verifier: VerifierOpts,
-    },
     /// A stratified sampling campaign: exact layers, stored samples, scoring.
     #[command(subcommand)]
     Campaign(Campaign),
@@ -245,8 +101,6 @@ enum Campaign {
         /// Prefix checkpoint spacing (does not change the sample distribution).
         #[arg(long, default_value_t = 8)]
         check_every: u32,
-        #[arg(long, value_enum, default_value_t = ChoiceArg::Lookahead)]
-        choice: ChoiceArg,
         #[command(flatten)]
         verifier: VerifierOpts,
     },
@@ -329,11 +183,6 @@ enum Campaign {
         /// value used; e.g. records/eta24_fig53_digitized.tsv).
         #[arg(long, value_name = "PATH")]
         published_histogram: Option<PathBuf>,
-        /// Score the tails from stored boards even for a heuristic the tail
-        /// runs recorded sums for (a check that the stored boards reproduce
-        /// them); other heuristics are always rescored.
-        #[arg(long)]
-        rescore_tail: bool,
         /// When rescoring the uniform tail, score boards with Manhattan
         /// distance above this only one in --rescore-stride, weighted by the
         /// stride.
@@ -522,654 +371,27 @@ fn reference_sphere_size(k: u32) -> Option<(f64, &'static str)> {
     }
 }
 
-/// Walker over the move DFA for `window`: the engine's [`MoveDfa`] at its
-/// default window, [`LongMoveDfa`] otherwise.
-fn walker_for(window: u8, moribund: bool) -> Walker {
-    if window == DEFAULT_WINDOW {
-        Walker::new(&MoveDfa::build_default(), moribund)
-    } else {
-        Walker::new(&LongMoveDfa::build(window), moribund)
-    }
-}
-
-/// Loaded verifier resources, shared read-only across worker threads.
-enum Verifier {
-    Zpdb(Vec<ZPatternDb>),
-    Cwd { cwd: Box<Cwd>, dfa: MoveDfa },
+/// The 6-6-6-6 zero-aware PDBs the distance proofs use, shared read-only
+/// across worker threads.
+struct Verifier {
+    dbs: Vec<ZPatternDb>,
 }
 
 impl Verifier {
     fn load(opts: &VerifierOpts) -> Result<Verifier, String> {
-        match opts.verifier {
-            VerifierArg::Zpdb => match opts.zpdb_set {
-                ZpdbSetArg::K6 => ZPDB_K6_FILES,
-                ZpdbSetArg::K7 => ZPDB_K7_FILES,
-            }
+        ZPDB_FILES
             .iter()
             .map(|name| {
                 ZPatternDb::load_mmap(&opts.pdb_dir.join(name)).map_err(|e| format!("{name}: {e}"))
             })
             .collect::<Result<Vec<_>, _>>()
-            .map(Verifier::Zpdb),
-            VerifierArg::Cwd => {
-                let cwd = Cwd::mm_only(Path::new(&opts.cwd_mm))
-                    .map_err(|e| format!("{}: {e}", opts.cwd_mm.display()))?;
-                Ok(Verifier::Cwd {
-                    cwd: Box::new(cwd),
-                    dfa: MoveDfa::build_default(),
-                })
-            }
-        }
+            .map(|dbs| Verifier { dbs })
     }
 
-    /// Run `f` with a rejection test `(board, k) -> (shorter, nodes)`.
-    fn with_reject<R>(&self, f: impl FnOnce(&mut dyn FnMut(&State, u32) -> (bool, u64)) -> R) -> R {
-        match self {
-            Verifier::Zpdb(dbs) => {
-                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-                f(&mut |v, k| reject_shorter(v, k, &inc))
-            }
-            Verifier::Cwd { cwd, dfa } => f(&mut |v, k| {
-                if k < 2 {
-                    return (false, 0);
-                }
-                let cap = u8::try_from(k - 2).expect("sphere depth exceeds u8 search bounds");
-                let (outcome, stats) = engine::bounded(v, cwd, dfa, false, cap);
-                match outcome {
-                    BoundedOutcome::Solved(_) => (true, stats.nodes),
-                    BoundedOutcome::ProvedAtLeast(_) => (false, stats.nodes),
-                    other => panic!("engine::bounded on a walk endpoint returned {other:?}"),
-                }
-            }),
-        }
-    }
-}
-
-#[derive(Default, Clone, Copy)]
-struct YieldTally {
-    attempts: u64,
-    dead: u64,
-    accepted: u64,
-    nodes: u64,
-    nanos: u128,
-}
-
-impl YieldTally {
-    fn merge(mut self, o: YieldTally) -> YieldTally {
-        self.attempts += o.attempts;
-        self.dead += o.dead;
-        self.accepted += o.accepted;
-        self.nodes += o.nodes;
-        self.nanos += o.nanos;
-        self
-    }
-}
-
-struct YieldRun {
-    k_min: u32,
-    k_max: u32,
-    k_step: u32,
-    attempts: u64,
-    seed: u64,
-    moribund: MoribundArg,
-    check_every: Vec<u32>,
-    window: Vec<u8>,
-}
-
-fn run_yield(run: YieldRun, verifier: &Verifier) {
-    let modes: &[bool] = match run.moribund {
-        MoribundArg::On => &[true],
-        MoribundArg::Off => &[false],
-        MoribundArg::Both => &[false, true],
-    };
-    println!(
-        "window\tmoribund\tcheck_every\tk\tattempts\tdead_end_rate\tyield\tyield_ci95\tnodes_per_attempt\tus_per_attempt\tus_per_accepted"
-    );
-    let mut settings: Vec<(u8, bool, u32)> = Vec::new();
-    for &w in &run.window {
-        for &mb in modes {
-            for &c in &run.check_every {
-                settings.push((w, mb, c));
-            }
-        }
-    }
-    for (window, mb, check_every) in settings {
-        let t_build = Instant::now();
-        let walker = walker_for(window, mb);
-        eprintln!(
-            "walker window={window} moribund={mb}: {} nodes, {} doomed, built in {:.1}s; check_every={check_every}",
-            walker.node_count(),
-            walker.doomed_nodes(),
-            t_build.elapsed().as_secs_f64()
-        );
-        let mut k = run.k_min;
-        while k <= run.k_max {
-            let t0 = Instant::now();
-            let chunks = run.attempts.div_ceil(CHUNK);
-            let tally = (0..chunks)
-                .into_par_iter()
-                .map(|c| {
-                    let mut rng = Rng::stream(run.seed, (k as u64) << 1 | mb as u64, c);
-                    let mut path = Vec::with_capacity(k as usize);
-                    let n = CHUNK.min(run.attempts - c * CHUNK);
-                    let start = Instant::now();
-                    let mut t = YieldTally {
-                        attempts: n,
-                        ..Default::default()
-                    };
-                    verifier.with_reject(|reject| {
-                        for _ in 0..n {
-                            let (a, nodes) = attempt_with(
-                                &walker,
-                                k,
-                                check_every,
-                                &mut rng,
-                                &mut path,
-                                &mut *reject,
-                            );
-                            t.nodes += nodes;
-                            match a {
-                                Attempt::DeadEnd => t.dead += 1,
-                                Attempt::Rejected => {}
-                                Attempt::Accepted { .. } => t.accepted += 1,
-                            }
-                        }
-                    });
-                    t.nanos = start.elapsed().as_nanos();
-                    t
-                })
-                .reduce(YieldTally::default, YieldTally::merge);
-            let n = tally.attempts as f64;
-            let y = tally.accepted as f64 / n;
-            let us = tally.nanos as f64 / 1e3;
-            println!(
-                "{window}\t{}\t{check_every}\t{k}\t{}\t{:.5}\t{:.5}\t{:.5}\t{:.1}\t{:.2}\t{:.2}",
-                if mb { "on" } else { "off" },
-                tally.attempts,
-                tally.dead as f64 / n,
-                y,
-                Z95 * (y * (1.0 - y) / n).sqrt(),
-                tally.nodes as f64 / n,
-                us / n,
-                if tally.accepted > 0 {
-                    us / tally.accepted as f64
-                } else {
-                    f64::NAN
-                },
-            );
-            eprintln!(
-                "k={k} moribund={mb}: yield {y:.4} in {:.1}s",
-                t0.elapsed().as_secs_f64()
-            );
-            k += run.k_step;
-        }
-    }
-}
-
-/// Diagnostics for one accepted sample.
-#[derive(Clone, Copy)]
-struct Sample {
-    prob: f64,
-    walk_prob: f64,
-    interval: usize,
-    layer_states: usize,
-    back_nodes: u64,
-    stage_b_ns: u64,
-    md: u8,
-    blank: u8,
-    /// Steps of the accepted walk by number of allowed moves (index 1..=3).
-    steps: [u16; 4],
-}
-
-#[derive(Default)]
-struct ProbeTally {
-    attempts: u64,
-    stage_a_nodes: u64,
-    stage_a_ns: u128,
-    samples: Vec<Sample>,
-}
-
-impl ProbeTally {
-    fn merge(mut self, mut o: ProbeTally) -> ProbeTally {
-        self.attempts += o.attempts;
-        self.stage_a_nodes += o.stage_a_nodes;
-        self.stage_a_ns += o.stage_a_ns;
-        self.samples.append(&mut o.samples);
-        self
-    }
-}
-
-struct ProbeRun {
-    k: Vec<u32>,
-    attempts: u64,
-    seed: u64,
-    check_every: u32,
-    window: u8,
-    moribund: bool,
-    target_rel: f64,
-    /// Report the weight-dispersion diagnosis instead of the estimates.
-    diagnose: bool,
-    choice: Choice,
-    md_tilt: f64,
-    md_tilt_last: u32,
-}
-
-fn run_probe(run: ProbeRun, verifier: &Verifier) -> Result<(), String> {
-    let Verifier::Zpdb(dbs) = verifier else {
-        return Err(
-            "probe needs --verifier zpdb (the reach probability uses its heuristic)".into(),
-        );
-    };
-    let t_build = Instant::now();
-    let walker = walker_for(run.window, run.moribund)
-        .with_choice(run.choice)
-        .with_md_tilt(run.md_tilt)
-        .with_md_tilt_last(run.md_tilt_last);
-    eprintln!(
-        "walker window={} moribund={} choice={:?} md_tilt={} last={}: {} nodes, built in {:.1}s",
-        run.window,
-        run.moribund,
-        run.choice,
-        run.md_tilt,
-        run.md_tilt_last,
-        walker.node_count(),
-        t_build.elapsed().as_secs_f64()
-    );
-    let b = branching_factor();
-    let weights: Vec<(Weighting, [f64; 25])> = Weighting::ALL
-        .iter()
-        .map(|&w| (w, blank_weights(w)))
-        .collect();
-    println!(
-        "# probe: window {} (covers {} moves), moribund {}, choice {:?}, md_tilt {} (last {} steps; 0 = all), check_every {}, {} attempts per depth, seed {}, b = {b:.9}",
-        run.window,
-        run.window + 1,
-        run.moribund,
-        run.choice,
-        run.md_tilt,
-        run.md_tilt_last,
-        run.check_every,
-        run.attempts,
-        run.seed
-    );
-    for &k in &run.k {
-        let t0 = Instant::now();
-        let tally = sample_depth(&walker, dbs, k, &run);
-        if run.diagnose {
-            report_diagnosis(k, &tally, b, t0.elapsed());
-        } else {
-            report_probe(k, &tally, b, &weights, run.target_rel, t0.elapsed());
-        }
-    }
-    Ok(())
-}
-
-/// Run `run.attempts` walks at depth `k` in parallel and compute the reach
-/// probability of every accepted board.
-fn sample_depth(walker: &Walker, dbs: &[ZPatternDb], k: u32, run: &ProbeRun) -> ProbeTally {
-    let chunks = run.attempts.div_ceil(CHUNK);
-    (0..chunks)
-        .into_par_iter()
-        .map(|c| {
-            let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
-            let mut rng = Rng::stream(run.seed, k as u64, c);
-            let mut path = Vec::with_capacity(k as usize);
-            let n = CHUNK.min(run.attempts - c * CHUNK);
-            let mut t = ProbeTally {
-                attempts: n,
-                ..Default::default()
-            };
-            for _ in 0..n {
-                let ta = Instant::now();
-                let (a, nodes) = attempt(walker, k, run.check_every, &mut rng, &inc, &mut path);
-                t.stage_a_ns += ta.elapsed().as_nanos();
-                t.stage_a_nodes += nodes;
-                if let Attempt::Accepted { board, walk_prob } = a {
-                    let tb = Instant::now();
-                    let r = reach_probability(walker, &board, k, &inc);
-                    let stage_b_ns = tb.elapsed().as_nanos() as u64;
-                    assert!(
-                        r.prob >= walk_prob * (1.0 - 1e-9),
-                        "P(v) {} below the walk's own probability {walk_prob}",
-                        r.prob
-                    );
-                    let mut steps = [0u16; 4];
-                    let mut node = walker.root();
-                    for (i, &m) in path.iter().enumerate() {
-                        steps[walker.allowed(node, k - i as u32).len() as usize] += 1;
-                        node = walker.next(node, m);
-                    }
-                    t.samples.push(Sample {
-                        prob: r.prob,
-                        walk_prob,
-                        interval: r.interval,
-                        layer_states: r.max_layer_states,
-                        back_nodes: r.nodes,
-                        stage_b_ns,
-                        md: ManhattanHeuristic.h(&board),
-                        blank: board.blank_pos(),
-                        steps,
-                    });
-                }
-            }
-            t
-        })
-        .reduce(ProbeTally::default, ProbeTally::merge)
-}
-
-/// Kish effective sample size of positive terms.
-fn ess(xs: impl Iterator<Item = f64>) -> f64 {
-    let (s, s2) = xs.fold((0.0, 0.0), |(s, s2), x| (s + x, s2 + x * x));
-    if s2 == 0.0 {
-        0.0
-    } else {
-        s * s / s2
-    }
-}
-
-/// Mean, standard deviation and Pearson correlation helpers over samples.
-fn mean_sd(xs: &[f64]) -> (f64, f64) {
-    let n = xs.len() as f64;
-    let m = xs.iter().sum::<f64>() / n;
-    let v = xs.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
-    (m, v.sqrt())
-}
-
-fn correlation(xs: &[f64], ys: &[f64]) -> f64 {
-    let (mx, sx) = mean_sd(xs);
-    let (my, sy) = mean_sd(ys);
-    let n = xs.len() as f64;
-    let cov = xs
-        .iter()
-        .zip(ys)
-        .map(|(x, y)| (x - mx) * (y - my))
-        .sum::<f64>()
-        / (n - 1.0).max(1.0);
-    cov / (sx * sy)
-}
-
-/// Symmetry class of a blank cell on the 5×5 board.
-fn blank_class(cell: u8) -> &'static str {
-    let (r, c) = (cell / 5, cell % 5);
-    let (a, b) = (r.min(4 - r), c.min(4 - c));
-    match (a.min(b), a.max(b)) {
-        (0, 0) => "corner",
-        (0, 1) => "edge-near-corner",
-        (0, 2) => "edge-middle",
-        (1, 1) => "inner-corner",
-        (1, 2) => "inner-edge",
-        _ => "centre",
-    }
-}
-
-/// Where the 1/P(v) weight dispersion comes from.
-fn report_diagnosis(k: u32, t: &ProbeTally, b: f64, wall: std::time::Duration) {
-    let acc = t.samples.len();
-    println!(
-        "== k = {k}: {acc} accepted of {} attempts, wall {:.1} s",
-        t.attempts,
-        wall.as_secs_f64()
-    );
-    if acc < 10 {
-        println!("  too few accepted samples");
-        return;
-    }
-    let w: Vec<f64> = t.samples.iter().map(|s| 1.0 / s.prob).collect();
-    let inv_walk: Vec<f64> = t.samples.iter().map(|s| 1.0 / s.walk_prob).collect();
-    let mult: Vec<f64> = t.samples.iter().map(|s| s.prob / s.walk_prob).collect();
-    let total: f64 = w.iter().sum();
-
-    let mut sorted = w.clone();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let q = |p: f64| sorted[((acc - 1) as f64 * p) as usize];
-    let median = q(0.5);
-    let top1: f64 = sorted[acc - acc.div_ceil(100)..].iter().sum();
-    let top10: f64 = sorted[acc.saturating_sub(10)..].iter().sum();
-    println!(
-        "  weight W = 1/P: W/median at p10 {:.2}, p90 {:.1}, p99 {:.1}, max {:.0}; top 1% of samples carry {:.1}% of sum W, top 10 carry {:.1}%",
-        q(0.1) / median,
-        q(0.9) / median,
-        q(0.99) / median,
-        sorted[acc - 1] / median,
-        100.0 * top1 / total,
-        100.0 * top10 / total
-    );
-
-    let lw: Vec<f64> = w.iter().map(|x| x.log10()).collect();
-    let lwalk: Vec<f64> = inv_walk.iter().map(|x| x.log10()).collect();
-    let lmult: Vec<f64> = mult.iter().map(|x| x.log10()).collect();
-    println!(
-        "  log10 spread (sd): W {:.2}; choice product 1/walk {:.2}; multiplicity M {:.2}; corr(log 1/walk, log M) {:+.2}",
-        mean_sd(&lw).1,
-        mean_sd(&lwalk).1,
-        mean_sd(&lmult).1,
-        correlation(&lwalk, &lmult)
-    );
-    let mean_mult = mult.iter().sum::<f64>() / acc as f64;
-    println!(
-        "  ESS: W {:.0}; if only the choice product varied (M fixed at its mean) {:.0}; if only M varied (walk prob fixed) {:.0}; of {acc}",
-        ess(w.iter().copied()),
-        ess(inv_walk.iter().map(|x| x / mean_mult)),
-        ess(mult.iter().map(|m| 1.0 / m))
-    );
-
-    let three: Vec<f64> = t.samples.iter().map(|s| s.steps[3] as f64).collect();
-    let (two_m, _) = mean_sd(
-        &t.samples
-            .iter()
-            .map(|s| s.steps[2] as f64)
-            .collect::<Vec<_>>(),
-    );
-    let (one_m, _) = mean_sd(
-        &t.samples
-            .iter()
-            .map(|s| s.steps[1] as f64)
-            .collect::<Vec<_>>(),
-    );
-    let (three_m, three_sd) = mean_sd(&three);
-    println!(
-        "  steps per walk: 1-way {one_m:.1}, 2-way {two_m:.1}, 3-way {three_m:.1} (sd {three_sd:.1}); corr(#3-way, log W) {:+.2}, corr(#3-way, log M) {:+.2}",
-        correlation(&three, &lw),
-        correlation(&three, &lmult)
-    );
-
-    println!("  by end-blank class:            samples   share of sum W   median W/median");
-    for class in [
-        "corner",
-        "edge-near-corner",
-        "edge-middle",
-        "inner-corner",
-        "inner-edge",
-        "centre",
-    ] {
-        let mut ws: Vec<f64> = t
-            .samples
-            .iter()
-            .zip(&w)
-            .filter(|(s, _)| blank_class(s.blank) == class)
-            .map(|(_, &x)| x)
-            .collect();
-        if ws.is_empty() {
-            continue;
-        }
-        ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        println!(
-            "    {class:<18} {:>8.1}%   {:>12.1}%   {:>12.2}",
-            100.0 * ws.len() as f64 / acc as f64,
-            100.0 * ws.iter().sum::<f64>() / total,
-            ws[ws.len() / 2] / median
-        );
-    }
-
-    let md: Vec<f64> = t.samples.iter().map(|s| s.md as f64).collect();
-    let (md_mean, md_sd) = mean_sd(&md);
-    let eta_terms: Vec<f64> = t
-        .samples
-        .iter()
-        .map(|s| b.powi(-(s.md as i32)) / s.prob)
-        .collect();
-    let eta_total: f64 = eta_terms.iter().sum();
-    println!(
-        "  MD of accepted: mean {md_mean:.1}, sd {md_sd:.1}; corr(MD, log W) {:+.2}; ESS of eta terms {:.0}",
-        correlation(&md, &lw),
-        ess(eta_terms.iter().copied())
-    );
-    println!("  by MD relative to mean:        samples   share of sum W   share of sum eta terms");
-    for (lo, hi, label) in [
-        (f64::NEG_INFINITY, -2.0, "< mean-2sd"),
-        (-2.0, -1.0, "mean-2sd..-1sd"),
-        (-1.0, 0.0, "mean-1sd..mean"),
-        (0.0, 1.0, "mean..+1sd"),
-        (1.0, f64::INFINITY, "> mean+1sd"),
-    ] {
-        let idx: Vec<usize> = (0..acc)
-            .filter(|&i| {
-                let z = (md[i] - md_mean) / md_sd;
-                z >= lo && z < hi
-            })
-            .collect();
-        println!(
-            "    {label:<18} {:>8.1}%   {:>12.1}%   {:>12.1}%",
-            100.0 * idx.len() as f64 / acc as f64,
-            100.0 * idx.iter().map(|&i| w[i]).sum::<f64>() / total,
-            100.0 * idx.iter().map(|&i| eta_terms[i]).sum::<f64>() / eta_total
-        );
-    }
-
-    let mut order: Vec<usize> = (0..acc).collect();
-    order.sort_by(|&a, &b| w[b].partial_cmp(&w[a]).unwrap());
-    println!(
-        "  heaviest samples: W/median  log2(1/walk)  M      3-way  blank class        MD  interval"
-    );
-    for &i in order.iter().take(5) {
-        let s = &t.samples[i];
-        println!(
-            "    {:>10.0}  {:>12.1}  {:>6.2}  {:>5}  {:<18} {:>3}  {:>8}",
-            w[i] / median,
-            -s.walk_prob.log2(),
-            mult[i],
-            s.steps[3],
-            blank_class(s.blank),
-            s.md,
-            s.interval
-        );
-    }
-    println!(
-        "  for comparison, median sample: log2(1/walk) {:.1}, M {:.2}, 3-way {:.0}",
-        {
-            let mut v = lwalk.clone();
-            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            v[acc / 2] / 2f64.log10()
-        },
-        {
-            let mut v = mult.clone();
-            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            v[acc / 2]
-        },
-        {
-            let mut v = three.clone();
-            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            v[acc / 2]
-        }
-    );
-}
-
-fn report_probe(
-    k: u32,
-    t: &ProbeTally,
-    b: f64,
-    weights: &[(Weighting, [f64; 25])],
-    target_rel: f64,
-    wall: std::time::Duration,
-) {
-    let n = t.attempts as f64;
-    let acc = t.samples.len();
-    let n_states = N_STATES as f64;
-    println!(
-        "== k = {k}: {acc} accepted of {} attempts (yield {:.5}), wall {:.1} s",
-        t.attempts,
-        acc as f64 / n,
-        wall.as_secs_f64()
-    );
-    println!(
-        "  stage A: {:.3} ms/attempt, {:.0} nodes/attempt",
-        t.stage_a_ns as f64 / 1e6 / n,
-        t.stage_a_nodes as f64 / n
-    );
-    if acc == 0 {
-        println!("  no accepted samples");
-        return;
-    }
-    let mean = |f: fn(&Sample) -> f64| t.samples.iter().map(f).sum::<f64>() / acc as f64;
-    let max = |f: fn(&Sample) -> f64| t.samples.iter().map(f).fold(0.0, f64::max);
-    let stage_b_ns: u128 = t.samples.iter().map(|s| s.stage_b_ns as u128).sum();
-    println!(
-        "  stage B: {:.2} ms/accepted (max {:.1}); backward nodes {:.0} (max {:.0}); interval {:.0} boards (max {:.0}); forward layer states max {:.0}",
-        mean(|s| s.stage_b_ns as f64) / 1e6,
-        max(|s| s.stage_b_ns as f64) / 1e6,
-        mean(|s| s.back_nodes as f64),
-        max(|s| s.back_nodes as f64),
-        mean(|s| s.interval as f64),
-        max(|s| s.interval as f64),
-        max(|s| s.layer_states as f64),
-    );
-    let mut mult: Vec<f64> = t.samples.iter().map(|s| s.prob / s.walk_prob).collect();
-    mult.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    println!(
-        "  P(v) / walk probability: mean {:.2}, median {:.2}, max {:.1}; mean MD of accepted {:.1}",
-        mean(|s| s.prob / s.walk_prob),
-        mult[acc / 2],
-        mult[acc - 1],
-        mean(|s| s.md as f64)
-    );
-
-    let mut size = Accum::default();
-    for s in &t.samples {
-        size.add(1.0 / s.prob);
-    }
-    size.add_zeros(t.attempts - acc as u64);
-    let (sz, sz_half) = (size.mean(), Z95 * size.std_error());
-    let reference = reference_sphere_size(k).map_or(String::new(), |(r, src)| {
-        format!(
-            "; reference {r:.4e} ({src}): {:+.2}% = {:+.1} SE",
-            100.0 * (sz - r) / r,
-            (sz - r) / size.std_error()
-        )
-    });
-    println!(
-        "  |V_k| = {sz:.4e} ± {sz_half:.2e} ({:.2}%), ESS {:.0} of {acc}, largest weight {:.2}%{reference}",
-        100.0 * sz_half / sz,
-        size.effective_n(),
-        100.0 * size.max_share()
-    );
-
-    let thread_us_per_attempt = (t.stage_a_ns + stage_b_ns) as f64 / 1e3 / n;
-    for (wt, w) in weights {
-        let mut eta = Accum::default();
-        for s in &t.samples {
-            eta.add(w[s.blank as usize] * b.powi(-(s.md as i32)) / s.prob);
-        }
-        eta.add_zeros(t.attempts - acc as u64);
-        let value = eta.mean() / n_states;
-        let half = Z95 * eta.std_error() / n_states;
-        let rel = half / value;
-        println!(
-            "  eta_k MD {:<7} = {value:.4e} ± {half:.2e} ({:.2}%), ESS {:.0}, largest term {:.2}%",
-            wt.name(),
-            100.0 * rel,
-            eta.effective_n(),
-            100.0 * eta.max_share()
-        );
-        if *wt == Weighting::Uniform {
-            let need = n * (rel / target_rel).powi(2);
-            let thread_h = need * thread_us_per_attempt / 1e6 / 3600.0;
-            println!(
-                "  for ±{:.0}% on eta_k (uniform): ~{need:.3e} attempts, {:.3} ms thread time per attempt, ~{thread_h:.2} thread-hours (~{:.2} h on 12 threads)",
-                100.0 * target_rel,
-                thread_us_per_attempt / 1e3,
-                thread_h / 12.0
-            );
-        }
+    /// Incremental Korf-max heuristic over the four PDBs and their reflection.
+    fn inc(&self) -> ZpdbInc<'_, 4> {
+        let d = &self.dbs;
+        ZpdbInc::new([&d[0], &d[1], &d[2], &d[3]])
     }
 }
 
@@ -1228,7 +450,6 @@ struct SampleCampaign {
     max_thread_seconds: f64,
     window: u8,
     check_every: u32,
-    choice: Choice,
 }
 
 /// `campaign sample`: extend each stratum until its thread-time budget is met.
@@ -1238,23 +459,15 @@ fn run_sample(c: SampleCampaign, verifier: &Verifier) -> Result<(), String> {
         append_chunks, append_samples, chunks_path, meta_path, read_chunks, samples_path,
         write_or_check_meta, ChunkRecord, SampleRecord,
     };
-    let Verifier::Zpdb(dbs) = verifier else {
-        return Err("campaign sample needs --verifier zpdb".into());
-    };
     std::fs::create_dir_all(&c.dir).map_err(|e| e.to_string())?;
-    let walker = walker_for(c.window, true).with_choice(c.choice);
-    eprintln!(
-        "walker window={} choice={:?}: {} nodes",
-        c.window,
-        c.choice,
-        walker.node_count()
-    );
+    let walker = Walker::new(&LongMoveDfa::build(c.window));
+    eprintln!("walker window={}: {} nodes", c.window, walker.node_count());
     for k in c.k_min..=c.k_max {
         let settings: std::collections::BTreeMap<String, String> = [
             ("k", k.to_string()),
             ("window", c.window.to_string()),
             ("moribund", "true".to_string()),
-            ("choice", format!("{:?}", c.choice)),
+            ("choice", "Lookahead".to_string()),
             ("md_tilt", "0".to_string()),
             ("walker_version", WALKER_VERSION.to_string()),
         ]
@@ -1275,7 +488,7 @@ fn run_sample(c: SampleCampaign, verifier: &Verifier) -> Result<(), String> {
                 ..next_chunk + SAMPLE_ROUND_CHUNKS)
                 .into_par_iter()
                 .map(|chunk| {
-                    let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                    let inc = verifier.inc();
                     let mut rng = Rng::stream(c.seed, k as u64, chunk);
                     let mut path = Vec::with_capacity(k as usize);
                     let start = Instant::now();
@@ -1325,12 +538,10 @@ fn run_sample(c: SampleCampaign, verifier: &Verifier) -> Result<(), String> {
 /// Uniform draws per tail chunk.
 const TAIL_CHUNK: u64 = 1 << 16;
 
-/// Heuristics scored online by the tail sampler, in column order.
-const TAIL_HEURISTICS: [HeuristicArg; 2] = [HeuristicArg::Md, HeuristicArg::Wd];
-
-/// Accepted tail states with Manhattan distance at most this are also stored
-/// as boards, so other heuristics that dominate Manhattan distance can be
-/// scored later: every other accepted state then contributes at most b^−(this+1).
+/// Accepted tail states with Manhattan distance at most this are stored as
+/// boards, which is what scoring reads: every other accepted state has
+/// `h ≥ MD > this` for the heuristics scored here, so it contributes at most
+/// `b^−(this + 1)`.
 const TAIL_STORE_MAX_MD: u8 = 72;
 
 fn tail_chunks_path(dir: &Path, min_distance: u8) -> PathBuf {
@@ -1341,14 +552,12 @@ fn tail_samples_path(dir: &Path, min_distance: u8) -> PathBuf {
     dir.join(format!("tail_ge{min_distance}.samples"))
 }
 
-/// One tail chunk: attempts, accepted, thread ns, per-attempt sums of
-/// w(blank)·b^−h for each [`TAIL_HEURISTICS`] × weighting, and stored boards.
+/// One tail chunk: attempts, accepted, thread ns and the stored boards.
 struct TailChunk {
     chunk: u64,
     attempts: u64,
     accepted: u64,
     thread_ns: u64,
-    sums: [[f64; 3]; 2],
     stored: Vec<puzzle8::puzzle24::eta::samples::SampleRecord>,
 }
 
@@ -1363,15 +572,10 @@ fn run_tail(
     use puzzle8::puzzle24::eta::layers::pack;
     use puzzle8::puzzle24::eta::samples::{append_samples, SampleRecord};
     use std::io::Write;
-    let Verifier::Zpdb(dbs) = verifier else {
-        return Err("campaign tail needs --verifier zpdb".into());
-    };
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    for h in TAIL_HEURISTICS {
-        h.prepare();
-    }
-    let b = branching_factor();
-    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    // Walking distance only as an acceptance shortcut: it is often already at
+    // least min_distance, which skips the search.
+    HeuristicArg::Wd.prepare();
     let chunks_file = tail_chunks_path(dir, min_distance);
     let existing = read_tail_chunks(&chunks_file)?;
     let mut next_chunk = existing.iter().map(|c| c.chunk + 1).max().unwrap_or(0);
@@ -1383,7 +587,7 @@ fn run_tail(
         let round: Vec<TailChunk> = (next_chunk..next_chunk + SAMPLE_ROUND_CHUNKS)
             .into_par_iter()
             .map(|chunk| {
-                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                let inc = verifier.inc();
                 let mut rng = Rng::stream(seed, 1000 + min_distance as u64, chunk);
                 let start = Instant::now();
                 let mut t = TailChunk {
@@ -1391,28 +595,20 @@ fn run_tail(
                     attempts: TAIL_CHUNK,
                     accepted: 0,
                     thread_ns: 0,
-                    sums: [[0.0; 3]; 2],
                     stored: Vec::new(),
                 };
                 for _ in 0..TAIL_CHUNK {
                     let s = uniform_solvable(&mut rng);
-                    let hs = TAIL_HEURISTICS.map(|h| h.h(&s));
+                    let md = ManhattanHeuristic.h(&s);
                     // A uniform state has no parity tied to min_distance, so
                     // the proof must exhaust threshold min_distance − 1.
-                    let far = hs.iter().copied().max().unwrap() >= min_distance
+                    let far = md.max(WalkingDistanceHeuristic.h(&s)) >= min_distance
                         || at_least(&s, min_distance, &inc);
                     if !far {
                         continue;
                     }
                     t.accepted += 1;
-                    let blank = s.blank_pos() as usize;
-                    for (hi, &h) in hs.iter().enumerate() {
-                        let base = b.powi(-(h as i32));
-                        for w in 0..3 {
-                            t.sums[hi][w] += weights[w][blank] * base;
-                        }
-                    }
-                    if hs[0] <= TAIL_STORE_MAX_MD {
+                    if md <= TAIL_STORE_MAX_MD {
                         t.stored.push(SampleRecord {
                             board: pack(&s),
                             prob: 1.0,
@@ -1438,29 +634,17 @@ fn run_tail(
             .map_err(|e| e.to_string())?;
         let mut text = String::new();
         if fresh {
-            text.push_str("# seed\tchunk\tattempts\taccepted\tthread_ns\tstored");
-            for h in TAIL_HEURISTICS {
-                for w in Weighting::ALL {
-                    text.push_str(&format!("\t{}_{}", h.name(), w.name()));
-                }
-            }
-            text.push('\n');
+            text.push_str("# seed\tchunk\tattempts\taccepted\tthread_ns\tstored\n");
         }
         for t in &round {
             text.push_str(&format!(
-                "{seed}\t{}\t{}\t{}\t{}\t{}",
+                "{seed}\t{}\t{}\t{}\t{}\t{}\n",
                 t.chunk,
                 t.attempts,
                 t.accepted,
                 t.thread_ns,
                 t.stored.len()
             ));
-            for row in &t.sums {
-                for x in row {
-                    text.push_str(&format!("\t{x:.17e}"));
-                }
-            }
-            text.push('\n');
         }
         f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         spent_ns += round.iter().map(|t| t.thread_ns as u128).sum::<u128>();
@@ -1477,14 +661,14 @@ fn run_tail(
     Ok(())
 }
 
-/// A parsed tail chunk line.
+/// A parsed tail chunk line. Runs before the heuristic sums moved out of the
+/// file wrote six more columns; they are ignored.
 struct TailChunkRecord {
     chunk: u64,
     attempts: u64,
     accepted: u64,
     thread_ns: u64,
     stored: u64,
-    sums: [[f64; 3]; 2],
 }
 
 fn read_tail_chunks(path: &Path) -> Result<Vec<TailChunkRecord>, String> {
@@ -1499,20 +683,22 @@ fn read_tail_chunks(path: &Path) -> Result<Vec<TailChunkRecord>, String> {
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
     {
         let f: Vec<&str> = line.split('\t').collect();
-        if f.len() != 12 {
+        if f.len() != 6 && f.len() != 12 {
             break;
         }
-        let num = |i: usize| f[i].parse::<f64>();
-        let Ok(vals) = (6..12).map(num).collect::<Result<Vec<f64>, _>>() else {
+        let Ok(ints) = f[1..6]
+            .iter()
+            .map(|x| x.parse::<u64>())
+            .collect::<Result<Vec<_>, _>>()
+        else {
             break;
         };
         out.push(TailChunkRecord {
-            chunk: f[1].parse().map_err(|e| format!("{line}: {e}"))?,
-            attempts: f[2].parse().map_err(|e| format!("{line}: {e}"))?,
-            accepted: f[3].parse().map_err(|e| format!("{line}: {e}"))?,
-            thread_ns: f[4].parse().map_err(|e| format!("{line}: {e}"))?,
-            stored: f[5].parse().map_err(|e| format!("{line}: {e}"))?,
-            sums: [[vals[0], vals[1], vals[2]], [vals[3], vals[4], vals[5]]],
+            chunk: ints[0],
+            attempts: ints[1],
+            accepted: ints[2],
+            thread_ns: ints[3],
+            stored: ints[4],
         });
     }
     Ok(out)
@@ -1652,16 +838,13 @@ struct TailEstimate {
     eta: [(f64, f64); 3],
 }
 
-/// The uniform tail for `heuristic`: from `rescored` when given, otherwise
-/// from the sums the run recorded (for [`TAIL_HEURISTICS`] only).
+/// The uniform tail, scored from `rescored`'s stored boards.
 fn read_tail(
     dir: &Path,
     min_distance: u32,
-    heuristic: HeuristicArg,
     batches: usize,
-    rescored: Option<&RescoredTail>,
+    rescored: &RescoredTail,
 ) -> Result<Option<TailEstimate>, String> {
-    use puzzle8::puzzle24::eta::batch_means;
     let Ok(md) = u8::try_from(min_distance) else {
         return Ok(None);
     };
@@ -1669,17 +852,7 @@ fn read_tail(
     if chunks.is_empty() {
         return Ok(None);
     }
-    let eta = match (
-        rescored,
-        TAIL_HEURISTICS.iter().position(|&h| h == heuristic),
-    ) {
-        (Some(r), _) => r.eta(false, batches),
-        (None, Some(hi)) => [0, 1, 2].map(|w| {
-            let per: Vec<(u64, f64)> = chunks.iter().map(|c| (c.attempts, c.sums[hi][w])).collect();
-            batch_means(&per, batches)
-        }),
-        (None, None) => return Err(format!("tail was not rescored for {}", heuristic.name())),
-    };
+    let eta = rescored.eta(false, batches);
     Ok(Some(TailEstimate {
         attempts: chunks.iter().map(|c| c.attempts).sum(),
         accepted: chunks.iter().map(|c| c.accepted).sum(),
@@ -1703,10 +876,10 @@ fn tail_md_path(dir: &Path, min_distance: u8, ext: &str) -> PathBuf {
     dir.join(format!("tail_md_ge{min_distance}.{ext}"))
 }
 
-/// Draws at one Manhattan level. `sums` and `squares` hold Σx and Σx² of
-/// x = 1[solvable, d ≥ L]·w(blank)·b^−h over all draws (unsolvable draws are
-/// zeros), per [`TAIL_HEURISTICS`] × weighting. `count` is the level's
-/// placement count, so the level contributes count/|V| · mean x to eta.
+/// Draws at one Manhattan level: how many were drawn, were solvable, and were
+/// proven at least `L` from GOAL (the hits, every one of them stored as a
+/// board). `count` is the level's placement count, so a per-draw mean `x`
+/// scales to `count/|V| · x` in eta.
 #[derive(Clone, Default)]
 struct LevelTally {
     count: f64,
@@ -1715,8 +888,6 @@ struct LevelTally {
     solvable: u64,
     hits: u64,
     thread_ns: u64,
-    sums: [[f64; 3]; 2],
-    squares: [[f64; 3]; 2],
 }
 
 impl LevelTally {
@@ -1726,29 +897,23 @@ impl LevelTally {
         self.solvable += o.solvable;
         self.hits += o.hits;
         self.thread_ns += o.thread_ns;
-        for hi in 0..2 {
-            for w in 0..3 {
-                self.sums[hi][w] += o.sums[hi][w];
-                self.squares[hi][w] += o.squares[hi][w];
-            }
-        }
     }
 
-    /// (contribution to eta, standard error) for heuristic column `hi` and
-    /// weighting `w`.
-    fn eta(&self, hi: usize, w: usize) -> (f64, f64) {
-        if self.draws == 0 {
+    /// The level's share of eta with every hit worth `value`, as
+    /// (contribution, standard error): the hit rate is a per-draw Bernoulli.
+    /// Used for Manhattan distance, where `value = b^−m` is the same for every
+    /// hit; other heuristics score their stored hit boards ([`LevelMoments`]).
+    fn eta_at(&self, value: f64) -> (f64, f64) {
+        if self.draws < 2 {
             return (0.0, 0.0);
         }
         let n = self.draws as f64;
+        let p = self.hits as f64 / n;
         let scale = self.count / N_STATES as f64;
-        let mean = self.sums[hi][w] / n;
-        let var = if self.draws > 1 {
-            (self.squares[hi][w] / n - mean * mean).max(0.0) * n / (n - 1.0)
-        } else {
-            0.0
-        };
-        (scale * mean, scale * (var / n).sqrt())
+        (
+            scale * p * value,
+            scale * value * (p * (1.0 - p) / (n - 1.0)).sqrt(),
+        )
     }
 }
 
@@ -1775,12 +940,14 @@ fn read_tail_md_chunk_lines(path: &Path) -> Result<Vec<(u8, u64, LevelTally)>, S
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
     {
+        // Runs before the heuristic sums moved out of the file wrote twelve
+        // more columns; they are ignored.
         let f: Vec<&str> = line.split('\t').collect();
-        if f.len() != 20 {
+        if f.len() != 8 && f.len() != 20 {
             break;
         }
         let ints: Result<Vec<u64>, _> = f[1..7].iter().map(|x| x.parse::<u64>()).collect();
-        let floats: Result<Vec<f64>, _> = f[7..20].iter().map(|x| x.parse::<f64>()).collect();
+        let floats: Result<Vec<f64>, _> = f[7..8].iter().map(|x| x.parse::<f64>()).collect();
         let (Ok(ints), Ok(floats)) = (ints, floats) else {
             break;
         };
@@ -1792,14 +959,6 @@ fn read_tail_md_chunk_lines(path: &Path) -> Result<Vec<(u8, u64, LevelTally)>, S
             solvable: ints[3],
             hits: ints[4],
             thread_ns: ints[5],
-            sums: [
-                [floats[1], floats[2], floats[3]],
-                [floats[4], floats[5], floats[6]],
-            ],
-            squares: [
-                [floats[7], floats[8], floats[9]],
-                [floats[10], floats[11], floats[12]],
-            ],
         };
         out.push((m, ints[1], chunk));
     }
@@ -1808,10 +967,12 @@ fn read_tail_md_chunk_lines(path: &Path) -> Result<Vec<(u8, u64, LevelTally)>, S
 
 /// Next round's chunks as (level, draws). Levels below their pilot draws come
 /// first. After that, draws go toward the Neyman allocation n_m ∝ σ_m/√c_m
-/// (c_m thread ns per draw) for the thread time spent after this round, where
-/// σ_m² sums the level's per-draw variance relative to the current tail total
-/// over Manhattan and walking distance. A level's σ is at least that of one
-/// hit in its next draw, so levels without hits keep being sampled.
+/// (c_m thread ns per draw) for the thread time spent after this round, with
+/// σ_m the level's per-draw standard deviation of its Manhattan-distance
+/// share of the tail, relative to the current total. A level's σ is at least
+/// that of one hit in its next draw, so levels without hits keep being
+/// sampled. Heuristics other than Manhattan distance are scored from the
+/// stored hit boards afterwards, and gain from the same draws.
 fn allocate_tail_md(levels: &BTreeMap<u8, LevelTally>, b: f64) -> Vec<(u8, u64)> {
     let round = SAMPLE_ROUND_CHUNKS as usize;
     let mut out: Vec<(u8, u64)> = levels
@@ -1823,20 +984,24 @@ fn allocate_tail_md(levels: &BTreeMap<u8, LevelTally>, b: f64) -> Vec<(u8, u64)>
     if !out.is_empty() {
         return out;
     }
-    let totals = [0, 1].map(|hi| levels.values().map(|t| t.eta(hi, 0).0).sum::<f64>());
+    let total: f64 = levels
+        .iter()
+        .map(|(&m, t)| t.eta_at(b.powi(-(m as i32))).0)
+        .sum();
     // (level, σ, thread ns per draw, draws so far)
     let stats: Vec<(u8, f64, f64, u64)> = levels
         .iter()
         .filter(|(_, t)| t.count > 0.0)
         .map(|(&m, t)| {
             let n = t.draws as f64;
-            let one_hit = t.count / N_STATES as f64 * b.powi(-(m as i32)) / (n + 1.0).sqrt();
-            let var: f64 = [0, 1]
-                .iter()
-                .filter(|&&hi| totals[hi] > 0.0)
-                .map(|&hi| ((t.eta(hi, 0).1 * n.sqrt()).max(one_hit) / totals[hi]).powi(2))
-                .sum();
-            (m, var.sqrt(), t.thread_ns as f64 / n, t.draws)
+            let value = b.powi(-(m as i32));
+            let one_hit = t.count / N_STATES as f64 * value / (n + 1.0).sqrt();
+            let sd = if total > 0.0 {
+                (t.eta_at(value).1 * n.sqrt()).max(one_hit) / total
+            } else {
+                0.0
+            };
+            (m, sd, t.thread_ns as f64 / n, t.draws)
         })
         .collect();
     let spent: f64 = levels.values().map(|t| t.thread_ns as f64).sum();
@@ -1890,9 +1055,6 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
     use puzzle8::puzzle24::eta::md_levels::MdLevels;
     use puzzle8::puzzle24::eta::samples::{append_samples, write_or_check_meta, SampleRecord};
     use std::io::Write;
-    let Verifier::Zpdb(dbs) = verifier else {
-        return Err("campaign tail-md needs --verifier zpdb".into());
-    };
     let (dir, l) = (c.dir.as_path(), c.min_distance);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let settings: BTreeMap<String, String> = [
@@ -1905,9 +1067,6 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
     .map(|(k, v)| (k.to_string(), v))
     .collect();
     write_or_check_meta(&tail_md_path(dir, l, "meta"), &settings).map_err(|e| e.to_string())?;
-    for h in TAIL_HEURISTICS {
-        h.prepare();
-    }
     let t_build = Instant::now();
     let table = MdLevels::build(c.md_max);
     eprintln!(
@@ -1917,7 +1076,6 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
         t_build.elapsed()
     );
     let b = branching_factor();
-    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
     let chunks_file = tail_md_path(dir, l, "tsv");
     let mut levels = read_tail_md_chunks(&chunks_file)?;
     for m in 0..=c.md_max {
@@ -1951,7 +1109,7 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
         let results: Vec<(u8, u64, LevelTally, Vec<SampleRecord>)> = jobs
             .into_par_iter()
             .map(|(m, chunk, draws)| {
-                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                let inc = verifier.inc();
                 let stream = (1 << 20) | (l as u64) << 8 | m as u64;
                 let mut rng = Rng::stream(c.seed, stream, chunk);
                 let start = Instant::now();
@@ -1968,21 +1126,10 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
                         continue;
                     }
                     t.solvable += 1;
-                    let hs = TAIL_HEURISTICS.map(|h| h.h(&s));
-                    let far = hs.iter().copied().max().unwrap() >= l || at_least(&s, l, &inc);
-                    if !far {
+                    if !at_least(&s, l, &inc) {
                         continue;
                     }
                     t.hits += 1;
-                    let blank = s.blank_pos() as usize;
-                    for (hi, &h) in hs.iter().enumerate() {
-                        let base = b.powi(-(h as i32));
-                        for w in 0..3 {
-                            let x = weights[w][blank] * base;
-                            t.sums[hi][w] += x;
-                            t.squares[hi][w] += x * x;
-                        }
-                    }
                     hits.push(SampleRecord {
                         board: pack(&s),
                         prob: 1.0,
@@ -1998,29 +1145,13 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
         let fresh = !chunks_file.exists();
         let mut text = String::new();
         if fresh {
-            text.push_str("# seed\tm\tchunk\tdraws\tsolvable\thits\tthread_ns\tcount");
-            for kind in ["sum", "sq"] {
-                for h in TAIL_HEURISTICS {
-                    for w in Weighting::ALL {
-                        text.push_str(&format!("\t{kind}_{}_{}", h.name(), w.name()));
-                    }
-                }
-            }
-            text.push('\n');
+            text.push_str("# seed\tm\tchunk\tdraws\tsolvable\thits\tthread_ns\tcount\n");
         }
         for (m, chunk, t, _) in &results {
             text.push_str(&format!(
-                "{}\t{m}\t{chunk}\t{}\t{}\t{}\t{}\t{:.17e}",
+                "{}\t{m}\t{chunk}\t{}\t{}\t{}\t{}\t{:.17e}\n",
                 c.seed, t.draws, t.solvable, t.hits, t.thread_ns, t.count
             ));
-            for table in [&t.sums, &t.squares] {
-                for row in table {
-                    for x in row {
-                        text.push_str(&format!("\t{x:.17e}"));
-                    }
-                }
-            }
-            text.push('\n');
         }
         std::fs::OpenOptions::new()
             .create(true)
@@ -2032,24 +1163,16 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
             levels.get_mut(m).expect("level exists").merge(t);
         }
         let spent: f64 = levels.values().map(|t| t.thread_ns as f64).sum();
-        let summary = [0, 1].map(|hi| {
-            let (sum, var) = levels.values().fold((0.0, 0.0), |(s, v), t| {
-                let (e, se) = t.eta(hi, 0);
-                (s + e, v + se * se)
-            });
-            format!(
-                "{} {sum:.4e} ± {:.1}%",
-                TAIL_HEURISTICS[hi].name(),
-                100.0 * Z95 * var.sqrt() / sum
-            )
+        let (sum, var) = levels.iter().fold((0.0, 0.0), |(s, v), (&m, t)| {
+            let (e, se) = t.eta_at(b.powi(-(m as i32)));
+            (s + e, v + se * se)
         });
         eprintln!(
-            "tail-md >= {l}: {} chunks, {} hits this round; levels 0..={} {}, {}; {:.0} of {:.0} thread-s; wall {:.0}s",
+            "tail-md >= {l}: {} chunks, {} hits this round; levels 0..={} md {sum:.4e} ± {:.1}%; {:.0} of {:.0} thread-s; wall {:.0}s",
             results.len(),
             hits.len(),
             c.md_max,
-            summary[0],
-            summary[1],
+            100.0 * Z95 * var.sqrt() / sum,
             spent / 1e9,
             budget_ns / 1e9,
             t0.elapsed().as_secs_f64()
@@ -2062,12 +1185,25 @@ fn run_tail_md(c: TailMdCampaign, verifier: &Verifier) -> Result<(), String> {
 /// uniform tail restricted to m > md_max.
 struct TailMdEstimate {
     md_max: u8,
-    /// The heuristic's column in [`TAIL_HEURISTICS`].
-    column: usize,
-    levels: BTreeMap<u8, LevelTally>,
+    /// Per level: its draws, and the moments of the scored heuristic over them
+    /// (hits contribute w(blank)·b^−h, other draws zero).
+    levels: BTreeMap<u8, (LevelTally, Moments)>,
     /// (mean, batch SE) per weighting of the uniform tail's draws with Manhattan
     /// distance above md_max, when a uniform tail is present.
     rest: Option<[(f64, f64); 3]>,
+}
+
+impl TailMdEstimate {
+    /// (contribution to eta, standard error) of one level under weighting `w`.
+    fn eta(&self, level: &(LevelTally, Moments), w: usize) -> (f64, f64) {
+        let (tally, moments) = level;
+        if moments.draws < 2 {
+            return (0.0, 0.0);
+        }
+        let scale = tally.count / N_STATES as f64;
+        let (mean, se) = moments.mean(w);
+        (scale * mean, scale * se)
+    }
 }
 
 /// Manhattan-distance cap of a level-stratified tail campaign, if one exists.
@@ -2084,125 +1220,85 @@ fn tail_md_max(dir: &Path, min_distance: u8) -> Result<Option<u8>, String> {
         .ok_or_else(|| format!("{}: no md_max", meta_path.display()))
 }
 
-/// The level-stratified tail for `heuristic`. With `rescored`, the level part
-/// is rescored from the stored hit boards (every hit is stored) into column 0
-/// and the part above md_max comes from `rescored`, split at md_max; without
-/// it, the sums the runs recorded are used ([`TAIL_HEURISTICS`] only).
+/// The level-stratified tail for `heuristic`: each level's stored hit boards
+/// scored (every hit is stored), and the part above md_max from `rescored`,
+/// which must be split at md_max.
 fn read_tail_md(
     dir: &Path,
     min_distance: u32,
     heuristic: HeuristicArg,
     batches: usize,
-    rescored: Option<&RescoredTail>,
+    rescored: &RescoredTail,
 ) -> Result<Option<TailMdEstimate>, String> {
-    use puzzle8::puzzle24::eta::samples::{for_each_sample, read_samples};
-    use puzzle8::puzzle24::eta::{batch_means, unpack};
+    use puzzle8::puzzle24::eta::samples::read_samples;
+    use puzzle8::puzzle24::eta::unpack;
     let Ok(l) = u8::try_from(min_distance) else {
         return Ok(None);
     };
-    let mut levels = read_tail_md_chunks(&tail_md_path(dir, l, "tsv"))?;
-    if levels.is_empty() {
+    let tallies = read_tail_md_chunks(&tail_md_path(dir, l, "tsv"))?;
+    if tallies.is_empty() {
         return Ok(None);
     }
     let md_max = tail_md_max(dir, l)?.ok_or("level tail without its meta file")?;
-    let recorded = match rescored {
-        Some(_) => None,
-        None => TAIL_HEURISTICS.iter().position(|&h| h == heuristic),
-    };
-    let Some(hi) = recorded else {
-        let rescored =
-            rescored.ok_or_else(|| format!("tail was not rescored for {}", heuristic.name()))?;
-        if rescored.split != md_max {
-            return Err(format!(
-                "uniform tail rescored at MD {} but the levels end at {md_max}",
-                rescored.split
-            ));
-        }
-        let lines: std::collections::BTreeSet<(u8, u64)> =
-            read_tail_md_chunk_lines(&tail_md_path(dir, l, "tsv"))?
-                .into_iter()
-                .map(|(m, chunk, _)| (m, chunk))
-                .collect();
-        let b = branching_factor();
-        let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
-        for level in levels.values_mut() {
-            level.sums[0] = [0.0; 3];
-            level.squares[0] = [0.0; 3];
-        }
-        let hits_path = tail_md_path(dir, l, "hits");
-        let hits = read_samples(&hits_path).map_err(|e| format!("{}: {e}", hits_path.display()))?;
-        let scored: Vec<(u8, u64, usize, u8)> = hits
-            .par_iter()
-            .map(|r| {
-                let s = unpack(r.board);
+    if rescored.split != md_max {
+        return Err(format!(
+            "uniform tail rescored at MD {} but the levels end at {md_max}",
+            rescored.split
+        ));
+    }
+    let lines: std::collections::BTreeSet<(u8, u64)> =
+        read_tail_md_chunk_lines(&tail_md_path(dir, l, "tsv"))?
+            .into_iter()
+            .map(|(m, chunk, _)| (m, chunk))
+            .collect();
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let mut levels: BTreeMap<u8, (LevelTally, Moments)> = tallies
+        .into_iter()
+        .map(|(m, t)| {
+            let draws = t.draws;
+            (
+                m,
                 (
-                    ManhattanHeuristic.h(&s),
-                    r.chunk as u64,
-                    s.blank_pos() as usize,
-                    heuristic.h(&s),
-                )
-            })
-            .collect();
-        for (m, chunk, blank, h) in scored {
-            if !lines.contains(&(m, chunk)) {
-                continue;
-            }
-            let level = levels.get_mut(&m).expect("a hit's level has chunk lines");
-            let base = b.powi(-(h as i32));
-            for w in 0..3 {
-                let x = weights[w][blank] * base;
-                level.sums[0][w] += x;
-                level.squares[0][w] += x * x;
-            }
-        }
-        return Ok(Some(TailMdEstimate {
-            md_max,
-            column: 0,
-            levels,
-            rest: Some(rescored.eta(true, batches)),
-        }));
-    };
-    let uniform = read_tail_chunks(&tail_chunks_path(dir, l))?;
-    let rest = if uniform.is_empty() {
-        None
-    } else {
-        if md_max > TAIL_STORE_MAX_MD {
-            return Err(format!(
-                "md_max {md_max} is above the uniform tail's stored boards (MD <= {TAIL_STORE_MAX_MD})"
-            ));
-        }
-        let b = branching_factor();
-        let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
-        let mut per_chunk: BTreeMap<u64, (u64, [f64; 3])> = uniform
-            .iter()
-            .map(|c| (c.chunk, (c.attempts, c.sums[hi])))
-            .collect();
-        let path = tail_samples_path(dir, l);
-        for_each_sample(&path, |r| {
-            let s = unpack(r.board);
-            if ManhattanHeuristic.h(&s) > md_max {
-                return;
-            }
-            let Some(entry) = per_chunk.get_mut(&(r.chunk as u64)) else {
-                return;
-            };
-            let base = b.powi(-(heuristic.h(&s) as i32));
-            let blank = s.blank_pos() as usize;
-            for w in 0..3 {
-                entry.1[w] -= weights[w][blank] * base;
-            }
+                    t,
+                    Moments {
+                        draws,
+                        ..Moments::default()
+                    },
+                ),
+            )
         })
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-        Some([0, 1, 2].map(|w| {
-            let per: Vec<(u64, f64)> = per_chunk.values().map(|v| (v.0, v.1[w])).collect();
-            batch_means(&per, batches)
-        }))
-    };
+        .collect();
+    let hits_path = tail_md_path(dir, l, "hits");
+    let hits = read_samples(&hits_path).map_err(|e| format!("{}: {e}", hits_path.display()))?;
+    let scored: Vec<(u8, u64, usize, u8)> = hits
+        .par_iter()
+        .map(|r| {
+            let s = unpack(r.board);
+            (
+                ManhattanHeuristic.h(&s),
+                r.chunk as u64,
+                s.blank_pos() as usize,
+                heuristic.h(&s),
+            )
+        })
+        .collect();
+    for (m, chunk, blank, h) in scored {
+        if !lines.contains(&(m, chunk)) {
+            continue;
+        }
+        let (_, moments) = levels.get_mut(&m).expect("a hit's level has chunk lines");
+        let base = b.powi(-(h as i32));
+        for w in 0..3 {
+            let x = weights[w][blank] * base;
+            moments.sums[w] += x;
+            moments.squares[w] += x * x;
+        }
+    }
     Ok(Some(TailMdEstimate {
         md_max,
-        column: hi,
         levels,
-        rest,
+        rest: Some(rescored.eta(true, batches)),
     }))
 }
 
@@ -2295,19 +1391,14 @@ fn run_total(
     if level_draws < 2 || uniform_draws < 2 {
         return Err("campaign total needs at least 2 draws per stratum".into());
     }
-    let dbs: &[ZPatternDb] = match verifier {
-        Some(Verifier::Zpdb(dbs)) => dbs,
-        Some(_) => return Err("campaign total needs --verifier zpdb for a distance band".into()),
-        None => &[],
-    };
     if band.1.is_some_and(|hi| hi == u8::MAX) {
         return Err("--distance-max must be below 255".into());
     }
     let in_band = |s: &State| -> bool {
-        if band == (0, None) {
+        let Some(verifier) = verifier else {
             return true;
-        }
-        let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+        };
+        let inc = verifier.inc();
         at_least(s, band.0, &inc) && band.1.is_none_or(|hi| !at_least(s, hi + 1, &inc))
     };
     let t0 = Instant::now();
@@ -2444,16 +1535,22 @@ fn run_total(
 }
 
 fn report_tail_md_levels(t: &TailMdEstimate, min_distance: u32) {
-    let total: f64 = t.levels.values().map(|x| x.eta(t.column, 0).0).sum();
-    let draws: u64 = t.levels.values().map(|x| x.draws).sum();
-    let thread_s: f64 = t.levels.values().map(|x| x.thread_ns as f64).sum::<f64>() / 1e9;
+    let total: f64 = t.levels.values().map(|x| t.eta(x, 0).0).sum();
+    let draws: u64 = t.levels.values().map(|(x, _)| x.draws).sum();
+    let thread_s: f64 = t
+        .levels
+        .values()
+        .map(|(x, _)| x.thread_ns as f64)
+        .sum::<f64>()
+        / 1e9;
     println!(
         "# level-stratified tail d >= {min_distance}, Manhattan levels 0..={}: {draws} draws, {thread_s:.0} thread-s",
         t.md_max
     );
     println!("#  m   count/|V|    draws  solvable     hits  hit rate  thread-s   eta_m uniform ± 95%     share");
-    for (m, x) in &t.levels {
-        let (e, se) = x.eta(t.column, 0);
+    for (m, level) in &t.levels {
+        let (e, se) = t.eta(level, 0);
+        let x = &level.0;
         println!(
             "  {m:>2}  {:.4e} {:>8} {:>9} {:>8}  {:>8.4} {:>9.0}   {e:.4e} ± {:>6}  {:>5.1}%",
             x.count / N_STATES as f64,
@@ -2492,7 +1589,6 @@ fn run_score(
     heuristic: HeuristicArg,
     batches: usize,
     published: Option<&Path>,
-    rescore_tail: bool,
     rescore_stride: (u8, u64),
 ) -> Result<(), String> {
     use puzzle8::puzzle24::eta::samples::{chunks_path, read_chunks, read_samples, samples_path};
@@ -2642,16 +1738,19 @@ fn run_score(
         }
     );
     let rescored = match u8::try_from(k_max + 1) {
-        Ok(l) if rescore_tail || !TAIL_HEURISTICS.contains(&heuristic) => rescore_uniform_tail(
+        Ok(l) => rescore_uniform_tail(
             dir,
             l,
             heuristic,
             tail_md_max(dir, l)?.unwrap_or(0),
             rescore_stride,
         )?,
-        _ => None,
+        Err(_) => None,
     };
-    let tail = read_tail(dir, k_max + 1, heuristic, batches, rescored.as_ref())?;
+    let tail = match &rescored {
+        Some(r) => read_tail(dir, k_max + 1, batches, r)?,
+        None => None,
+    };
     if let Some(t) = &tail {
         println!(
             "# sampled tail d >= {}: {} uniform draws, {} accepted, {:.0} thread-s",
@@ -2668,7 +1767,10 @@ fn run_score(
             r.unstored_bound()
         );
     }
-    let tail_md = read_tail_md(dir, k_max + 1, heuristic, batches, rescored.as_ref())?;
+    let tail_md = match &rescored {
+        Some(r) => read_tail_md(dir, k_max + 1, heuristic, batches, r)?,
+        None => None,
+    };
     if let Some(t) = &tail_md {
         report_tail_md_levels(t, k_max + 1);
     }
@@ -2714,8 +1816,8 @@ fn run_score(
         }
         println!("{line}");
         if let Some(t) = &tail_md {
-            let (lm, lvar) = t.levels.values().fold((0.0, 0.0), |(s, v), level| {
-                let (e, e_se) = level.eta(t.column, w);
+            let (lm, lvar) = t.levels.values().fold((0.0f64, 0.0f64), |(s, v), level| {
+                let (e, e_se) = t.eta(level, w);
                 (s + e, v + e_se * e_se)
             });
             let mut line = format!(
@@ -2825,71 +1927,6 @@ fn run_score(
 fn main() -> ExitCode {
     let args = Args::parse();
     let result = match args.cmd {
-        Cmd::Yield {
-            k_min,
-            k_max,
-            k_step,
-            attempts,
-            seed,
-            moribund,
-            check_every,
-            window,
-            verifier,
-        } => Verifier::load(&verifier).map(|v| {
-            run_yield(
-                YieldRun {
-                    k_min,
-                    k_max,
-                    k_step,
-                    attempts,
-                    seed,
-                    moribund,
-                    check_every,
-                    window,
-                },
-                &v,
-            )
-        }),
-        Cmd::Probe {
-            k,
-            attempts,
-            seed,
-            check_every,
-            window,
-            moribund,
-            target_rel,
-            diagnose,
-            choice,
-            md_tilt,
-            md_tilt_last,
-            verifier,
-        } => {
-            let moribund = match moribund {
-                MoribundArg::On => Ok(true),
-                MoribundArg::Off => Ok(false),
-                MoribundArg::Both => Err("probe takes --moribund on or off".to_string()),
-            };
-            moribund.and_then(|moribund| {
-                Verifier::load(&verifier).and_then(|v| {
-                    run_probe(
-                        ProbeRun {
-                            k,
-                            attempts,
-                            seed,
-                            check_every,
-                            window,
-                            moribund,
-                            target_rel,
-                            diagnose,
-                            choice: choice.into(),
-                            md_tilt,
-                            md_tilt_last,
-                        },
-                        &v,
-                    )
-                })
-            })
-        }
         Cmd::Campaign(Campaign::Layers {
             max_k,
             dir,
@@ -2967,7 +2004,6 @@ fn main() -> ExitCode {
             max_thread_seconds,
             window,
             check_every,
-            choice,
             verifier,
         }) => Verifier::load(&verifier).and_then(|v| {
             run_sample(
@@ -2981,7 +2017,6 @@ fn main() -> ExitCode {
                     max_thread_seconds,
                     window,
                     check_every,
-                    choice: choice.into(),
                 },
                 &v,
             )
@@ -2991,7 +2026,6 @@ fn main() -> ExitCode {
             heuristic,
             batches,
             published_histogram,
-            rescore_tail,
             rescore_full_md,
             rescore_stride,
         }) => run_score(
@@ -2999,7 +2033,6 @@ fn main() -> ExitCode {
             heuristic,
             batches,
             published_histogram.as_deref(),
-            rescore_tail,
             (rescore_full_md, rescore_stride),
         ),
     };
