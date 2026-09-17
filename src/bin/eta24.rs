@@ -329,6 +329,11 @@ enum Campaign {
         /// value used; e.g. records/eta24_fig53_digitized.tsv).
         #[arg(long, value_name = "PATH")]
         published_histogram: Option<PathBuf>,
+        /// Score the tails from stored boards even for a heuristic the tail
+        /// runs recorded sums for (a check that the stored boards reproduce
+        /// them); other heuristics are always rescored.
+        #[arg(long)]
+        rescore_tail: bool,
     },
 }
 
@@ -339,6 +344,30 @@ enum HeuristicArg {
     Md,
     /// Walking distance (row WD + column WD, data/wd24.bin).
     Wd,
+    /// The solver's cWD (data/cwd_mm.bin).
+    Cwd,
+    /// The solver's `--lm2` value, max(cWD, last-two-moves branches)
+    /// (adds data/cwd_lm_mm.bin).
+    Lm2,
+    /// The solver's `--clm2` value, max(LM2, single-demanded-line joint value)
+    /// (adds data/cwd_lm1l_mm.bin).
+    Clm2,
+}
+
+/// Tables of the solver's walking-distance tiers, loaded once per process by
+/// [`HeuristicArg::prepare`] for the first tier heuristic prepared.
+struct TierTables {
+    cwd: Cwd,
+    lm: Option<puzzle8::puzzle24::search::cwd_lm::CwdLmMm>,
+    lm1l: Option<puzzle8::puzzle24::search::cwd_lm1l::CwdLm1lMm>,
+}
+
+static TIER_TABLES: std::sync::OnceLock<TierTables> = std::sync::OnceLock::new();
+
+thread_local! {
+    /// Per-thread evaluator over [`TIER_TABLES`] (it holds front caches).
+    static TIER_EVAL: std::cell::RefCell<Option<engine::TierEval<'static>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 impl HeuristicArg {
@@ -346,13 +375,39 @@ impl HeuristicArg {
         match self {
             HeuristicArg::Md => "md",
             HeuristicArg::Wd => "wd",
+            HeuristicArg::Cwd => "cwd",
+            HeuristicArg::Lm2 => "lm2",
+            HeuristicArg::Clm2 => "clm2",
         }
     }
 
     /// Load any tables the heuristic needs before parallel evaluation.
     fn prepare(self) {
-        if self == HeuristicArg::Wd {
-            WalkingDistanceHeuristic::warm_up_verbose();
+        use puzzle8::puzzle24::search::{cwd_lm::CwdLmMm, cwd_lm1l::CwdLm1lMm};
+        let load = |path: &'static str| -> &'static Path {
+            eprintln!("{}: mapping {path}", self.name());
+            Path::new(path)
+        };
+        match self {
+            HeuristicArg::Md => {}
+            HeuristicArg::Wd => WalkingDistanceHeuristic::warm_up_verbose(),
+            HeuristicArg::Cwd | HeuristicArg::Lm2 | HeuristicArg::Clm2 => {
+                TIER_TABLES.get_or_init(|| {
+                    let t0 = Instant::now();
+                    let tables = TierTables {
+                        cwd: Cwd::mm_only(load("data/cwd_mm.bin")).expect("data/cwd_mm.bin"),
+                        lm: (self != HeuristicArg::Cwd).then(|| {
+                            CwdLmMm::load(load("data/cwd_lm_mm.bin")).expect("data/cwd_lm_mm.bin")
+                        }),
+                        lm1l: (self == HeuristicArg::Clm2).then(|| {
+                            CwdLm1lMm::load(load("data/cwd_lm1l_mm.bin"))
+                                .expect("data/cwd_lm1l_mm.bin")
+                        }),
+                    };
+                    eprintln!("{}: tables ready in {:.1?}", self.name(), t0.elapsed());
+                    tables
+                });
+            }
         }
     }
 
@@ -360,6 +415,23 @@ impl HeuristicArg {
         match self {
             HeuristicArg::Md => ManhattanHeuristic.h(s),
             HeuristicArg::Wd => WalkingDistanceHeuristic.h(s),
+            HeuristicArg::Cwd | HeuristicArg::Lm2 | HeuristicArg::Clm2 => TIER_EVAL.with(|cell| {
+                let mut slot = cell.borrow_mut();
+                let ev = slot.get_or_insert_with(|| {
+                    let t = TIER_TABLES
+                        .get()
+                        .expect("tier heuristic evaluated before prepare()");
+                    engine::TierEval::new(&t.cwd, t.lm.as_ref(), t.lm1l.as_ref())
+                });
+                let v = ev.eval(s);
+                let missing =
+                    || -> u8 { panic!("{} needs tables this process did not load", self.name()) };
+                match self {
+                    HeuristicArg::Cwd => v.cwd,
+                    HeuristicArg::Lm2 => v.lm2.unwrap_or_else(missing),
+                    _ => v.clm2.unwrap_or_else(missing),
+                }
+            }),
         }
     }
 
@@ -367,7 +439,7 @@ impl HeuristicArg {
     fn exact_total(self) -> Option<[f64; 3]> {
         match self {
             HeuristicArg::Md => Some(EXACT_MD_ETA),
-            HeuristicArg::Wd => None,
+            _ => None,
         }
     }
 }
@@ -1377,6 +1449,7 @@ struct TailChunkRecord {
     attempts: u64,
     accepted: u64,
     thread_ns: u64,
+    stored: u64,
     sums: [[f64; 3]; 2],
 }
 
@@ -1404,10 +1477,123 @@ fn read_tail_chunks(path: &Path) -> Result<Vec<TailChunkRecord>, String> {
             attempts: f[2].parse().map_err(|e| format!("{line}: {e}"))?,
             accepted: f[3].parse().map_err(|e| format!("{line}: {e}"))?,
             thread_ns: f[4].parse().map_err(|e| format!("{line}: {e}"))?,
+            stored: f[5].parse().map_err(|e| format!("{line}: {e}"))?,
             sums: [[vals[0], vals[1], vals[2]], [vals[3], vals[4], vals[5]]],
         });
     }
     Ok(out)
+}
+
+/// A uniform tail run rescored for a heuristic it was not scored with, from
+/// its stored boards (Manhattan distance <= [`TAIL_STORE_MAX_MD`]): per chunk,
+/// Σ w(blank)·b^−h over stored boards with Manhattan distance <= `split` and
+/// above it.
+struct RescoredTail {
+    split: u8,
+    /// chunk → (attempts, accepted − stored, sums at MD <= split, sums above).
+    chunks: BTreeMap<u64, (u64, u64, [f64; 3], [f64; 3])>,
+}
+
+impl RescoredTail {
+    /// Upper bound on the part of eta from accepted boards that were not
+    /// stored: each has Manhattan distance above [`TAIL_STORE_MAX_MD`], so for
+    /// a heuristic at least Manhattan distance it contributes at most
+    /// max w · b^−(TAIL_STORE_MAX_MD + 1).
+    fn unstored_bound(&self) -> f64 {
+        let w_max = Weighting::ALL
+            .iter()
+            .flat_map(|&w| blank_weights(w))
+            .fold(0.0f64, f64::max);
+        let attempts: u64 = self.chunks.values().map(|c| c.0).sum();
+        let unstored: u64 = self.chunks.values().map(|c| c.1).sum();
+        unstored as f64 * w_max * branching_factor().powi(-(TAIL_STORE_MAX_MD as i32 + 1))
+            / attempts as f64
+    }
+
+    /// (mean, batch SE) per weighting over the chosen side of the split.
+    fn eta(&self, above_only: bool, batches: usize) -> [(f64, f64); 3] {
+        use puzzle8::puzzle24::eta::batch_means;
+        [0, 1, 2].map(|w| {
+            let per: Vec<(u64, f64)> = self
+                .chunks
+                .values()
+                .map(|c| (c.0, if above_only { c.3[w] } else { c.2[w] + c.3[w] }))
+                .collect();
+            batch_means(&per, batches)
+        })
+    }
+}
+
+/// Rescore the uniform tail run for `heuristic`, or `None` without one.
+fn rescore_uniform_tail(
+    dir: &Path,
+    min_distance: u8,
+    heuristic: HeuristicArg,
+    split: u8,
+) -> Result<Option<RescoredTail>, String> {
+    use puzzle8::puzzle24::eta::samples::{for_each_sample, SampleRecord};
+    use puzzle8::puzzle24::eta::unpack;
+    let uniform = read_tail_chunks(&tail_chunks_path(dir, min_distance))?;
+    if uniform.is_empty() {
+        return Ok(None);
+    }
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let mut chunks: BTreeMap<u64, (u64, u64, [f64; 3], [f64; 3])> = uniform
+        .iter()
+        .map(|c| {
+            (
+                c.chunk,
+                (c.attempts, c.accepted - c.stored, [0.0; 3], [0.0; 3]),
+            )
+        })
+        .collect();
+    let t0 = Instant::now();
+    let mut seen = 0u64;
+    let mut buffer: Vec<SampleRecord> = Vec::with_capacity(1 << 20);
+    type Sides = (u64, u64, [f64; 3], [f64; 3]);
+    let mut flush = |buffer: &mut Vec<SampleRecord>, chunks: &mut BTreeMap<u64, Sides>| {
+        let scored: Vec<(u64, bool, [f64; 3])> = buffer
+            .par_iter()
+            .map(|r| {
+                let s = unpack(r.board);
+                let above = ManhattanHeuristic.h(&s) > split;
+                let base = b.powi(-(heuristic.h(&s) as i32));
+                let blank = s.blank_pos() as usize;
+                (
+                    r.chunk as u64,
+                    above,
+                    [0, 1, 2].map(|w| weights[w][blank] * base),
+                )
+            })
+            .collect();
+        for (chunk, above, x) in scored {
+            let Some(entry) = chunks.get_mut(&chunk) else {
+                continue;
+            };
+            let side = if above { &mut entry.3 } else { &mut entry.2 };
+            for w in 0..3 {
+                side[w] += x[w];
+            }
+        }
+        seen += buffer.len() as u64;
+        buffer.clear();
+    };
+    let path = tail_samples_path(dir, min_distance);
+    for_each_sample(&path, |r| {
+        buffer.push(r);
+        if buffer.len() == buffer.capacity() {
+            flush(&mut buffer, &mut chunks);
+        }
+    })
+    .map_err(|e| format!("{}: {e}", path.display()))?;
+    flush(&mut buffer, &mut chunks);
+    eprintln!(
+        "rescored {seen} stored uniform-tail boards for {} in {:.1?}",
+        heuristic.name(),
+        t0.elapsed()
+    );
+    Ok(Some(RescoredTail { split, chunks }))
 }
 
 /// Sampled tail estimate for one heuristic: (mean, batch SE) per weighting.
@@ -1418,11 +1604,14 @@ struct TailEstimate {
     eta: [(f64, f64); 3],
 }
 
+/// The uniform tail for `heuristic`: from `rescored` when given, otherwise
+/// from the sums the run recorded (for [`TAIL_HEURISTICS`] only).
 fn read_tail(
     dir: &Path,
     min_distance: u32,
     heuristic: HeuristicArg,
     batches: usize,
+    rescored: Option<&RescoredTail>,
 ) -> Result<Option<TailEstimate>, String> {
     use puzzle8::puzzle24::eta::batch_means;
     let Ok(md) = u8::try_from(min_distance) else {
@@ -1432,14 +1621,17 @@ fn read_tail(
     if chunks.is_empty() {
         return Ok(None);
     }
-    let hi = TAIL_HEURISTICS
-        .iter()
-        .position(|&h| h == heuristic)
-        .ok_or_else(|| format!("tail was not scored for {}", heuristic.name()))?;
-    let eta = [0, 1, 2].map(|w| {
-        let per: Vec<(u64, f64)> = chunks.iter().map(|c| (c.attempts, c.sums[hi][w])).collect();
-        batch_means(&per, batches)
-    });
+    let eta = match (
+        rescored,
+        TAIL_HEURISTICS.iter().position(|&h| h == heuristic),
+    ) {
+        (Some(r), _) => r.eta(false, batches),
+        (None, Some(hi)) => [0, 1, 2].map(|w| {
+            let per: Vec<(u64, f64)> = chunks.iter().map(|c| (c.attempts, c.sums[hi][w])).collect();
+            batch_means(&per, batches)
+        }),
+        (None, None) => return Err(format!("tail was not rescored for {}", heuristic.name())),
+    };
     Ok(Some(TailEstimate {
         attempts: chunks.iter().map(|c| c.attempts).sum(),
         accepted: chunks.iter().map(|c| c.accepted).sum(),
@@ -1513,12 +1705,24 @@ impl LevelTally {
 }
 
 fn read_tail_md_chunks(path: &Path) -> Result<BTreeMap<u8, LevelTally>, String> {
+    let mut out: BTreeMap<u8, LevelTally> = BTreeMap::new();
+    for (m, _, chunk) in read_tail_md_chunk_lines(path)? {
+        let level = out.entry(m).or_default();
+        level.count = chunk.count;
+        level.merge(&chunk);
+    }
+    Ok(out)
+}
+
+/// The chunk lines of a `tail_md_ge{L}.tsv` as (level, chunk index, tally);
+/// a line that does not parse (an interrupted append) ends the read.
+fn read_tail_md_chunk_lines(path: &Path) -> Result<Vec<(u8, u64, LevelTally)>, String> {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
-    let mut out: BTreeMap<u8, LevelTally> = BTreeMap::new();
+    let mut out = Vec::new();
     for line in text
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
@@ -1549,9 +1753,7 @@ fn read_tail_md_chunks(path: &Path) -> Result<BTreeMap<u8, LevelTally>, String> 
                 [floats[10], floats[11], floats[12]],
             ],
         };
-        let level = out.entry(m).or_default();
-        level.count = chunk.count;
-        level.merge(&chunk);
+        out.push((m, ints[1], chunk));
     }
     Ok(out)
 }
@@ -1820,31 +2022,98 @@ struct TailMdEstimate {
     rest: Option<[(f64, f64); 3]>,
 }
 
+/// Manhattan-distance cap of a level-stratified tail campaign, if one exists.
+fn tail_md_max(dir: &Path, min_distance: u8) -> Result<Option<u8>, String> {
+    use puzzle8::puzzle24::eta::samples::read_meta;
+    let meta_path = tail_md_path(dir, min_distance, "meta");
+    if !meta_path.exists() {
+        return Ok(None);
+    }
+    let meta = read_meta(&meta_path).map_err(|e| format!("{}: {e}", meta_path.display()))?;
+    meta.get("md_max")
+        .and_then(|v| v.parse().ok())
+        .map(Some)
+        .ok_or_else(|| format!("{}: no md_max", meta_path.display()))
+}
+
+/// The level-stratified tail for `heuristic`. With `rescored`, the level part
+/// is rescored from the stored hit boards (every hit is stored) into column 0
+/// and the part above md_max comes from `rescored`, split at md_max; without
+/// it, the sums the runs recorded are used ([`TAIL_HEURISTICS`] only).
 fn read_tail_md(
     dir: &Path,
     min_distance: u32,
     heuristic: HeuristicArg,
     batches: usize,
+    rescored: Option<&RescoredTail>,
 ) -> Result<Option<TailMdEstimate>, String> {
-    use puzzle8::puzzle24::eta::samples::{for_each_sample, read_meta};
+    use puzzle8::puzzle24::eta::samples::{for_each_sample, read_samples};
     use puzzle8::puzzle24::eta::{batch_means, unpack};
     let Ok(l) = u8::try_from(min_distance) else {
         return Ok(None);
     };
-    let levels = read_tail_md_chunks(&tail_md_path(dir, l, "tsv"))?;
+    let mut levels = read_tail_md_chunks(&tail_md_path(dir, l, "tsv"))?;
     if levels.is_empty() {
         return Ok(None);
     }
-    let meta_path = tail_md_path(dir, l, "meta");
-    let meta = read_meta(&meta_path).map_err(|e| format!("{}: {e}", meta_path.display()))?;
-    let md_max: u8 = meta
-        .get("md_max")
-        .and_then(|v| v.parse().ok())
-        .ok_or_else(|| format!("{}: no md_max", meta_path.display()))?;
-    let hi = TAIL_HEURISTICS
-        .iter()
-        .position(|&h| h == heuristic)
-        .ok_or_else(|| format!("tail was not scored for {}", heuristic.name()))?;
+    let md_max = tail_md_max(dir, l)?.ok_or("level tail without its meta file")?;
+    let recorded = match rescored {
+        Some(_) => None,
+        None => TAIL_HEURISTICS.iter().position(|&h| h == heuristic),
+    };
+    let Some(hi) = recorded else {
+        let rescored =
+            rescored.ok_or_else(|| format!("tail was not rescored for {}", heuristic.name()))?;
+        if rescored.split != md_max {
+            return Err(format!(
+                "uniform tail rescored at MD {} but the levels end at {md_max}",
+                rescored.split
+            ));
+        }
+        let lines: std::collections::BTreeSet<(u8, u64)> =
+            read_tail_md_chunk_lines(&tail_md_path(dir, l, "tsv"))?
+                .into_iter()
+                .map(|(m, chunk, _)| (m, chunk))
+                .collect();
+        let b = branching_factor();
+        let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+        for level in levels.values_mut() {
+            level.sums[0] = [0.0; 3];
+            level.squares[0] = [0.0; 3];
+        }
+        let hits_path = tail_md_path(dir, l, "hits");
+        let hits = read_samples(&hits_path).map_err(|e| format!("{}: {e}", hits_path.display()))?;
+        let scored: Vec<(u8, u64, usize, u8)> = hits
+            .par_iter()
+            .map(|r| {
+                let s = unpack(r.board);
+                (
+                    ManhattanHeuristic.h(&s),
+                    r.chunk as u64,
+                    s.blank_pos() as usize,
+                    heuristic.h(&s),
+                )
+            })
+            .collect();
+        for (m, chunk, blank, h) in scored {
+            if !lines.contains(&(m, chunk)) {
+                continue;
+            }
+            let level = levels.get_mut(&m).expect("a hit's level has chunk lines");
+            let base = b.powi(-(h as i32));
+            for w in 0..3 {
+                let x = weights[w][blank] * base;
+                level.sums[0][w] += x;
+                level.squares[0][w] += x * x;
+            }
+        }
+        return Ok(Some(TailMdEstimate {
+            md_max,
+            column: 0,
+            levels,
+            rest: Some(rescored.eta(true, batches)),
+        }));
+    };
     let uniform = read_tail_chunks(&tail_chunks_path(dir, l))?;
     let rest = if uniform.is_empty() {
         None
@@ -1922,21 +2191,23 @@ impl Moments {
     }
 }
 
-/// Moments of x = include(s)·w(blank)·b^−h(s) over `draws` states from `draw`,
-/// in parallel chunks of `chunk_draws`.
-fn moments(
+/// Moments of x = w(blank)·b^−h(s) over `draws` draws, a draw that yields
+/// `None` counting as zero, in parallel chunks of `chunk_draws`. Each chunk
+/// starts a cursor (a generator, or an index) with `start(chunk)` and takes
+/// its draws from it in order.
+fn moments<C>(
     draws: u64,
     chunk_draws: u64,
     heuristic: HeuristicArg,
-    rng_for: impl Fn(u64) -> Rng + Sync,
-    draw: impl Fn(&mut Rng) -> Option<State> + Sync,
+    start: impl Fn(u64) -> C + Sync,
+    draw: impl Fn(&mut C) -> Option<State> + Sync,
 ) -> Moments {
     let b = branching_factor();
     let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
     (0..draws.div_ceil(chunk_draws))
         .into_par_iter()
         .map(|chunk| {
-            let mut rng = rng_for(chunk);
+            let mut rng = start(chunk);
             let n = chunk_draws.min(draws - chunk * chunk_draws);
             let mut m = Moments {
                 draws: n,
@@ -1972,6 +2243,7 @@ fn run_total(
     verifier: Option<&Verifier>,
 ) -> Result<(), String> {
     use puzzle8::puzzle24::eta::md_levels::MdLevels;
+    use puzzle8::puzzle24::eta::{pack, unpack};
     if level_draws < 2 || uniform_draws < 2 {
         return Err("campaign total needs at least 2 draws per stratum".into());
     }
@@ -1990,7 +2262,6 @@ fn run_total(
         let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
         at_least(s, band.0, &inc) && band.1.is_none_or(|hi| !at_least(s, hi + 1, &inc))
     };
-    heuristic.prepare();
     let t0 = Instant::now();
     let table = MdLevels::build(md_max);
     eprintln!(
@@ -2004,6 +2275,30 @@ fn run_total(
     } else {
         TOTAL_BAND_CHUNK
     };
+    // Draw every level first and free the level table before the heuristic
+    // loads its own tables, so the two never occupy memory together.
+    let drawn: Vec<(u8, f64, Vec<u128>)> = (0..=md_max)
+        .filter(|&m| table.count(m) > 0.0)
+        .map(|m| {
+            let boards = (0..level_draws.div_ceil(chunk_draws))
+                .into_par_iter()
+                .flat_map_iter(|chunk| {
+                    let mut rng = Rng::stream(seed, (2 << 20) | m as u64, chunk);
+                    let n = chunk_draws.min(level_draws - chunk * chunk_draws);
+                    let table = &table;
+                    (0..n).map(move |_| pack(&table.sample(m, &mut rng)))
+                })
+                .collect();
+            (m, table.count(m), boards)
+        })
+        .collect();
+    drop(table);
+    eprintln!(
+        "level draws: {} boards in {:.1?}",
+        drawn.iter().map(|d| d.2.len()).sum::<usize>(),
+        t0.elapsed()
+    );
+    heuristic.prepare();
     let band_text = match band {
         (0, None) => String::from("all distances"),
         (lo, None) => format!("distance >= {lo}"),
@@ -2021,18 +2316,18 @@ fn run_total(
     );
     println!("#  m   count/|V|    eta_m uniform ± 95%       eta_m tree    eta_m degree");
     let mut levels = [(0.0f64, 0.0f64); 3];
-    for m in 0..=md_max {
-        let count = table.count(m);
-        if count == 0.0 {
-            continue;
-        }
+    for (m, count, boards) in &drawn {
         let scale = count / n_states;
         let mo = moments(
-            level_draws,
+            boards.len() as u64,
             chunk_draws,
             heuristic,
-            |chunk| Rng::stream(seed, (2 << 20) | m as u64, chunk),
-            |rng| Some(table.sample(m, rng)).filter(|s| s.is_solvable() && in_band(s)),
+            |chunk| (chunk * chunk_draws) as usize,
+            |i| {
+                let s = unpack(boards[*i]);
+                *i += 1;
+                Some(s).filter(|s| s.is_solvable() && in_band(s))
+            },
         );
         let est = [0, 1, 2].map(|w| {
             let (mean, se) = mo.mean(w);
@@ -2149,6 +2444,7 @@ fn run_score(
     heuristic: HeuristicArg,
     batches: usize,
     published: Option<&Path>,
+    rescore_tail: bool,
 ) -> Result<(), String> {
     use puzzle8::puzzle24::eta::samples::{chunks_path, read_chunks, read_samples, samples_path};
     use puzzle8::puzzle24::eta::{batch_means, unpack};
@@ -2296,7 +2592,13 @@ fn run_score(
             " WITH GAPS — sums below are incomplete"
         }
     );
-    let tail = read_tail(dir, k_max + 1, heuristic, batches)?;
+    let rescored = match u8::try_from(k_max + 1) {
+        Ok(l) if rescore_tail || !TAIL_HEURISTICS.contains(&heuristic) => {
+            rescore_uniform_tail(dir, l, heuristic, tail_md_max(dir, l)?.unwrap_or(0))?
+        }
+        _ => None,
+    };
+    let tail = read_tail(dir, k_max + 1, heuristic, batches, rescored.as_ref())?;
     if let Some(t) = &tail {
         println!(
             "# sampled tail d >= {}: {} uniform draws, {} accepted, {:.0} thread-s",
@@ -2306,7 +2608,14 @@ fn run_score(
             t.thread_s
         );
     }
-    let tail_md = read_tail_md(dir, k_max + 1, heuristic, batches)?;
+    if let Some(r) = &rescored {
+        println!(
+            "# {} rescored from the uniform tail's stored boards (MD <= {TAIL_STORE_MAX_MD}); unstored accepted boards add at most {:.2e}",
+            heuristic.name(),
+            r.unstored_bound()
+        );
+    }
+    let tail_md = read_tail_md(dir, k_max + 1, heuristic, batches, rescored.as_ref())?;
     if let Some(t) = &tail_md {
         report_tail_md_levels(t, k_max + 1);
     }
@@ -2629,7 +2938,14 @@ fn main() -> ExitCode {
             heuristic,
             batches,
             published_histogram,
-        }) => run_score(&dir, heuristic, batches, published_histogram.as_deref()),
+            rescore_tail,
+        }) => run_score(
+            &dir,
+            heuristic,
+            batches,
+            published_histogram.as_deref(),
+            rescore_tail,
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

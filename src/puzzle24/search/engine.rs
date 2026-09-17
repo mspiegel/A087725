@@ -1733,6 +1733,107 @@ fn joint_floors(
     ]
 }
 
+// --------------------------- single-board evaluation ---------------------------
+
+/// A board's heuristic values under the engine's walking-distance tiers.
+/// `lm2` and `clm2` are `None` when the evaluator was built without the
+/// tables they need.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TierValues {
+    /// cWD.
+    pub cwd: u8,
+    /// `max(cWD, LM2 endgame branches)`: the `--lm2` value.
+    pub lm2: Option<u8>,
+    /// `max(LM2, single-demanded-line joint value)`: the `--clm2` value.
+    pub clm2: Option<u8>,
+}
+
+/// Evaluates single boards with the engine's own tier code, for measuring the
+/// heuristics outside a search. The board is laid down as depth 0, depth 1
+/// shares its axis slots and tracked lines, and the LM2 and joint tiers are
+/// consulted at depth 1 under the same conditions as in [`run_iteration`].
+/// The goal board is 0 under every tier (the search never consults a tier
+/// there; its final-move obligations do not apply). Holds front caches, so
+/// use one per thread.
+pub struct TierEval<'a> {
+    merged: MergedBacking<'a>,
+    lm: Option<&'a super::cwd_lm::CwdLmMm>,
+    lm1l: Option<&'a super::cwd_lm1l::CwdLm1lMm>,
+    arena: Arena,
+    cache: ProbeCache,
+}
+
+impl<'a> TierEval<'a> {
+    /// `lm1l` requires `lm`, as `--clm2` requires the LM2 branch tables.
+    ///
+    /// # Panics
+    ///
+    /// If `cwd` has no merged table, or `lm1l` is given without `lm`.
+    pub fn new(
+        cwd: &'a Cwd,
+        lm: Option<&'a super::cwd_lm::CwdLmMm>,
+        lm1l: Option<&'a super::cwd_lm1l::CwdLm1lMm>,
+    ) -> Self {
+        assert!(
+            lm1l.is_none() || lm.is_some(),
+            "the joint tier requires the LM2 branch tables"
+        );
+        TierEval {
+            merged: cwd
+                .backing()
+                .expect("TierEval needs the merged cWD table (data/cwd_mm.bin)"),
+            lm,
+            lm1l,
+            arena: Arena::new(),
+            cache: ProbeCache::new(),
+        }
+    }
+
+    pub fn eval(&mut self, board: &State) -> TierValues {
+        if board == &GOAL {
+            return TierValues {
+                cwd: 0,
+                lm2: self.lm.map(|_| 0),
+                clm2: self.lm1l.map(|_| 0),
+            };
+        }
+        let arena = &mut self.arena;
+        seed_axes(arena, board, self.merged);
+        let blank = board.blank_pos();
+        arena.hot[0].blank = blank;
+        arena.hot[0].row_at = 0;
+        arena.hot[0].col_at = 0;
+        arena.hot[1] = arena.hot[0];
+        arena.board[1] = BoardSlot(Coded::encode(board));
+        let h = arena.h_at(1);
+        let Some(lm) = self.lm else {
+            return TierValues {
+                cwd: h,
+                lm2: None,
+                clm2: None,
+            };
+        };
+        seed_lm2(arena, board);
+        // Tile 0 is not a tracked tile, so depth 1 keeps depth 0's lines.
+        let heff = lm2_child(arena, lm, 0, 0, h);
+        let clm2 = self.lm1l.map(|t1l| {
+            let (rmask, cmask) = (arena.row[0].dem_mask, arena.col[0].dem_mask);
+            let lp = arena.lm2pos[1];
+            let tb_only = (lp[0] > 3 && lp[2] < 3) || (lp[1] > 3 && lp[5] < 3);
+            if h > 1 && (rmask != 0 || cmask != 0 || tb_only) {
+                lm1l_child(arena, &mut self.cache, self.merged, lm, t1l, 0, h).max(heff)
+            } else {
+                heff
+            }
+        });
+        TierValues {
+            cwd: h,
+            lm2: Some(heff),
+            clm2,
+        }
+    }
+}
+
 // -------------------------------- the engine ----------------------------------
 
 /// Bounded lower-bound IDA\* over cWD, with the move-DFA, the neighbour-WD child
@@ -5195,6 +5296,72 @@ mod tests {
     }
 
     // --------------------------- table-gated differential ----------------------
+
+    /// [`TierEval`] on the mmap artifacts against independent values: cWD
+    /// equals [`Cwd::eval`] on the merged map; cWD <= LM2 <= cLM2; every tier
+    /// is at most the true distance on all boards within 11 moves of GOAL and
+    /// on the oracle's solved cases; and on long random walks both upper
+    /// tiers raise some boards, so the consults are live.
+    #[cfg(feature = "cwd-table-tests")]
+    #[test]
+    fn tier_eval_matches_cwd_is_ordered_and_admissible() {
+        let Some(cwd_map) = cwd_merged_or_skip() else {
+            return;
+        };
+        let (Ok(cwd_mm), Ok(lm), Ok(t1l)) = (
+            Cwd::mm_only(std::path::Path::new("data/cwd_mm.bin")),
+            load_cwd_lm_mm(std::path::Path::new("data/cwd_lm_mm.bin")),
+            super::super::cwd_lm1l::CwdLm1lMm::load(std::path::Path::new("data/cwd_lm1l_mm.bin")),
+        ) else {
+            eprintln!("cwd_mm / cwd_lm_mm / cwd_lm1l_mm absent — skipping TierEval test");
+            return;
+        };
+        let mut ev = TierEval::new(&cwd_mm, Some(&lm), Some(&t1l));
+        let mut scratch = super::super::cwd::CwdScratch::new();
+        let mut check = |s: &State, dist: Option<u8>| -> TierValues {
+            let v = ev.eval(s);
+            let (lm2, clm2) = (v.lm2.unwrap(), v.clm2.unwrap());
+            assert_eq!(v.cwd, cwd_map.eval(s, &mut scratch), "cWD on {:?}", s.0);
+            assert!(v.cwd <= lm2 && lm2 <= clm2, "tier order {v:?} on {:?}", s.0);
+            if let Some(d) = dist {
+                assert!(clm2 <= d, "cLM2 {clm2} above distance {d} on {:?}", s.0);
+            }
+            v
+        };
+        let dist = crate::puzzle24::search::tests_util::bfs_distances(11);
+        for (b, &d) in &dist {
+            check(&State(*b), Some(d));
+        }
+        let solved: Vec<_> = crate::puzzle24::search::oracle::CASES
+            .iter()
+            .filter(|c| c.tag == 0)
+            .collect();
+        assert!(!solved.is_empty());
+        for c in &solved {
+            check(&State(c.board), Some(c.val));
+        }
+        let (mut lm2_raised, mut clm2_raised) = (0, 0);
+        let mut rng = crate::puzzle24::eta::Rng::stream(11, 11, 11);
+        for _ in 0..20_000 {
+            let mut s = GOAL;
+            for _ in 0..200 {
+                let moves: Vec<Move> = s.legal_moves().iter().collect();
+                s = s.apply(moves[rng.below(moves.len() as u64) as usize]);
+            }
+            let v = check(&s, None);
+            lm2_raised += (v.lm2.unwrap() > v.cwd) as u32;
+            clm2_raised += (v.clm2.unwrap() > v.lm2.unwrap()) as u32;
+        }
+        assert!(
+            lm2_raised > 0 && clm2_raised > 0,
+            "LM2 raised {lm2_raised}, cLM2 raised {clm2_raised}"
+        );
+        eprintln!(
+            "TierEval: {} BFS boards, {} oracle boards; of 20000 walks LM2 > cWD on {lm2_raised}, cLM2 > LM2 on {clm2_raised}",
+            dist.len(),
+            solved.len()
+        );
+    }
 
     /// The process-wide shared table (see `cwd::shared_merged_cwd`). Building a
     /// fresh `Cwd` per test cost ~4.4 GB each and made the parallel suite thrash.
