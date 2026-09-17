@@ -334,6 +334,13 @@ enum Campaign {
         /// them); other heuristics are always rescored.
         #[arg(long)]
         rescore_tail: bool,
+        /// When rescoring the uniform tail, score boards with Manhattan
+        /// distance above this only one in --rescore-stride, weighted by the
+        /// stride.
+        #[arg(long, default_value_t = TAIL_STORE_MAX_MD)]
+        rescore_full_md: u8,
+        #[arg(long, default_value_t = 1)]
+        rescore_stride: u64,
     },
 }
 
@@ -352,7 +359,14 @@ enum HeuristicArg {
     /// The solver's `--clm2` value, max(LM2, single-demanded-line joint value)
     /// (adds data/cwd_lm1l_mm.bin).
     Clm2,
+    /// The solver's k8 tier alone: max of normal and reflected sums of the
+    /// three 8-tile zPDBs (data/pdb24_k8_{a,b,c}.zbin, 30.5 GB).
+    K8,
+    /// The `--clm2 --zpdb8` cascade the solver prunes with, max(cLM2, k8).
+    Clm2K8,
 }
+
+static K8_TABLES: std::sync::OnceLock<engine::K8Ctx> = std::sync::OnceLock::new();
 
 /// Tables of the solver's walking-distance tiers, loaded once per process by
 /// [`HeuristicArg::prepare`] for the first tier heuristic prepared.
@@ -378,6 +392,8 @@ impl HeuristicArg {
             HeuristicArg::Cwd => "cwd",
             HeuristicArg::Lm2 => "lm2",
             HeuristicArg::Clm2 => "clm2",
+            HeuristicArg::K8 => "k8",
+            HeuristicArg::Clm2K8 => "clm2k8",
         }
     }
 
@@ -388,18 +404,26 @@ impl HeuristicArg {
             eprintln!("{}: mapping {path}", self.name());
             Path::new(path)
         };
+        if matches!(self, HeuristicArg::K8 | HeuristicArg::Clm2K8) {
+            K8_TABLES.get_or_init(|| {
+                eprintln!("{}: mapping data/pdb24_k8_{{a,b,c}}.zbin", self.name());
+                engine::K8Ctx::load_mmap(Path::new("data"), engine::EngineConfig::Standard)
+                    .expect("data/pdb24_k8_{a,b,c}.zbin")
+            });
+        }
         match self {
-            HeuristicArg::Md => {}
+            HeuristicArg::Md | HeuristicArg::K8 => {}
             HeuristicArg::Wd => WalkingDistanceHeuristic::warm_up_verbose(),
-            HeuristicArg::Cwd | HeuristicArg::Lm2 | HeuristicArg::Clm2 => {
+            HeuristicArg::Cwd | HeuristicArg::Lm2 | HeuristicArg::Clm2 | HeuristicArg::Clm2K8 => {
                 TIER_TABLES.get_or_init(|| {
                     let t0 = Instant::now();
+                    let joint = matches!(self, HeuristicArg::Clm2 | HeuristicArg::Clm2K8);
                     let tables = TierTables {
                         cwd: Cwd::mm_only(load("data/cwd_mm.bin")).expect("data/cwd_mm.bin"),
                         lm: (self != HeuristicArg::Cwd).then(|| {
                             CwdLmMm::load(load("data/cwd_lm_mm.bin")).expect("data/cwd_lm_mm.bin")
                         }),
-                        lm1l: (self == HeuristicArg::Clm2).then(|| {
+                        lm1l: joint.then(|| {
                             CwdLm1lMm::load(load("data/cwd_lm1l_mm.bin"))
                                 .expect("data/cwd_lm1l_mm.bin")
                         }),
@@ -411,10 +435,19 @@ impl HeuristicArg {
         }
     }
 
+    fn k8(s: &State) -> u8 {
+        K8_TABLES
+            .get()
+            .expect("k8 evaluated before prepare()")
+            .eval(s)
+    }
+
     fn h(self, s: &State) -> u8 {
         match self {
             HeuristicArg::Md => ManhattanHeuristic.h(s),
             HeuristicArg::Wd => WalkingDistanceHeuristic.h(s),
+            HeuristicArg::K8 => Self::k8(s),
+            HeuristicArg::Clm2K8 => HeuristicArg::Clm2.h(s).max(Self::k8(s)),
             HeuristicArg::Cwd | HeuristicArg::Lm2 | HeuristicArg::Clm2 => TIER_EVAL.with(|cell| {
                 let mut slot = cell.borrow_mut();
                 let ev = slot.get_or_insert_with(|| {
@@ -1525,11 +1558,15 @@ impl RescoredTail {
 }
 
 /// Rescore the uniform tail run for `heuristic`, or `None` without one.
+/// Boards with Manhattan distance above `stride.0` are scored one in
+/// `stride.1` (by file position) and weighted by `stride.1`, an unbiased
+/// estimate for heuristics too slow to score every stored board.
 fn rescore_uniform_tail(
     dir: &Path,
     min_distance: u8,
     heuristic: HeuristicArg,
     split: u8,
+    stride: (u8, u64),
 ) -> Result<Option<RescoredTail>, String> {
     use puzzle8::puzzle24::eta::samples::{for_each_sample, SampleRecord};
     use puzzle8::puzzle24::eta::unpack;
@@ -1552,19 +1589,29 @@ fn rescore_uniform_tail(
     let mut seen = 0u64;
     let mut buffer: Vec<SampleRecord> = Vec::with_capacity(1 << 20);
     type Sides = (u64, u64, [f64; 3], [f64; 3]);
+    let (stride_md, stride) = (stride.0, stride.1.max(1));
     let mut flush = |buffer: &mut Vec<SampleRecord>, chunks: &mut BTreeMap<u64, Sides>| {
+        let first = seen;
         let scored: Vec<(u64, bool, [f64; 3])> = buffer
             .par_iter()
-            .map(|r| {
+            .enumerate()
+            .filter_map(|(i, r)| {
                 let s = unpack(r.board);
-                let above = ManhattanHeuristic.h(&s) > split;
-                let base = b.powi(-(heuristic.h(&s) as i32));
+                let md = ManhattanHeuristic.h(&s);
+                let scale = if md <= stride_md {
+                    1.0
+                } else if (first + i as u64) % stride == 0 {
+                    stride as f64
+                } else {
+                    return None;
+                };
+                let base = scale * b.powi(-(heuristic.h(&s) as i32));
                 let blank = s.blank_pos() as usize;
-                (
+                Some((
                     r.chunk as u64,
-                    above,
+                    md > split,
                     [0, 1, 2].map(|w| weights[w][blank] * base),
-                )
+                ))
             })
             .collect();
         for (chunk, above, x) in scored {
@@ -2445,6 +2492,7 @@ fn run_score(
     batches: usize,
     published: Option<&Path>,
     rescore_tail: bool,
+    rescore_stride: (u8, u64),
 ) -> Result<(), String> {
     use puzzle8::puzzle24::eta::samples::{chunks_path, read_chunks, read_samples, samples_path};
     use puzzle8::puzzle24::eta::{batch_means, unpack};
@@ -2593,9 +2641,13 @@ fn run_score(
         }
     );
     let rescored = match u8::try_from(k_max + 1) {
-        Ok(l) if rescore_tail || !TAIL_HEURISTICS.contains(&heuristic) => {
-            rescore_uniform_tail(dir, l, heuristic, tail_md_max(dir, l)?.unwrap_or(0))?
-        }
+        Ok(l) if rescore_tail || !TAIL_HEURISTICS.contains(&heuristic) => rescore_uniform_tail(
+            dir,
+            l,
+            heuristic,
+            tail_md_max(dir, l)?.unwrap_or(0),
+            rescore_stride,
+        )?,
         _ => None,
     };
     let tail = read_tail(dir, k_max + 1, heuristic, batches, rescored.as_ref())?;
@@ -2939,12 +2991,15 @@ fn main() -> ExitCode {
             batches,
             published_histogram,
             rescore_tail,
+            rescore_full_md,
+            rescore_stride,
         }) => run_score(
             &dir,
             heuristic,
             batches,
             published_histogram.as_deref(),
             rescore_tail,
+            (rescore_full_md, rescore_stride),
         ),
     };
     match result {

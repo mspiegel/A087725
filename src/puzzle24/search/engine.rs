@@ -822,6 +822,19 @@ pub struct K8Ctx {
 }
 
 impl K8Ctx {
+    /// A board's k8 value, `max(Σ normal, Σ reflected)` over the three
+    /// zPDBs by cold lookup: the value [`seed_k8`] seeds a root with, without
+    /// an arena or the shared cache.
+    pub fn eval(&self, board: &State) -> u8 {
+        let rs = symmetry::reflect(board);
+        let (mut s0, mut s1) = (0u16, 0u16);
+        for db in &self.dbs {
+            s0 += db.cold_lookup(board) as u16;
+            s1 += db.cold_lookup(&rs) as u16;
+        }
+        s0.max(s1).min(255) as u8
+    }
+
     /// Packed key for one group/view: eight 5-bit tile cells.
     #[inline]
     fn pack_group(&self, board: &State, group: usize) -> u64 {
@@ -5296,6 +5309,44 @@ mod tests {
     }
 
     // --------------------------- table-gated differential ----------------------
+
+    /// [`K8Ctx::eval`] equals the value [`seed_k8`] seeds, is at least
+    /// Manhattan distance (each additive zPDB term dominates its tiles'
+    /// Manhattan sum), and is at most the true distance on every board within
+    /// 11 moves of GOAL.
+    #[test]
+    #[ignore = "needs data/pdb24_k8_{a,b,c}.zbin (30.5 GB mmap); ~1 min; run with --ignored"]
+    fn k8_eval_matches_seed_and_is_admissible() {
+        use crate::puzzle24::search::{Heuristic, ManhattanHeuristic};
+        let ctx = match K8Ctx::load_mmap(std::path::Path::new("data"), EngineConfig::Standard) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("k8 zPDBs absent ({e}) — skipping");
+                return;
+            }
+        };
+        let mut arena = Arena::new();
+        let dist = crate::puzzle24::search::tests_util::bfs_distances(11);
+        for (b, &d) in &dist {
+            let s = State(*b);
+            let h = ctx.eval(&s);
+            assert_eq!(
+                h,
+                seed_k8(&mut arena, &s, &ctx),
+                "seed differs on {:?}",
+                s.0
+            );
+            assert!(h <= d, "k8 {h} above distance {d} on {:?}", s.0);
+            assert!(h >= ManhattanHeuristic.h(&s), "k8 below MD on {:?}", s.0);
+        }
+        let mut rng = crate::puzzle24::eta::Rng::stream(12, 12, 12);
+        for _ in 0..2_000 {
+            let s = crate::puzzle24::eta::tail::uniform_solvable(&mut rng);
+            let h = ctx.eval(&s);
+            assert_eq!(h, seed_k8(&mut arena, &s, &ctx));
+            assert!(h >= ManhattanHeuristic.h(&s));
+        }
+    }
 
     /// [`TierEval`] on the mmap artifacts against independent values: cWD
     /// equals [`Cwd::eval`] on the merged map; cWD <= LM2 <= cLM2; every tier
