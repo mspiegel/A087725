@@ -67,7 +67,9 @@ enum Cmd {
 enum Campaign {
     /// Exact |V_k| and exact eta_k for k <= max-k, from breadth-first layers.
     Layers {
-        #[arg(long, default_value_t = 22)]
+        /// Layer 24 is 3.2e8 boards: ~14 GiB peak, 40-60 s for a table-free
+        /// heuristic.
+        #[arg(long, default_value_t = 24)]
         max_k: usize,
         /// Campaign directory; writes exact_layers_<heuristic>.tsv there.
         #[arg(long, value_name = "DIR")]
@@ -104,8 +106,8 @@ enum Campaign {
         #[command(flatten)]
         verifier: VerifierOpts,
     },
-    /// Sample the tail V_>=min-distance by uniform random solvable states, scoring
-    /// Manhattan and walking distance as it goes; extends what is in DIR.
+    /// Sample the tail V_>=min-distance by uniform random solvable states,
+    /// storing the accepted boards for scoring; extends what is in DIR.
     Tail {
         #[arg(long, value_name = "DIR")]
         dir: PathBuf,
@@ -130,8 +132,11 @@ enum Campaign {
         /// Count a state when it is proven at least this far from GOAL.
         #[arg(long, default_value_t = 65)]
         min_distance: u8,
-        /// Highest Manhattan distance sampled by level. The level table takes
-        /// 8·(2^25 − 1)·(md-max + 1) bytes: 10.2 GiB at 40.
+        /// Highest Manhattan distance sampled by level, and the split scoring
+        /// takes the uniform tail above. The level table takes
+        /// 8·(2^25 − 1)·(md-max + 1) bytes: 10.2 GiB at 40. A campaign's meta
+        /// file pins this, so an existing directory keeps the value it was
+        /// started with.
         #[arg(long, default_value_t = 40)]
         md_max: u8,
         #[arg(long, default_value_t = 1)]
@@ -147,16 +152,19 @@ enum Campaign {
     /// exact size, plus uniform solvable states with Manhattan distance above
     /// md-max.
     Total {
-        #[arg(long, value_enum, default_value_t = HeuristicArg::Wd)]
+        #[arg(long, value_enum, default_value_t = HeuristicArg::Md)]
         heuristic: HeuristicArg,
-        /// Highest Manhattan distance sampled by level (table: 10.2 GiB at 40).
-        #[arg(long, default_value_t = 40)]
+        /// Highest Manhattan distance sampled by level. The table takes
+        /// 8·(2^25 − 1)·(md-max + 1) bytes, 12.2 GiB at 48, and is freed
+        /// before the heuristic loads its own; above MD 48 the uniform part
+        /// is 0.4% of eta for cWD, where above 40 it was 7% and heavy-tailed.
+        #[arg(long, default_value_t = 48)]
         md_max: u8,
         /// Draws per level.
-        #[arg(long, default_value_t = 1_000_000)]
+        #[arg(long, default_value_t = 4_000_000)]
         level_draws: u64,
         /// Uniform solvable draws for Manhattan distance above md-max.
-        #[arg(long, default_value_t = 100_000_000)]
+        #[arg(long, default_value_t = 1_000_000_000)]
         uniform_draws: u64,
         #[arg(long, default_value_t = 1)]
         seed: u64,
@@ -542,6 +550,12 @@ const TAIL_CHUNK: u64 = 1 << 16;
 /// boards, which is what scoring reads: every other accepted state has
 /// `h ≥ MD > this` for the heuristics scored here, so it contributes at most
 /// `b^−(this + 1)`.
+///
+/// 72 costs 28 B per stored board — 6.4 GB for the 7.1×10^8-draw run of
+/// records/eta24_md.txt — and bounds the unstored part at 4.7e-28, below
+/// every tail measured so far (the smallest, k8's, is 4.7e-25). Lowering it
+/// saves storage but weakens that bound geometrically: at 56 the bound is
+/// 4.5e-22, which would swamp the tails of the stronger heuristics.
 const TAIL_STORE_MAX_MD: u8 = 72;
 
 fn tail_chunks_path(dir: &Path, min_distance: u8) -> PathBuf {
@@ -1240,6 +1254,11 @@ fn read_tail_md(
         return Ok(None);
     }
     let md_max = tail_md_max(dir, l)?.ok_or("level tail without its meta file")?;
+    if md_max > TAIL_STORE_MAX_MD {
+        return Err(format!(
+            "levels end at MD {md_max}, above the uniform tail's stored boards (MD <= {TAIL_STORE_MAX_MD}), so the part above the levels cannot be scored"
+        ));
+    }
     if rescored.split != md_max {
         return Err(format!(
             "uniform tail rescored at MD {} but the levels end at {md_max}",
