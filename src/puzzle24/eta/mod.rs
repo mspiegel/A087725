@@ -24,6 +24,7 @@ pub mod reach;
 pub mod rng;
 pub mod samples;
 pub mod sphere;
+pub mod tail;
 pub mod walker;
 pub mod weights;
 

@@ -39,6 +39,7 @@ use std::time::Instant;
 use clap::{Parser, Subcommand, ValueEnum};
 use puzzle8::puzzle24::eta::reach::reach_probability;
 use puzzle8::puzzle24::eta::sphere::{attempt, attempt_with, reject_shorter, Attempt};
+use puzzle8::puzzle24::eta::tail::{at_least, uniform_solvable};
 use puzzle8::puzzle24::eta::walker::Choice;
 use puzzle8::puzzle24::eta::{
     blank_weights, branching_factor, Accum, Rng, Walker, Weighting, A090031, Z95,
@@ -48,7 +49,7 @@ use puzzle8::puzzle24::search::cwd::Cwd;
 use puzzle8::puzzle24::search::engine;
 use puzzle8::puzzle24::search::move_dfa::DEFAULT_WINDOW;
 use puzzle8::puzzle24::search::{
-    BoundedOutcome, Heuristic, LongMoveDfa, ManhattanHeuristic, MoveDfa,
+    BoundedOutcome, Heuristic, LongMoveDfa, ManhattanHeuristic, MoveDfa, WalkingDistanceHeuristic,
 };
 use puzzle8::puzzle24::state::{State, N_STATES};
 use rayon::prelude::*;
@@ -207,13 +208,15 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum Campaign {
-    /// Exact |V_k| and exact MD eta_k for k <= max-k, from breadth-first layers.
+    /// Exact |V_k| and exact eta_k for k <= max-k, from breadth-first layers.
     Layers {
         #[arg(long, default_value_t = 22)]
         max_k: usize,
-        /// Campaign directory; writes exact_layers.tsv there.
+        /// Campaign directory; writes exact_layers_<heuristic>.tsv there.
         #[arg(long, value_name = "DIR")]
         dir: PathBuf,
+        #[arg(long, value_enum, default_value_t = HeuristicArg::Md)]
+        heuristic: HeuristicArg,
     },
     /// Draw sphere samples for k-min..=k-max into DIR, extending what is there.
     Sample {
@@ -246,10 +249,28 @@ enum Campaign {
         #[command(flatten)]
         verifier: VerifierOpts,
     },
-    /// Score the campaign in DIR for Manhattan distance.
+    /// Sample the tail V_>=min-distance by uniform random solvable states, scoring
+    /// Manhattan and walking distance as it goes; extends what is in DIR.
+    Tail {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+        /// Accept a state when it is proven at least this far from GOAL.
+        #[arg(long, default_value_t = 65)]
+        min_distance: u8,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Target thread-seconds for the tail (including draws already on disk).
+        #[arg(long, default_value_t = 600.0)]
+        thread_seconds: f64,
+        #[command(flatten)]
+        verifier: VerifierOpts,
+    },
+    /// Score the campaign in DIR for a heuristic.
     Score {
         #[arg(long, value_name = "DIR")]
         dir: PathBuf,
+        #[arg(long, value_enum, default_value_t = HeuristicArg::Md)]
+        heuristic: HeuristicArg,
         /// Batches for batch-means standard errors.
         #[arg(long, default_value_t = 20)]
         batches: usize,
@@ -258,6 +279,50 @@ enum Campaign {
         #[arg(long, value_name = "PATH")]
         published_histogram: Option<PathBuf>,
     },
+}
+
+/// Heuristic scored by a campaign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum HeuristicArg {
+    /// Manhattan distance.
+    Md,
+    /// Walking distance (row WD + column WD, data/wd24.bin).
+    Wd,
+}
+
+impl HeuristicArg {
+    fn name(self) -> &'static str {
+        match self {
+            HeuristicArg::Md => "md",
+            HeuristicArg::Wd => "wd",
+        }
+    }
+
+    /// Load any tables the heuristic needs before parallel evaluation.
+    fn prepare(self) {
+        if self == HeuristicArg::Wd {
+            WalkingDistanceHeuristic::warm_up_verbose();
+        }
+    }
+
+    fn h(self, s: &State) -> u8 {
+        match self {
+            HeuristicArg::Md => ManhattanHeuristic.h(s),
+            HeuristicArg::Wd => WalkingDistanceHeuristic.h(s),
+        }
+    }
+
+    /// Exact eta over the whole puzzle per weighting, where known.
+    fn exact_total(self) -> Option<[f64; 3]> {
+        match self {
+            HeuristicArg::Md => Some(EXACT_MD_ETA),
+            HeuristicArg::Wd => None,
+        }
+    }
+}
+
+fn exact_layers_path(dir: &Path, heuristic: HeuristicArg) -> PathBuf {
+    dir.join(format!("exact_layers_{}.tsv", heuristic.name()))
 }
 
 /// Chunks per parallel round in `sample`.
@@ -951,23 +1016,25 @@ fn report_probe(
     }
 }
 
-const EXACT_LAYERS_FILE: &str = "exact_layers.tsv";
-
-/// `campaign layers`: exact |V_k| and Σ w·b^−MD / |V| per weighting for k ≤ max_k.
-fn run_layers(max_k: usize, dir: &Path) -> Result<(), String> {
+/// `campaign layers`: exact |V_k| and Σ w·b^−h / |V| per weighting for k ≤ max_k.
+fn run_layers(max_k: usize, dir: &Path, heuristic: HeuristicArg) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    heuristic.prepare();
     let b = branching_factor();
     let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
     let n_states = N_STATES as f64;
-    let path = dir.join(EXACT_LAYERS_FILE);
-    let mut out = String::from("# k\tsize\teta_uniform\teta_tree\teta_degree\n");
+    let path = exact_layers_path(dir, heuristic);
+    let mut out = format!(
+        "# heuristic {}\n# k\tsize\teta_uniform\teta_tree\teta_degree\n",
+        heuristic.name()
+    );
     let t0 = Instant::now();
     puzzle8::puzzle24::eta::for_each_layer(max_k, |k, layer| {
         let sums = layer
             .par_iter()
             .map(|&key| {
                 let s = puzzle8::puzzle24::eta::unpack(key);
-                let base = b.powi(-(ManhattanHeuristic.h(&s) as i32));
+                let base = b.powi(-(heuristic.h(&s) as i32));
                 let blank = s.blank_pos() as usize;
                 [
                     weights[0][blank] * base,
@@ -1098,6 +1165,238 @@ fn run_sample(c: SampleCampaign, verifier: &Verifier) -> Result<(), String> {
     Ok(())
 }
 
+/// Uniform draws per tail chunk.
+const TAIL_CHUNK: u64 = 1 << 16;
+
+/// Heuristics scored online by the tail sampler, in column order.
+const TAIL_HEURISTICS: [HeuristicArg; 2] = [HeuristicArg::Md, HeuristicArg::Wd];
+
+/// Accepted tail states with Manhattan distance at most this are also stored
+/// as boards, so other heuristics that dominate Manhattan distance can be
+/// scored later: every other accepted state then contributes at most b^−(this+1).
+const TAIL_STORE_MAX_MD: u8 = 72;
+
+fn tail_chunks_path(dir: &Path, min_distance: u8) -> PathBuf {
+    dir.join(format!("tail_ge{min_distance}.chunks.tsv"))
+}
+
+fn tail_samples_path(dir: &Path, min_distance: u8) -> PathBuf {
+    dir.join(format!("tail_ge{min_distance}.samples"))
+}
+
+/// One tail chunk: attempts, accepted, thread ns, per-attempt sums of
+/// w(blank)·b^−h for each [`TAIL_HEURISTICS`] × weighting, and stored boards.
+struct TailChunk {
+    chunk: u64,
+    attempts: u64,
+    accepted: u64,
+    thread_ns: u64,
+    sums: [[f64; 3]; 2],
+    stored: Vec<puzzle8::puzzle24::eta::samples::SampleRecord>,
+}
+
+/// `campaign tail`: uniform draws until the tail's thread-second budget is met.
+fn run_tail(
+    dir: &Path,
+    min_distance: u8,
+    seed: u64,
+    thread_seconds: f64,
+    verifier: &Verifier,
+) -> Result<(), String> {
+    use puzzle8::puzzle24::eta::layers::pack;
+    use puzzle8::puzzle24::eta::samples::{append_samples, SampleRecord};
+    use std::io::Write;
+    let Verifier::Zpdb(dbs) = verifier else {
+        return Err("campaign tail needs --verifier zpdb".into());
+    };
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    for h in TAIL_HEURISTICS {
+        h.prepare();
+    }
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    let chunks_file = tail_chunks_path(dir, min_distance);
+    let existing = read_tail_chunks(&chunks_file)?;
+    let mut next_chunk = existing.iter().map(|c| c.chunk + 1).max().unwrap_or(0);
+    let mut spent_ns: u128 = existing.iter().map(|c| c.thread_ns as u128).sum();
+    let budget_ns = thread_seconds * 1e9;
+    let t0 = Instant::now();
+    let (mut attempts, mut accepted) = (0u64, 0u64);
+    while (spent_ns as f64) < budget_ns {
+        let round: Vec<TailChunk> = (next_chunk..next_chunk + SAMPLE_ROUND_CHUNKS)
+            .into_par_iter()
+            .map(|chunk| {
+                let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+                let mut rng = Rng::stream(seed, 1000 + min_distance as u64, chunk);
+                let start = Instant::now();
+                let mut t = TailChunk {
+                    chunk,
+                    attempts: TAIL_CHUNK,
+                    accepted: 0,
+                    thread_ns: 0,
+                    sums: [[0.0; 3]; 2],
+                    stored: Vec::new(),
+                };
+                for _ in 0..TAIL_CHUNK {
+                    let s = uniform_solvable(&mut rng);
+                    let hs = TAIL_HEURISTICS.map(|h| h.h(&s));
+                    // A uniform state has no parity tied to min_distance, so
+                    // the proof must exhaust threshold min_distance − 1.
+                    let far = hs.iter().copied().max().unwrap() >= min_distance
+                        || at_least(&s, min_distance, &inc);
+                    if !far {
+                        continue;
+                    }
+                    t.accepted += 1;
+                    let blank = s.blank_pos() as usize;
+                    for (hi, &h) in hs.iter().enumerate() {
+                        let base = b.powi(-(h as i32));
+                        for w in 0..3 {
+                            t.sums[hi][w] += weights[w][blank] * base;
+                        }
+                    }
+                    if hs[0] <= TAIL_STORE_MAX_MD {
+                        t.stored.push(SampleRecord {
+                            board: pack(&s),
+                            prob: 1.0,
+                            chunk: u32::try_from(chunk).expect("chunk index fits u32"),
+                        });
+                    }
+                }
+                t.thread_ns = start.elapsed().as_nanos() as u64;
+                t
+            })
+            .collect();
+        let stored: Vec<SampleRecord> = round
+            .iter()
+            .flat_map(|t| t.stored.iter().copied())
+            .collect();
+        append_samples(&tail_samples_path(dir, min_distance), &stored)
+            .map_err(|e| e.to_string())?;
+        let fresh = !chunks_file.exists();
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&chunks_file)
+            .map_err(|e| e.to_string())?;
+        let mut text = String::new();
+        if fresh {
+            text.push_str("# seed\tchunk\tattempts\taccepted\tthread_ns\tstored");
+            for h in TAIL_HEURISTICS {
+                for w in Weighting::ALL {
+                    text.push_str(&format!("\t{}_{}", h.name(), w.name()));
+                }
+            }
+            text.push('\n');
+        }
+        for t in &round {
+            text.push_str(&format!(
+                "{seed}\t{}\t{}\t{}\t{}\t{}",
+                t.chunk,
+                t.attempts,
+                t.accepted,
+                t.thread_ns,
+                t.stored.len()
+            ));
+            for row in &t.sums {
+                for x in row {
+                    text.push_str(&format!("\t{x:.17e}"));
+                }
+            }
+            text.push('\n');
+        }
+        f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        spent_ns += round.iter().map(|t| t.thread_ns as u128).sum::<u128>();
+        attempts += round.iter().map(|t| t.attempts).sum::<u64>();
+        accepted += round.iter().map(|t| t.accepted).sum::<u64>();
+        next_chunk += SAMPLE_ROUND_CHUNKS;
+        eprintln!(
+            "tail >= {min_distance}: +{attempts} draws, +{accepted} accepted this run; {:.0} of {:.0} thread-s; wall {:.0}s",
+            spent_ns as f64 / 1e9,
+            budget_ns / 1e9,
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    Ok(())
+}
+
+/// A parsed tail chunk line.
+struct TailChunkRecord {
+    chunk: u64,
+    attempts: u64,
+    accepted: u64,
+    thread_ns: u64,
+    sums: [[f64; 3]; 2],
+}
+
+fn read_tail_chunks(path: &Path) -> Result<Vec<TailChunkRecord>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut out = Vec::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() != 12 {
+            break;
+        }
+        let num = |i: usize| f[i].parse::<f64>();
+        let Ok(vals) = (6..12).map(num).collect::<Result<Vec<f64>, _>>() else {
+            break;
+        };
+        out.push(TailChunkRecord {
+            chunk: f[1].parse().map_err(|e| format!("{line}: {e}"))?,
+            attempts: f[2].parse().map_err(|e| format!("{line}: {e}"))?,
+            accepted: f[3].parse().map_err(|e| format!("{line}: {e}"))?,
+            thread_ns: f[4].parse().map_err(|e| format!("{line}: {e}"))?,
+            sums: [[vals[0], vals[1], vals[2]], [vals[3], vals[4], vals[5]]],
+        });
+    }
+    Ok(out)
+}
+
+/// Sampled tail estimate for one heuristic: (mean, batch SE) per weighting.
+struct TailEstimate {
+    attempts: u64,
+    accepted: u64,
+    thread_s: f64,
+    eta: [(f64, f64); 3],
+}
+
+fn read_tail(
+    dir: &Path,
+    min_distance: u32,
+    heuristic: HeuristicArg,
+    batches: usize,
+) -> Result<Option<TailEstimate>, String> {
+    use puzzle8::puzzle24::eta::batch_means;
+    let Ok(md) = u8::try_from(min_distance) else {
+        return Ok(None);
+    };
+    let chunks = read_tail_chunks(&tail_chunks_path(dir, md))?;
+    if chunks.is_empty() {
+        return Ok(None);
+    }
+    let hi = TAIL_HEURISTICS
+        .iter()
+        .position(|&h| h == heuristic)
+        .ok_or_else(|| format!("tail was not scored for {}", heuristic.name()))?;
+    let eta = [0, 1, 2].map(|w| {
+        let per: Vec<(u64, f64)> = chunks.iter().map(|c| (c.attempts, c.sums[hi][w])).collect();
+        batch_means(&per, batches)
+    });
+    Ok(Some(TailEstimate {
+        attempts: chunks.iter().map(|c| c.attempts).sum(),
+        accepted: chunks.iter().map(|c| c.accepted).sum(),
+        thread_s: chunks.iter().map(|c| c.thread_ns as f64).sum::<f64>() / 1e9,
+        eta,
+    }))
+}
+
 /// Stratum estimate: (mean, batch standard error) per quantity.
 struct StratumScore {
     k: u32,
@@ -1111,16 +1410,23 @@ struct StratumScore {
     exact: bool,
 }
 
-/// `campaign score`: combine exact layers and sampled strata for Manhattan distance.
-fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(), String> {
+/// `campaign score`: combine exact layers, sampled strata and, if present, the
+/// sampled tail, for one heuristic.
+fn run_score(
+    dir: &Path,
+    heuristic: HeuristicArg,
+    batches: usize,
+    published: Option<&Path>,
+) -> Result<(), String> {
     use puzzle8::puzzle24::eta::samples::{chunks_path, read_chunks, read_samples, samples_path};
     use puzzle8::puzzle24::eta::{batch_means, unpack};
+    heuristic.prepare();
     let b = branching_factor();
     let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
     let n_states = N_STATES as f64;
 
     let mut strata: Vec<StratumScore> = Vec::new();
-    let exact_path = dir.join(EXACT_LAYERS_FILE);
+    let exact_path = exact_layers_path(dir, heuristic);
     let exact_text = std::fs::read_to_string(&exact_path).map_err(|e| {
         format!(
             "{}: {e} (run `campaign layers` first)",
@@ -1160,13 +1466,18 @@ fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(),
             .collect();
         let (mut size_acc, mut eta_acc) = (Accum::default(), [Accum::default(); 3]);
         let mut accepted = 0u64;
-        for s in read_samples(&samples_path(dir, k)).map_err(|e| e.to_string())? {
+        let records = read_samples(&samples_path(dir, k)).map_err(|e| e.to_string())?;
+        let hs: Vec<u8> = records
+            .par_iter()
+            .map(|s| heuristic.h(&unpack(s.board)))
+            .collect();
+        for (s, &h) in records.iter().zip(&hs) {
             let Some(entry) = per_chunk.get_mut(&(s.chunk as u64)) else {
                 continue;
             };
             accepted += 1;
             let board = unpack(s.board);
-            let base = b.powi(-(ManhattanHeuristic.h(&board) as i32)) / s.prob;
+            let base = b.powi(-(h as i32)) / s.prob;
             let blank = board.blank_pos() as usize;
             entry.1[0] += 1.0 / s.prob;
             size_acc.add(1.0 / s.prob);
@@ -1197,7 +1508,11 @@ fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(),
         });
     }
 
-    println!("# Manhattan distance, campaign {}; b = {b:.12}; errors are 95% batch-means intervals ({batches} batches)", dir.display());
+    println!(
+        "# heuristic {}, campaign {}; b = {b:.12}; errors are 95% batch-means intervals ({batches} batches)",
+        heuristic.name(),
+        dir.display()
+    );
     println!("#  k  source    attempts  accepted   |V_k|                     vs reference              eta_k uniform              (ESS, top term)   eta_k tree    eta_k degree");
     for s in &strata {
         let reference = reference_sphere_size(s.k).map_or(String::from("-"), |(r, src)| {
@@ -1249,6 +1564,16 @@ fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(),
             " WITH GAPS — sums below are incomplete"
         }
     );
+    let tail = read_tail(dir, k_max + 1, heuristic, batches)?;
+    if let Some(t) = &tail {
+        println!(
+            "# sampled tail d >= {}: {} uniform draws, {} accepted, {:.0} thread-s",
+            k_max + 1,
+            t.attempts,
+            t.accepted,
+            t.thread_s
+        );
+    }
     for (w, name) in ["uniform", "tree", "degree"].iter().enumerate() {
         let sum: f64 = strata.iter().map(|s| s.eta[w].0).sum();
         let se = strata
@@ -1256,19 +1581,46 @@ fn run_score(dir: &Path, batches: usize, published: Option<&Path>) -> Result<(),
             .map(|s| s.eta[w].1.powi(2))
             .sum::<f64>()
             .sqrt();
-        let tail = EXACT_MD_ETA[w] - sum;
-        println!(
-            "  {name:<7}: sum eta_0..{k_max} = {sum:.4e} ± {:.2e} ({:.1}%); exact total {:.4e}; tail eta_>={} = {tail:.4e} ± {:.2e}",
+        let mut line = format!(
+            "  {name:<7}: sum eta_0..{k_max} = {sum:.4e} ± {:.2e} ({:.1}%)",
             Z95 * se,
-            100.0 * Z95 * se / sum,
-            EXACT_MD_ETA[w],
-            k_max + 1,
-            Z95 * se
+            100.0 * Z95 * se / sum
+        );
+        if let Some(exact) = heuristic.exact_total() {
+            line += &format!(
+                "; exact total {:.4e}; tail by subtraction eta_>={} = {:.4e} ± {:.2e}",
+                exact[w],
+                k_max + 1,
+                exact[w] - sum,
+                Z95 * se
+            );
+        }
+        if let Some(t) = &tail {
+            let (tm, tse) = t.eta[w];
+            let total_se = (se * se + tse * tse).sqrt();
+            line += &format!(
+                "; sampled tail {tm:.4e} ± {:.2e} ({:.1}%); total = sum + sampled tail = {:.4e} ± {:.2e} ({:.1}%)",
+                Z95 * tse,
+                100.0 * Z95 * tse / tm,
+                sum + tm,
+                Z95 * total_se,
+                100.0 * Z95 * total_se / (sum + tm)
+            );
+            if let Some(exact) = heuristic.exact_total() {
+                line += &format!(
+                    " vs exact {:+.2}% = {:+.1} SE",
+                    100.0 * (sum + tm - exact[w]) / exact[w],
+                    (sum + tm - exact[w]) / total_se
+                );
+            }
+        }
+        println!("{line}");
+    }
+    if heuristic == HeuristicArg::Md {
+        println!(
+            "# published (thesis Table 5.1, Fig. 5.3): eta = {PUBLISHED_MD_ETA:.3e} ± {PUBLISHED_MD_ETA_HALF95:.3e}; eta_>=65 = {PUBLISHED_MD_ETA_GE65:.3e}"
         );
     }
-    println!(
-        "# published (thesis Table 5.1, Fig. 5.3): eta = {PUBLISHED_MD_ETA:.3e} ± {PUBLISHED_MD_ETA_HALF95:.3e}; eta_>=65 = {PUBLISHED_MD_ETA_GE65:.3e}"
-    );
 
     if let Some(path) = published {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -1404,7 +1756,19 @@ fn main() -> ExitCode {
                 })
             })
         }
-        Cmd::Campaign(Campaign::Layers { max_k, dir }) => run_layers(max_k, &dir),
+        Cmd::Campaign(Campaign::Layers {
+            max_k,
+            dir,
+            heuristic,
+        }) => run_layers(max_k, &dir, heuristic),
+        Cmd::Campaign(Campaign::Tail {
+            dir,
+            min_distance,
+            seed,
+            thread_seconds,
+            verifier,
+        }) => Verifier::load(&verifier)
+            .and_then(|v| run_tail(&dir, min_distance, seed, thread_seconds, &v)),
         Cmd::Campaign(Campaign::Sample {
             dir,
             k_min,
@@ -1436,9 +1800,10 @@ fn main() -> ExitCode {
         }),
         Cmd::Campaign(Campaign::Score {
             dir,
+            heuristic,
             batches,
             published_histogram,
-        }) => run_score(&dir, batches, published_histogram.as_deref()),
+        }) => run_score(&dir, heuristic, batches, published_histogram.as_deref()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
