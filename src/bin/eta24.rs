@@ -288,6 +288,34 @@ enum Campaign {
         #[command(flatten)]
         verifier: VerifierOpts,
     },
+    /// Total eta of a heuristic by Manhattan levels, without distance proofs:
+    /// uniform placements within each level m <= md-max weighted by the level's
+    /// exact size, plus uniform solvable states with Manhattan distance above
+    /// md-max.
+    Total {
+        #[arg(long, value_enum, default_value_t = HeuristicArg::Wd)]
+        heuristic: HeuristicArg,
+        /// Highest Manhattan distance sampled by level (table: 10.2 GiB at 40).
+        #[arg(long, default_value_t = 40)]
+        md_max: u8,
+        /// Draws per level.
+        #[arg(long, default_value_t = 1_000_000)]
+        level_draws: u64,
+        /// Uniform solvable draws for Manhattan distance above md-max.
+        #[arg(long, default_value_t = 100_000_000)]
+        uniform_draws: u64,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Count only states proven at least this far from GOAL.
+        #[arg(long, default_value_t = 0)]
+        distance_min: u8,
+        /// Count only states proven at most this far from GOAL. At or below
+        /// md-max, no state above md-max qualifies and no uniform draws are made.
+        #[arg(long)]
+        distance_max: Option<u8>,
+        #[command(flatten)]
+        verifier: VerifierOpts,
+    },
     /// Score the campaign in DIR for a heuristic.
     Score {
         #[arg(long, value_name = "DIR")]
@@ -1861,6 +1889,217 @@ fn read_tail_md(
     }))
 }
 
+/// Draws per chunk in `campaign total`: large for heuristic lookups alone,
+/// small when each draw also proves its distance, so levels still spread
+/// over all threads.
+const TOTAL_CHUNK: u64 = 1 << 16;
+const TOTAL_BAND_CHUNK: u64 = 64;
+
+/// Σx and Σx² per weighting over `draws` draws.
+#[derive(Clone, Copy, Default)]
+struct Moments {
+    draws: u64,
+    sums: [f64; 3],
+    squares: [f64; 3],
+}
+
+impl Moments {
+    fn merge(mut self, o: Moments) -> Moments {
+        self.draws += o.draws;
+        for w in 0..3 {
+            self.sums[w] += o.sums[w];
+            self.squares[w] += o.squares[w];
+        }
+        self
+    }
+
+    /// (mean, standard error) for weighting `w`.
+    fn mean(&self, w: usize) -> (f64, f64) {
+        let n = self.draws as f64;
+        let mean = self.sums[w] / n;
+        let var = (self.squares[w] / n - mean * mean).max(0.0) * n / (n - 1.0);
+        (mean, (var / n).sqrt())
+    }
+}
+
+/// Moments of x = include(s)·w(blank)·b^−h(s) over `draws` states from `draw`,
+/// in parallel chunks of `chunk_draws`.
+fn moments(
+    draws: u64,
+    chunk_draws: u64,
+    heuristic: HeuristicArg,
+    rng_for: impl Fn(u64) -> Rng + Sync,
+    draw: impl Fn(&mut Rng) -> Option<State> + Sync,
+) -> Moments {
+    let b = branching_factor();
+    let weights: Vec<[f64; 25]> = Weighting::ALL.iter().map(|&w| blank_weights(w)).collect();
+    (0..draws.div_ceil(chunk_draws))
+        .into_par_iter()
+        .map(|chunk| {
+            let mut rng = rng_for(chunk);
+            let n = chunk_draws.min(draws - chunk * chunk_draws);
+            let mut m = Moments {
+                draws: n,
+                ..Moments::default()
+            };
+            for _ in 0..n {
+                let Some(s) = draw(&mut rng) else {
+                    continue;
+                };
+                let base = b.powi(-(heuristic.h(&s) as i32));
+                let blank = s.blank_pos() as usize;
+                for w in 0..3 {
+                    let x = weights[w][blank] * base;
+                    m.sums[w] += x;
+                    m.squares[w] += x * x;
+                }
+            }
+            m
+        })
+        .reduce(Moments::default, Moments::merge)
+}
+
+/// `campaign total`. `band` = (least, greatest) distance counted; distances
+/// are proven with the verifier's zero-aware PDBs when the band is not
+/// (0, None).
+fn run_total(
+    heuristic: HeuristicArg,
+    md_max: u8,
+    level_draws: u64,
+    uniform_draws: u64,
+    seed: u64,
+    band: (u8, Option<u8>),
+    verifier: Option<&Verifier>,
+) -> Result<(), String> {
+    use puzzle8::puzzle24::eta::md_levels::MdLevels;
+    if level_draws < 2 || uniform_draws < 2 {
+        return Err("campaign total needs at least 2 draws per stratum".into());
+    }
+    let dbs: &[ZPatternDb] = match verifier {
+        Some(Verifier::Zpdb(dbs)) => dbs,
+        Some(_) => return Err("campaign total needs --verifier zpdb for a distance band".into()),
+        None => &[],
+    };
+    if band.1.is_some_and(|hi| hi == u8::MAX) {
+        return Err("--distance-max must be below 255".into());
+    }
+    let in_band = |s: &State| -> bool {
+        if band == (0, None) {
+            return true;
+        }
+        let inc = ZpdbInc::new([&dbs[0], &dbs[1], &dbs[2], &dbs[3]]);
+        at_least(s, band.0, &inc) && band.1.is_none_or(|hi| !at_least(s, hi + 1, &inc))
+    };
+    heuristic.prepare();
+    let t0 = Instant::now();
+    let table = MdLevels::build(md_max);
+    eprintln!(
+        "level table: cap {md_max}, {:.1} GiB in {:.1?}",
+        table.table_bytes() as f64 / (1u64 << 30) as f64,
+        t0.elapsed()
+    );
+    let n_states = N_STATES as f64;
+    let chunk_draws = if band == (0, None) {
+        TOTAL_CHUNK
+    } else {
+        TOTAL_BAND_CHUNK
+    };
+    let band_text = match band {
+        (0, None) => String::from("all distances"),
+        (lo, None) => format!("distance >= {lo}"),
+        (lo, Some(hi)) => format!("distance {lo}..={hi}"),
+    };
+    let rest_empty = band.1.is_some_and(|hi| hi <= md_max);
+    println!(
+        "# eta of {} over {band_text} by Manhattan levels 0..={md_max} ({level_draws} draws each) and uniform draws above ({}); seed {seed}; errors 95%",
+        heuristic.name(),
+        if rest_empty {
+            String::from("none: Manhattan distance never exceeds distance")
+        } else {
+            uniform_draws.to_string()
+        }
+    );
+    println!("#  m   count/|V|    eta_m uniform ± 95%       eta_m tree    eta_m degree");
+    let mut levels = [(0.0f64, 0.0f64); 3];
+    for m in 0..=md_max {
+        let count = table.count(m);
+        if count == 0.0 {
+            continue;
+        }
+        let scale = count / n_states;
+        let mo = moments(
+            level_draws,
+            chunk_draws,
+            heuristic,
+            |chunk| Rng::stream(seed, (2 << 20) | m as u64, chunk),
+            |rng| Some(table.sample(m, rng)).filter(|s| s.is_solvable() && in_band(s)),
+        );
+        let est = [0, 1, 2].map(|w| {
+            let (mean, se) = mo.mean(w);
+            (scale * mean, scale * se)
+        });
+        for w in 0..3 {
+            levels[w].0 += est[w].0;
+            levels[w].1 += est[w].1 * est[w].1;
+        }
+        println!(
+            "  {m:>2}  {:.4e}   {:.4e} ± {:>6}   {:.4e}    {:.4e}",
+            scale,
+            est[0].0,
+            if est[0].0 > 0.0 {
+                format!("{:.2}%", 100.0 * Z95 * est[0].1 / est[0].0)
+            } else {
+                String::from("-")
+            },
+            est[1].0,
+            est[2].0
+        );
+    }
+    let t_uniform = Instant::now();
+    let rest = if rest_empty {
+        Moments {
+            draws: 2,
+            ..Moments::default()
+        }
+    } else {
+        moments(
+            uniform_draws,
+            chunk_draws,
+            heuristic,
+            |chunk| Rng::stream(seed, 3 << 20, chunk),
+            |rng| {
+                Some(uniform_solvable(rng))
+                    .filter(|s| ManhattanHeuristic.h(s) > md_max && in_band(s))
+            },
+        )
+    };
+    eprintln!("uniform draws: {:.1?}", t_uniform.elapsed());
+    for (w, name) in ["uniform", "tree", "degree"].iter().enumerate() {
+        let (lm, lse) = (levels[w].0, levels[w].1.sqrt());
+        let (rm, rse) = rest.mean(w);
+        let total = lm + rm;
+        let se = (lse * lse + rse * rse).sqrt();
+        let mut line = format!(
+            "  {name:<7}: levels MD <= {md_max} = {lm:.4e} ± {:.2e}; uniform MD > {md_max} = {rm:.4e} ± {:.2e}; total = {total:.4e} ± {:.2e} ({:.2}%)",
+            Z95 * lse,
+            Z95 * rse,
+            Z95 * se,
+            100.0 * Z95 * se / total
+        );
+        if let (Some(exact), (0, None)) = (heuristic.exact_total(), band) {
+            line += &format!(
+                " vs exact {:.4e}: {:+.3}% = {:+.1} SE",
+                exact[w],
+                100.0 * (total - exact[w]) / exact[w],
+                (total - exact[w]) / se
+            );
+        }
+        println!("{line}");
+    }
+    println!("# wall {:.1?}", t0.elapsed());
+    Ok(())
+}
+
 fn report_tail_md_levels(t: &TailMdEstimate, min_distance: u32) {
     let total: f64 = t.levels.values().map(|x| x.eta(t.column, 0).0).sum();
     let draws: u64 = t.levels.values().map(|x| x.draws).sum();
@@ -2302,6 +2541,41 @@ fn main() -> ExitCode {
             verifier,
         }) => Verifier::load(&verifier)
             .and_then(|v| run_tail(&dir, min_distance, seed, thread_seconds, &v)),
+        Cmd::Campaign(Campaign::Total {
+            heuristic,
+            md_max,
+            level_draws,
+            uniform_draws,
+            seed,
+            distance_min,
+            distance_max,
+            verifier,
+        }) => {
+            let band = (distance_min, distance_max);
+            if band == (0, None) {
+                run_total(
+                    heuristic,
+                    md_max,
+                    level_draws,
+                    uniform_draws,
+                    seed,
+                    band,
+                    None,
+                )
+            } else {
+                Verifier::load(&verifier).and_then(|v| {
+                    run_total(
+                        heuristic,
+                        md_max,
+                        level_draws,
+                        uniform_draws,
+                        seed,
+                        band,
+                        Some(&v),
+                    )
+                })
+            }
+        }
         Cmd::Campaign(Campaign::TailMd {
             dir,
             min_distance,
