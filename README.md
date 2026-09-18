@@ -160,7 +160,110 @@ target/release/solve24 --config standard --position "$R" \
 
 ---
 
-## 2. A 15-puzzle solver, and every board at depths 76–80
+## 2. Measuring heuristic quality (η)
+
+Clausecker and Schintke (2021) define the constant that says what an admissible
+heuristic is worth. For a heuristic `h` on a state space `V` with asymptotic
+branching factor `b`, the **heuristic quality**
+
+```text
+eta = |V|^-1 * sum over v of w(v) * b^-h(v)
+```
+
+is the factor by which IDA\* with `h` multiplies the node count of uninformed
+iterative deepening on hard instances. Smaller is better, and the ratio of two
+heuristics' η is how many times fewer nodes one expands than the other. The
+thesis behind the paper (Clausecker, 2020) works the 24-puzzle example out in
+full, including the sphere-stratified sampling that makes η computable at all:
+η is dominated by rare states close to the goal, so a uniform sample of the
+7.76 × 10²⁴ states never sees the terms that matter.
+
+This repository reproduces that measurement for Manhattan distance and then
+applies it to its own heuristics, so the WD variations above can be compared on
+the scale the literature uses.
+
+### Replicating Manhattan distance
+
+Manhattan distance is a sum of per-tile terms, so `sum b^-MD` over all tile
+placements is a 25×25 permanent, and the solvable half is `(perm + det)/2`. That
+gives η exactly, with no sampling:
+
+| weighting | exact η (MD) | published (Clausecker, 2020, Table 5.1) |
+|---|---|---|
+| uniform | 1.0010 × 10⁻¹⁹ | 9.926 × 10⁻²⁰ ± 9.08% |
+| tree equilibrium | 9.7305 × 10⁻²⁰ | (same interval) |
+| degree | 9.7565 × 10⁻²⁰ | (same interval) |
+
+All three sit inside the published interval, and `eta_perfect` and the sphere
+histogram of Fig. 5.2 reproduce exactly from the sphere sizes.
+
+### A second stratification: Manhattan levels
+
+States 65 or more moves from the goal are sampled uniformly and form their own
+stratum. For Manhattan distance that stratum holds about a sixth of η, carried
+by boards whose Manhattan distance is far below their distance from the goal —
+the region Clausecker (2020) §5.1 identifies as the one the spheres do not
+reach, and spends 10⁹ draws rather than 10⁸ on for this heuristic. In our own
+7.1 × 10⁸-draw run, a single board with Manhattan distance 31 carried 21% of
+that stratum's estimate, which is the variance such a region produces.
+
+This repository adds a second stratification for it. The placements at each
+Manhattan distance can be counted exactly (a subset DP over the 2²⁵ cell
+subsets), so each level can be sampled directly and weighted by its exact size,
+with no reliance on rare draws. Run against the exact total it agrees to 0.013%,
+and it measures the stratum to ±2.1%. It also calibrates our own sphere
+sampling: summed over k = 0..64 those samples come in 11% below the level
+estimate, from the heavy-tailed reach weights at depth.
+
+### Results
+
+Uniform weighting, 95% intervals; `b = 2.367604543724`.
+
+| heuristic | η | × fewer nodes than MD | η at distance ≥ 65 |
+|---|---|---:|---:|
+| Manhattan | 1.0010 × 10⁻¹⁹ (exact) | 1 | 15.8% |
+| WD | 1.8581 × 10⁻²⁰ ± 0.09% | 5.4 | 12.9% |
+| cWD | 2.7110 × 10⁻²¹ ± 0.10% | 36.9 | 7.6% |
+| LM2 (`--lm2`) | 2.3430 × 10⁻²¹ ± 0.10% | 42.7 | 7.4% |
+| cLM2 (`--clm2`) | 1.6406 × 10⁻²¹ ± 0.12% | 61.0 | 6.4% |
+| k8 (`--zpdb8`) | 2.9194 × 10⁻²³ ± 2.0% | 3,429 | 1.6% |
+| cascade `--clm2 --zpdb8` | 2.5886 × 10⁻²³ ± 2.0% | 3,867 | 1.7% |
+
+So cWD is worth 6.9× over plain WD, cLM2 a further 1.65× over cWD, and the k8
+tier dominates everything by two orders of magnitude — while cLM2 still earns
+its place in the cascade, at 1.13× over k8 alone, concentrated near the goal.
+
+Two properties worth recording. The tier values come from the engine's own
+consult code, not a reimplementation, and are checked against true distances.
+And LM2 alone is **not consistent**: about 1 neighbour pair in 1,700 differs by
+3 rather than at most 1, so its η is an approximation of the node-count factor;
+cWD, cLM2, k8 and the cascade showed no violation in 2 × 10⁶ boards.
+
+### Running it
+
+```sh
+# Exact spheres k <= 24, then sphere samples for k = 25..64.
+target/release/eta24 campaign layers --dir data/eta24 --heuristic md
+target/release/eta24 campaign sample --dir data/eta24 --thread-seconds 600
+
+# The far half: uniform draws, then the Manhattan-level strata.
+target/release/eta24 campaign tail    --dir data/eta24 --thread-seconds 3600
+target/release/eta24 campaign tail-md --dir data/eta24 --thread-seconds 3600
+
+# Total eta with no distance proofs at all, and the combined score.
+target/release/eta24 campaign total --heuristic clm2
+target/release/eta24 campaign score --dir data/eta24 --heuristic clm2
+```
+
+Full method, per-sphere tables and the run logs are in
+[`records/eta24_md.txt`](records/eta24_md.txt) (Manhattan, including the
+replication against both papers), [`eta24_wd.txt`](records/eta24_wd.txt),
+[`eta24_tiers.txt`](records/eta24_tiers.txt) (cWD, LM2, cLM2) and
+[`eta24_k8.txt`](records/eta24_k8.txt) (k8 and the cascade).
+
+---
+
+## 3. A 15-puzzle solver, and every board at depths 76–80
 
 `solve15` solves any 15-puzzle position **optimally** via IDA\* with additive
 pattern databases. The default heuristic is `korf-plus`:
@@ -224,7 +327,7 @@ section predates the current data, which reaches depth 76.
 
 ---
 
-## 3. Learned search for deep 24-puzzle boards
+## 4. Learned search for deep 24-puzzle boards
 
 The 24-puzzle has no ground truth past depth ~30, so a learned system can't be
 graded against optima. This part is built around that: a solver and a generator
@@ -276,8 +379,8 @@ of 152.
 ```
 src/puzzle24/search/engine.rs     the lower-bound prover (§1)
 src/puzzle24/search/recursive.rs  generic IDA*, optimal solving + deadlines
-src/puzzle15/enumerate/           the depth 76-80 enumeration (§2)
-src/puzzle24/ml/                  value net, policy net, DAVI, BWAS (§3)
+src/puzzle15/enumerate/           the depth 76-80 enumeration (§3)
+src/puzzle24/ml/                  value net, policy net, DAVI, BWAS (§4)
 src/puzzle8/                      the 8-puzzle warmup: full ground truth
 ```
 
@@ -300,6 +403,17 @@ Clausecker, R., and Reinefeld, A. 2019. *Zero-Aware Pattern Databases with
 the 1.6-bit mod-3 encoding of Breyer & Korf 2010. Construction details follow
 Clausecker, *Notes on the Construction of Pattern Databases*, ZIB Report 17-59,
 2017; see `docs/zpdb-codec-spec.md`.
+
+Clausecker, R., and Schintke, F. 2021. *A Measure of Quality for IDA\*
+Heuristics.* SOCS 2021, pp. 55–63. Defines heuristic quality η, the constant
+factor a consistent heuristic takes off IDA\*'s node count, and the
+sphere-stratified sampling that estimates it. The long version is Clausecker,
+R. 2020, *The Quality of Heuristic Functions for IDA\**, ZIB Report 20-17, Zuse
+Institute Berlin, whose §5 works the 24-puzzle through in full: Table 5.1's η
+for the Manhattan heuristic and five ZPDB schemes, Fig. 5.3's per-sphere
+histogram, and App. B's sampled sphere sizes for k = 31..64. §2 replicates the
+Manhattan figures and measures this repository's own heuristics on the same
+scale.
 
 Culberson, J. C., and Schaeffer, J. 1994. *Efficiently Searching the
 15-Puzzle.* Technical Report TR 94-08, Department of Computing Science,
@@ -332,7 +446,7 @@ Domain of the Cube Forum, node 555, `forum.cubeman.org/?q=node/view/555`. Dates
 Takahashi's heuristics to 2001/2002 and raises the Prieditis X-Y connection;
 lists `R` as "rotate_180" and "a particularly bad case for disjoint pattern
 databases". Its "Nodecounts" comment (2017-04-24) is the source of the 17
-depth-80 antipodes in `data/pdb15_antipodes.txt`, which §2 seeds from.
+depth-80 antipodes in `data/pdb15_antipodes.txt`, which §3 seeds from.
 
 Johnson, W. W., and Story, W. E. 1879. *Notes on the "15" Puzzle.* American
 Journal of Mathematics 2(4):397–404. The parity argument: every move preserves
@@ -350,7 +464,7 @@ Artificial Intelligence 134(1–2).
 
 Korf, R. E., and Schultze, P. 2005. *Large-Scale Parallel Breadth-First
 Search.* AAAI 2005. The complete 15-puzzle depth distribution, which
-`data/pdb15_depth_histogram.txt` reproduces and §2 gates each layer against.
+`data/pdb15_depth_histogram.txt` reproduces and §3 gates each layer against.
 
 Ratner, D., and Warmuth, M. K. 1990. *Finding a shortest solution for the
 (N × N)-extension of the 15-puzzle is intractable.* Journal of Symbolic
