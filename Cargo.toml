@@ -181,10 +181,6 @@ name = "train_pairnet"
 required-features = ["ml", "mmap"]
 
 [[bin]]
-name = "solve_ff"
-required-features = ["ml", "mmap"]
-
-[[bin]]
 name = "gen_corridors"
 required-features = ["ml", "mmap"]
 
@@ -196,28 +192,12 @@ required-features = ["ml"]
 name = "verify_antipodes15"
 required-features = ["ml"]
 
-[[bin]]
-name = "build_pol8"
-required-features = ["sha"]
-
-[[bin]]
-name = "build_feat8"
-required-features = ["sha"]
-
-[[bin]]
-name = "build_adj8"
-required-features = ["sha"]
-
 [[example]]
 name = "korf100_bench"
 required-features = ["mmap"]
 
 [[example]]
 name = "move_dfa_long_build"
-required-features = ["mmap"]
-
-[[example]]
-name = "corridor15"
 required-features = ["mmap"]
 
 [[example]]
@@ -229,10 +209,6 @@ test = true
 name = "catalog24"
 required-features = ["mmap"]
 test = true
-
-[[example]]
-name = "rceiling24"
-required-features = ["parallel", "mmap"]
 
 [profile.release]
 lto = true
@@ -263,10 +239,6 @@ name = "d77_sweep"
 required-features = ["parallel", "mmap"]
 
 [[example]]
-name = "reverse_neighborhood"
-required-features = ["parallel", "mmap"]
-
-[[example]]
 name = "verify_depths"
 required-features = ["parallel", "mmap"]
 
@@ -279,10 +251,6 @@ name = "d77_reflection_closure"
 required-features = ["mmap"]
 
 [[example]]
-name = "d78_clusters"
-required-features = ["parallel", "mmap"]
-
-[[example]]
 name = "d77_maxima"
 required-features = ["mmap"]
 
@@ -290,18 +258,3 @@ required-features = ["mmap"]
 name = "d77_rowcol"
 required-features = ["mmap"]
 
-[[example]]
-name = "export_features_ranks"
-required-features = ["parallel", "mmap"]
-
-[[example]]
-name = "d75d76_hunt"
-required-features = ["parallel", "mmap"]
-
-[[example]]
-name = "export_depth_features"
-required-features = ["parallel", "mmap"]
-
-[[example]]
-name = "residue_pocket"
-required-features = ["parallel", "mmap"]

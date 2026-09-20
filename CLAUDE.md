@@ -22,6 +22,10 @@ a rule here has no such backing, delete it rather than trusting it.
 - `RUNBOOK_R156.md` — the proof procedure, measured timings, artifact SHA pins.
 - `records/r_flat_k8_lazy.txt` — the verdict ledger. Grep it before calling any
   lever untried; the measured graveyard is larger than the FINDINGS summaries.
+- Branch `archive/side-tools` — tools that worked but sat outside what README
+  describes: the 15-puzzle residue-hunt examples, the cWD/ceiling instruments,
+  `solve_ff`, and the pol8/feat8/adj8 family with its tests and pins. Check
+  there before rebuilding something that sounds like it should already exist.
 
 ## Gates — all green before any commit
 
@@ -30,7 +34,7 @@ cargo build --all-targets                    # 0 warnings
 cargo build --all-targets --all-features     # 0 warnings
 cargo clippy --all-targets                   # 0 warnings
 cargo fmt --check
-cargo test                                   # 525 pass, 37 ignored
+cargo test                                   # 502 pass, 37 ignored
 ```
 
 Plain `cargo test` does **not** run the frozen oracle; see below.
