@@ -1,0 +1,27 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+hugepages: tables will be copied into anonymous MADV_HUGEPAGE memory
+cWD: mmapping data/cwd_mm.bin…
+hugepages: data/cwd_mm.bin copied into anonymous memory (3.0 GB resident)
+clm2: mmapping data/cwd_lm1l_mm.bin…
+hugepages: data/cwd_lm1l_mm.bin copied into anonymous memory (10.5 GB resident)
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+hugepages: data/cwd_lm_mm.bin copied into anonymous memory (3.0 GB resident)
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+hugepages: data/pdb24_k8_a.zbin copied into anonymous memory (10.9 GB resident)
+hugepages: data/pdb24_k8_b.zbin copied into anonymous memory (10.9 GB resident)
+hugepages: data/pdb24_k8_c.zbin copied into anonymous memory (10.9 GB resident)
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[12:24:08.313 UTC] search: start  (setup 5.91s)
+[12:24:14.773 UTC] threshold 144 exhausted:       115436814 nodes in 6.46s (17.87 Mn/s)
+[12:24:36.025 UTC] threshold 146 exhausted:      4363759350 nodes in 21.25s (205.34 Mn/s)
+[12:32:54.386 UTC] threshold 148 exhausted:    114245221757 nodes in 498.36s (229.24 Mn/s)
+[12:32:54.388 UTC] search: end    (526.07s in search)
+Lower bound: depth >= 150
+Wall-clock     : 531.99s
+Nodes          : 118724417921
+Iterations     : 3
+Search time    : 526.07s
+Throughput     : 225.68 Mnodes/s

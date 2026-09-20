@@ -1,0 +1,6 @@
+Lower bound: depth >= 150
+Wall-clock     : 473.54s
+Nodes          : 118724417921
+Iterations     : 3
+Search time    : 472.00s
+Throughput     : 251.53 Mnodes/s

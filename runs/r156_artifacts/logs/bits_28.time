@@ -1,0 +1,37 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[13:14:20.218 UTC] search: start  (setup 1.53s)
+[13:14:27.175 UTC] threshold 144 exhausted:       115436814 nodes in 6.96s (16.60 Mn/s)
+[13:14:46.977 UTC] threshold 146 exhausted:      4363759350 nodes in 19.80s (220.38 Mn/s)
+[13:22:12.220 UTC] threshold 148 exhausted:    114245221757 nodes in 445.24s (256.59 Mn/s)
+[13:22:12.222 UTC] search: end    (472.00s in search)
+	Command being timed: "target/release/solve24 --position 0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 --prove-at-least 149 --clm2 --zpdb8 --parallel"
+	User time (seconds): 28361.79
+	System time (seconds): 24.91
+	Percent of CPU this job got: 5990%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 7:53.89
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 51742092
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 1606729
+	Voluntary context switches: 2711
+	Involuntary context switches: 40549
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 24
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

@@ -18,6 +18,11 @@ runs/*
 # node count, instead of redoing the whole search. ~11 MB of ASCII, ~3 MB
 # packed. Not regenerable — this is the evidence.
 !runs/ckpt156/
+# The rest of the proof machine's state, copied off the VM before it was
+# released: the run log, the eviction record, the exact binary, the launcher
+# and systemd unit, the one uncommitted source edit, and the tuning scripts
+# that built the tables. 1.5 MB, and the only copy.
+!runs/r156_artifacts/
 
 # eta24 sampling campaigns (stored sphere samples; regenerable from the seeds
 # and settings in each stratum's .meta file).

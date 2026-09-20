@@ -1,0 +1,17 @@
+=== [10:06 AM ET] sync to origin/main and rebuild
+ 2 files changed, 74 insertions(+), 12 deletions(-)
+a590305 E9: per-worker cache sizing re-measured at W=64 — no change
+578:const K8_SHARED_BITS: u32 = 27;
+2010:const SPLIT_TARGET: usize = 32768;
+578:const K8_SHARED_BITS: u32 = 27;
+    Finished `release` profile [optimized] target(s) in 11.37s
+=== [10:07 AM ET] warm page cache
+=== [10:07 AM ET] E1b W=64 (exhaust-148, SPLIT_TARGET=32768, K8_SHARED_BITS=27)
+[14:15:06.399 UTC] threshold 148 exhausted:    114245221757 nodes in 444.73s (256.88 Mn/s)
+=== [10:15 AM ET] E1b W=48 (exhaust-148, SPLIT_TARGET=32768, K8_SHARED_BITS=27)
+[14:25:09.902 UTC] threshold 148 exhausted:    114245221757 nodes in 570.95s (200.10 Mn/s)
+=== [10:25 AM ET] E1b W=32 (exhaust-148, SPLIT_TARGET=32768, K8_SHARED_BITS=27)
+[14:39:23.282 UTC] threshold 148 exhausted:    114245221757 nodes in 812.45s (140.62 Mn/s)
+=== [10:39 AM ET] E1b W=16 (exhaust-148, SPLIT_TARGET=32768, K8_SHARED_BITS=27)
+[15:05:16.323 UTC] threshold 148 exhausted:    114245221757 nodes in 1486.64s (76.85 Mn/s)
+=== [11:05 AM ET] E1b COMPLETE

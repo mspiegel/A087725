@@ -1,0 +1,47 @@
+=== [21:40:22] stage 3f: lm1l validate-only (parallel oracle)
+artifact present — skipping build, validating only
+  lm1l infra: 65650495 keys enumerated in 42s
+  lm1l infra: adjacency + counts + bases in 44s
+build: 2000 sampled fields match the A* oracle (4 budget-outs skipped)
+=== [21:50:43] stage 4a: build_pdb24 k8_a
+Building 24-puzzle zero-aware (1-bit) PDB for pattern [1, 2, 3, 4, 6, 7, 8, 9] (8 tiles)
+  Output file  : data/pdb24_k8_a.zbin
+ZPDB (frontier-free 2-bit) BFS complete in 5009.86s
+  ZPDB entries : 87358400640
+  Packed bytes : 10919800080
+  Max depth    : 46  (eccentricity — sum across a partition for the Σ-ecc bound)
+SHA-256 : 7e4772e79d7c4d369eec96d2145fa008a8c15f5bdf67a066e06e2efefd2ac5f1
+Bytes   : 10919800104
+SHA-256 matches pinned data/pdb24_k8_a.sha256
+=== [23:14:31] stage 4b: build_pdb24 k8_b
+Building 24-puzzle zero-aware (1-bit) PDB for pattern [5, 10, 14, 15, 19, 20, 23, 24] (8 tiles)
+  Output file  : data/pdb24_k8_b.zbin
+ZPDB (frontier-free 2-bit) BFS complete in 5499.45s
+  ZPDB entries : 87358400640
+  Packed bytes : 10919800080
+  Max depth    : 50  (eccentricity — sum across a partition for the Σ-ecc bound)
+SHA-256 : ccf23af56a62092967e4cd80481d2b406268b38d2b8237b9088f37c1aea77344
+Bytes   : 10919800104
+SHA-256 matches pinned data/pdb24_k8_b.sha256
+=== [00:46:29] stage 4c: build_pdb24 k8_c
+Building 24-puzzle zero-aware (1-bit) PDB for pattern [11, 12, 13, 16, 17, 18, 21, 22] (8 tiles)
+  Output file  : data/pdb24_k8_c.zbin
+ZPDB (frontier-free 2-bit) BFS complete in 5323.49s
+  ZPDB entries : 87358400640
+  Packed bytes : 10919800080
+  Max depth    : 46  (eccentricity — sum across a partition for the Σ-ecc bound)
+SHA-256 : f421e9e1699b2bd99d1069b023dd028a4ec096c93c885b0f3af3b8f060e44fcf
+Bytes   : 10919800104
+SHA-256 matches pinned data/pdb24_k8_c.sha256
+=== [02:15:31] stage 5: sha256 sweep
+OK   wd24.bin
+OK   cwd_single.bin
+OK   cwd_mm.bin
+OK   cwd_lm.bin
+OK   cwd_lm2.bin
+OK   cwd_lm_mm.bin
+OK   cwd_lm1l_mm.bin
+OK   pdb24_k8_a.zbin
+OK   pdb24_k8_b.zbin
+OK   pdb24_k8_c.zbin
+=== [02:18:19] PIPELINE COMPLETE, ALL SHA OK

@@ -1,0 +1,22 @@
+=== [13:23:55] box idle; starting E9
+=== [13:23:55] E9 small: WORKER=16 LM=16 LM2=17 LM1L=13
+1154:const LM_CACHE_BITS: u32 = 16; 1401:const LM2_CACHE_BITS: u32 = 17; 1577:const LM1L_CACHE_BITS: u32 = 13; 2022:const WORKER_CACHE_BITS: u32 = 16; 
+    Finished `release` profile [optimized] target(s) in 11.33s
+[13:33:19.810 UTC] threshold 148 exhausted:    114245221757 nodes in 522.28s (218.75 Mn/s)
+=== [13:33:19] E9 down: WORKER=17 LM=17 LM2=18 LM1L=14
+1154:const LM_CACHE_BITS: u32 = 17; 1401:const LM2_CACHE_BITS: u32 = 18; 1577:const LM1L_CACHE_BITS: u32 = 14; 2022:const WORKER_CACHE_BITS: u32 = 17; 
+    Finished `release` profile [optimized] target(s) in 11.34s
+[13:42:28.269 UTC] threshold 148 exhausted:    114245221757 nodes in 507.10s (225.29 Mn/s)
+=== [13:42:28] E9 base: WORKER=18 LM=18 LM2=19 LM1L=15
+1154:const LM_CACHE_BITS: u32 = 18; 1401:const LM2_CACHE_BITS: u32 = 19; 1577:const LM1L_CACHE_BITS: u32 = 15; 2022:const WORKER_CACHE_BITS: u32 = 18; 
+    Finished `release` profile [optimized] target(s) in 11.35s
+[13:51:26.195 UTC] threshold 148 exhausted:    114245221757 nodes in 496.49s (230.10 Mn/s)
+=== [13:51:26] E9 up: WORKER=19 LM=19 LM2=20 LM1L=16
+1154:const LM_CACHE_BITS: u32 = 19; 1401:const LM2_CACHE_BITS: u32 = 20; 1577:const LM1L_CACHE_BITS: u32 = 16; 2022:const WORKER_CACHE_BITS: u32 = 19; 
+    Finished `release` profile [optimized] target(s) in 11.38s
+[14:00:22.331 UTC] threshold 148 exhausted:    114245221757 nodes in 495.12s (230.74 Mn/s)
+=== [14:00:22] revert to committed constants, rebuild, reference canary
+Updated 1 path from the index
+    Finished `release` profile [optimized] target(s) in 11.29s
+[14:01:06.133 UTC] threshold 146 exhausted:      4363759350 nodes in 24.14s (180.75 Mn/s)
+=== [14:01:06] E9 COMPLETE

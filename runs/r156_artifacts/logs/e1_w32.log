@@ -1,0 +1,20 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 32 rayon workers (RAYON_NUM_THREADS to change)
+[02:43:23.162 UTC] search: start  (setup 1.52s)
+[02:43:24.608 UTC] threshold 144 exhausted:       115436814 nodes in 1.45s (79.88 Mn/s)
+[02:43:59.916 UTC] threshold 146 exhausted:      4363759350 nodes in 35.31s (123.59 Mn/s)
+[03:01:25.739 UTC] threshold 148 exhausted:    114245221757 nodes in 1045.82s (109.24 Mn/s)
+[03:01:25.741 UTC] search: end    (1082.58s in search)
+Lower bound: depth >= 150
+Wall-clock     : 1084.10s
+Nodes          : 118724417921
+Iterations     : 3
+Search time    : 1082.58s
+Throughput     : 109.67 Mnodes/s

@@ -1,0 +1,13 @@
+diff --git a/src/puzzle24/search/flat.rs b/src/puzzle24/search/flat.rs
+index 4d3917c..a1034da 100644
+--- a/src/puzzle24/search/flat.rs
++++ b/src/puzzle24/search/flat.rs
+@@ -2007,7 +2007,7 @@ enum Step {
+ /// original ~500-units-per-worker ratio at W=64; deeper thresholds have more
+ /// subtree-size variance, so the extra slack is the safer end of a flat range.
+ #[cfg(feature = "parallel")]
+-const SPLIT_TARGET: usize = 32768;
++const SPLIT_TARGET: usize = 262144;
+ 
+ /// Probe-cache size for a *worker*, in bits. Same as the sequential
+ /// [`CACHE_BITS`], and that is not a coincidence — see below.

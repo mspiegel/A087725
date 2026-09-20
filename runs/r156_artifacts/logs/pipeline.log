@@ -1,0 +1,9 @@
+=== [19:08:56] stage 0: cargo build --release --features sha
+    Finished `release` profile [optimized] target(s) in 0.03s
+=== [19:08:57] stage 1: build_wd24
+  WD entries : 65650495
+  Round-trip : OK (65650495 entries reloaded)
+SHA-256 : c1652299a8a098b71d543bb9cd20e6b7d8dc9dd6dfee44d89b64e0accc37d734
+Bytes   : 590854479
+SHA-256 matches pinned data/wd24.bin.sha256
+=== [19:09:33] stage 2: build_cwd_table

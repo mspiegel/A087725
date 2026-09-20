@@ -1,0 +1,120 @@
+=== [20:01:30] stage 2: build_cwd_table (parallel lines)
+WD table: 65650495 entries in 4.9s
+  g=2 R-row check OK: [70, 70, 70, 70, 72]
+line g=0: BFS 175.2s, scan+checks 670.3s, merge 0.2s, WD-layer invariant OK, 149/150 A* cross-checks matched
+line g=1: BFS 170.1s, scan+checks 468.2s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=2: BFS 167.0s, scan+checks 585.2s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=3: BFS 153.3s, scan+checks 280.1s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=4: BFS 154.5s, scan+checks 456.5s, merge 0.2s, WD-layer invariant OK, 148/150 A* cross-checks matched
+wrote data/cwd_single.bin (65650495 entries, 1182 MB) in total 855.2s
+=== [20:15:45] stage 3: build_cwd_artifacts all
+merged table ready in 41s
+  cwd_mm: 65650495 keys into 93786421 slots (load 0.700), mean chain 2.07, longest 146
+verified 65650495 cells round-trip in 54s total
+  cwd_lm BFS depth 10: 873 keys reached
+  cwd_lm BFS depth 20: 217084 keys reached
+  cwd_lm BFS depth 30: 6488114 keys reached
+  cwd_lm BFS depth 40: 35033166 keys reached
+  cwd_lm BFS depth 50: 61576516 keys reached
+  cwd_lm BFS depth 60: 65637209 keys reached
+  cwd_lm BFS depth 70: 65650495 keys reached
+built 65650495 keys in 194s
+saved data/cwd_lm.bin
+  cwd_lm2: 65650495 base keys enumerated in 42s
+  cwd_lm2 BFS depth 0: layer 1, total 2 states, 44s
+  cwd_lm2 BFS depth 10: layer 5151, total 9341 states, 44s
+  cwd_lm2 BFS depth 20: layer 1676847, total 3875310 states, 45s
+  cwd_lm2 BFS depth 30: layer 45260926, total 159545922 states, 62s
+  cwd_lm2 BFS depth 40: layer 153910121, total 1074780708 states, 169s
+  cwd_lm2 BFS depth 50: layer 78184077, total 2144877004 states, 291s
+  cwd_lm2 BFS depth 60: layer 2496930, total 2345525782 states, 312s
+  cwd_lm2 BFS depth 70: layer 12, total 2346712859 states, 312s
+  cwd_lm2 BFS done at depth 72: 2346712861 states in 312s
+built 65650495 keys in 324s
+pair>=single dominance checked on 1787040 placements
+saved data/cwd_lm2.bin
+tables loaded in 41s
+  cwd_lm_mm: 65650495 keys placed, longest probe chain 167
+verified 65650495 keys round-trip in 89s total
+  lm1l infra: 65650495 keys enumerated in 41s
+  lm1l infra: adjacency + counts + bases in 49s
+    r0 (10 codes/key): depth 72 in 8s
+    layer g=0: max depth 74 in 9s
+    layer g=0: max depth 76 in 9s
+    layer g=0: max depth 78 in 9s
+    layer g=0: max depth 80 in 9s
+    r0 (10 codes/key): depth 72 in 8s
+    layer g=1: max depth 72 in 10s
+    layer g=1: max depth 72 in 10s
+    layer g=1: max depth 72 in 10s
+    layer g=1: max depth 74 in 10s
+    r0 (10 codes/key): depth 72 in 8s
+    layer g=2: max depth 72 in 10s
+    layer g=2: max depth 72 in 10s
+    layer g=2: max depth 73 in 10s
+    layer g=2: max depth 75 in 10s
+    r0 (10 codes/key): depth 72 in 8s
+    layer g=3: max depth 72 in 9s
+    layer g=3: max depth 72 in 9s
+    layer g=3: max depth 72 in 9s
+    layer g=3: max depth 73 in 9s
+    r0 (10 codes/key): depth 72 in 8s
+    layer g=4: max depth 74 in 9s
+    layer g=4: max depth 76 in 9s
+    layer g=4: max depth 78 in 9s
+    layer g=4: max depth 80 in 9s
+    r0 (10 codes/key): depth 71 in 8s
+    layer g=0: max depth 73 in 9s
+    layer g=0: max depth 75 in 10s
+    layer g=0: max depth 77 in 9s
+    layer g=0: max depth 79 in 10s
+    r0 (10 codes/key): depth 71 in 8s
+    layer g=1: max depth 71 in 10s
+    layer g=1: max depth 71 in 10s
+    layer g=1: max depth 71 in 10s
+    layer g=1: max depth 73 in 10s
+    r0 (10 codes/key): depth 71 in 8s
+    layer g=2: max depth 71 in 10s
+    layer g=2: max depth 71 in 9s
+    layer g=2: max depth 72 in 9s
+    layer g=2: max depth 73 in 9s
+    r0 (10 codes/key): depth 71 in 8s
+    layer g=3: max depth 71 in 11s
+    layer g=3: max depth 71 in 10s
+    layer g=3: max depth 71 in 10s
+    layer g=3: max depth 73 in 10s
+    r0 (10 codes/key): depth 71 in 8s
+    layer g=4: max depth 73 in 9s
+    layer g=4: max depth 75 in 9s
+    layer g=4: max depth 77 in 9s
+    layer g=4: max depth 79 in 9s
+  lm1l: singles done in 520s
+    r0 (100 codes/key): depth 72 in 60s
+    layer g=0: max depth 74 in 64s
+    layer g=0: max depth 76 in 63s
+    layer g=0: max depth 78 in 63s
+    layer g=0: max depth 80 in 62s
+  lm1l: pair line g=0 done in 835s
+    layer g=1: max depth 72 in 64s
+    layer g=1: max depth 73 in 64s
+    layer g=1: max depth 73 in 64s
+    layer g=1: max depth 75 in 64s
+  lm1l: pair line g=1 done in 1096s
+    layer g=2: max depth 72 in 66s
+    layer g=2: max depth 72 in 63s
+    layer g=2: max depth 73 in 63s
+    layer g=2: max depth 75 in 63s
+  lm1l: pair line g=2 done in 1354s
+    layer g=3: max depth 72 in 64s
+    layer g=3: max depth 72 in 61s
+    layer g=3: max depth 73 in 61s
+    layer g=3: max depth 73 in 61s
+  lm1l: pair line g=3 done in 1605s
+    layer g=4: max depth 74 in 62s
+    layer g=4: max depth 76 in 62s
+    layer g=4: max depth 78 in 62s
+    layer g=4: max depth 80 in 62s
+  lm1l: pair line g=4 done in 1858s
+  lm1l: artifact data/cwd_lm1l_mm.bin (93786421 slots, 10.5 GB) in 1876s
+  lm1l infra: 65650495 keys enumerated in 42s
+  lm1l infra: adjacency + counts + bases in 50s

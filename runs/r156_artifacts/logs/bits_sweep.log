@@ -1,0 +1,16 @@
+=== [12:36:24] K8_SHARED_BITS=22 (32 MB), rebuild
+557:const K8_SHARED_BITS: u32 = 22;
+    Finished `release` profile [optimized] target(s) in 11.30s
+[12:46:07.706 UTC] threshold 148 exhausted:    114245221757 nodes in 540.55s (211.35 Mn/s)
+=== [12:46:07] K8_SHARED_BITS=25 (256 MB), rebuild
+557:const K8_SHARED_BITS: u32 = 25;
+    Finished `release` profile [optimized] target(s) in 11.38s
+[12:55:01.342 UTC] threshold 148 exhausted:    114245221757 nodes in 492.94s (231.76 Mn/s)
+=== [12:55:01] K8_SHARED_BITS=26 (512 MB), rebuild
+557:const K8_SHARED_BITS: u32 = 26;
+    Finished `release` profile [optimized] target(s) in 11.43s
+[13:03:24.237 UTC] threshold 148 exhausted:    114245221757 nodes in 462.60s (246.96 Mn/s)
+=== [13:03:24] canary C (bracket end)
+[13:03:53.319 UTC] threshold 146 exhausted:      4363759350 nodes in 20.68s (210.97 Mn/s)
+Updated 1 path from the index
+=== [13:03:53] BITS SWEEP COMPLETE

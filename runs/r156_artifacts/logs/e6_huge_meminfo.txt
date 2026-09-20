@@ -1,0 +1,2 @@
+AnonHugePages:  48099328 kB
+Hugepagesize:       2048 kB

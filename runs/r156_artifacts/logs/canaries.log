@@ -1,0 +1,55 @@
+--- gate 1: zpdb8 through 146 (expect 269,180,917 / 8,539,130,554)
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[02:19:14.831 UTC] search: start  (setup 1.55s)
+[02:19:16.390 UTC] threshold 144 exhausted:       269180917 nodes in 1.56s (172.79 Mn/s)
+[02:19:49.822 UTC] threshold 146 exhausted:      8539130554 nodes in 33.43s (255.42 Mn/s)
+[02:19:49.822 UTC] search: end    (34.99s in search)
+Lower bound: depth >= 148
+Wall-clock     : 36.54s
+Nodes          : 8808311471
+Iterations     : 2
+Search time    : 34.99s
+Throughput     : 251.73 Mnodes/s
+--- gate 2: clm2 at 144 (expect 134,801,951)
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[02:19:50.640 UTC] search: start  (setup 731.59ms)
+[02:19:50.947 UTC] threshold 144 exhausted:       134801951 nodes in 306.89ms (439.26 Mn/s)
+[02:19:50.948 UTC] search: end    (308.40ms in search)
+Lower bound: depth >= 146
+Wall-clock     : 1.04s
+Nodes          : 134801951
+Iterations     : 1
+Search time    : 308.40ms
+Throughput     : 437.10 Mnodes/s
+--- gate 3: cascade through 146 (expect 4,363,759,350)
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[02:19:52.657 UTC] search: start  (setup 1.54s)
+[02:19:53.818 UTC] threshold 144 exhausted:       115436814 nodes in 1.16s (99.49 Mn/s)
+[02:20:13.766 UTC] threshold 146 exhausted:      4363759350 nodes in 19.95s (218.75 Mn/s)
+[02:20:13.768 UTC] search: end    (21.11s in search)
+Lower bound: depth >= 148
+Wall-clock     : 22.65s
+Nodes          : 4479196164
+Iterations     : 2
+Search time    : 21.11s
+Throughput     : 212.17 Mnodes/s

@@ -1,0 +1,9 @@
+WD table: 65650495 entries in 4.6s
+  g=2 R-row check OK: [70, 70, 70, 70, 72]
+line g=0: BFS 176.1s, scan+checks 687.8s, merge 0.2s, WD-layer invariant OK, 149/150 A* cross-checks matched
+line g=1: BFS 170.3s, scan+checks 477.3s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=2: BFS 177.1s, scan+checks 599.1s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=3: BFS 155.4s, scan+checks 289.3s, merge 0.2s, WD-layer invariant OK, 150/150 A* cross-checks matched
+line g=4: BFS 153.3s, scan+checks 465.9s, merge 0.3s, WD-layer invariant OK, 148/150 A* cross-checks matched
+wrote data/cwd_single.bin (65650495 entries, 1182 MB) in total 880.5s
+REPIN-DONE 5a5b15a1bd8279803ded809fd599dc04b9912545fc0c95fe47f99d093190ad08

@@ -1,0 +1,47 @@
+=== [11:13 AM ET] build with parallel-profile
+    Finished `release` profile [optimized] target(s) in 11.59s
+=== [11:13 AM ET] E8 parallel-profile W=64 (exhaust-148)
+[15:21:36.495 UTC] threshold 148 exhausted:    114245221757 nodes in 449.77s (254.01 Mn/s)
+--- decomposition W=64 ---
+  split (serial) : 6.04s   parallel span: 0.74s
+  worker busy    : 46.61s  ->  busy fraction 98.6%
+  unit wall time : max 0.25s (33.8% of span)  p50 0.001s  p90 0.002s  p99 0.012s  top-64 sum 7.67s
+  makespan bounds: work/W 0.73s | max-unit 0.25s | LPT 0.73s | actual 0.74s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +0.01s (+1.4%)
+  per-thread     : t0=379.6ns/n(1s,449u) t1=391.1ns/n(1s,460u) t2=398.6ns/n(1s,511u) t3=364.6ns/n(1s,365u) t4=428.5ns/n(1s,709u) t5=427.5ns/n(1s,616u) t6=395.5ns/n(1s,470u) t7=363.8ns/n(1s,328u) t8=373.5ns/n(1s,411u) t9=388.9ns/n(1s,463u) t10=407.3ns/n(1s,590u) t11=416.1ns/n(1s,621u) t12=386.5ns/n(1s,598u) t13=426.4ns/n(1s,627u) t14=431.6ns/n(1s,627u) t15=475.2ns/n(1s,413u) t16=390.3ns/n(1s,590u) t17=377.9ns/n(1s,341u) t18=346.9ns/n(1s,449u) t19=419.8ns/n(1s,606u) t20=414.6ns/n(1s,597u) t21=404.9ns/n(1s,551u) t22=368.5ns/n(1s,457u) t23=396.1ns/n(1s,469u) t24=391.2ns/n(1s,466u) t25=431.7ns/n(1s,625u) t26=430.6ns/n(1s,505u) t27=408.8ns/n(1s,542u) t28=606.9ns/n(1s,468u) t29=385.1ns/n(1s,433u) t30=406.3ns/n(1s,491u) t31=472.3ns/n(1s,340u) t32=380.4ns/n(1s,489u) t33=415.1ns/n(1s,523u) t34=415.6ns/n(1s,602u) t35=397.0ns/n(1s,412u) t36=385.4ns/n(1s,471u) t37=399.8ns/n(1s,528u) t38=411.1ns/n(1s,603u) t39=364.6ns/n(1s,428u) t40=387.2ns/n(1s,444u) t41=434.1ns/n(1s,649u) t42=689.8ns/n(1s,480u) t43=386.1ns/n(1s,514u) t44=374.4ns/n(1s,494u) t45=405.0ns/n(1s,476u) t46=454.3ns/n(1s,669u) t47=379.2ns/n(1s,493u) t48=390.6ns/n(1s,438u) t49=373.1ns/n(1s,395u) t50=376.8ns/n(1s,443u) t51=410.5ns/n(1s,544u) t52=402.7ns/n(1s,577u) t53=370.1ns/n(1s,454u) t54=392.3ns/n(1s,571u) t55=382.1ns/n(1s,407u) t56=372.6ns/n(1s,512u) t57=431.8ns/n(1s,660u) t58=428.7ns/n(1s,492u) t59=392.4ns/n(1s,579u) t60=445.8ns/n(1s,741u) t61=382.6ns/n(1s,463u) t62=394.1ns/n(1s,516u) t63=407.1ns/n(1s,513u)
+  split (serial) : 5.15s   parallel span: 14.90s
+  worker busy    : 920.99s  ->  busy fraction 96.6%
+  unit wall time : max 1.47s (9.9% of span)  p50 0.012s  p90 0.070s  p99 0.239s  top-64 sum 38.51s
+  makespan bounds: work/W 14.39s | max-unit 1.47s | LPT 14.39s | actual 14.90s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +0.51s (+3.4%)
+  per-thread     : t0=219.3ns/n(15s,396u) t1=223.8ns/n(14s,341u) t2=215.0ns/n(14s,355u) t3=204.7ns/n(14s,1091u) t4=204.7ns/n(14s,539u) t5=215.7ns/n(14s,532u) t6=207.1ns/n(14s,573u) t7=220.5ns/n(14s,328u) t8=215.5ns/n(14s,368u) t9=218.3ns/n(14s,569u) t10=205.7ns/n(15s,361u) t11=210.7ns/n(14s,553u) t12=206.6ns/n(14s,788u) t13=204.9ns/n(14s,718u) t14=203.7ns/n(14s,474u) t15=218.0ns/n(14s,486u) t16=205.6ns/n(15s,482u) t17=219.3ns/n(14s,304u) t18=215.4ns/n(14s,435u) t19=206.2ns/n(14s,504u) t20=213.5ns/n(14s,549u) t21=211.5ns/n(14s,350u) t22=207.0ns/n(14s,486u) t23=215.0ns/n(14s,433u) t24=206.4ns/n(14s,508u) t25=209.5ns/n(14s,358u) t26=217.3ns/n(14s,389u) t27=207.8ns/n(14s,572u) t28=209.7ns/n(14s,471u) t29=208.5ns/n(14s,617u) t30=222.7ns/n(14s,545u) t31=216.3ns/n(14s,464u) t32=210.5ns/n(14s,517u) t33=207.9ns/n(14s,534u) t34=207.4ns/n(14s,676u) t35=209.4ns/n(14s,611u) t36=201.2ns/n(14s,605u) t37=213.3ns/n(14s,466u) t38=207.8ns/n(14s,653u) t39=207.6ns/n(14s,386u) t40=221.3ns/n(14s,305u) t41=208.6ns/n(14s,485u) t42=217.8ns/n(14s,523u) t43=215.0ns/n(14s,434u) t44=206.3ns/n(14s,635u) t45=217.6ns/n(14s,368u) t46=214.8ns/n(14s,583u) t47=207.2ns/n(14s,303u) t48=216.4ns/n(14s,371u) t49=217.3ns/n(14s,640u) t50=210.9ns/n(14s,351u) t51=211.4ns/n(14s,485u) t52=206.8ns/n(15s,533u) t53=202.8ns/n(14s,544u) t54=207.5ns/n(14s,335u) t55=213.5ns/n(14s,411u) t56=208.8ns/n(14s,659u) t57=199.8ns/n(14s,871u) t58=216.1ns/n(14s,368u) t59=207.6ns/n(14s,550u) t60=209.4ns/n(14s,679u) t61=213.9ns/n(14s,417u) t62=211.5ns/n(15s,550u) t63=203.1ns/n(14s,981u)
+  split (serial) : 4.94s   parallel span: 444.82s
+  worker busy    : 28047.74s  ->  busy fraction 98.5%
+  unit wall time : max 34.96s (7.9% of span)  p50 0.396s  p90 2.111s  p99 6.685s  top-64 sum 1044.56s
+  makespan bounds: work/W 438.25s | max-unit 34.96s | LPT 438.25s | actual 444.82s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +6.58s (+1.5%)
+  per-thread     : t0=254.8ns/n(437s,470u) t1=258.5ns/n(438s,460u) t2=242.1ns/n(437s,622u) t3=243.4ns/n(438s,494u) t4=243.2ns/n(439s,459u) t5=248.8ns/n(441s,487u) t6=247.9ns/n(439s,531u) t7=252.4ns/n(440s,695u) t8=247.7ns/n(438s,952u) t9=249.2ns/n(438s,462u) t10=241.4ns/n(442s,607u) t11=236.5ns/n(438s,817u) t12=242.6ns/n(437s,450u) t13=242.9ns/n(439s,440u) t14=245.9ns/n(437s,370u) t15=260.8ns/n(438s,302u) t16=236.0ns/n(440s,389u) t17=253.5ns/n(440s,409u) t18=238.4ns/n(439s,482u) t19=245.1ns/n(438s,612u) t20=249.5ns/n(438s,357u) t21=241.7ns/n(437s,439u) t22=249.3ns/n(439s,595u) t23=250.3ns/n(437s,489u) t24=246.5ns/n(437s,465u) t25=247.0ns/n(440s,491u) t26=246.2ns/n(437s,564u) t27=244.1ns/n(437s,355u) t28=250.3ns/n(437s,578u) t29=238.2ns/n(437s,358u) t30=255.8ns/n(437s,318u) t31=245.4ns/n(438s,451u) t32=228.0ns/n(437s,961u) t33=242.5ns/n(438s,459u) t34=247.3ns/n(437s,356u) t35=252.4ns/n(442s,468u) t36=241.2ns/n(437s,382u) t37=248.6ns/n(438s,625u) t38=247.7ns/n(438s,564u) t39=243.8ns/n(438s,380u) t40=250.4ns/n(437s,484u) t41=238.5ns/n(439s,565u) t42=256.2ns/n(445s,584u) t43=237.7ns/n(438s,744u) t44=241.5ns/n(438s,405u) t45=247.4ns/n(439s,582u) t46=243.8ns/n(438s,356u) t47=235.2ns/n(437s,680u) t48=246.6ns/n(439s,568u) t49=250.6ns/n(438s,424u) t50=246.1ns/n(439s,477u) t51=249.3ns/n(440s,651u) t52=242.3ns/n(440s,386u) t53=245.4ns/n(437s,523u) t54=244.1ns/n(437s,365u) t55=248.5ns/n(437s,536u) t56=247.9ns/n(438s,619u) t57=235.1ns/n(438s,505u) t58=244.9ns/n(437s,341u) t59=234.8ns/n(437s,612u) t60=240.0ns/n(437s,533u) t61=245.9ns/n(437s,542u) t62=254.6ns/n(437s,665u) t63=248.1ns/n(440s,456u)
+=== [11:21 AM ET] E8 parallel-profile W=16 (exhaust-148)
+[15:47:53.943 UTC] threshold 148 exhausted:    114245221757 nodes in 1511.40s (75.59 Mn/s)
+--- decomposition W=16 ---
+  split (serial) : 6.06s   parallel span: 2.05s
+  worker busy    : 32.80s  ->  busy fraction 99.9%
+  unit wall time : max 0.20s (9.9% of span)  p50 0.001s  p90 0.002s  p99 0.007s  top-16 sum 1.41s
+  makespan bounds: work/W 2.05s | max-unit 0.20s | LPT 2.05s | actual 2.05s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +0.00s (+0.1%)
+  per-thread     : t0=275.9ns/n(2s,2087u) t1=273.4ns/n(2s,2117u) t2=298.8ns/n(2s,2290u) t3=281.9ns/n(2s,2075u) t4=292.3ns/n(2s,1986u) t5=284.6ns/n(2s,1941u) t6=287.4ns/n(2s,2120u) t7=288.2ns/n(2s,2187u) t8=265.2ns/n(2s,1552u) t9=291.9ns/n(2s,2186u) t10=278.1ns/n(2s,1981u) t11=274.6ns/n(2s,1851u) t12=286.7ns/n(2s,2027u) t13=285.6ns/n(2s,2093u) t14=314.1ns/n(2s,2493u) t15=275.5ns/n(2s,1782u)
+  split (serial) : 5.13s   parallel span: 51.01s
+  worker busy    : 814.87s  ->  busy fraction 99.8%
+  unit wall time : max 1.39s (2.7% of span)  p50 0.011s  p90 0.061s  p99 0.212s  top-16 sum 12.15s
+  makespan bounds: work/W 50.93s | max-unit 1.39s | LPT 50.93s | actual 51.01s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +0.08s (+0.2%)
+  per-thread     : t0=188.1ns/n(51s,1479u) t1=186.0ns/n(51s,2361u) t2=190.7ns/n(51s,2267u) t3=182.4ns/n(51s,1715u) t4=187.0ns/n(51s,2459u) t5=186.7ns/n(51s,2048u) t6=185.1ns/n(51s,1534u) t7=188.0ns/n(51s,1728u) t8=189.0ns/n(51s,2504u) t9=190.4ns/n(51s,1395u) t10=189.6ns/n(51s,2170u) t11=184.1ns/n(51s,2683u) t12=180.2ns/n(51s,2878u) t13=185.1ns/n(51s,1960u) t14=184.7ns/n(51s,1972u) t15=191.5ns/n(51s,1615u)
+  split (serial) : 4.94s   parallel span: 1506.46s
+  worker busy    : 24037.27s  ->  busy fraction 99.7%
+  unit wall time : max 31.80s (2.1% of span)  p50 0.340s  p90 1.807s  p99 5.725s  top-16 sum 307.38s
+  makespan bounds: work/W 1502.33s | max-unit 31.80s | LPT 1502.33s | actual 1506.46s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +4.13s (+0.3%)
+  per-thread     : t0=213.3ns/n(1501s,1532u) t1=209.7ns/n(1501s,2437u) t2=215.5ns/n(1502s,1970u) t3=213.9ns/n(1501s,1552u) t4=212.8ns/n(1502s,1850u) t5=207.8ns/n(1504s,2895u) t6=211.3ns/n(1502s,1598u) t7=209.1ns/n(1501s,2823u) t8=212.7ns/n(1502s,1807u) t9=208.4ns/n(1502s,2068u) t10=210.2ns/n(1501s,2221u) t11=208.8ns/n(1506s,2682u) t12=208.0ns/n(1502s,1790u) t13=201.9ns/n(1504s,2738u) t14=214.2ns/n(1502s,1604u) t15=209.7ns/n(1503s,1201u)
+=== [11:47 AM ET] restore production build
+    Finished `release` profile [optimized] target(s) in 0.04s
+=== [11:47 AM ET] E8 COMPLETE

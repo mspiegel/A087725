@@ -1,0 +1,40 @@
+=== [11:50 AM ET] confirming production build and constants
+a590305 E9: per-worker cache sizing re-measured at W=64 — no change
+578:const K8_SHARED_BITS: u32 = 27;
+2010:const SPLIT_TARGET: usize = 32768;
+    Finished `release` profile [optimized] target(s) in 0.03s
+=== [11:50 AM ET] part 1: exhaust-150 under --checkpoint (will be killed at 30 min)
+=== [12:20 PM ET] E5: hard-killing pid 22451 (SIGKILL — no cleanup, the harshest case)
+=== [12:20 PM ET] run1 reached:
+[15:50:43.600 UTC] threshold 144 exhausted:       115436814 nodes in 6.76s (17.07 Mn/s)
+[15:51:03.534 UTC] threshold 146 exhausted:      4363759350 nodes in 19.93s (218.92 Mn/s)
+[15:58:40.940 UTC] threshold 148 exhausted:    114245221757 nodes in 457.41s (249.77 Mn/s)
+=== [12:20 PM ET] checkpoint dir after kill:
+drwxrwxr-x 2 ubuntu ubuntu   4096 Aug 10 15:50 .
+drwxrwxr-x 3 ubuntu ubuntu   4096 Aug 10 15:50 ..
+-rw-rw-r-- 1 ubuntu ubuntu    115 Aug 10 15:58 main.ckpt
+-rw-rw-r-- 1 ubuntu ubuntu  77557 Aug 10 16:20 w0.ckpt
+-rw-rw-r-- 1 ubuntu ubuntu  81846 Aug 10 16:20 w1.ckpt
+-rw-rw-r-- 1 ubuntu ubuntu  83104 Aug 10 16:20 w10.ckpt
+-rw-rw-r-- 1 ubuntu ubuntu  85214 Aug 10 16:19 w11.ckpt
+-rw-rw-r-- 1 ubuntu ubuntu 109658 Aug 10 16:20 w12.ckpt
+   1962 runs/ckpt156/w8.ckpt
+   1907 runs/ckpt156/w9.ckpt
+ 102724 total
+=== [12:20 PM ET] part 2: resume with the identical command
+=== [2:47 PM ET] restore evidence:
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 3 threshold / 102721 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+checkpoint: threshold 146 restored (4363759350 nodes)
+checkpoint: threshold 148 restored (114245221757 nodes)
+checkpoint: threshold 150: 4417/32768 units restored
+=== [2:47 PM ET] result:
+[16:20:39.158 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+[16:20:39.158 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+[16:20:39.158 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+[18:47:07.228 UTC] threshold 150 exhausted:   2287004968051 nodes in 8788.07s (260.24 Mn/s)
+Lower bound: depth >= 152
+Nodes          : 2405729385972
+Search time    : 8788.10s
+Throughput     : 273.75 Mnodes/s
+=== [2:47 PM ET] STEP 9 COMPLETE

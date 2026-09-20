@@ -1,0 +1,22 @@
+[Unit]
+Description=R156 proof solver (resumes from checkpoint)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/A087725
+ExecStart=/home/ubuntu/A087725/solver_run.sh
+# A spot eviction kills the process; systemd restarts it if the VM is still
+# up, and boot-start covers the case where the VM was deallocated. Exit 0
+# (proof complete, or PAUSE present) must NOT restart.
+Restart=on-failure
+RestartSec=30
+# The tables are ~49 GB of mmap plus a 1 GB shared cache; no memory limit.
+OOMPolicy=continue
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1637 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[19:56:11.444 UTC] search: start  (setup 156.00s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 131841 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[19:57:04.028 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[19:57:04.028 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[19:57:04.028 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[19:57:04.028 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 769/32768 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[09:33:41.752 UTC] search: start  (setup 156.62s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 139904 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[09:34:36.027 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[09:34:36.027 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[09:34:36.027 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[09:34:36.027 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 8832/32768 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[23:15:00.996 UTC] search: start  (setup 152.88s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 147603 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[23:15:55.241 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[23:15:55.241 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[23:15:55.241 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[23:15:55.241 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 16531/32768 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[12:21:14.028 UTC] search: start  (setup 156.96s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 155633 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[12:21:53.071 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[12:21:53.071 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[12:21:53.071 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[12:21:53.071 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 24561/32768 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[16:17:14.805 UTC] search: start  (setup 1.54s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 158282 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[16:17:14.854 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[16:17:14.854 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[16:17:14.854 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[16:17:14.854 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 27210/32768 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[01:47:04.370 UTC] search: start  (setup 158.97s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 4 threshold / 163839 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[01:47:57.853 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[01:47:57.853 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[01:47:57.853 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[01:47:57.853 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152: 32767/32768 units restored
+[02:34:37.044 UTC] threshold 152 exhausted:  38348405978400 nodes in 2799.19s (13699.82 Mn/s)
+[02:34:37.047 UTC] search: end    (2852.68s in search)
+Lower bound: depth >= 154
+Wall-clock     : 3011.64s
+Nodes          : 40754135364372
+Iterations     : 5
+Search time    : 2852.68s
+Throughput     : 14286.28 Mnodes/s
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[02:35:08.000 UTC] search: start  (setup 1.54s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 163840 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[02:35:08.052 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[02:35:08.052 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[02:35:08.052 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[02:35:08.052 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[02:35:08.052 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+[02:35:08.054 UTC] search: end    (53.18ms in search)
+Lower bound: depth >= 154
+Wall-clock     : 1.59s
+Nodes          : 40754135364372
+Iterations     : 5
+Search time    : 53.18ms
+Throughput     : 766389347.71 Mnodes/s
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[04:11:32.448 UTC] search: start  (setup 1.56s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 163840 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[04:11:33.194 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[04:11:33.194 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[04:11:33.194 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[04:11:33.194 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[04:11:33.194 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[17:49:48.884 UTC] search: start  (setup 154.37s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 170791 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[17:50:42.308 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[17:50:42.308 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[17:50:42.308 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[17:50:42.309 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[17:50:42.309 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 6951/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[08:09:46.622 UTC] search: start  (setup 157.66s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 175878 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[08:10:44.510 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[08:10:44.510 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[08:10:44.510 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[08:10:44.510 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[08:10:44.510 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 12038/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[21:21:11.973 UTC] search: start  (setup 156.31s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 179018 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:22:04.725 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:22:04.725 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:22:04.725 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:22:04.725 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:22:04.726 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 15178/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[21:34:39.554 UTC] search: start  (setup 154.55s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 186593 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:35:33.453 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:35:33.453 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:35:33.453 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:35:33.453 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:35:33.453 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 22753/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:15:55.475 UTC] search: start  (setup 158.26s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 196352 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[07:16:51.021 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[07:16:51.021 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[07:16:51.021 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[07:16:51.021 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[07:16:51.021 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 32512/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:30:46.212 UTC] search: start  (setup 157.27s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 203397 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[07:31:38.502 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[07:31:38.502 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[07:31:38.502 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[07:31:38.502 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[07:31:38.502 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 39557/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[21:14:36.040 UTC] search: start  (setup 154.08s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 208318 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:15:28.017 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:15:28.017 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:15:28.017 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:15:28.017 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:15:28.017 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 44478/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[11:09:49.506 UTC] search: start  (setup 158.42s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 211596 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[11:10:46.282 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[11:10:46.282 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[11:10:46.283 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[11:10:46.283 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[11:10:46.283 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 47756/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[00:24:35.469 UTC] search: start  (setup 153.88s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 215668 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:25:32.156 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:25:32.156 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:25:32.156 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:25:32.156 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:25:32.157 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 51828/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[14:00:06.800 UTC] search: start  (setup 159.98s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 219624 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[14:01:02.571 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[14:01:02.571 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[14:01:02.571 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[14:01:02.571 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[14:01:02.571 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 55784/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[04:05:49.301 UTC] search: start  (setup 159.42s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 224919 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[04:06:47.171 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[04:06:47.171 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[04:06:47.171 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[04:06:47.171 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[04:06:47.171 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 61079/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[17:19:43.592 UTC] search: start  (setup 156.84s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 229932 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[17:20:38.404 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[17:20:38.404 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[17:20:38.404 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[17:20:38.404 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[17:20:38.404 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 66092/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[06:29:50.240 UTC] search: start  (setup 161.18s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 234507 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[06:30:46.734 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[06:30:46.734 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[06:30:46.734 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[06:30:46.734 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[06:30:46.734 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 70667/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[20:09:38.144 UTC] search: start  (setup 151.46s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 238182 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[20:10:33.045 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[20:10:33.045 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[20:10:33.045 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[20:10:33.045 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[20:10:33.045 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 74342/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[09:59:40.741 UTC] search: start  (setup 156.43s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 242825 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[10:00:34.522 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[10:00:34.522 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[10:00:34.522 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[10:00:34.522 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[10:00:34.522 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 78985/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[15:09:50.504 UTC] search: start  (setup 158.62s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 244460 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[15:10:47.031 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[15:10:47.032 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[15:10:47.032 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[15:10:47.032 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[15:10:47.032 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 80620/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[04:29:51.463 UTC] search: start  (setup 163.07s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 248404 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[04:30:47.049 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[04:30:47.049 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[04:30:47.049 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[04:30:47.049 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[04:30:47.049 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 84564/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[18:06:14.855 UTC] search: start  (setup 155.72s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 252013 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[18:07:10.439 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[18:07:10.440 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[18:07:10.440 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[18:07:10.440 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[18:07:10.440 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 88173/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:19:48.034 UTC] search: start  (setup 158.91s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 256339 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[07:20:54.477 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[07:20:54.478 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[07:20:54.478 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[07:20:54.478 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[07:20:54.478 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 92499/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[20:44:46.813 UTC] search: start  (setup 155.35s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 263487 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[20:45:44.417 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[20:45:44.417 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[20:45:44.417 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[20:45:44.418 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[20:45:44.418 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 99647/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[10:19:53.266 UTC] search: start  (setup 162.39s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 267471 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[10:20:49.462 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[10:20:49.462 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[10:20:49.462 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[10:20:49.462 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[10:20:49.462 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 103631/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[23:59:33.677 UTC] search: start  (setup 127.56s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 271687 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:00:23.074 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:00:23.074 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:00:23.074 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:00:23.074 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:00:23.074 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 107847/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[13:39:49.203 UTC] search: start  (setup 157.83s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 274862 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[13:40:43.688 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[13:40:43.688 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[13:40:43.688 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[13:40:43.688 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[13:40:43.688 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 111022/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[03:24:46.160 UTC] search: start  (setup 153.97s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 279686 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[03:25:40.106 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[03:25:40.106 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[03:25:40.106 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[03:25:40.106 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[03:25:40.106 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 115846/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[16:59:32.248 UTC] search: start  (setup 153.95s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 283153 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[17:00:24.140 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[17:00:24.140 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[17:00:24.140 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[17:00:24.140 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[17:00:24.140 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 119313/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[06:39:44.171 UTC] search: start  (setup 159.80s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 286955 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[06:40:39.595 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[06:40:39.596 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[06:40:39.596 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[06:40:39.596 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[06:40:39.596 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 123115/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[20:39:18.536 UTC] search: start  (setup 122.14s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 290770 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[20:40:11.715 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[20:40:11.715 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[20:40:11.715 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[20:40:11.715 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[20:40:11.715 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 126930/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[10:40:03.745 UTC] search: start  (setup 155.42s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 295327 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[10:40:59.820 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[10:40:59.820 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[10:40:59.820 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[10:40:59.820 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[10:40:59.820 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 131487/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[00:54:54.733 UTC] search: start  (setup 156.92s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 299503 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:55:48.268 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:55:48.268 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:55:48.268 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:55:48.268 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:55:48.269 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 135663/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[14:50:31.309 UTC] search: start  (setup 157.07s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 304501 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[14:51:26.492 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[14:51:26.492 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[14:51:26.492 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[14:51:26.492 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[14:51:26.492 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 140661/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[04:24:45.205 UTC] search: start  (setup 157.39s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 308841 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[04:25:38.413 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[04:25:38.413 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[04:25:38.413 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[04:25:38.413 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[04:25:38.413 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 145001/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[17:59:38.932 UTC] search: start  (setup 156.09s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 312846 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[18:00:32.949 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[18:00:32.949 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[18:00:32.949 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[18:00:32.949 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[18:00:32.949 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 149006/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[08:06:35.455 UTC] search: start  (setup 162.22s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 317084 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[08:07:31.382 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[08:07:31.382 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[08:07:31.382 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[08:07:31.382 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[08:07:31.382 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 153244/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[21:49:53.876 UTC] search: start  (setup 151.10s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 321396 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:50:48.662 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:50:48.662 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:50:48.662 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:50:48.662 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:50:48.662 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 157556/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[12:14:49.218 UTC] search: start  (setup 154.53s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 325629 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[12:15:43.513 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[12:15:43.513 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[12:15:43.513 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[12:15:43.513 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[12:15:43.513 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 161789/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[01:54:40.961 UTC] search: start  (setup 149.96s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 329840 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[01:55:34.351 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[01:55:34.351 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[01:55:34.351 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[01:55:34.351 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[01:55:34.351 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 166000/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[15:44:46.235 UTC] search: start  (setup 151.87s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 335270 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[15:45:40.313 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[15:45:40.314 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[15:45:40.314 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[15:45:40.314 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[15:45:40.314 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 171430/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[05:19:37.895 UTC] search: start  (setup 147.02s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 338066 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[05:20:30.453 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[05:20:30.453 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[05:20:30.453 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[05:20:30.453 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[05:20:30.453 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 174226/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[18:14:44.471 UTC] search: start  (setup 153.07s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 341544 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[18:15:33.319 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[18:15:33.319 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[18:15:33.319 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[18:15:33.319 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[18:15:33.319 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 177704/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:59:42.606 UTC] search: start  (setup 154.17s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 344902 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[08:00:40.140 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[08:00:40.140 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[08:00:40.140 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[08:00:40.140 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[08:00:40.140 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 181062/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[21:24:45.986 UTC] search: start  (setup 157.16s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 348589 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:25:40.561 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:25:40.561 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:25:40.561 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:25:40.561 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:25:40.561 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 184749/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[10:49:43.235 UTC] search: start  (setup 158.04s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 351882 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[10:50:35.784 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[10:50:35.784 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[10:50:35.784 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[10:50:35.784 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[10:50:35.784 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 188042/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[00:29:37.013 UTC] search: start  (setup 153.56s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 355393 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:30:29.056 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:30:29.056 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:30:29.056 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:30:29.056 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:30:29.056 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 191553/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[14:14:51.276 UTC] search: start  (setup 154.86s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 359802 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[14:15:46.233 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[14:15:46.233 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[14:15:46.233 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[14:15:46.233 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[14:15:46.233 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 195962/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[03:49:48.794 UTC] search: start  (setup 157.56s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 363381 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[03:50:47.595 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[03:50:47.595 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[03:50:47.595 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[03:50:47.595 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[03:50:47.595 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 199541/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[17:24:41.435 UTC] search: start  (setup 154.65s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 367405 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[17:25:33.312 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[17:25:33.313 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[17:25:33.313 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[17:25:33.313 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[17:25:33.313 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 203565/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[06:56:48.444 UTC] search: start  (setup 1.56s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 370795 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[06:56:48.572 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[06:56:48.572 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[06:56:48.572 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[06:56:48.572 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[06:56:48.572 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 206955/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:39:03.136 UTC] search: start  (setup 120.97s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 371064 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[07:39:44.447 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[07:39:44.447 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[07:39:44.447 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[07:39:44.447 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[07:39:44.447 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 207224/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[22:09:44.624 UTC] search: start  (setup 147.58s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 375524 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[22:10:38.115 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[22:10:38.115 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[22:10:38.115 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[22:10:38.115 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[22:10:38.115 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 211684/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[11:24:34.119 UTC] search: start  (setup 144.91s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 378807 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[11:25:31.631 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[11:25:31.631 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[11:25:31.631 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[11:25:31.631 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[11:25:31.631 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 214967/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[00:14:39.581 UTC] search: start  (setup 152.86s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 381841 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:15:21.022 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:15:21.022 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:15:21.022 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:15:21.022 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:15:21.022 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 218001/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[13:14:35.840 UTC] search: start  (setup 149.42s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 385608 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[13:15:31.000 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[13:15:31.000 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[13:15:31.000 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[13:15:31.000 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[13:15:31.000 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 221768/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[02:54:44.619 UTC] search: start  (setup 154.26s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 389784 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[02:55:32.246 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[02:55:32.246 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[02:55:32.246 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[02:55:32.246 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[02:55:32.246 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 225944/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[16:34:26.306 UTC] search: start  (setup 144.87s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 393154 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[16:35:20.993 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[16:35:20.993 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[16:35:20.993 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[16:35:20.993 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[16:35:20.993 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 229314/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[07:14:56.889 UTC] search: start  (setup 153.71s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 396651 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[07:15:47.168 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[07:15:47.168 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[07:15:47.169 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[07:15:47.169 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[07:15:47.169 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 232811/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[20:49:20.675 UTC] search: start  (setup 135.55s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 400465 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[20:50:16.013 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[20:50:16.013 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[20:50:16.013 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[20:50:16.013 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[20:50:16.013 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 236625/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[00:45:30.257 UTC] search: start  (setup 160.39s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 401716 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:46:25.515 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:46:25.515 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:46:25.515 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:46:25.515 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:46:25.515 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 237876/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[15:05:46.873 UTC] search: start  (setup 156.99s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 405266 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[15:06:42.474 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[15:06:42.474 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[15:06:42.474 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[15:06:42.474 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[15:06:42.474 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 241426/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[04:39:49.849 UTC] search: start  (setup 163.00s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 408908 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[04:40:44.629 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[04:40:44.629 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[04:40:44.629 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[04:40:44.629 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[04:40:44.629 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 245068/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[19:10:26.545 UTC] search: start  (setup 158.04s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 412534 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[19:11:23.264 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[19:11:23.265 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[19:11:23.265 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[19:11:23.265 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[19:11:23.265 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 248694/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[08:55:00.476 UTC] search: start  (setup 166.98s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 416102 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[08:55:58.148 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[08:55:58.148 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[08:55:58.148 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[08:55:58.148 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[08:55:58.149 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 252262/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[22:29:42.013 UTC] search: start  (setup 155.75s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 419644 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[22:30:36.705 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[22:30:36.705 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[22:30:36.705 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[22:30:36.705 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[22:30:36.705 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 255804/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[11:55:32.594 UTC] search: start  (setup 163.16s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 423206 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[11:56:27.025 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[11:56:27.025 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[11:56:27.026 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[11:56:27.026 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[11:56:27.026 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 259366/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 16 rayon workers (RAYON_NUM_THREADS to change)
+[21:04:26.468 UTC] search: start  (setup 157.42s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 424792 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[21:05:24.998 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[21:05:24.998 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[21:05:24.998 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[21:05:24.998 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[21:05:24.998 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 260952/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 16 rayon workers (RAYON_NUM_THREADS to change)
+[10:49:56.419 UTC] search: start  (setup 165.31s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 425334 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[10:50:52.801 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[10:50:52.801 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[10:50:52.801 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[10:50:52.801 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[10:50:52.801 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 261494/262144 units restored
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 16 rayon workers (RAYON_NUM_THREADS to change)
+[00:40:01.614 UTC] search: start  (setup 162.89s)
+checkpoint: dir runs/ckpt156, run id 6a101d4ad59aded7; 5 threshold / 425960 unit records apply
+checkpoint: threshold 144 restored (115436814 nodes)
+[00:40:56.989 UTC] threshold 144 exhausted:       115436814 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 146 restored (4363759350 nodes)
+[00:40:56.989 UTC] threshold 146 exhausted:      4363759350 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 148 restored (114245221757 nodes)
+[00:40:56.989 UTC] threshold 148 exhausted:    114245221757 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 150 restored (2287004968051 nodes)
+[00:40:56.989 UTC] threshold 150 exhausted:   2287004968051 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 152 restored (38348405978400 nodes)
+[00:40:56.989 UTC] threshold 152 exhausted:  38348405978400 nodes in 0.00ns (0.00 Mn/s)
+checkpoint: threshold 154: 262120/262144 units restored
+[05:06:38.659 UTC] threshold 154 exhausted: 568439495042651 nodes in 15941.67s (35657.46 Mn/s)
+[05:06:38.667 UTC] search: end    (15997.05s in search)
+Lower bound: depth >= 156
+Wall-clock     : 16159.94s
+Nodes          : 609193630407023
+Iterations     : 6
+Search time    : 15997.05s
+Throughput     : 38081.62 Mnodes/s

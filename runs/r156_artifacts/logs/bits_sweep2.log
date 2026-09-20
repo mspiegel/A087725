@@ -1,0 +1,13 @@
+=== [13:05:58] K8_SHARED_BITS=27 (1024 MB slots array), rebuild
+    Finished `release` profile [optimized] target(s) in 11.28s
+logs/bits_27.time:[13:14:07.006 UTC] threshold 148 exhausted:    114245221757 nodes in 448.40s (254.78 Mn/s)
+	Maximum resident set size (kbytes): 50694620
+=== [13:14:07] K8_SHARED_BITS=28 (2048 MB slots array), rebuild
+    Finished `release` profile [optimized] target(s) in 11.39s
+logs/bits_28.time:[13:22:12.220 UTC] threshold 148 exhausted:    114245221757 nodes in 445.24s (256.59 Mn/s)
+	Maximum resident set size (kbytes): 51742092
+=== [13:22:12] revert to committed, then TRUE reference canary
+Updated 1 path from the index
+    Finished `release` profile [optimized] target(s) in 11.33s
+[13:22:55.995 UTC] threshold 146 exhausted:      4363759350 nodes in 24.05s (181.42 Mn/s)
+=== [13:22:56] BITS SWEEP 2 COMPLETE

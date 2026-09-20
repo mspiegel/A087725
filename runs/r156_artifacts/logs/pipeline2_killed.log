@@ -1,0 +1,3 @@
+=== [19:42:54] stage 2: build_cwd_table (parallel lines)
+WD table: 65650495 entries in 4.7s
+line g=0: BFS 175.6s, merge+checks 670.5s, WD-layer invariant OK, 149/150 A* cross-checks matched

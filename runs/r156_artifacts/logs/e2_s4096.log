@@ -1,0 +1,44 @@
+root-orbit-split: board is σ-symmetric; searching one representative per σ-orbit of the root's children
+cWD: mmapping data/cwd_mm.bin…
+clm2: mmapping data/cwd_lm1l_mm.bin…
+cwd-lm2: mmapping data/cwd_lm_mm.bin…
+k8: mmapping the three 8-tile ZPDBs (32.8 GB)…
+k8 ready: lazy max(cWD, k8) at survivors, both σ-views, shared packed-position cache
+cWD ready: fast single-line-max table path, neighbor-prune ON
+flat engine: iterative arena, move-pruning DFA 41396 states, 687 KiB
+parallel: tree-splitting driver on 64 rayon workers (RAYON_NUM_THREADS to change)
+[03:34:56.775 UTC] search: start  (setup 1.53s)
+[par-profile] bound=144 W=64 units=4097
+  split (serial) : 0.68s   parallel span: 0.47s
+  worker busy    : 28.75s  ->  busy fraction 95.0%
+  per-node cost  : 249.06 ns/node   (115432756 nodes, unit setup 4.02s = 14.0% of busy)
+  unit wall time : max 0.09s (19.8% of span)  p50 0.004s  p90 0.016s  p99 0.058s  top-64 sum 4.09s
+  makespan bounds: work/W 0.45s | max-unit 0.09s | LPT 0.45s | actual 0.47s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +0.02s (+5.0%)
+  per-thread     : t0=240.4ns/n(0s,61u) t1=238.1ns/n(0s,70u) t2=222.2ns/n(0s,46u) t3=241.7ns/n(0s,57u) t4=230.3ns/n(0s,61u) t5=243.5ns/n(0s,38u) t6=230.4ns/n(0s,112u) t7=228.7ns/n(0s,114u) t8=245.2ns/n(0s,52u) t9=222.7ns/n(0s,54u) t10=225.5ns/n(0s,64u) t11=245.9ns/n(0s,53u) t12=231.2ns/n(0s,68u) t13=235.9ns/n(0s,86u) t14=434.9ns/n(0s,34u) t15=234.4ns/n(0s,65u) t16=256.3ns/n(0s,62u) t17=243.9ns/n(0s,98u) t18=240.4ns/n(0s,55u) t19=353.3ns/n(0s,49u) t20=240.6ns/n(0s,54u) t21=230.7ns/n(0s,55u) t22=231.2ns/n(0s,60u) t23=231.5ns/n(0s,112u) t24=243.2ns/n(0s,64u) t25=239.0ns/n(0s,51u) t26=494.6ns/n(0s,21u) t27=235.2ns/n(0s,71u) t28=245.1ns/n(0s,38u) t29=443.5ns/n(0s,28u) t30=304.9ns/n(0s,58u) t31=245.4ns/n(0s,54u) t32=234.6ns/n(0s,51u) t33=253.5ns/n(0s,56u) t34=226.7ns/n(0s,73u) t35=241.7ns/n(0s,117u) t36=236.3ns/n(0s,76u) t37=233.3ns/n(0s,58u) t38=234.2ns/n(0s,60u) t39=230.6ns/n(0s,67u) t40=226.8ns/n(0s,52u) t41=332.1ns/n(0s,39u) t42=229.8ns/n(0s,85u) t43=231.8ns/n(0s,71u) t44=241.3ns/n(0s,57u) t45=232.1ns/n(0s,48u) t46=304.4ns/n(0s,111u) t47=222.9ns/n(0s,64u) t48=229.3ns/n(0s,65u) t49=414.5ns/n(0s,58u) t50=267.5ns/n(0s,36u) t51=236.8ns/n(0s,85u) t52=228.9ns/n(0s,98u) t53=326.4ns/n(0s,42u) t54=273.2ns/n(0s,73u) t55=228.3ns/n(0s,73u) t56=235.7ns/n(0s,51u) t57=234.0ns/n(0s,51u) t58=230.0ns/n(0s,101u) t59=241.4ns/n(0s,62u) t60=241.9ns/n(0s,56u) t61=232.7ns/n(0s,72u) t62=231.4ns/n(0s,77u) t63=242.8ns/n(0s,47u)
+[03:34:57.929 UTC] threshold 144 exhausted:       115436814 nodes in 1.15s (100.09 Mn/s)
+[par-profile] bound=146 W=64 units=4097
+  split (serial) : 0.58s   parallel span: 19.67s
+  worker busy    : 1180.68s  ->  busy fraction 93.8%
+  per-node cost  : 270.57 ns/node   (4363755986 nodes, unit setup 2.12s = 0.2% of busy)
+  unit wall time : max 4.44s (22.6% of span)  p50 0.170s  p90 0.698s  p99 1.838s  top-64 sum 130.03s
+  makespan bounds: work/W 18.45s | max-unit 4.44s | LPT 18.45s | actual 19.67s
+  attribution    : granularity +0.00s (+0.0%)   scheduling +1.22s (+6.2%)
+  per-thread     : t0=266.8ns/n(20s,57u) t1=277.3ns/n(18s,55u) t2=279.7ns/n(19s,46u) t3=266.2ns/n(18s,65u) t4=264.3ns/n(18s,59u) t5=271.8ns/n(19s,68u) t6=264.1ns/n(18s,80u) t7=269.3ns/n(18s,56u) t8=288.6ns/n(19s,60u) t9=267.5ns/n(18s,45u) t10=265.9ns/n(18s,120u) t11=269.9ns/n(18s,57u) t12=268.1ns/n(18s,148u) t13=271.5ns/n(19s,80u) t14=281.7ns/n(19s,35u) t15=280.1ns/n(18s,52u) t16=266.1ns/n(19s,60u) t17=282.6ns/n(19s,36u) t18=270.5ns/n(18s,52u) t19=281.4ns/n(18s,30u) t20=264.9ns/n(18s,82u) t21=253.6ns/n(19s,55u) t22=266.3ns/n(18s,62u) t23=261.5ns/n(18s,62u) t24=273.5ns/n(18s,53u) t25=273.0ns/n(18s,68u) t26=270.5ns/n(18s,55u) t27=264.8ns/n(18s,81u) t28=276.8ns/n(19s,43u) t29=272.4ns/n(18s,81u) t30=272.7ns/n(19s,71u) t31=274.9ns/n(18s,68u) t32=271.1ns/n(19s,91u) t33=270.1ns/n(19s,42u) t34=272.8ns/n(18s,53u) t35=272.2ns/n(19s,55u) t36=265.0ns/n(18s,49u) t37=268.5ns/n(18s,57u) t38=261.6ns/n(18s,63u) t39=273.5ns/n(19s,59u) t40=263.9ns/n(19s,56u) t41=271.8ns/n(18s,53u) t42=265.3ns/n(18s,40u) t43=274.2ns/n(19s,57u) t44=265.6ns/n(18s,73u) t45=271.9ns/n(20s,54u) t46=275.1ns/n(19s,50u) t47=262.1ns/n(18s,67u) t48=259.3ns/n(18s,109u) t49=279.5ns/n(18s,70u) t50=276.1ns/n(18s,61u) t51=274.9ns/n(19s,58u) t52=276.1ns/n(18s,63u) t53=258.7ns/n(18s,87u) t54=267.8ns/n(19s,73u) t55=275.6ns/n(18s,47u) t56=276.4ns/n(18s,48u) t57=262.9ns/n(18s,72u) t58=268.1ns/n(18s,124u) t59=262.9ns/n(19s,104u) t60=271.6ns/n(18s,61u) t61=278.1ns/n(18s,46u) t62=277.2ns/n(18s,40u) t63=276.3ns/n(18s,73u)
+[03:35:18.177 UTC] threshold 146 exhausted:      4363759350 nodes in 20.25s (215.51 Mn/s)
+[par-profile] bound=148 W=64 units=4096
+  split (serial) : 0.58s   parallel span: 594.56s
+  worker busy    : 36235.59s  ->  busy fraction 95.2%
+  per-node cost  : 317.17 ns/node   (114245218541 nodes, unit setup 2.25s = 0.0% of busy)
+  unit wall time : max 117.66s (19.8% of span)  p50 5.597s  p90 21.168s  p99 48.964s  top-64 sum 3645.83s
+  makespan bounds: work/W 566.18s | max-unit 117.66s | LPT 566.19s | actual 594.56s
+  attribution    : granularity +0.01s (+0.0%)   scheduling +28.37s (+4.8%)
+  per-thread     : t0=317.3ns/n(560s,67u) t1=314.2ns/n(563s,71u) t2=316.8ns/n(559s,46u) t3=312.5ns/n(575s,65u) t4=315.2ns/n(566s,61u) t5=322.5ns/n(563s,47u) t6=325.0ns/n(566s,40u) t7=318.6ns/n(558s,61u) t8=331.4ns/n(562s,58u) t9=323.5ns/n(575s,38u) t10=314.5ns/n(576s,38u) t11=336.0ns/n(568s,46u) t12=310.7ns/n(564s,134u) t13=317.4ns/n(565s,79u) t14=307.2ns/n(558s,85u) t15=312.6ns/n(580s,59u) t16=305.2ns/n(562s,60u) t17=312.7ns/n(562s,56u) t18=314.7ns/n(563s,86u) t19=311.3ns/n(557s,82u) t20=304.9ns/n(584s,129u) t21=312.6ns/n(557s,57u) t22=322.9ns/n(564s,53u) t23=317.3ns/n(557s,51u) t24=311.5ns/n(568s,54u) t25=322.5ns/n(565s,54u) t26=326.5ns/n(558s,94u) t27=311.2ns/n(573s,50u) t28=315.8ns/n(573s,43u) t29=308.6ns/n(560s,73u) t30=321.8ns/n(558s,47u) t31=313.1ns/n(568s,69u) t32=322.0ns/n(576s,62u) t33=311.9ns/n(569s,55u) t34=331.3ns/n(558s,36u) t35=323.6ns/n(595s,64u) t36=305.3ns/n(591s,92u) t37=330.6ns/n(562s,59u) t38=310.4ns/n(565s,58u) t39=316.6ns/n(572s,75u) t40=315.1ns/n(574s,50u) t41=317.6ns/n(563s,61u) t42=318.3ns/n(570s,93u) t43=310.5ns/n(562s,95u) t44=316.1ns/n(579s,74u) t45=317.7ns/n(567s,77u) t46=326.7ns/n(567s,55u) t47=306.6ns/n(561s,40u) t48=319.3ns/n(567s,55u) t49=312.8ns/n(560s,71u) t50=317.0ns/n(559s,49u) t51=313.7ns/n(564s,87u) t52=319.4ns/n(560s,47u) t53=317.3ns/n(570s,60u) t54=312.1ns/n(575s,73u) t55=323.8ns/n(559s,52u) t56=304.6ns/n(580s,61u) t57=317.7ns/n(562s,58u) t58=319.6ns/n(558s,51u) t59=338.4ns/n(561s,40u) t60=331.4ns/n(559s,83u) t61=308.6ns/n(560s,72u) t62=318.2ns/n(561s,80u) t63=330.3ns/n(559s,58u)
+[03:45:13.320 UTC] threshold 148 exhausted:    114245221757 nodes in 595.14s (191.96 Mn/s)
+[03:45:13.322 UTC] search: end    (616.55s in search)
+Lower bound: depth >= 150
+Wall-clock     : 618.07s
+Nodes          : 118724417921
+Iterations     : 3
+Search time    : 616.55s
+Throughput     : 192.56 Mnodes/s

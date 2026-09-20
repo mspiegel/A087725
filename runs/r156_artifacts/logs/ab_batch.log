@@ -1,0 +1,22 @@
+=== [11:46:48] warming page cache (~49 GB off Standard SSD; cold after deallocate)
+=== [11:54:19] warm: Cached:         49087924 kB
+=== [11:54:19] canary A (bracket start)
+[11:54:51.418 UTC] threshold 146 exhausted:      4363759350 nodes in 23.67s (184.35 Mn/s)
+=== [11:54:51] E6 baseline: no hugepages
+[12:04:51.692 UTC] threshold 148 exhausted:    114245221757 nodes in 568.44s (200.98 Mn/s)
+=== [12:04:51] E6 treatment: --hugepages
+[12:14:52.046 UTC] threshold 148 exhausted:    114245221757 nodes in 564.27s (202.47 Mn/s)
+AnonHugePages:  48099328 kB
+Hugepagesize:       2048 kB
+=== [12:14:52] E7: K8_SHARED_BITS 21 -> 24, rebuild
+557:const K8_SHARED_BITS: u32 = 24;
+    Finished `release` profile [optimized] target(s) in 11.35s
+[12:24:02.221 UTC] threshold 148 exhausted:    114245221757 nodes in 508.46s (224.69 Mn/s)
+=== [12:24:02] E7+E6 combined: bits24 + hugepages
+[12:32:54.386 UTC] threshold 148 exhausted:    114245221757 nodes in 498.36s (229.24 Mn/s)
+=== [12:32:54] reverting K8_SHARED_BITS to committed value
+Updated 1 path from the index
+    Finished `release` profile [optimized] target(s) in 11.28s
+=== [12:33:06] canary B (bracket end)
+[12:33:38.509 UTC] threshold 146 exhausted:      4363759350 nodes in 24.46s (178.40 Mn/s)
+=== [12:33:38] AB BATCH COMPLETE
