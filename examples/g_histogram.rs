@@ -1,8 +1,8 @@
 //! g_histogram — instrument an R lower-bound proof and histogram EXPANDED nodes
 //! by path-cost `g`. Answers "how deep a goal-ball would an endgame DB need?":
 //! a radius-`r` goal-centered exact table can prune an expanded node only if that
-//! node is within `r` of the goal, i.e. `g >= d* - r` (d* = 152 for R). So
-//!   coverage_ceiling(r) = #{expanded nodes with g >= 152 - r}
+//! node is within `r` of the goal, i.e. `g >= d* - r` (d* = 156 for R). So
+//!   coverage_ceiling(r) = #{expanded nodes with g >= 156 - r}
 //! is an UPPER BOUND on the nodes such a DB could ever prune.
 //!
 //! Run: cargo run --release --example g_histogram -- [max_bound]
@@ -10,7 +10,7 @@
 use puzzle8::puzzle24::search::{Cwd, CwdScratch};
 use puzzle8::puzzle24::state::{Move, State, GOAL, N_CELLS};
 
-const D_STAR: usize = 152; // Rokicki's proven optimal depth of R
+const D_STAR: usize = 156; // optimal depth of R, proved 2026-09-20 (README §1)
 
 fn r_board() -> State {
     let mut cells = [0u8; N_CELLS];
@@ -112,7 +112,7 @@ fn main() {
     );
 
     // Per-g histogram (nonzero rows).
-    println!("\n g : expanded_nodes : cum_from_top(>= g) : implied_radius r=152-g");
+    println!("\n g : expanded_nodes : cum_from_top(>= g) : implied_radius r=156-g");
     let mut cum = 0u64;
     let maxg = instr.expanded.iter().rposition(|&c| c > 0).unwrap_or(0);
     // walk high g -> low g so cum = #{expanded : g' >= g}
@@ -138,9 +138,9 @@ fn main() {
     }
 
     // Coverage-ceiling table: for each radius r, the max fraction of expanded
-    // nodes a radius-r goal-ball could prune = #{expanded : g >= 152 - r}/total.
+    // nodes a radius-r goal-ball could prune = #{expanded : g >= 156 - r}/total.
     println!("\nEndgame-DB coverage ceiling (upper bound on nodes prunable):");
-    println!("  radius r | g>=152-r | ceiling nodes | ceiling %% of proof");
+    println!("  radius r | g>=156-r | ceiling nodes | ceiling %% of proof");
     for &r in &[15usize, 20, 25, 30, 35, 40, 45, 50, 55, 60] {
         let gthr = D_STAR.saturating_sub(r);
         let ceil: u64 = instr.expanded[gthr..].iter().sum();

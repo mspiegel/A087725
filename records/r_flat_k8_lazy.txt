@@ -2238,3 +2238,14 @@ Mn/s; +3% vs the 2,118 s of 2026-08-02). Raw: data/ab148_clm2_canary.log.
   dominant recoverable loss; on >=64 GB (everything resident) the toll
   should shed most of its paging share — measure there before the 150
   rung, or run 150 on --lm2 alone on this box.
+
+GOAL-CENTERED ENDGAME DATABASES — closed on REACH, 2026-09-20.
+Full data: records/g_histogram_r144.txt. A radius-r exact goal-ball prunes an
+expanded node only when g >= d* - r, and d* = 156 is now proved. At threshold
+144 the deepest expanded node sits at g = 80, so even r = 60 (needing g >= 96)
+touches NOTHING: the coverage ceiling is 0 nodes, 0.00000%, at every radius
+from 15 to 60. 99.98% of the 726,797,221 expanded nodes have g <= 12.
+This is not a cost verdict and no bigger table fixes it — an f-bounded search
+from a deep root never comes near the goal, so the intersection is empty.
+Kills endgame/goal-ball tables, and any "meet the search from the goal side"
+variant that prices itself by radius.
