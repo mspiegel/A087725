@@ -40,12 +40,6 @@ cli = ["dep:clap"]
 # verifies a `.sha256` next to its output.
 sha = ["dep:sha2"]
 
-# Umbrella enabling the full 15-puzzle CLI surface.
-puzzle15 = ["parallel", "mmap"]
-
-# Umbrella enabling the full 24-puzzle CLI surface.
-puzzle24 = ["parallel", "mmap"]
-
 # Table-gated 24-puzzle tests that build the ~4.4 GB merged cWD map: the flat
 # engine's frozen-oracle node-identity gate and the load-factor instruments.
 # Deliberately a FEATURE and not `#[ignore]` — an ignored test still runs under
@@ -118,14 +112,6 @@ name = "enum_expand15"
 required-features = ["mmap"]
 
 [[bin]]
-name = "h_filter15"
-required-features = ["mmap"]
-
-[[bin]]
-name = "enum_corner15"
-required-features = ["mmap", "parallel"]
-
-[[bin]]
 name = "build_pdb24"
 required-features = ["parallel", "mmap", "sha"]
 
@@ -183,19 +169,11 @@ name = "eval_ml24"
 required-features = ["ml", "mmap"]
 
 [[bin]]
-name = "wdsearch_probe"
-required-features = ["ml", "mmap"]
-
-[[bin]]
 name = "solve_r"
 required-features = ["ml", "mmap"]
 
 [[bin]]
 name = "corridor_r"
-required-features = ["ml", "mmap"]
-
-[[bin]]
-name = "pair_probe"
 required-features = ["ml", "mmap"]
 
 [[bin]]
@@ -277,19 +255,11 @@ debug = true
 split-debuginfo = "packed"
 
 [[example]]
-name = "zpdb_bench15"
-required-features = ["mmap", "parallel"]
-
-[[example]]
 name = "cache_insert"
 required-features = ["parallel", "mmap"]
 
 [[example]]
 name = "d77_sweep"
-required-features = ["parallel", "mmap"]
-
-[[example]]
-name = "d78_outliers"
 required-features = ["parallel", "mmap"]
 
 [[example]]
