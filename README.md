@@ -36,16 +36,18 @@ after:
 | 2×2 — 3-puzzle | 12 | 6 moves |
 | 3×3 — 8-puzzle | 181,440 | 31 moves |
 | 4×4 — 15-puzzle | 1.05 × 10¹³ | 80 moves |
-| 5×5 — 24-puzzle | 7.76 × 10²⁴ | **152 to 205 — open** |
+| 5×5 — 24-puzzle | 7.76 × 10²⁴ | **156 to 205 — open** |
 
 The first three are settled: 31 (Reinefeld, 1993) and 80, first proved by
 Brüngger et al. (1999) and independently confirmed by Korf and Schultze (2005),
 whose exhaustive breadth-first search also produced the full depth distribution
-and the 17 positions that attain 80. The 24-puzzle is not settled: its floor of
-152 and ceiling of 205 are both community results (Hannanov & Rokicki, 2011;
-Whitmore, 2018), and the gap between them is wide. Random 24-puzzle positions
-average about 102 moves (Korf & Taylor, 1996), so the hard ones have to be
-constructed rather than sampled — which is most of what this repository does.
+and the 17 positions that attain 80. The 24-puzzle is not settled, and the gap
+is wide: the ceiling of 205 is a community result (Whitmore, 2018), while the
+floor is **156**, raised from 152 by the proof in §1 — the canonical hard
+position needs exactly 156 moves, so the diameter is at least that. Random
+24-puzzle positions average about 102 moves (Korf & Taylor, 1996), so the hard
+ones have to be constructed rather than sampled — which is most of what this
+repository does.
 
 Three things live here: an exact 24-puzzle lower-bound prover, an exact
 15-puzzle solver with a complete enumeration of its deepest boards, and a
@@ -106,8 +108,9 @@ missing, please open a GitHub issue and it will be added.
 ### What it proves
 
 The target is `R`, the canonical hard instance — the goal rotated 180°, which
-the literature calls the "turned 180-degree" configuration. It records
-`optimal(R) ∈ [152, 156]` (Hannanov & Rokicki, 2011).
+the literature calls the "turned 180-degree" configuration. The literature
+records `optimal(R) ∈ [152, 156]` (Hannanov & Rokicki, 2011); this project
+closes that interval from below.
 
 ```text
       goal                    R
@@ -119,17 +122,59 @@ the literature calls the "turned 180-degree" configuration. It records
    21 22 23 24  ·         5  4  3  2  1
 ```
 
-**Status.** Thresholds 144, 146, 148 and 150 are exhausted — **2,405,729,385,972
-nodes**, proving `optimal(R) ≥ 152`. The per-threshold record is committed in
-`runs/ckpt156/`. Exhausting 154 would prove `≥ 156` and, with the published
-upper bound of 156, close the problem: `optimal(R) = 156`.
+**Status — done.** Every threshold from 144 through 154 is exhausted,
+**609,193,630,407,023 nodes** in total, which proves `optimal(R) ≥ 156`. The
+upper bound of 156 is published and replay-verified (`FINDINGS_R.md` §1), so
+the two meet:
 
-| threshold | nodes |
-|---|---:|
-| 144 | 115,436,814 |
-| 146 | 4,363,759,350 |
-| 148 | 114,245,221,757 |
-| 150 | 2,287,004,968,051 |
+> **optimal(R) = 156.**
+
+| threshold | nodes | × previous |
+|---|---:|---:|
+| 144 | 115,436,814 | — |
+| 146 | 4,363,759,350 | 37.8 |
+| 148 | 114,245,221,757 | 26.2 |
+| 150 | 2,287,004,968,051 | 20.0 |
+| 152 | 38,348,405,978,400 | 16.8 |
+| 154 | 568,439,495,042,651 | 14.8 |
+
+IDA\* re-searches the whole tree at every threshold, so the total is dominated
+by its last rung: threshold 154 alone is 93% of it. The growth factor per rung
+falls steadily, 37.8 down to 14.8, and that decay is what made the proof
+finishable — had it stayed at 37.8, threshold 154 would have been about
+8.9 × 10¹⁵ nodes, some 16× what it actually cost. Why it decays is not measured
+here; the ratios are simply what the run recorded.
+
+**The evidence, and how to check it.** `runs/ckpt156/` is committed. `main.ckpt`
+holds the per-threshold totals above; `w0..w63.ckpt` hold one record per root
+subtree — all **262,144** of them at threshold 154 — each with the node count
+that subtree contributed. A verifier who doubts the total does not have to redo
+609 trillion nodes to probe it: copy the checkpoint somewhere scratch, drop one
+unit's record, and resume with the same `--config`. Finished units restore and
+only the missing one is searched again, so its recomputed count can be held
+against the record. The six-line `main.ckpt` is the proof's summary; the 262,144
+unit lines are its audit trail.
+
+Three independent guards stand behind the count. The engine's tree is frozen
+against 180 oracle cases carried over from a deleted reference implementation,
+so an optimization that changed a pruning decision would fail rather than
+silently shrink the search (`src/puzzle24/search/oracle.rs`). The heuristic
+tables are pinned by SHA-256 and were re-verified on the proof machine after the
+run finished — ten of ten (`runs/r156_artifacts/table_sha256_verify.txt`). And
+admissibility, the one property whose failure would invalidate the bound
+outright, is machine-checked in Lean 4 ([`proofs/puzzle15-wd/`](proofs/puzzle15-wd/)):
+Manhattan and Walking Distance are proved admissible outright, and cWD's escape
+machinery and forced-escape bound are sorry-free. Those proofs are stated for
+the 15-puzzle, but the argument never uses the board size, so it carries to the
+24-puzzle unchanged.
+
+**What it cost.** Six weeks of wall clock, 2026-08-10 to 2026-09-20, on a single
+Azure spot VM in New Zealand North — 64 cores for most of the run, 16 after a
+mid-proof eviction could not be replaced at the same size. Spot capacity is
+reclaimed without warning, so the search was restarted **74 times**, each time
+resuming from the checkpoint; `runs/r156_artifacts/logs/evictions.log` is the
+record. The node counts above are cumulative across all of those runs, which is
+also why no single wall-clock rate describes the proof.
 
 ### Running it
 
@@ -157,6 +202,11 @@ R="0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
 target/release/solve24 --config standard --position "$R" \
     --prove-at-least 145 --clm2 --zpdb8 --parallel
 ```
+
+Threshold 144 takes seconds and is the canary; the full proof took six weeks on
+64 cores and needs `--checkpoint` to survive restarts. `RUNBOOK_R156.md` has the
+procedure, and `runs/ckpt156/` is the completed record — never point
+`--checkpoint` at it, since the solver appends.
 
 ---
 
@@ -266,7 +316,8 @@ replication against both papers), [`eta24_wd.txt`](records/eta24_wd.txt),
 ## 3. A 15-puzzle solver, and every board at depths 76–80
 
 `solve15` solves any 15-puzzle position **optimally** via IDA\* with additive
-pattern databases. The default heuristic is `korf-plus`:
+pattern databases. The default heuristic is `korf`; the strongest is
+`korf-plus`:
 `max(Korf 7-8 PDB, its reflection, linear conflict, walking distance)`. Even a
 depth-80 antipode solves in seconds.
 
@@ -311,8 +362,9 @@ _ 12 9 13 15 11 10 14 3 7 2 5 4 8 6 1
 
 Row-major, `_` for the blank. Those are three of the 17 depth-80 antipodes —
 the canonical published set, not a product of this repository. Adding
-`--verify --depth 80 --pdb-dir data` re-solves a sample with `korf-plus` and
-asserts every optimal length is exactly 80.
+`--verify --depth 80 --pdb-dir data` re-solves a sample with the zero-aware
+`zpdb-plus` heuristic, which pointwise dominates `korf-plus`, and asserts every
+optimal length is exactly 80.
 
 The method avoids searching the 10.46-trillion-state space by never leaving the
 top layers, and is mostly **solve-free**. Two structural facts do the work:
@@ -369,8 +421,8 @@ The bracket is what makes an entry scientific rather than suggestive: a board at
 window. "WD says 128" is not.
 
 This is a lower-bound-*side* result. It populates and certifies deep boards; it
-does not prove any board deeper than `R`, nor move the published diameter floor
-of 152.
+does not prove any board deeper than `R`, so the diameter floor it leaves is the
+one §1 proves, 156.
 
 ---
 
@@ -382,13 +434,21 @@ src/puzzle24/search/recursive.rs  generic IDA*, optimal solving + deadlines
 src/puzzle15/enumerate/           the depth 76-80 enumeration (§3)
 src/puzzle24/ml/                  value net, policy net, DAVI, BWAS (§4)
 src/puzzle8/                      the 8-puzzle warmup: full ground truth
+proofs/puzzle15-wd/               Lean 4 admissibility proofs for WD and cWD
+runs/ckpt156/                     the R = 156 proof record (§1)
+runs/r156_artifacts/              the machine that produced it: logs, binary, pins
 ```
 
 [`DESIGN.md`](DESIGN.md) explains the 8-puzzle-first approach and the
 compression question the project started from. [`WD.md`](WD.md) documents the
-walking-distance family the prover's heuristic is built on. `records/` holds the
-measurement ledgers — grep `records/r_flat_k8_lazy.txt` before calling any
-optimization idea untried.
+walking-distance family the prover's heuristic is built on.
+[`RUNBOOK_R156.md`](RUNBOOK_R156.md) is the proof procedure end to end: table
+builds, SHA pins, node-identity canaries and machine requirements.
+[`proofs/puzzle15-wd/README.md`](proofs/puzzle15-wd/README.md) lists which
+admissibility results are machine-checked and with what axioms. `records/` holds
+the measurement ledgers — grep `records/r_flat_k8_lazy.txt` before calling any
+optimization idea untried; the measured graveyard there is larger than the
+summaries suggest.
 
 ---
 
