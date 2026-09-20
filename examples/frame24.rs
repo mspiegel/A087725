@@ -1,4 +1,4 @@
-//! frame24 — Tier-1 test of the m=5 **frame-rule conjecture** (PUZZLE24.md 2B).
+//! frame24 — Tier-1 test of the m=5 **frame-rule conjecture** (docs/PUZZLE24.md 2B).
 //!
 //! Conjecture (generalized from the 15-puzzle, where all 17 depth-80 antipodes
 //! satisfy it): deep boards are *frame-conformant* — (a) the corner pieces

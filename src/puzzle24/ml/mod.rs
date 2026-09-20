@@ -1,6 +1,6 @@
 //! Adversarial generator/solver co-training for the 24-puzzle.
 //!
-//! A parallel port of `crate::puzzle15::ml` (see `TRAINING.md`). In brief:
+//! A parallel port of `crate::puzzle15::ml` (see `docs/TRAINING.md`). In brief:
 //!
 //! - A learned cost-to-go value network (`value_net`) trained by Deep Approximate
 //!   Value Iteration (`davi`), deployed via a weighted batch A\* search (`bwas`) —

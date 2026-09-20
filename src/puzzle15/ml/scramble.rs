@@ -2,7 +2,7 @@
 //!
 //! DAVI training states are produced by scrambling the goal `k` times with `k`
 //! uniform in `[1, k_max]` (a fixed range, not an advancing curriculum — see
-//! TRAINING.md). We reuse the repo's inline-xorshift convention rather than
+//! docs/TRAINING.md). We reuse the repo's inline-xorshift convention rather than
 //! pulling in the `rand` crate, matching how the existing tests generate
 //! randomness (e.g. `state.rs` tests, `walking_distance.rs` tests).
 

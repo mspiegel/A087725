@@ -117,7 +117,7 @@ fn cw(m: Move) -> Move {
 }
 
 /// The replicated 156-move solution to `R` (conjugated half + W half),
-/// replay-verified on construction. See corridor_r / PUZZLE24.md appendix.
+/// replay-verified on construction. See corridor_r / docs/PUZZLE24.md appendix.
 pub fn r156_moves() -> Vec<Move> {
     let s78 = parse_moves(W_SOLUTION);
     let w = w_board();

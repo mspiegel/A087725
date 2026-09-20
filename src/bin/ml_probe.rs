@@ -1,6 +1,6 @@
 //! ml_probe — cheap sanity check that the candle `ml` feature links and runs.
 //!
-//! Validates the whole Metal-linking premise (Step 1 of TRAINING.md) before any
+//! Validates the whole Metal-linking premise (Step 1 of docs/TRAINING.md) before any
 //! puzzle logic is written: pick a device, report which backend, allocate and
 //! do one trivial tensor op. Run:
 //!   cargo run --release --features ml --bin ml_probe

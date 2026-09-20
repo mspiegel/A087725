@@ -7,7 +7,7 @@
 //! `x_g = residents_g − LIS(their goal-cross order)` is the n-tile linear-conflict
 //! bound. The escapes enter as a constraint on WD's own move budget (never an
 //! addend), so `cWD ≥ WD` and cWD stays admissible; the row and column halves sum
-//! admissibly (disjoint move classes). See `docs`/`PUZZLE24.md` and the machine-
+//! admissibly (disjoint move classes). See `docs/PUZZLE24.md` and the machine-
 //! checked soundness of the escape bound in `proofs/puzzle15-wd`.
 //!
 //! This evaluator is **table-free**: it reuses the shared WD distance table

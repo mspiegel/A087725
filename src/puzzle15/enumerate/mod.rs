@@ -1,7 +1,7 @@
 //! Complete enumeration of deep 15-puzzle boards (optimal depth ≥ T) by a
 //! top-down frontier from the antipodes, gated by the exact A087725 counts.
 //!
-//! See `ENUMERATION.md` at the repo root for the method and correctness
+//! See `docs/ENUMERATION.md` for the method and correctness
 //! argument. The frontier itself is solve-free; the strong PDB heuristic is used
 //! only by the optional pocket fallback in [`frontier::process_layer`].
 

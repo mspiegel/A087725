@@ -71,7 +71,7 @@ search-census = []
 parallel-profile = ["parallel"]
 
 # 15-puzzle adversarial DAVI/REINFORCE ML proof-of-concept (candle-based).
-# See TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
+# See docs/TRAINING.md. CPU works wherever candle-core builds; Metal is enabled
 # automatically on macOS via the target block below, with runtime CPU fallback
 # through Device::metal_if_available.
 ml = ["parallel", "dep:candle-core", "dep:candle-nn"]

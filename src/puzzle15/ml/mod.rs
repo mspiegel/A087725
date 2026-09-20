@@ -1,6 +1,6 @@
 //! Adversarial generator/solver co-training for the 15-puzzle (proof of concept).
 //!
-//! See `TRAINING.md` at the project root for the full design. In brief:
+//! See `docs/TRAINING.md` for the full design. In brief:
 //!
 //! - A learned cost-to-go value network (`value_net`) trained by Deep Approximate
 //!   Value Iteration (`davi`), deployed via a weighted batch A\* search (`bwas`) —

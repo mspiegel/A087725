@@ -12,7 +12,7 @@
 > the projected cost of the remaining proof from ~$2,100 to **~$135**.
 
 The goal: prove `dist(R) ≥ 156` by exhaustive IDA\* search. The upper bound 156
-is already published and replay-verified (`FINDINGS_R.md` §1), so `≥ 156`
+is already published and replay-verified (`docs/FINDINGS_R.md` §1), so `≥ 156`
 closes the problem: **optimal(R) = 156**.
 
 Mechanics: `cWD(R) = 144` and thresholds advance by parity (+2), so the ladder
@@ -169,7 +169,7 @@ and will go faster here):
 ### 4c. The three 8-tile zero-aware PDBs (k8)
 
 The 8-8-8 partition (tile groups from the pinned build,
-`FINDINGS_R.md` / commit 6826e2a):
+`docs/FINDINGS_R.md` / commit 6826e2a):
 
 ```sh
 target/release/build_pdb24 --zero-aware --tiles 1,2,3,4,6,7,8,9        --out data/pdb24_k8_a.zbin --verify-sha data/pdb24_k8_a.sha256

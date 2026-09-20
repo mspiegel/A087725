@@ -1,5 +1,5 @@
 //! Top-down frontier: descent + solve-free local-maxima recovery, gated by the
-//! exact `N(d)` counts. See `ENUMERATION.md`.
+//! exact `N(d)` counts. See `docs/ENUMERATION.md`.
 
 use std::collections::HashSet;
 use std::path::Path;

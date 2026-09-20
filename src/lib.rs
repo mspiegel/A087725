@@ -1,6 +1,6 @@
 //! Sliding-puzzle optimal solvers and compression study.
 //!
-//! See `DESIGN.md` at the project root for the long-term goal (15-puzzle, then
+//! See `docs/DESIGN.md` for the long-term goal (15-puzzle, then
 //! 24-puzzle) and the seven compression directions under investigation.
 //!
 //! The crate is organized by puzzle size:

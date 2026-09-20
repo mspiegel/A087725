@@ -80,7 +80,7 @@ This project contributes three variations on the Walking Distance heuristic
   by single-demanded-line escape constraints and priced *jointly*, which is
   stronger than taking the maximum of the two separately.
 
-[`WD.md`](WD.md) derives all three from scratch with worked examples.
+[`WD.md`](docs/WD.md) derives all three from scratch with worked examples.
 
 This project also adopts the following optimizations. If a citation below is
 missing, please open a GitHub issue and it will be added.
@@ -124,7 +124,7 @@ closes that interval from below.
 
 **Status — done.** Every threshold from 144 through 154 is exhausted,
 **609,193,630,407,023 nodes** in total, which proves `optimal(R) ≥ 156`. The
-upper bound of 156 is published and replay-verified (`FINDINGS_R.md` §1), so
+upper bound of 156 is published and replay-verified (`docs/FINDINGS_R.md` §1), so
 the two meet:
 
 > **optimal(R) = 156.**
@@ -374,7 +374,7 @@ identifies its depth-`d` neighbours with no search at all, and boards missed
 that way — strict local maxima — are recovered by a Bellman membership test over
 2–4 neighbours. IDA\* is a fallback for the residue only, never the descent.
 
-[`ENUMERATION.md`](ENUMERATION.md) has the algorithm in full. Note its status
+[`ENUMERATION.md`](docs/ENUMERATION.md) has the algorithm in full. Note its status
 section predates the current data, which reaches depth 76.
 
 ---
@@ -398,7 +398,7 @@ learned solver's cost minus a fixed admissible baseline's, which targets boards
 where the learned solver underperforms rather than boards that are merely hard.
 
 Implementation is `src/puzzle24/ml/` on `candle` (Metal backend, CPU fallback);
-[`TRAINING.md`](TRAINING.md) documents the design and the 15-puzzle proof of
+[`TRAINING.md`](docs/TRAINING.md) documents the design and the 15-puzzle proof of
 concept that validated it, where exact ground truth exists.
 
 ### Results
@@ -407,14 +407,14 @@ concept that validated it, where exact ground truth exists.
 never seen `R` or any state on its solution path. The literature's 156 was
 hand-constructed from R's rotational symmetry; this one was discovered by
 generic learned search. Replay-verified in `data/r156_ours_solution.txt`.
-See [`FINDINGS_R.md`](FINDINGS_R.md).
+See [`FINDINGS_R.md`](docs/FINDINGS_R.md).
 
 **A catalog of certified-deep boards.** A construct → score → bound → re-seed
 loop produced **542 instances**, each bracketed by a proven lower bound
 (bounded IDA\* exhaust) and a replay-verified learned upper bound: 504 with
 LB ≥ 132, 204 at ≥ 138, 106 at ≥ 140, 19 at ≥ 142. Across 2,713 evidence rows,
 **zero LB > UB inversions** — the two independent solvers never contradicted
-each other. The registry is `data/catalog24.tsv`; see [`FINDINGS_HUNT.md`](FINDINGS_HUNT.md).
+each other. The registry is `data/catalog24.tsv`; see [`FINDINGS_HUNT.md`](docs/FINDINGS_HUNT.md).
 
 The bracket is what makes an entry scientific rather than suggestive: a board at
 `[138, 160]` is a certified-deep instance whose optimum is pinned to a 22-wide
@@ -439,8 +439,8 @@ runs/ckpt156/                     the R = 156 proof record (§1)
 runs/r156_artifacts/              the machine that produced it: logs, binary, pins
 ```
 
-[`DESIGN.md`](DESIGN.md) explains the 8-puzzle-first approach and the
-compression question the project started from. [`WD.md`](WD.md) documents the
+[`DESIGN.md`](docs/DESIGN.md) explains the 8-puzzle-first approach and the
+compression question the project started from. [`WD.md`](docs/WD.md) documents the
 walking-distance family the prover's heuristic is built on.
 [`RUNBOOK_R156.md`](RUNBOOK_R156.md) is the proof procedure end to end: table
 builds, SHA pins, node-identity canaries and machine requirements.

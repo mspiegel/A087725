@@ -3,7 +3,7 @@
 //! Lifts the verified 8-puzzle techniques to the 4×4 board at ~10.46 trillion
 //! states. The full distance table is infeasible at this scale (~5 TB), so the
 //! baseline is IDA\* + additive pattern databases per Korf (1997). Modules are
-//! grown out incrementally per Milestone 3 of `DESIGN.md`.
+//! grown out incrementally per Milestone 3 of `docs/DESIGN.md`.
 
 pub mod enumerate;
 #[cfg(feature = "ml")]

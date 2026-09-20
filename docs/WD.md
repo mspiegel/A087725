@@ -22,7 +22,7 @@ something Manhattan gives away, while staying under `dist`.
 Walking Distance is Ken'ichiro Takahashi's ("takaken"), and has no formal
 publication — the primary source is his own site, now offline, with an Internet
 Archive capture from 2001; his *15puzzle Optimal solver* reached v1.2 in May
-2002. [`README.md`](README.md)'s references carry the full citation. cWD and
+2002. [`README.md`](../README.md)'s references carry the full citation. cWD and
 the three last-move tiers are this project's own.
 
 Implementations live in

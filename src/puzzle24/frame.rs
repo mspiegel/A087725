@@ -1,4 +1,4 @@
-//! Frame-conformant board construction (the m=5 **frame rule**, PUZZLE24.md 2B).
+//! Frame-conformant board construction (the m=5 **frame rule**, docs/PUZZLE24.md 2B).
 //!
 //! Generalized from the 15-puzzle (where all 17 depth-80 antipodes satisfy it):
 //! deep boards are *frame-conformant* — (a) the corner pieces `{_, 1, 5, 21}`

@@ -3,7 +3,7 @@
 //! A DeepCubeA-style residual MLP: one-hot board (`256`) → input projection →
 //! a stack of `blocks` residual blocks → single scalar (the estimated number of
 //! moves to the goal). No admissible heuristic feeds it — it sees only the raw
-//! encoded board (see TRAINING.md). Trained by DAVI (`super::davi`) and consumed
+//! encoded board (see docs/TRAINING.md). Trained by DAVI (`super::davi`) and consumed
 //! by the weighted search (`super::bwas`).
 //!
 //! **Normalization = a hand-written RmsNorm**, not BatchNorm and not candle's
@@ -48,7 +48,7 @@ impl RmsNorm {
     }
 }
 
-/// Default hidden width for the residual body (see TRAINING.md §hyperparameters).
+/// Default hidden width for the residual body (see docs/TRAINING.md §hyperparameters).
 pub const DEFAULT_HIDDEN: usize = 512;
 /// Default number of residual blocks in the body.
 pub const DEFAULT_BLOCKS: usize = 4;

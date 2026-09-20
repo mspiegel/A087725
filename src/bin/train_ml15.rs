@@ -2,7 +2,7 @@
 //!
 //! Trains a DAVI value-net solver and a REINFORCE board generator against each
 //! other on the 15-puzzle, checkpointing to `--out` and logging metrics.
-//! See TRAINING.md.
+//! See docs/TRAINING.md.
 //!
 //!   cargo run --release --features ml --bin train_ml15 -- \
 //!       [--rounds 15] [--solver-steps 2000] [--gen-steps 400] \

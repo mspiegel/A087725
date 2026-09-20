@@ -1,8 +1,10 @@
 # A087725 — working notes
 
-Proving `optimal(R) = 156` for the 24-puzzle (OEIS A087725). The upper bound is
-published and replay-verified (`FINDINGS_R.md` §1), so exhausting threshold 154
-closes the problem.
+`optimal(R) = 156` for the 24-puzzle (OEIS A087725), **proved 2026-09-20**:
+threshold 154 is exhausted (`runs/ckpt156/`, README §1) and the upper bound of
+156 is published and replay-verified (`docs/FINDINGS_R.md` §1). The engine and
+its gates are kept because the record has to stay reproducible, not because a
+search is still running.
 
 Everything below is enforced by a gate, a test, or a file you can point at. If
 a rule here has no such backing, delete it rather than trusting it.
@@ -116,6 +118,6 @@ repo's history describe intent rather than what landed — `9ab9acc` says it
 dropped the macOS dyld print and did not (fixed in `bc779fd`). `git log -S
 <symbol>` settles "was this actually removed?" in one command.
 
-Historical docs (`PLAN.md`, `FINDINGS_R.md`, `PUZZLE24.md`) record what was
+Historical docs (`docs/PLAN.md`, `docs/FINDINGS_R.md`, `docs/PUZZLE24.md`) record what was
 executed at the time and may show removed flags. Leave them; rewriting a
 research log is not a mechanical rename.

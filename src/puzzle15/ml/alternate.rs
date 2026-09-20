@@ -5,7 +5,7 @@
 //! the current (frozen) generator; then (2) freeze the solver and train the
 //! generator for `generator_steps_per_round` REINFORCE rounds against it.
 //! Periodically evaluate against the holdout + antipodes and checkpoint both
-//! networks. See TRAINING.md.
+//! networks. See docs/TRAINING.md.
 
 use std::path::PathBuf;
 
