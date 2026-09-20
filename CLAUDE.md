@@ -33,6 +33,8 @@ cargo fmt --check
 cargo test                                   # 525 pass, 37 ignored
 ```
 
+Plain `cargo test` does **not** run the frozen oracle; see below.
+
 `cargo build --all-targets --no-default-features` is **known-broken** and
 predates this file: tests and examples reference `puzzle8::puzzle24`
 unconditionally while the module sits behind a feature. `cargo build --lib
@@ -44,11 +46,20 @@ The engine's tree is fixed. Nothing may change a pruning decision — only
 evaluate the same predicates more cheaply. Two checks, in order of cost:
 
 ```sh
-cargo test                       # includes the 180-case frozen oracle
+cargo test --release --features cwd-table-tests --lib -- --nocapture 2>&1 \
+  | tee target/oracle.log        # the 180-case frozen oracle; ~4.4 GB, ~3 min
+grep -c 'skipping table-gated' target/oracle.log     # → 0, or it did not run
 R="0 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
 target/release/solve24 --config large --position "$R" \
   --prove-at-least 145 --clm2 --zpdb8 --parallel     # → 115,436,814 nodes
 ```
+
+The oracle tests (`engine_matches_frozen_recursive_oracle`,
+`engine_parallel_matches_frozen_oracle` and the rest in `engine.rs`) are
+compiled only under `cwd-table-tests`, so plain `cargo test` never runs them.
+If `data/wd24.bin` or `data/cwd_single.bin` is missing they print `cWD tables
+absent — skipping table-gated test` and still report `ok` — hence the grep. A
+genuine run takes minutes; one that finishes in seconds skipped.
 
 That count is exact and is the value `runs/ckpt156/main.ckpt` records for
 threshold 144. `RUNBOOK_R156.md` §6 has the full canary set.

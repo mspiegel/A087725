@@ -1605,9 +1605,17 @@ at cap 6 but 0.86% of prunes are lost), the same selection effect seen in the
 per-unit and depth analyses.
 VERDICT: 2 bits / cap 6 / 65.6 GB / 0.86% prune loss. Disk is 80.5 GB free and
 existing zbins are 37.6 GB, so groups must be rebuilt one at a time.
-THE BLOCKER IS THE BUILD, NOT THE ENCODING. This repo has no 24-puzzle ZPDB
-builder (only build_zpdb15); the k8 tables came from outside. Producing
-surplus-coded tables means either a fresh BFS or a reconstruction sweep over
+THE BLOCKER IS THE BUILD, NOT THE ENCODING.
+[CORRECTION, 2026-09-20: this entry said the repo has no 24-puzzle ZPDB builder
+and that the k8 tables came from outside. Both are false, and were false when
+written: `build_pdb24 --zero-aware` has built 1-bit zero-aware 24-puzzle PDBs
+since 2026-06-14, two months before this entry, and RUNBOOK_R156.md §4c builds
+pdb24_k8_{a,b,c}.zbin with it. What the builder emits is the 1-BIT encoding;
+the verdict below is about SURPLUS-coded tables, which it does not emit, so the
+cost argument stands — but on the narrower ground that a surplus writer does
+not exist, not that no builder does.]
+Producing surplus-coded tables means either a fresh BFS or a reconstruction
+sweep over
 ~74 G states per group (222 G total) using the existing 1-bit tables to supply
 each step's +/-1 — an external-memory traversal, since no frontier of that size
 is RAM-resident. That is the cost to weigh against the payoff.

@@ -1,0 +1,26 @@
+# Provenance check: VM commit a590305 vs local 7419107
+# Recorded 2026-09-20, before refs/remotes/r156/main was deleted.
+# The VM is gone and that ref was the only copy of a590305, so this is the
+# record of the comparison rather than a claim to be re-run.
+
+## git diff --stat a590305 7419107
+ data/rho/pdb24_rho_a.zbin | Bin 22626024 -> 0 bytes
+ data/rho/pdb24_rho_b.zbin | Bin 22626024 -> 0 bytes
+ data/rho/pdb24_rho_c.zbin | Bin 22626024 -> 0 bytes
+ data/rho/pdb24_rho_d.zbin | Bin 22626024 -> 0 bytes
+ 4 files changed, 0 insertions(+), 0 deletions(-)
+
+## source trees (everything except data/rho) are identical:
+  (no output above = no source difference)
+
+## the differing paths:
+  D	data/rho/pdb24_rho_a.zbin
+  D	data/rho/pdb24_rho_b.zbin
+  D	data/rho/pdb24_rho_c.zbin
+  D	data/rho/pdb24_rho_d.zbin
+
+## commit a590305:
+  a59030501ee7f4044b62e4c64e64dc39c0dfc3a1
+  Michael Spiegel <michael.m.spiegel@gmail.com>
+  2026-08-10 10:02:32 -0400
+  E9: per-worker cache sizing re-measured at W=64 — no change

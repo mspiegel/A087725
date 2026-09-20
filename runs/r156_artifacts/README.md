@@ -44,7 +44,10 @@ Built 2026-08-13 03:19 UTC from commit `a590305` plus `flat_split_target.patch`
 history was rewritten afterwards: `a590305` has source identical to local
 `7419107`, the trees differing only in `data/rho/pdb24_rho_{a,b,c,d}.zbin`,
 which were purged and which the solver never reads. So the proof binary is
-`7419107` plus that one line.
+`7419107` plus that one line. `provenance_a590305.txt` is the recorded
+comparison; `a590305` itself no longer exists locally, since the only ref
+holding it was the fetch from the VM and that carried the purged `rho` blobs
+back with it.
 
 The VM never fetched from git — no cron, no timer, no `git` in the launcher —
 so what ran is what was on disk, which is what is here.
