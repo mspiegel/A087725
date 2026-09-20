@@ -183,9 +183,21 @@ double-counting, and no generation ever produced a `LB > UB` inversion.
 
 - **Tools:** `examples/{candidates24,catalog24,frame24}.rs`,
   `src/bin/{ladder24 (example),gen_corridors,solve24}.rs`, `src/puzzle24/frame.rs`.
-- **Driver:** `scripts/hunt_generations.sh <first> <last>` runs N generations
+- **Driver:** `scripts/hunt_generations.sh <first> <last>` ran N generations
   back-to-back (generate → rank → LB∥UB → ingest). Pilot commands: PUZZLE24.md
   §"Pilot cycle".
+
+  **The driver is retired** and no longer in the tree (recover it from git
+  history if ever needed); the flywheel cannot be turned again as written.
+  Its LB pass called `ladder24`, deleted along with the recursive
+  engine's make/unmake driver in `8fb4363`; no surviving tool does a per-board
+  bounded exhaust under a deadline, since the flat engine has no deadline and
+  `gen_corridors` has no LB mode over a board file. Steps 1, 2 and 4 and the
+  concurrent UB pass are unaffected. Restarting the loop means a new LB driver
+  on `recursive.rs`'s surviving Copy path — `idastar_inc_bounded_with_stats`
+  with the `select-k6` heuristics — emitting the TSV that `catalog24 --lb-tsv`
+  reads. Everything the six generations produced stands; what was lost is the
+  ability to run a seventh.
 - **Artifacts:** `data/pool_g{1..6}.txt` (the pools), `data/catalog24.tsv`
   (append-only evidence + brackets, all six generations), `data/reseed_g{2..7}.txt`
   (each generation's deepest → next-gen seeds), `data/escalate_g{1..6}.txt`,
